@@ -1464,17 +1464,17 @@ class DoubanRankPlusOptimized(_PluginBase):
                     if clean_title != title:
                         logger.info(f"清理后的标题: {clean_title}")
                     
-                    # 使用RSS提供的年份和类型
+                    # 使用RSS提供的年份
                     clean_year = year
-                    clean_mtype = mtype
                     
                     # 创建MetaInfo对象
                     # MetaInfo会自动从标题中解析季度信息
                     # 例如: "我变美的那夏天 第三季" -> title="我变美的那夏天", season=3
                     meta = MetaInfo(clean_title)
                     meta.year = clean_year
-                    if clean_mtype:
-                        meta.type = clean_mtype
+                    # 使用inferred_type而不是mtype，这样配置的@@TYPE会生效
+                    if inferred_type:
+                        meta.type = inferred_type
                     logger.debug(f"MetaInfo meta:::{meta}")
                     
                     # 豆瓣IP限制判断
