@@ -1428,7 +1428,9 @@ class DoubanRankPlusOptimized(_PluginBase):
                     douban_id = rss_info.get("doubanid")
                     year = rss_info.get("year")
                     type_str = rss_info.get("mtype")
-
+                    
+                    # 初始化mtype为None,避免RSS无type字段时变量未定义
+                    mtype = None
                     if type_str == "movie":
                         mtype = MediaType.MOVIE
                     elif type_str:
