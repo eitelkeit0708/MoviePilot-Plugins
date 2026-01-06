@@ -1414,7 +1414,6 @@ class DoubanRankPlusOptimized(_PluginBase):
                     if self._event.is_set():
                         logger.info("订阅服务停止")
                         return
-                    mtype = None
 
                     logger.info(
                         f"第 {addr_index + 1}/{len(addr_list)} 条订阅数据处理进度: {rss_info_index + 1}/{len(rss_infos)}"
