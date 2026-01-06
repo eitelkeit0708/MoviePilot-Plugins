@@ -3,11 +3,12 @@
     "name": "豆瓣榜单订阅Plus优化版",
     "description": "豆瓣榜单订阅优化版：识别率98%，处理速度提升4倍，无豆瓣API依赖，支持自定义RSS配置",
     "labels": "订阅",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png",
     "author": "eitelkeit0708 (based on boeto's work)",
     "level": 2,
     "history": {
+      "v1.0.2": "fix: 修复mtype变量未定义错误，确保RSS无type字段时正常工作",
       "v1.0.1": "fix: 修复URL@@TYPE类型判断逻辑，确保季度转换正确应用于TV类型",
       "v1.0.0": "优化版发布：识别率从63%提升到98%，移除豆瓣API依赖，支持URL@@TYPE配置格式，处理速度提升4倍"
     }
