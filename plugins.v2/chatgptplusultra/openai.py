@@ -5,10 +5,11 @@ from typing import List, Union
 
 import openai
 from cacheout import Cache
-from app.core.cache import cached
 from app.log import logger
 
 OpenAISessionCache = Cache(maxsize=100, ttl=3600, timer=time.time, default=None)
+# 媒体识别缓存 - 缓存文件名识别结果,避免重复 API 调用
+OpenAIMediaCache = Cache(maxsize=500, ttl=3600, timer=time.time, default=None)
 
 
 class OpenAi:
@@ -134,13 +135,18 @@ class OpenAi:
         if OpenAISessionCache.get(session_id):
             OpenAISessionCache.delete(session_id)
 
-    @cached(region="chatgpt_media", ttl=3600, maxsize=500, skip_none=True)
     def get_media_name(self, filename: str):
         """
         从文件名中提取媒体名称等要素
         :param filename: 文件名
         :return: Json
         """
+        # 检查缓存
+        cached_result = OpenAIMediaCache.get(filename)
+        if cached_result is not None:
+            logger.info(f"ChatGPT 媒体识别: 命中缓存 - {filename}")
+            return cached_result
+        
         logger.info(f"ChatGPT 媒体识别: 未命中缓存,请求 API 识别文件名: {filename}")
         if not self.get_state():
             return None
@@ -158,6 +164,8 @@ class OpenAi:
                 # 提取中间的JSON部分
                 result = match.group(1)
             parsed_result = json.loads(result)
+            # 存入缓存
+            OpenAIMediaCache.set(filename, parsed_result)
             logger.info(f"ChatGPT 媒体识别: API 返回结果已缓存")
             return parsed_result
         except Exception as e:
@@ -244,6 +252,5 @@ class OpenAi:
         """
         清理媒体识别缓存
         """
-        if hasattr(self.get_media_name, 'cache_clear'):
-            self.get_media_name.cache_clear()
-            logger.info("ChatGPT 媒体识别缓存已清理")
+        OpenAIMediaCache.clear()
+        logger.info("ChatGPT 媒体识别缓存已清理")
