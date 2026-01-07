@@ -15,9 +15,9 @@ class ChatGPTPlusUltra(_PluginBase):
     # 插件描述
     plugin_desc = "ChatGPT 增强版,支持智能缓存大幅降低 token 消耗。"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Chatgpt_A.png"
+    plugin_icon = "Chatgpt_A.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
