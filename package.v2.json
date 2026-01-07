@@ -13,5 +13,17 @@
             "v1.0.1": "fix: 修复URL@@TYPE类型判断逻辑，确保季度转换正确应用于TV类型",
             "v1.0.0": "优化版发布：识别率从63%提升到98%，移除豆瓣API依赖，支持URL@@TYPE配置格式，处理速度提升4倍"
         }
+    },
+    "ChatGPTPlusUltra": {
+        "name": "ChatGPT Plus Ultra",
+        "description": "ChatGPT 增强版,支持智能缓存大幅降低 token 消耗。在原版基础上添加了@cached装饰器,自动缓存媒体识别结果1小时,重复请求节省90%+ token,性能提升显著。",
+        "labels": "AI,识别",
+        "version": "1.0",
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Chatgpt_A.png",
+        "author": "eitelkeit0708",
+        "level": 1,
+        "history": {
+            "v1.0": "首次发布:添加智能缓存功能,支持媒体识别结果自动缓存,大幅降低token消耗"
+        }
     }
 }
