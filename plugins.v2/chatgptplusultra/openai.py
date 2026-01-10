@@ -16,7 +16,7 @@ class OpenAi:
     _api_key: str = None
     _api_url: str = None
     _model: str = "gpt-3.5-turbo"
-    _prompt: str = '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的名称、版本、分段、年份、分瓣率、季集等信息，并按以下JSON格式返回：{"name":string,"version":string,"part":string,"year":string,"resolution":string,"season":number|null,"episode":number|null}，特别注意返回结果需要严格附合JSON格式，不需要有任何其它的字符。如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果。'
+    _prompt: str = '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的媒体名称和年份，并按以下JSON格式返回：{"name":string,"year":string}。特别注意：1) 返回结果需要严格符合JSON格式，不需要有任何其它的字符 2) 如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果 3) name只需要返回媒体的标准名称即可，不要包含季数、集数、分辨率等信息'
     _client: openai.OpenAI = None
 
     def __init__(self, api_key: str = None, api_url: str = None,
@@ -43,6 +43,55 @@ class OpenAi:
                 base_url=base_url,
                 http_client=http_client
             )
+
+    @staticmethod
+    def _extract_cache_key(filename: str) -> str:
+        """
+        从文件名提取缓存键,只保留核心识别信息
+        移除分辨率、编码、季集等细节,提高缓存命中率
+        """
+        import re
+        
+        # 提取年份
+        year_match = re.search(r'\b(19\d{2}|20\d{2})\b', filename)
+        year = year_match.group(1) if year_match else ""
+        
+        # 移除季集信息 (S01E02, S01, E02等)
+        cleaned = re.sub(r'\bS\d+E?\d*\b', '', filename, flags=re.I)
+        cleaned = re.sub(r'\bE\d+\b', '', cleaned, flags=re.I)
+        cleaned = re.sub(r'第[一二三四五六七八九十\d]+季', '', cleaned)
+        cleaned = re.sub(r'第\d+集', '', cleaned)
+        
+        # 移除分辨率
+        cleaned = re.sub(r'\b(480p|720p|1080[pi]|2160p|4K|8K|UHD)\b', '', cleaned, flags=re.I)
+        
+        # 移除编码格式
+        cleaned = re.sub(r'\b(x264|x265|H\.?264|H\.?265|HEVC|AVC|VC-?1)\b', '', cleaned, flags=re.I)
+        
+        # 移除音频编码
+        cleaned = re.sub(r'\b(AAC|DDP|DTS(-HD)?( MA)?|AC3|FLAC|MP3|LPCM|TrueHD|Atmos)[\d\.]*\b', '', cleaned, flags=re.I)
+        
+        # 移除来源/版本
+        cleaned = re.sub(r'\b(WEB-?DL|BluRay|Blu-ray|HDTV|DVD|REMUX|UHD)\b', '', cleaned, flags=re.I)
+        
+        # 移除HDR标记
+        cleaned = re.sub(r'\b(HDR10?|DoVi|DV|HLG|SDR)\b', '', cleaned, flags=re.I)
+        
+        # 移除声道信息
+        cleaned = re.sub(r'\b[2-7]\.[01]\b', '', cleaned)
+        
+        # 移除制作组标记 (通常在-或@后)
+        cleaned = re.sub(r'[-@][A-Za-z0-9]+(?:\[.*?\])?$', '', cleaned)
+        
+        # 移除方括号内容(通常是额外信息)
+        cleaned = re.sub(r'\[.*?\]', ' ', cleaned)
+        
+        # 清理多余空格
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        
+        # 组合缓存键: 清理后的名称 + 年份
+        cache_key = f"{cleaned} {year}" if year else cleaned
+        return cache_key
 
     def get_state(self) -> bool:
         return True if self._api_key else False
@@ -138,21 +187,26 @@ class OpenAi:
     def get_media_name(self, filename: str):
         """
         从文件名中提取媒体名称等要素
+        使用智能缓存键提高缓存命中率
         :param filename: 文件名
-        :return: Json
+        :return: Json (只包含 name 和 year)
         """
-        # 检查缓存
-        cached_result = OpenAIMediaCache.get(filename)
+        # 生成智能缓存键
+        cache_key = self._extract_cache_key(filename)
+        
+        # 检查缓存 (使用缓存键)
+        cached_result = OpenAIMediaCache.get(cache_key)
         if cached_result is not None:
-            logger.info(f"ChatGPT 媒体识别: 命中缓存 - {filename}")
+            logger.info(f"ChatGPT 媒体识别: 命中缓存 - 键[{cache_key}] 原文件[{filename[:50]}...]")
             return cached_result
         
-        logger.info(f"ChatGPT 媒体识别: 未命中缓存,请求 API 识别文件名: {filename}")
+        logger.info(f"ChatGPT 媒体识别: 未命中缓存 - 键[{cache_key}] 原文件[{filename[:50]}...]")
         if not self.get_state():
             return None
         result = ""
         try:
             _filename_prompt = self._prompt
+            # 使用原始文件名请求API
             completion = self.__get_model(prompt=_filename_prompt, message=filename)
             result = completion.choices[0].message.content
             # 有些模型返回json数据时会使用 ```json ``` 包裹json对象 所以需要进行提取
@@ -164,11 +218,13 @@ class OpenAi:
                 # 提取中间的JSON部分
                 result = match.group(1)
             parsed_result = json.loads(result)
-            # 存入缓存
-            OpenAIMediaCache.set(filename, parsed_result)
-            logger.info(f"ChatGPT 媒体识别: API 返回结果已缓存")
+            
+            # 存入缓存 (使用缓存键)
+            OpenAIMediaCache.set(cache_key, parsed_result)
+            logger.info(f"ChatGPT 媒体识别: API 返回 name=[{parsed_result.get('name')}] year=[{parsed_result.get('year')}], 已缓存到键[{cache_key}]")
             return parsed_result
         except Exception as e:
+            logger.error(f"ChatGPT 媒体识别错误: {str(e)}, 原始返回: {result}")
             return {
                 "content": result,
                 "errorMsg": str(e)
