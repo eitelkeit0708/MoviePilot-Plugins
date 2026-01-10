@@ -1498,7 +1498,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                     logger.info(
                         f"开始识别 {clean_title} 的媒体信息, 类型: {meta.type}"
                     )
-                    mediainfo = self.chain.recognize_media(
+                    mediainfo = self.mediachain.recognize_media(
                         meta=meta,
                     )
                     if not mediainfo:
