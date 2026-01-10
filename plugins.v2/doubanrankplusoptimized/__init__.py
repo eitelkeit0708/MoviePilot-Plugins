@@ -83,7 +83,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/boeto/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "1.0.4"
+    plugin_version = "1.0.5"
     # 插件作者
     plugin_author = "eitelkeit"
     # 作者主页
@@ -1435,6 +1435,13 @@ class DoubanRankPlusOptimized(_PluginBase):
                         mtype = MediaType.MOVIE
                     elif type_str:
                         mtype = MediaType.TV
+                    
+                    # 类型判断优先级:
+                    # 1. 用户在配置中指定的类型 (URL@@TYPE)
+                    # 2. RSS自带的mtype字段
+                    # 3. None (不进行季度转换,更安全)
+                    inferred_type = rss_type or mtype
+                    
                     unique_flag = f"{self.plugin_config_prefix}{title}_{year}_(DB:{douban_id})"
                     logger.debug(f"unique_flag:::{unique_flag}")
 
@@ -1446,19 +1453,13 @@ class DoubanRankPlusOptimized(_PluginBase):
                         continue
 
                     logger.info(
-                        f"开始处理: Title: {title}, Year:{year}, DBID:{douban_id}, Type:{mtype}"
+                        f"开始处理: Title: {title}, Year:{year}, DBID:{douban_id}, Type:{inferred_type}"
                     )
                     
                     # 简化的标题处理逻辑:
                     # 直接使用RSS标题,只做基本清理(去除多余空格)
                     # RSS标题本身就来自豆瓣,格式已经很标准,MetaInfo可以很好地解析
                     # 避免额外的豆瓣API调用,更快速、更稳定
-                    
-                    # 类型判断优先级:
-                    # 1. 用户在配置中指定的类型 (URL@@TYPE)
-                    # 2. RSS自带的mtype字段
-                    # 3. None (不进行季度转换,更安全)
-                    inferred_type = rss_type or mtype
                     
                     clean_title = DoubanRankPlusOptimized.__clean_title(title, inferred_type)
                     if clean_title != title:
