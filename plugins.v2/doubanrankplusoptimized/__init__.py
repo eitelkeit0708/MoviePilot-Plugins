@@ -83,7 +83,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/boeto/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "1.0.5"
+    plugin_version = "1.0.6"
     # 插件作者
     plugin_author = "eitelkeit"
     # 作者主页
@@ -1384,9 +1384,20 @@ class DoubanRankPlusOptimized(_PluginBase):
             try:
                 # 解析RSS配置: URL@@TYPE格式
                 # 例如: http://rss@@TV -> url='http://rss', rss_type='TV'
-                rss_url, rss_type = DoubanRankPlusOptimized.__parse_rss_config(_addr)
+                rss_url, rss_type_str = DoubanRankPlusOptimized.__parse_rss_config(_addr)
                 if not rss_url:
                     continue
+                
+                # 将字符串类型转换为MediaType枚举
+                rss_type = None
+                if rss_type_str:
+                    rss_type_lower = rss_type_str.lower()
+                    if rss_type_lower == 'movie':
+                        rss_type = MediaType.MOVIE
+                    elif rss_type_lower == 'tv':
+                        rss_type = MediaType.TV
+                    else:
+                        logger.warn(f"未知的RSS类型: {rss_type_str}, 将被忽略")
                 
                 logger.info(f"获取RSS：{rss_url} ..." + (f" (类型: {rss_type})" if rss_type else ""))
                 
