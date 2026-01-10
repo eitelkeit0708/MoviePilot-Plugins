@@ -83,11 +83,11 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/boeto/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "1.0.3"
+    plugin_version = "1.0.4"
     # 插件作者
-    plugin_author = "boeto (优化: Antigravity AI)"
+    plugin_author = "eitelkeit"
     # 作者主页
-    author_url = "https://github.com/boeto/MoviePilot-Plugins"
+    author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     # 插件配置项ID前缀
     plugin_config_prefix = "doubanrankplusoptimized_"
     # 加载顺序
