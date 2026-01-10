@@ -1,7 +1,7 @@
 {
     "DoubanRankPlusOptimized": {
-        "name": "豆瓣榜单订阅Plus优化版",
-        "description": "豆瓣榜单订阅优化版：识别率98%，处理速度提升4倍，无豆瓣API依赖，支持自定义RSS配置",
+        "name": "豆瓣榜单订阅Plus优化�?,
+        "description": "豆瓣榜单订阅优化版：识别�?8%，处理速度提升4倍，无豆瓣API依赖，支持自定义RSS配置",
         "labels": "订阅",
         "version": "1.0.3",
         "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png",
@@ -9,23 +9,23 @@
         "level": 2,
         "history": {
             "v1.0.3": "fix: 使用inferred_type设置meta.type，确保配置的@@TYPE正确应用到MetaInfo",
-            "v1.0.2": "fix: 修复mtype变量未定义错误，确保RSS无type字段时正常工作",
+            "v1.0.2": "fix: 修复mtype变量未定义错误，确保RSS无type字段时正常工�?,
             "v1.0.1": "fix: 修复URL@@TYPE类型判断逻辑，确保季度转换正确应用于TV类型",
-            "v1.0.0": "优化版发布：识别率从63%提升到98%，移除豆瓣API依赖，支持URL@@TYPE配置格式，处理速度提升4倍"
+            "v1.0.0": "优化版发布：识别率从63%提升�?8%，移除豆瓣API依赖，支持URL@@TYPE配置格式，处理速度提升4�?
         }
     },
     "ChatGPTPlusUltra": {
         "name": "ChatGPT Plus Ultra",
-        "description": "ChatGPT 增强版,支持智能缓存大幅降低 token 消耗。在原版基础上添加了@cached装饰器,自动缓存媒体识别结果1小时,重复请求节省90%+ token,性能提升显著。",
+        "description": "ChatGPT 增强�?支持智能缓存大幅降低 token 消耗。在原版基础上添加了@cached装饰�?自动缓存媒体识别结果1小时,重复请求节省90%+ token,性能提升显著�?,
         "labels": "AI,识别",
-        "version": "1.1",
+        "version": "1.2",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Chatgpt_A.png",
         "author": "eitelkeit0708",
         "level": 1,
         "history": {
-            "v1.2": "feat: 智能缓存键优化 - 提取文件名核心部分作为缓存键,简化返回值只含name+year,缓存命中率从67%提升到90%+",
-            "v1.1": "fix: 修复缓存机制 - 改用Cache实例替代@cached装饰器,确保缓存正常工作",
-            "v1.0": "首次发布:添加智能缓存功能,支持媒体识别结果自动缓存,大幅降低token消耗"
+            "v1.2": "feat: 智能缓存键优�?- 提取文件名核心部分作为缓存键,简化返回值只含name+year,缓存命中率从67%提升�?0%+",
+            "v1.1": "fix: 修复缓存机制 - 改用Cache实例替代@cached装饰�?确保缓存正常工作",
+            "v1.0": "首次发布:添加智能缓存功能,支持媒体识别结果自动缓存,大幅降低token消�?
         }
     }
 }
