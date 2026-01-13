@@ -36,8 +36,8 @@ class OpenAi:
             if proxy and proxy.get("https"):
                 import httpx
                 proxy_url = proxy.get("https")
-                # httpx 支持字符串格式的代理 URL
-                http_client = httpx.Client(proxies=proxy_url, timeout=60.0)
+                # httpx 使用 proxy (单数) 参数接收字符串格式的代理 URL
+                http_client = httpx.Client(proxy=proxy_url, timeout=60.0)
             self._client = openai.OpenAI(
                 api_key=self._api_key,
                 base_url=base_url,
