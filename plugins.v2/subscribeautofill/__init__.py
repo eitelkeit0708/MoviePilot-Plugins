@@ -628,7 +628,7 @@ class SubscribeAutofill(_PluginBase):
                                         'component': 'VTextarea',
                                         'props': {
                                             'model': 'source_patterns',
-                                            'label': '源正则配置',
+                                            'label': '视频源正则配置',
                                             'rows': 10,
                                             'placeholder': 'CR|Crunchyroll\n'
                                                            'Netflix|NF\n'
@@ -663,7 +663,7 @@ class SubscribeAutofill(_PluginBase):
                                             'text': '填充内容说明：\n'
                                                     '• 视觉特效：DV、HDR、HDR10、HDR10+、HDRVivid、60fps、10bit、12bit等\n'
                                                     '• 音频特效：DTS-HD MA、TrueHD、Atmos、DDP、AAC、FLAC等\n'
-                                                    '• 源：Netflix、CR、Amazon等流媒体平台\n'
+                                                    '• 视频源：Netflix、CR、Amazon等流媒体平台\n'
                                                     '• 制作组：保留@连接格式（如Nest@Audies）\n'
                                                     '• 选中的内容将组合成正则表达式填充到订阅的include字段'
                                         }
@@ -708,8 +708,8 @@ class SubscribeAutofill(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '源正则格式：每行一个正则表达式，用于匹配种子标题中的源信息（如Netflix、CR、Amazon等）。'
-                                                    '匹配到的源会添加到include中。'
+                                            'text': '视频源正则格式：每行一个正则表达式，用于匹配种子标题中的视频源信息（如Netflix、CR、Amazon等）。'
+                                                    '匹配到的视频源会添加到include中。'
                                         }
                                     }
                                 ]
