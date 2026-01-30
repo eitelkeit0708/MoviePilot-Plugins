@@ -31,5 +31,17 @@
             "v1.1": "fix: 修复缓存机制 - 改用Cache实例替代@cached装饰器,确保缓存正常工作",
             "v1.0": "首次发布:添加智能缓存功能,支持媒体识别结果自动缓存,大幅降低token消耗"
         }
+    },
+    "SubscribeAutofill": {
+        "name": "订阅自动填充",
+        "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
+        "labels": "订阅",
+        "version": "1.0",
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
+        "author": "Eitelkeit",
+        "level": 2,
+        "history": {
+            "v1.0": "初始版本：支持下载后自动拆分媒体信息（视觉特效+音频特效+源+制作组）整合到include，站点-官组智能匹配"
+        }
     }
 }
