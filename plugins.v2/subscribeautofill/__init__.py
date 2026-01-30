@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -125,8 +125,8 @@ class SubscribeAutofill(_PluginBase):
             "source_patterns": self._source_patterns,
         })
 
-    def __extract_effects_from_title(self, title: str) -> List[str]:
-        """从种子标题提取所有特效元素（视觉+音频）"""
+    def __extract_visual_effects_from_title(self, title: str) -> List[str]:
+        """从种子标题提取视觉特效元素"""
         effects = []
         if not title:
             return effects
@@ -141,7 +141,26 @@ class SubscribeAutofill(_PluginBase):
             (r'(?<![A-Za-z0-9])HDR(?![0-9A-Za-z])', 'HDR'),
             (r'60[Ff]ps', '60fps'),
             (r'SDR', 'SDR'),
+            # 色深
+            (r'12[\s.]?bit', '12bit'),
+            (r'10[\s.]?bit', '10bit'),
+            (r'8[\s.]?bit', '8bit'),
         ]
+
+        matched_names = set()
+        for pattern, name in visual_patterns:
+            if name not in matched_names:
+                if re.search(pattern, title, re.IGNORECASE):
+                    effects.append(name)
+                    matched_names.add(name)
+
+        return effects
+
+    def __extract_audio_effects_from_title(self, title: str) -> List[str]:
+        """从种子标题提取音频特效元素"""
+        effects = []
+        if not title:
+            return effects
 
         # 音频特效正则 - 按优先级排序
         audio_patterns = [
@@ -161,7 +180,7 @@ class SubscribeAutofill(_PluginBase):
         ]
 
         matched_names = set()
-        for pattern, name in visual_patterns + audio_patterns:
+        for pattern, name in audio_patterns:
             if name not in matched_names:
                 if re.search(pattern, title, re.IGNORECASE):
                     effects.append(name)
@@ -339,26 +358,33 @@ class SubscribeAutofill(_PluginBase):
                         else:
                             logger.warning(f"订阅记录:{subscribe.name} 未获取到资源质量信息")
 
-                # 特效 + 制作组 + 源 -> include (用正则要求同时包含)
-                if "制作组" in self._update_details and not subscribe.include:
+                # 构建 include 正则表达式
+                if not subscribe.include:
                     include_parts = []
 
-                    # 1. 提取所有特效元素（视觉+音频）
-                    effects = self.__extract_effects_from_title(torrent_title)
-                    for effect in effects:
-                        include_parts.append(effect)
+                    # 1. 视觉特效
+                    if "视觉特效" in self._update_details:
+                        visual_effects = self.__extract_visual_effects_from_title(torrent_title)
+                        include_parts.extend(visual_effects)
 
-                    # 2. 提取源
-                    source = self.__extract_source_from_title(torrent_title)
-                    if source:
-                        include_parts.append(source)
+                    # 2. 音频特效
+                    if "音频特效" in self._update_details:
+                        audio_effects = self.__extract_audio_effects_from_title(torrent_title)
+                        include_parts.extend(audio_effects)
 
-                    # 3. 提取制作组
-                    resource_team = _meta.resource_team if _meta else None
-                    if not resource_team:
-                        resource_team = self.__extract_group_from_title(torrent_title)
-                    if resource_team:
-                        include_parts.append(resource_team)
+                    # 3. 源
+                    if "源" in self._update_details:
+                        source = self.__extract_source_from_title(torrent_title)
+                        if source:
+                            include_parts.append(source)
+
+                    # 4. 制作组
+                    if "制作组" in self._update_details:
+                        resource_team = _meta.resource_team if _meta else None
+                        if not resource_team:
+                            resource_team = self.__extract_group_from_title(torrent_title)
+                        if resource_team:
+                            include_parts.append(resource_team)
 
                     if include_parts:
                         # 使用正向先行断言要求同时包含所有元素
@@ -506,7 +532,19 @@ class SubscribeAutofill(_PluginBase):
                                                     "value": "分辨率"
                                                 },
                                                 {
-                                                    "title": "制作组（含特效+源）",
+                                                    "title": "视觉特效（DV/HDR/10bit等）",
+                                                    "value": "视觉特效"
+                                                },
+                                                {
+                                                    "title": "音频特效（DTS-HD MA/Atmos等）",
+                                                    "value": "音频特效"
+                                                },
+                                                {
+                                                    "title": "源（Netflix/CR等）",
+                                                    "value": "源"
+                                                },
+                                                {
+                                                    "title": "制作组",
                                                     "value": "制作组"
                                                 },
                                                 {
@@ -541,7 +579,7 @@ class SubscribeAutofill(_PluginBase):
                                                            '憨憨:HHWEB\n'
                                                            '彩虹岛:CHDWEB|CHDBits|CHDTV|CHDHKTV|SGNB\n'
                                                            '我堡:OurTV|OurBits\n'
-                                                           'Ubits:UBWEB|UBits|UBTV\n'
+                                                           'UBits:UBWEB|UBits|UBTV\n'
                                                            '高清杜比:Dream|DBTV|QHstudIo'
                                         }
                                     }
@@ -588,9 +626,14 @@ class SubscribeAutofill(_PluginBase):
                                     {
                                         'component': 'VAlert',
                                         'props': {
-                                            'type': 'warning',
+                                            'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '选择"制作组（含特效+源）"后，include关键词将包含：视觉特效（DV/HDR等）+ 音频特效（DTS-HD MA/Atmos等）+ 源 + 制作组，使用正则同时匹配。'
+                                            'text': '填充内容说明：\n'
+                                                    '• 视觉特效：DV、HDR、HDR10、HDR10+、HDRVivid、60fps、10bit、12bit等\n'
+                                                    '• 音频特效：DTS-HD MA、TrueHD、Atmos、DDP、AAC、FLAC等\n'
+                                                    '• 源：Netflix、CR、Amazon等流媒体平台\n'
+                                                    '• 制作组：保留@连接格式（如Nest@Audies）\n'
+                                                    '• 选中的内容将组合成正则表达式填充到订阅的include字段'
                                         }
                                     }
                                 ]
@@ -611,7 +654,8 @@ class SubscribeAutofill(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '站点-官组映射格式：站点名称:官组正则（多个用|分隔），每行一个。制作组匹配到站点官组后，优先使用该站点订阅。站点名称需与MoviePilot中的站点名称一致。'
+                                            'text': '站点-官组映射格式：站点名称:官组正则（多个用|分隔），每行一个。'
+                                                    '制作组匹配到站点官组后，优先使用该站点订阅。站点名称需与MoviePilot中的站点名称一致。'
                                         }
                                     }
                                 ]
@@ -632,7 +676,8 @@ class SubscribeAutofill(_PluginBase):
                                         'props': {
                                             'type': 'info',
                                             'variant': 'tonal',
-                                            'text': '源正则格式：每行一个正则表达式，用于匹配种子标题中的源信息（如Netflix、CR、Amazon等）。匹配到的源会添加到include中。'
+                                            'text': '源正则格式：每行一个正则表达式，用于匹配种子标题中的源信息（如Netflix、CR、Amazon等）。'
+                                                    '匹配到的源会添加到include中。'
                                         }
                                     }
                                 ]
