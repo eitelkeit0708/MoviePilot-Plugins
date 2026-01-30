@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -133,14 +133,31 @@ class SubscribeAutofill(_PluginBase):
 
         # 视觉特效正则 - 按优先级排序
         visual_patterns = [
+            # Dolby Vision 系列
             (r'Dolby[\s.]?Vision|DoVi|Dovi', 'DV'),
+            (r'DV[\s.]?P\d', 'DV'),
             (r'(?<![A-Za-z])DV(?![A-Za-z])', 'DV'),
+            
+            # HDR 系列
             (r'HDR10\+', 'HDR10+'),
             (r'HDR10(?!\+)', 'HDR10'),
             (r'HDR[\s.]?Vivid|HDRVivid', 'HDRVivid'),
+            (r'HLG', 'HLG'),
             (r'(?<![A-Za-z0-9])HDR(?![0-9A-Za-z])', 'HDR'),
+            
+            # 增强特性
+            (r'IMAX[\s.]?Enhanced|IMAX', 'IMAX'),
+            
+            # 帧率
+            (r'120[Ff]ps', '120fps'),
             (r'60[Ff]ps', '60fps'),
+            (r'30[Ff]ps', '30fps'),
+            (r'25[Ff]ps', '25fps'),
+            (r'24[Ff]ps', '24fps'),
+            
+            # 常规
             (r'SDR', 'SDR'),
+            
             # 色深
             (r'12[\s.]?bit', '12bit'),
             (r'10[\s.]?bit', '10bit'),
@@ -164,19 +181,34 @@ class SubscribeAutofill(_PluginBase):
 
         # 音频特效正则 - 按优先级排序
         audio_patterns = [
-            (r'DTS-HD[\s.]?MA[\s.]?[\d.]+', 'DTS-HD MA'),
+            # 次世代顶级音轨 (Object-based)
+            (r'DTS[\s.]?X(?![A-Za-z])', 'DTS:X'),
+            (r'TrueHD[\s.]?Atmos', 'TrueHD Atmos'),
+            (r'Dolby[\s.]?Atmos|Atmos', 'Atmos'),
+            
+            # 无损/高码率音轨
             (r'DTS-HD[\s.]?MA', 'DTS-HD MA'),
-            (r'TrueHD[\s.]?[\d.]*[\s.]?Atmos', 'TrueHD Atmos'),
-            (r'TrueHD[\s.]?[\d.]*', 'TrueHD'),
-            (r'(?<![A-Za-z])Atmos', 'Atmos'),
-            (r'DDP[\s.]?[\d.]+', 'DDP'),
-            (r'Dolby[\s.]?Digital[\s.]?Plus', 'DDP'),
-            (r'DD[\s.]?[\d.]+', 'DD'),
-            (r'Dolby[\s.]?Digital(?![\s.]?Plus)', 'DD'),
-            (r'AAC[\s.]?[\d.]+', 'AAC'),
-            (r'DTS[\s.]?[\d.]+', 'DTS'),
+            (r'DTS-HD[\s.]?HR', 'DTS-HD HR'),
+            (r'TrueHD', 'TrueHD'),
             (r'LPCM', 'LPCM'),
             (r'FLAC', 'FLAC'),
+            
+            # 常用有损/流媒体音轨
+            (r'DDP[\s.]?Atmos|E-AC3[\s.]?Atmos', 'DDP Atmos'),
+            (r'DDP[\s.]?[\d.]+|E-AC3|Dolby[\s.]?Digital[\s.]?Plus', 'DDP'),
+            (r'DD[\s.]?[\d.]+|AC3|Dolby[\s.]?Digital(?![\s.]?Plus)', 'DD'),
+            (r'DTS(?!\-HD)[\s.]?[\d.]+|DTS(?!\-HD)', 'DTS'),
+            
+            # 其他压缩格式
+            (r'AAC[\s.]?[\d.]+|AAC', 'AAC'),
+            (r'Opus', 'Opus'),
+            (r'MP3', 'MP3'),
+            (r'VORBIS', 'Vorbis'),
+            
+            # 声道数
+            (r'7[\s.]?1[Cc][Hh]?', '7.1'),
+            (r'5[\s.]?1[Cc][Hh]?', '5.1'),
+            (r'2[\s.]?0[Cc][Hh]?', '2.0'),
         ]
 
         matched_names = set()
@@ -372,8 +404,8 @@ class SubscribeAutofill(_PluginBase):
                         audio_effects = self.__extract_audio_effects_from_title(torrent_title)
                         include_parts.extend(audio_effects)
 
-                    # 3. 源
-                    if "源" in self._update_details:
+                    # 3. 视频源
+                    if "视频源" in self._update_details:
                         source = self.__extract_source_from_title(torrent_title)
                         if source:
                             include_parts.append(source)
@@ -532,16 +564,16 @@ class SubscribeAutofill(_PluginBase):
                                                     "value": "分辨率"
                                                 },
                                                 {
-                                                    "title": "视觉特效（DV/HDR/10bit等）",
+                                                    "title": "视觉特效",
                                                     "value": "视觉特效"
                                                 },
                                                 {
-                                                    "title": "音频特效（DTS-HD MA/Atmos等）",
+                                                    "title": "音频特效",
                                                     "value": "音频特效"
                                                 },
                                                 {
-                                                    "title": "源（Netflix/CR等）",
-                                                    "value": "源"
+                                                    "title": "视频源",
+                                                    "value": "视频源"
                                                 },
                                                 {
                                                     "title": "制作组",
