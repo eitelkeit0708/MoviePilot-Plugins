@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "2.0"
+    plugin_version = "2.1"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -407,6 +407,9 @@ class SubscribeAutofill(_PluginBase):
 
                 # 获取种子标题
                 torrent_title = _torrent.title if _torrent else ""
+                
+                # 调试日志：记录原始种子标题
+                logger.debug(f"订阅记录:{subscribe.name} 处理种子标题: {torrent_title}")
 
                 # 填充数据
                 update_dict = {}
@@ -453,6 +456,7 @@ class SubscribeAutofill(_PluginBase):
                         visual_effects = self.__extract_visual_effects_from_title(torrent_title)
                         if visual_effects:
                             include_parts.extend(visual_effects)
+                            logger.debug(f"订阅记录:{subscribe.name} 提取到视觉特效: {visual_effects}")
                         else:
                             skip_reasons.append("未检测到视觉特效")
 
@@ -461,6 +465,7 @@ class SubscribeAutofill(_PluginBase):
                         audio_effects = self.__extract_audio_effects_from_title(torrent_title)
                         if audio_effects:
                             include_parts.extend(audio_effects)
+                            logger.debug(f"订阅记录:{subscribe.name} 提取到音频特效: {audio_effects}")
                         else:
                             skip_reasons.append("未检测到音频特效")
 
@@ -469,6 +474,7 @@ class SubscribeAutofill(_PluginBase):
                         source = self.__extract_source_from_title(torrent_title)
                         if source:
                             include_parts.append(source)
+                            logger.debug(f"订阅记录:{subscribe.name} 提取到视频源: {source}")
                         else:
                             skip_reasons.append("未检测到视频源")
 
@@ -479,9 +485,14 @@ class SubscribeAutofill(_PluginBase):
                             resource_team = self.__extract_group_from_title(torrent_title)
                         if resource_team:
                             include_parts.append(resource_team)
+                            logger.debug(f"订阅记录:{subscribe.name} 提取到制作组: {resource_team}")
                         else:
                             skip_reasons.append("未检测到制作组")
 
+                    # 调试日志：记录所有include组成部分
+                    if include_parts:
+                        logger.debug(f"订阅记录:{subscribe.name} include组成部分: {include_parts}")
+                        
                     if include_parts:
                         # 使用正向先行断言要求同时包含所有元素
                         if len(include_parts) == 1:
@@ -520,7 +531,7 @@ class SubscribeAutofill(_PluginBase):
 
                 # 更新订阅记录
                 self._subscribeoper.update(subscribe.id, update_dict)
-                logger.info(f"订阅记录:{subscribe.name} 填充成功\n {update_dict}")
+                logger.info(f"订阅记录:{subscribe.name} 填充成功\\n {update_dict}")
 
                 # 读取历史记录
                 history = self.get_data('history') or []
