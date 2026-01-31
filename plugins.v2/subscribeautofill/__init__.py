@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -188,50 +188,51 @@ class SubscribeAutofill(_PluginBase):
 
         # 音频特效正则 - 按优先级排序（复合格式优先）
         # 同系列格式归同一类别，只匹配第一个
+        # 使用 [\s.]* 支持多个空格或点号分隔（如 DDP.5.1.Atmos）
         audio_patterns = [
             # TrueHD 系列 - 全部归同一类别
-            (r'\bTrueHD[\s.]?[\d.]+[\s.]?Atmos\b', 'TrueHD'),        # TrueHD 7.1 Atmos
-            (r'\bTrueHD[\s.]?Atmos\b', 'TrueHD'),                     # TrueHD Atmos
-            (r'\bTrueHD[\s.]?[\d.]+', 'TrueHD'),                      # TrueHD 5.1/7.1
-            (r'\bTrueHD\b', 'TrueHD'),                                # TrueHD
+            (r'\bTrueHD[\s.]*[\d.]+[\s.]*Atmos\b', 'TrueHD'),         # TrueHD 7.1 Atmos, TrueHD.7.1.Atmos
+            (r'\bTrueHD[\s.]*Atmos\b', 'TrueHD'),                      # TrueHD Atmos
+            (r'\bTrueHD[\s.]*[\d.]+', 'TrueHD'),                       # TrueHD 5.1/7.1
+            (r'\bTrueHD\b', 'TrueHD'),                                 # TrueHD
             
             # DTS:X 系列
-            (r'\bDTS[\s.:]+X[\s.]?[\d.]+', 'DTSX'),                   # DTS:X 7.1
-            (r'\bDTS[\s.:]+X\b', 'DTSX'),                             # DTS:X
+            (r'\bDTS[\s.:]+X[\s.]*[\d.]+', 'DTSX'),                    # DTS:X 7.1
+            (r'\bDTS[\s.:]+X\b', 'DTSX'),                              # DTS:X
             
             # DTS-HD 系列
-            (r'\bDTS-HD[\s.]?MA[\s.]?[\d.]+', 'DTSHDMA'),             # DTS-HD MA 5.1
-            (r'\bDTS-HD[\s.]?MA\b', 'DTSHDMA'),                       # DTS-HD MA
-            (r'\bDTS-HD[\s.]?HR[\s.]?[\d.]+', 'DTSHDHR'),             # DTS-HD HR 5.1
-            (r'\bDTS-HD[\s.]?HR\b', 'DTSHDHR'),                       # DTS-HD HR
+            (r'\bDTS-HD[\s.]*MA[\s.]*[\d.]+', 'DTSHDMA'),              # DTS-HD MA 5.1, DTS-HD.MA.5.1
+            (r'\bDTS-HD[\s.]*MA\b', 'DTSHDMA'),                        # DTS-HD MA
+            (r'\bDTS-HD[\s.]*HR[\s.]*[\d.]+', 'DTSHDHR'),              # DTS-HD HR 5.1
+            (r'\bDTS-HD[\s.]*HR\b', 'DTSHDHR'),                        # DTS-HD HR
             
             # DDP 系列 - 全部归同一类别（包含 Atmos 变体）
-            (r'\bDDP[\s.]?[\d.]+[\s.]?Atmos\b', 'DDP'),               # DDP 5.1 Atmos
-            (r'\bE-AC3[\s.]?[\d.]+[\s.]?Atmos\b', 'DDP'),             # E-AC3 5.1 Atmos
-            (r'\bDDP[\s.]?Atmos\b|\bE-AC3[\s.]?Atmos\b', 'DDP'),      # DDP Atmos
-            (r'\bDDP[\s.]?[\d.]+|\bE-AC3[\s.]?[\d.]+', 'DDP'),        # DDP 5.1, E-AC3 5.1
-            (r'\bDD\+[\s.]?[\d.]+', 'DDP'),                           # DD+ 5.1
-            (r'\bDDP\b|\bDD\+\b|\bE-AC3\b|\bDolby[\s.]?Digital[\s.]?Plus\b', 'DDP'),  # DDP, DD+
+            (r'\bDDP[\s.]*[\d.]+[\s.]*Atmos\b', 'DDP'),                # DDP 5.1 Atmos, DDP.5.1.Atmos
+            (r'\bE-AC3[\s.]*[\d.]+[\s.]*Atmos\b', 'DDP'),              # E-AC3 5.1 Atmos
+            (r'\bDDP[\s.]*Atmos\b|\bE-AC3[\s.]*Atmos\b', 'DDP'),       # DDP Atmos
+            (r'\bDDP[\s.]*[\d.]+|\bE-AC3[\s.]*[\d.]+', 'DDP'),         # DDP 5.1, DDP.5.1
+            (r'\bDD\+[\s.]*[\d.]+', 'DDP'),                            # DD+ 5.1
+            (r'\bDDP\b|\bDD\+\b|\bE-AC3\b|\bDolby[\s.]*Digital[\s.]*Plus\b', 'DDP'),
             
             # 独立 Atmos（不属于 TrueHD/DDP 时）
-            (r'\bDolby[\s.]?Atmos\b|\bAtmos\b', 'Atmos'),
+            (r'\bDolby[\s.]*Atmos\b|\bAtmos\b', 'Atmos'),
             
             # DD 系列
-            (r'\bDD[\s.]?[\d.]+(?!\+)|\bAC3[\s.]?[\d.]+', 'DD'),      # DD 5.1, AC3 5.1
-            (r'\bDD\b(?![P+])|\bAC3\b|\bDolby[\s.]?Digital\b(?![\s.]?Plus)', 'DD'),  # DD, AC3
+            (r'\bDD[\s.]*[\d.]+(?!\+)|\bAC3[\s.]*[\d.]+', 'DD'),       # DD 5.1, DD.5.1
+            (r'\bDD\b(?![P+])|\bAC3\b|\bDolby[\s.]*Digital\b(?![\s.]*Plus)', 'DD'),
             
             # DTS 基础
-            (r'\bDTS[\s.]?[\d.]+', 'DTS'),                            # DTS 5.1
-            (r'\bDTS\b(?![\s.:]+X)(?![\s.-]?HD)', 'DTS'),             # DTS
+            (r'\bDTS[\s.]*[\d.]+', 'DTS'),                             # DTS 5.1, DTS.5.1
+            (r'\bDTS\b(?![\s.:]+X)(?![\s.-]*HD)', 'DTS'),              # DTS
             
             # 无损格式
-            (r'\bLPCM[\s.]?[\d.]+', 'LPCM'),                          # LPCM 2.0
+            (r'\bLPCM[\s.]*[\d.]+', 'LPCM'),                           # LPCM 2.0
             (r'\bLPCM\b', 'LPCM'),
-            (r'\bFLAC[\s.]?[\d.]+', 'FLAC'),                          # FLAC 2.0
+            (r'\bFLAC[\s.]*[\d.]+', 'FLAC'),                           # FLAC 2.0
             (r'\bFLAC\b', 'FLAC'),
             
-            # AAC - 确保不匹配到后面的字符
-            (r'\bAAC[\s.]?[\d.]+\b', 'AAC'),                          # AAC 2.0
+            # AAC
+            (r'\bAAC[\s.]*[\d.]+\b', 'AAC'),                           # AAC 2.0, AAC.2.0
             (r'\bAAC\b', 'AAC'),
             
             # 其他

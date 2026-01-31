@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "1.8",
+        "version": "1.9",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v1.9": "fix: 修复音频格式正则支持多个点号分隔（DDP.5.1.Atmos）",
             "v1.8": "fix: 修复Apple.TV+/Disney+等带空格或点号的源正则匹配",
             "v1.7": "fix: 修复重复匹配问题（HDR系列/TrueHD系列/DDP系列归同类），支持DD+识别，智能跳过已包含的Atmos",
             "v1.6": "feat: 添加单词边界防误触，支持DoVi HDR同时匹配两个格式",
