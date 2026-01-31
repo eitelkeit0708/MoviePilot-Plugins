@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.2.1"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -157,6 +157,9 @@ class SubscribeAutofill(_PluginBase):
             
             # 常规
             (r'SDR', 'SDR'),
+            
+            # 高码
+            (r'HQ|高码|EDR', 'HQ'),
             
             # 色深
             (r'12[\s.]?bit', '12bit'),
@@ -369,46 +372,67 @@ class SubscribeAutofill(_PluginBase):
 
                 # 填充数据
                 update_dict = {}
+                skip_reasons = []  # 记录跳过原因
 
                 # 分辨率
-                if "分辨率" in self._update_details and not subscribe.resolution:
-                    resource_pix = _meta.resource_pix if _meta else None
-                    if resource_pix:
-                        resource_pix = self.__parse_pix(resource_pix)
+                if "分辨率" in self._update_details:
+                    if subscribe.resolution:
+                        skip_reasons.append(f"分辨率已存在:{subscribe.resolution}")
+                    else:
+                        resource_pix = _meta.resource_pix if _meta else None
                         if resource_pix:
-                            update_dict['resolution'] = resource_pix
+                            resource_pix = self.__parse_pix(resource_pix)
+                            if resource_pix:
+                                update_dict['resolution'] = resource_pix
+                            else:
+                                skip_reasons.append("分辨率解析失败")
                         else:
-                            logger.warning(f"订阅记录:{subscribe.name} 未获取到分辨率信息")
+                            skip_reasons.append("未获取到分辨率信息")
 
                 # 资源质量
-                if "资源质量" in self._update_details and not subscribe.quality:
-                    resource_type = _meta.resource_type if _meta else None
-                    if resource_type:
-                        resource_type = self.__parse_type(resource_type)
+                if "资源质量" in self._update_details:
+                    if subscribe.quality:
+                        skip_reasons.append(f"资源质量已存在:{subscribe.quality}")
+                    else:
+                        resource_type = _meta.resource_type if _meta else None
                         if resource_type:
-                            update_dict['quality'] = resource_type
+                            resource_type = self.__parse_type(resource_type)
+                            if resource_type:
+                                update_dict['quality'] = resource_type
+                            else:
+                                skip_reasons.append("资源质量解析失败")
                         else:
-                            logger.warning(f"订阅记录:{subscribe.name} 未获取到资源质量信息")
+                            skip_reasons.append("未获取到资源质量信息")
 
                 # 构建 include 正则表达式
-                if not subscribe.include:
+                if subscribe.include:
+                    skip_reasons.append(f"include已存在:{subscribe.include}")
+                else:
                     include_parts = []
 
                     # 1. 视觉特效
                     if "视觉特效" in self._update_details:
                         visual_effects = self.__extract_visual_effects_from_title(torrent_title)
-                        include_parts.extend(visual_effects)
+                        if visual_effects:
+                            include_parts.extend(visual_effects)
+                        else:
+                            skip_reasons.append("未检测到视觉特效")
 
                     # 2. 音频特效
                     if "音频特效" in self._update_details:
                         audio_effects = self.__extract_audio_effects_from_title(torrent_title)
-                        include_parts.extend(audio_effects)
+                        if audio_effects:
+                            include_parts.extend(audio_effects)
+                        else:
+                            skip_reasons.append("未检测到音频特效")
 
                     # 3. 视频源
                     if "视频源" in self._update_details:
                         source = self.__extract_source_from_title(torrent_title)
                         if source:
                             include_parts.append(source)
+                        else:
+                            skip_reasons.append("未检测到视频源")
 
                     # 4. 制作组
                     if "制作组" in self._update_details:
@@ -417,6 +441,8 @@ class SubscribeAutofill(_PluginBase):
                             resource_team = self.__extract_group_from_title(torrent_title)
                         if resource_team:
                             include_parts.append(resource_team)
+                        else:
+                            skip_reasons.append("未检测到制作组")
 
                     if include_parts:
                         # 使用正向先行断言要求同时包含所有元素
@@ -429,20 +455,26 @@ class SubscribeAutofill(_PluginBase):
                         logger.info(f"订阅记录:{subscribe.name} 生成include: {update_dict['include']}")
 
                 # 站点
-                if "站点" in self._update_details and (
-                        not subscribe.sites or (subscribe.sites and len(subscribe.sites) == 0)):
-                    rss_sites = self.systemconfig.get(SystemConfigKey.RssSites) or []
-                    default_site = _torrent.site if _torrent and _torrent.site and int(_torrent.site) in rss_sites else None
+                if "站点" in self._update_details:
+                    if subscribe.sites and len(subscribe.sites) > 0:
+                        skip_reasons.append(f"站点已存在:{subscribe.sites}")
+                    else:
+                        rss_sites = self.systemconfig.get(SystemConfigKey.RssSites) or []
+                        default_site = _torrent.site if _torrent and _torrent.site and int(_torrent.site) in rss_sites else None
 
-                    # 获取制作组
-                    resource_team = _meta.resource_team if _meta else None
-                    if not resource_team:
-                        resource_team = self.__extract_group_from_title(torrent_title)
+                        # 获取制作组
+                        resource_team = _meta.resource_team if _meta else None
+                        if not resource_team:
+                            resource_team = self.__extract_group_from_title(torrent_title)
 
-                    # 根据制作组匹配站点
-                    matched_sites = self.__get_site_by_group(resource_team, default_site)
-                    if matched_sites:
-                        update_dict['sites'] = matched_sites
+                        # 根据制作组匹配站点
+                        matched_sites = self.__get_site_by_group(resource_team, default_site)
+                        if matched_sites:
+                            update_dict['sites'] = matched_sites
+
+                # 记录跳过原因
+                if skip_reasons:
+                    logger.info(f"订阅记录:{subscribe.name} 跳过填充: {', '.join(skip_reasons)}")
 
                 if len(update_dict.keys()) == 0:
                     logger.info(f"订阅记录:{subscribe.name} 无需填充")
