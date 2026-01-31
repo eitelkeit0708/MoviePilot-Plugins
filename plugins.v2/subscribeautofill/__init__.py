@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -126,12 +126,12 @@ class SubscribeAutofill(_PluginBase):
         })
 
     def __extract_visual_effects_from_title(self, title: str) -> List[str]:
-        """从种子标题提取视觉特效元素"""
+        """从种子标题提取视觉特效元素，返回原始匹配字符串"""
         effects = []
         if not title:
             return effects
 
-        # 视觉特效正则 - 按优先级排序
+        # 视觉特效正则 - 按优先级排序，使用分组名标记类别避免重复
         visual_patterns = [
             # Dolby Vision 系列
             (r'Dolby[\s.]?Vision|DoVi|Dovi', 'DV'),
@@ -149,11 +149,11 @@ class SubscribeAutofill(_PluginBase):
             (r'IMAX[\s.]?Enhanced|IMAX', 'IMAX'),
             
             # 帧率
-            (r'120[Ff]ps', '120fps'),
-            (r'60[Ff]ps', '60fps'),
-            (r'30[Ff]ps', '30fps'),
-            (r'25[Ff]ps', '25fps'),
-            (r'24[Ff]ps', '24fps'),
+            (r'120[Ff]ps', 'fps'),
+            (r'60[Ff]ps', 'fps'),
+            (r'30[Ff]ps', 'fps'),
+            (r'25[Ff]ps', 'fps'),
+            (r'24[Ff]ps', 'fps'),
             
             # 常规
             (r'SDR', 'SDR'),
@@ -162,45 +162,47 @@ class SubscribeAutofill(_PluginBase):
             (r'HQ|高码|EDR', 'HQ'),
             
             # 色深
-            (r'12[\s.]?bit', '12bit'),
-            (r'10[\s.]?bit', '10bit'),
-            (r'8[\s.]?bit', '8bit'),
+            (r'12[\s.]?bit', 'bit'),
+            (r'10[\s.]?bit', 'bit'),
+            (r'8[\s.]?bit', 'bit'),
         ]
 
-        matched_names = set()
-        for pattern, name in visual_patterns:
-            if name not in matched_names:
-                if re.search(pattern, title, re.IGNORECASE):
-                    effects.append(name)
-                    matched_names.add(name)
+        matched_categories = set()
+        for pattern, category in visual_patterns:
+            if category not in matched_categories:
+                match = re.search(pattern, title, re.IGNORECASE)
+                if match:
+                    # 返回原始匹配字符串
+                    effects.append(match.group(0))
+                    matched_categories.add(category)
 
         return effects
 
     def __extract_audio_effects_from_title(self, title: str) -> List[str]:
-        """从种子标题提取音频特效元素"""
+        """从种子标题提取音频特效元素，返回原始匹配字符串"""
         effects = []
         if not title:
             return effects
 
-        # 音频特效正则 - 按优先级排序
+        # 音频特效正则 - 按优先级排序，使用分组名标记类别避免重复
         audio_patterns = [
             # 次世代顶级音轨 (Object-based)
-            (r'DTS[\s.]?X(?![A-Za-z])', 'DTS:X'),
-            (r'TrueHD[\s.]?Atmos', 'TrueHD Atmos'),
+            (r'DTS[\s.]?X(?![A-Za-z])', 'DTSX'),
+            (r'TrueHD[\s.]?Atmos', 'TrueHDAtmos'),
             (r'Dolby[\s.]?Atmos|Atmos', 'Atmos'),
             
             # 无损/高码率音轨
-            (r'DTS-HD[\s.]?MA', 'DTS-HD MA'),
-            (r'DTS-HD[\s.]?HR', 'DTS-HD HR'),
+            (r'DTS-HD[\s.]?MA', 'DTSHDMA'),
+            (r'DTS-HD[\s.]?HR', 'DTSHDHR'),
             (r'TrueHD', 'TrueHD'),
             (r'LPCM', 'LPCM'),
             (r'FLAC', 'FLAC'),
             
             # 常用有损/流媒体音轨
-            (r'DDP[\s.]?Atmos|E-AC3[\s.]?Atmos', 'DDP Atmos'),
+            (r'DDP[\s.]?Atmos|E-AC3[\s.]?Atmos', 'DDPAtmos'),
             (r'DDP[\s.]?[\d.]+|E-AC3|Dolby[\s.]?Digital[\s.]?Plus', 'DDP'),
             (r'DD[\s.]?[\d.]+|AC3|Dolby[\s.]?Digital(?![\s.]?Plus)', 'DD'),
-            (r'DTS(?!\-HD)[\s.]?[\d.]+|DTS(?!\-HD)', 'DTS'),
+            (r'DTS(?!\-HD)[\s.]?[\d.]+|DTS(?!\-HD|[\s.]?X)', 'DTS'),
             
             # 其他压缩格式
             (r'AAC[\s.]?[\d.]+|AAC', 'AAC'),
@@ -209,17 +211,19 @@ class SubscribeAutofill(_PluginBase):
             (r'VORBIS', 'Vorbis'),
             
             # 声道数
-            (r'7[\s.]?1[Cc][Hh]?', '7.1'),
-            (r'5[\s.]?1[Cc][Hh]?', '5.1'),
-            (r'2[\s.]?0[Cc][Hh]?', '2.0'),
+            (r'7[\s.]?1[Cc][Hh]?', 'ch71'),
+            (r'5[\s.]?1[Cc][Hh]?', 'ch51'),
+            (r'2[\s.]?0[Cc][Hh]?', 'ch20'),
         ]
 
-        matched_names = set()
-        for pattern, name in audio_patterns:
-            if name not in matched_names:
-                if re.search(pattern, title, re.IGNORECASE):
-                    effects.append(name)
-                    matched_names.add(name)
+        matched_categories = set()
+        for pattern, category in audio_patterns:
+            if category not in matched_categories:
+                match = re.search(pattern, title, re.IGNORECASE)
+                if match:
+                    # 返回原始匹配字符串
+                    effects.append(match.group(0))
+                    matched_categories.add(category)
 
         return effects
 

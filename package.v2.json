@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "1.3",
+        "version": "1.4",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v1.4": "fix: 修复include格式化导致匹配失败问题，现返回原始匹配字符串",
             "v1.3": "feat: 新增高码(HQ/EDR)识别，完善日志记录显示跳过填充原因",
             "v1.2.1": "fix: 修复视频源正则配置label和说明文字显示问题",
             "v1.2": "feat: 完善视觉特效（HLG/IMAX/更多帧率）和音频特效（DTS:X/AC3/DDP Atmos/Opus等）识别，UI优化",
