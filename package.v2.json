@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "2.4",
+        "version": "2.5",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v2.5": "feat: 新增覆盖模式，支持覆盖现有include并清空特效字段",
             "v2.4": "fix: 排除*Audios音轨数量标记，不将其误识别为制作组",
             "v2.3": "fix: 修复音频正则尾部多余点号问题（DDP.5.1.→DDP.5.1）",
             "v2.2": "fix: 移除默认站点映射中错误的HDSWEB和FRDS条目",

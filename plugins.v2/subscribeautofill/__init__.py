@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "2.4"
+    plugin_version = "2.5"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -61,6 +61,7 @@ class SubscribeAutofill(_PluginBase):
     _enabled: bool = False
     _clear = False
     _clear_handle = False
+    _override_mode = False  # 覆盖模式：覆盖现有include并清空特效字段
     _update_details = []
     _site_group_mappings = ""
     _source_patterns = ""
@@ -79,6 +80,7 @@ class SubscribeAutofill(_PluginBase):
             self._enabled = config.get("enabled")
             self._clear = config.get("clear")
             self._clear_handle = config.get("clear_handle")
+            self._override_mode = config.get("override_mode", False)
             self._update_details = config.get("update_details") or []
 
             # 解析站点-官组映射
@@ -118,6 +120,7 @@ class SubscribeAutofill(_PluginBase):
             "enabled": self._enabled,
             "clear": self._clear,
             "clear_handle": self._clear_handle,
+            "override_mode": self._override_mode,
             "update_details": self._update_details,
             "site_group_mappings": self._site_group_mappings,
             "source_patterns": self._source_patterns,
@@ -452,9 +455,14 @@ class SubscribeAutofill(_PluginBase):
                             skip_reasons.append("未获取到资源质量信息")
 
                 # 构建 include 正则表达式
-                if subscribe.include:
+                # 覆盖模式下，即使include已存在也重新生成
+                should_build_include = not subscribe.include or self._override_mode
+                if not should_build_include:
                     skip_reasons.append(f"include已存在:{subscribe.include}")
                 else:
+                    if self._override_mode and subscribe.include:
+                        logger.info(f"订阅记录:{subscribe.name} 覆盖模式：将覆盖现有include:{subscribe.include}")
+                    
                     include_parts = []
 
                     # 1. 视觉特效
@@ -508,6 +516,16 @@ class SubscribeAutofill(_PluginBase):
                             lookaheads = ''.join([f'(?=.*{p})' for p in include_parts[:-1]])
                             update_dict['include'] = f"{lookaheads}.*{include_parts[-1]}"
                         logger.info(f"订阅记录:{subscribe.name} 生成include: {update_dict['include']}")
+                        
+                        # 覆盖模式下，清空特效字段（video_format）以避免冲突
+                        if self._override_mode:
+                            # 检查是否有特效字段需要清空
+                            if hasattr(subscribe, 'video_format') and subscribe.video_format:
+                                update_dict['video_format'] = None
+                                logger.info(f"订阅记录:{subscribe.name} 覆盖模式：清空特效字段:{subscribe.video_format}")
+                            if hasattr(subscribe, 'audio_format') and subscribe.audio_format:
+                                update_dict['audio_format'] = None
+                                logger.info(f"订阅记录:{subscribe.name} 覆盖模式：清空音频特效字段:{subscribe.audio_format}")
 
                 # 站点
                 if "站点" in self._update_details:
@@ -619,6 +637,22 @@ class SubscribeAutofill(_PluginBase):
                                         'props': {
                                             'model': 'clear_handle',
                                             'label': '清理已处理记录',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 4
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'override_mode',
+                                            'label': '覆盖模式',
                                         }
                                     }
                                 ]
@@ -752,7 +786,10 @@ class SubscribeAutofill(_PluginBase):
                                                     '• 音频特效：DTS-HD MA、TrueHD、Atmos、DDP、AAC、FLAC等\n'
                                                     '• 视频源：Netflix、CR、Amazon等流媒体平台\n'
                                                     '• 制作组：保留@连接格式（如Nest@Audies）\n'
-                                                    '• 选中的内容将组合成正则表达式填充到订阅的include字段'
+                                                    '• 选中的内容将组合成正则表达式填充到订阅的include字段\n\n'
+                                                    '覆盖模式说明：\n'
+                                                    '• 开启后，即使订阅已有include也会重新生成并覆盖\n'
+                                                    '• 同时会清空订阅的特效字段（如DV、HDR等），统一使用include匹配'
                                         }
                                     }
                                 ]
