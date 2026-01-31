@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -184,36 +184,45 @@ class SubscribeAutofill(_PluginBase):
         if not title:
             return effects
 
-        # 音频特效正则 - 按优先级排序，使用分组名标记类别避免重复
+        # 音频特效正则 - 按优先级排序（复合格式优先）
+        # 使用分组名标记类别避免重复匹配同类型
         audio_patterns = [
-            # 次世代顶级音轨 (Object-based)
-            (r'DTS[\s.]?X(?![A-Za-z])', 'DTSX'),
-            (r'TrueHD[\s.]?Atmos', 'TrueHDAtmos'),
-            (r'Dolby[\s.]?Atmos|Atmos', 'Atmos'),
+            # 次世代顶级音轨 - 复合格式优先（格式+声道+Atmos）
+            (r'TrueHD[\s.]?[\d.]+[\s.]?Atmos', 'TrueHDAtmos'),      # TrueHD 7.1 Atmos
+            (r'TrueHD[\s.]?Atmos', 'TrueHDAtmos'),                   # TrueHD Atmos
+            (r'DTS[\s.]?X[\s.]?[\d.]+', 'DTSX'),                     # DTS:X 7.1
+            (r'DTS[\s.]?X(?![A-Za-z])', 'DTSX'),                     # DTS:X
+            (r'DDP[\s.]?[\d.]+[\s.]?Atmos', 'DDPAtmos'),             # DDP 5.1 Atmos, DDP 7.1 Atmos
+            (r'E-AC3[\s.]?[\d.]+[\s.]?Atmos', 'DDPAtmos'),           # E-AC3 5.1 Atmos
+            (r'DDP[\s.]?Atmos|E-AC3[\s.]?Atmos', 'DDPAtmos'),        # DDP Atmos
+            (r'Dolby[\s.]?Atmos|(?<![A-Za-z])Atmos(?![\s.]?[\d])', 'Atmos'),  # 独立的 Atmos
             
-            # 无损/高码率音轨
-            (r'DTS-HD[\s.]?MA', 'DTSHDMA'),
-            (r'DTS-HD[\s.]?HR', 'DTSHDHR'),
-            (r'TrueHD', 'TrueHD'),
-            (r'LPCM', 'LPCM'),
-            (r'FLAC', 'FLAC'),
+            # 无损/高码率音轨 - 带声道格式优先
+            (r'DTS-HD[\s.]?MA[\s.]?[\d.]+', 'DTSHDMA'),              # DTS-HD MA 5.1
+            (r'DTS-HD[\s.]?MA', 'DTSHDMA'),                          # DTS-HD MA
+            (r'DTS-HD[\s.]?HR[\s.]?[\d.]+', 'DTSHDHR'),              # DTS-HD HR 5.1
+            (r'DTS-HD[\s.]?HR', 'DTSHDHR'),                          # DTS-HD HR
+            (r'TrueHD[\s.]?[\d.]+', 'TrueHD'),                       # TrueHD 5.1/7.1
+            (r'TrueHD', 'TrueHD'),                                    # TrueHD
+            (r'LPCM[\s.]?[\d.]+', 'LPCM'),                           # LPCM 2.0
+            (r'LPCM', 'LPCM'),                                        # LPCM
+            (r'FLAC[\s.]?[\d.]+', 'FLAC'),                           # FLAC 2.0
+            (r'FLAC', 'FLAC'),                                        # FLAC
             
-            # 常用有损/流媒体音轨
-            (r'DDP[\s.]?Atmos|E-AC3[\s.]?Atmos', 'DDPAtmos'),
-            (r'DDP[\s.]?[\d.]+|E-AC3|Dolby[\s.]?Digital[\s.]?Plus', 'DDP'),
-            (r'DD[\s.]?[\d.]+|AC3|Dolby[\s.]?Digital(?![\s.]?Plus)', 'DD'),
-            (r'DTS(?!\-HD)[\s.]?[\d.]+|DTS(?!\-HD|[\s.]?X)', 'DTS'),
+            # 常用有损/流媒体音轨 - 带声道格式优先
+            (r'DDP[\s.]?[\d.]+|E-AC3[\s.]?[\d.]+', 'DDP'),           # DDP 5.1, E-AC3 5.1
+            (r'DDP|E-AC3|Dolby[\s.]?Digital[\s.]?Plus', 'DDP'),      # DDP, E-AC3
+            (r'DD[\s.]?[\d.]+|AC3[\s.]?[\d.]+', 'DD'),               # DD 5.1, AC3 5.1
+            (r'DD(?!P)|AC3|Dolby[\s.]?Digital(?![\s.]?Plus)', 'DD'), # DD, AC3
+            (r'DTS[\s.]?[\d.]+', 'DTS'),                             # DTS 5.1
+            (r'DTS(?![\s.-]?HD|[\s.]?X)', 'DTS'),                    # DTS (不匹配 DTS-HD, DTS:X)
             
             # 其他压缩格式
-            (r'AAC[\s.]?[\d.]+|AAC', 'AAC'),
+            (r'AAC[\s.]?[\d.]+', 'AAC'),                             # AAC 2.0
+            (r'AAC', 'AAC'),                                          # AAC
             (r'Opus', 'Opus'),
             (r'MP3', 'MP3'),
             (r'VORBIS', 'Vorbis'),
-            
-            # 声道数
-            (r'7[\s.]?1[Cc][Hh]?', 'ch71'),
-            (r'5[\s.]?1[Cc][Hh]?', 'ch51'),
-            (r'2[\s.]?0[Cc][Hh]?', 'ch20'),
         ]
 
         matched_categories = set()
