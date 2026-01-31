@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "2.3"
+    plugin_version = "2.4"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -258,17 +258,25 @@ class SubscribeAutofill(_PluginBase):
         return effects
 
     def __extract_group_from_title(self, title: str) -> str:
-        """从种子标题提取制作组（保留@连接格式）"""
+        """从种子标题提取制作组（保留@连接格式，排除*Audios音轨标记）"""
         if not title:
             return ""
         # 匹配末尾的制作组，支持@连接格式如 Nest@Audies, sh@CHDBits
+        # 排除 *Audios/*Audio 这样的音轨数量标记
         match = re.search(r'-([A-Za-z0-9]+(?:@[A-Za-z0-9]+)?)(?:\s*$|\.(?:mkv|mp4|avi|ts))', title, re.IGNORECASE)
         if match:
-            return match.group(1)
+            group = match.group(1)
+            # 排除音轨数量标记（如 6Audios, 3Audio）
+            if re.match(r'^\d+Audios?$', group, re.IGNORECASE):
+                return ""
+            return group
         # 尝试匹配不带扩展名的情况
         match = re.search(r'-([A-Za-z0-9]+(?:@[A-Za-z0-9]+)?)\s*$', title)
         if match:
-            return match.group(1)
+            group = match.group(1)
+            if re.match(r'^\d+Audios?$', group, re.IGNORECASE):
+                return ""
+            return group
         return ""
 
     def __extract_source_from_title(self, title: str) -> Optional[str]:
