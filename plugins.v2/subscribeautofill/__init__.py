@@ -32,11 +32,11 @@ B-Global|BG
 IQ|iqiyi
 Baha
 LINETV
-Disney\\+?|DSNP
+Disney[\\s.]*\\+?|DSNP
 HBO|HMAX
 Hulu
-Paramount\\+?
-AppleTV\\+?|ATVP"""
+Paramount[\\s.]*\\+?
+Apple[\\s.]*TV[\\s.]*\\+?|ATVP"""
 
 
 class SubscribeAutofill(_PluginBase):
@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
