@@ -47,7 +47,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -140,10 +140,11 @@ class SubscribeAutofill(_PluginBase):
             (r'\bDV\b', 'DV'),
             
             # HDR 系列 - 与 DV 是不同类别，可同时匹配 (DoVi HDR)
-            (r'\bHDR10\+', 'HDR10+'),
-            (r'\bHDR10\b(?!\+)', 'HDR10'),
-            (r'\bHDR[\s.]?Vivid\b|\bHDRVivid\b', 'HDRVivid'),
-            (r'\bHLG\b', 'HLG'),
+            # HDR10+/HDR10/HDRVivid/HLG/HDR 同属一个类别，只匹配第一个
+            (r'\bHDR10\+', 'HDR'),
+            (r'\bHDR10\b(?!\+)', 'HDR'),
+            (r'\bHDR[\s.]?Vivid\b|\bHDRVivid\b', 'HDR'),
+            (r'\bHLG\b', 'HDR'),
             (r'\bHDR\b', 'HDR'),
             
             # 增强特性
@@ -186,53 +187,73 @@ class SubscribeAutofill(_PluginBase):
             return effects
 
         # 音频特效正则 - 按优先级排序（复合格式优先）
-        # 使用分组名标记类别避免重复匹配同类型
+        # 同系列格式归同一类别，只匹配第一个
         audio_patterns = [
-            # 次世代顶级音轨 - 复合格式优先（格式+声道+Atmos）
-            (r'\bTrueHD[\s.]?[\d.]+[\s.]?Atmos\b', 'TrueHDAtmos'),      # TrueHD 7.1 Atmos
-            (r'\bTrueHD[\s.]?Atmos\b', 'TrueHDAtmos'),                   # TrueHD Atmos
-            (r'\bDTS[\s.:]+X[\s.]?[\d.]+', 'DTSX'),                      # DTS:X 7.1
-            (r'\bDTS[\s.:]+X\b', 'DTSX'),                                # DTS:X
-            (r'\bDDP[\s.]?[\d.]+[\s.]?Atmos\b', 'DDPAtmos'),             # DDP 5.1 Atmos
-            (r'\bE-AC3[\s.]?[\d.]+[\s.]?Atmos\b', 'DDPAtmos'),           # E-AC3 5.1 Atmos
-            (r'\bDDP[\s.]?Atmos\b|\bE-AC3[\s.]?Atmos\b', 'DDPAtmos'),   # DDP Atmos
-            (r'\bDolby[\s.]?Atmos\b|\bAtmos\b', 'Atmos'),                # 独立的 Atmos
+            # TrueHD 系列 - 全部归同一类别
+            (r'\bTrueHD[\s.]?[\d.]+[\s.]?Atmos\b', 'TrueHD'),        # TrueHD 7.1 Atmos
+            (r'\bTrueHD[\s.]?Atmos\b', 'TrueHD'),                     # TrueHD Atmos
+            (r'\bTrueHD[\s.]?[\d.]+', 'TrueHD'),                      # TrueHD 5.1/7.1
+            (r'\bTrueHD\b', 'TrueHD'),                                # TrueHD
             
-            # 无损/高码率音轨 - 带声道格式优先
-            (r'\bDTS-HD[\s.]?MA[\s.]?[\d.]+', 'DTSHDMA'),               # DTS-HD MA 5.1
-            (r'\bDTS-HD[\s.]?MA\b', 'DTSHDMA'),                          # DTS-HD MA
-            (r'\bDTS-HD[\s.]?HR[\s.]?[\d.]+', 'DTSHDHR'),               # DTS-HD HR 5.1
-            (r'\bDTS-HD[\s.]?HR\b', 'DTSHDHR'),                          # DTS-HD HR
-            (r'\bTrueHD[\s.]?[\d.]+', 'TrueHD'),                         # TrueHD 5.1/7.1
-            (r'\bTrueHD\b', 'TrueHD'),                                   # TrueHD
-            (r'\bLPCM[\s.]?[\d.]+', 'LPCM'),                             # LPCM 2.0
-            (r'\bLPCM\b', 'LPCM'),                                       # LPCM
-            (r'\bFLAC[\s.]?[\d.]+', 'FLAC'),                             # FLAC 2.0
-            (r'\bFLAC\b', 'FLAC'),                                       # FLAC
+            # DTS:X 系列
+            (r'\bDTS[\s.:]+X[\s.]?[\d.]+', 'DTSX'),                   # DTS:X 7.1
+            (r'\bDTS[\s.:]+X\b', 'DTSX'),                             # DTS:X
             
-            # 常用有损/流媒体音轨 - 带声道格式优先
-            (r'\bDDP[\s.]?[\d.]+|\bE-AC3[\s.]?[\d.]+', 'DDP'),          # DDP 5.1, E-AC3 5.1
-            (r'\bDDP\b|\bE-AC3\b|\bDolby[\s.]?Digital[\s.]?Plus\b', 'DDP'),  # DDP
-            (r'\bDD[\s.]?[\d.]+|\bAC3[\s.]?[\d.]+', 'DD'),              # DD 5.1, AC3 5.1
-            (r'\bDD\b(?!P)|\bAC3\b|\bDolby[\s.]?Digital\b(?![\s.]?Plus)', 'DD'),  # DD, AC3
-            (r'\bDTS[\s.]?[\d.]+', 'DTS'),                               # DTS 5.1
-            (r'\bDTS\b(?![\s.:]+X)(?![\s.-]?HD)', 'DTS'),                # DTS
+            # DTS-HD 系列
+            (r'\bDTS-HD[\s.]?MA[\s.]?[\d.]+', 'DTSHDMA'),             # DTS-HD MA 5.1
+            (r'\bDTS-HD[\s.]?MA\b', 'DTSHDMA'),                       # DTS-HD MA
+            (r'\bDTS-HD[\s.]?HR[\s.]?[\d.]+', 'DTSHDHR'),             # DTS-HD HR 5.1
+            (r'\bDTS-HD[\s.]?HR\b', 'DTSHDHR'),                       # DTS-HD HR
             
-            # 其他压缩格式
-            (r'\bAAC[\s.]?[\d.]+', 'AAC'),                               # AAC 2.0
-            (r'\bAAC\b', 'AAC'),                                         # AAC
+            # DDP 系列 - 全部归同一类别（包含 Atmos 变体）
+            (r'\bDDP[\s.]?[\d.]+[\s.]?Atmos\b', 'DDP'),               # DDP 5.1 Atmos
+            (r'\bE-AC3[\s.]?[\d.]+[\s.]?Atmos\b', 'DDP'),             # E-AC3 5.1 Atmos
+            (r'\bDDP[\s.]?Atmos\b|\bE-AC3[\s.]?Atmos\b', 'DDP'),      # DDP Atmos
+            (r'\bDDP[\s.]?[\d.]+|\bE-AC3[\s.]?[\d.]+', 'DDP'),        # DDP 5.1, E-AC3 5.1
+            (r'\bDD\+[\s.]?[\d.]+', 'DDP'),                           # DD+ 5.1
+            (r'\bDDP\b|\bDD\+\b|\bE-AC3\b|\bDolby[\s.]?Digital[\s.]?Plus\b', 'DDP'),  # DDP, DD+
+            
+            # 独立 Atmos（不属于 TrueHD/DDP 时）
+            (r'\bDolby[\s.]?Atmos\b|\bAtmos\b', 'Atmos'),
+            
+            # DD 系列
+            (r'\bDD[\s.]?[\d.]+(?!\+)|\bAC3[\s.]?[\d.]+', 'DD'),      # DD 5.1, AC3 5.1
+            (r'\bDD\b(?![P+])|\bAC3\b|\bDolby[\s.]?Digital\b(?![\s.]?Plus)', 'DD'),  # DD, AC3
+            
+            # DTS 基础
+            (r'\bDTS[\s.]?[\d.]+', 'DTS'),                            # DTS 5.1
+            (r'\bDTS\b(?![\s.:]+X)(?![\s.-]?HD)', 'DTS'),             # DTS
+            
+            # 无损格式
+            (r'\bLPCM[\s.]?[\d.]+', 'LPCM'),                          # LPCM 2.0
+            (r'\bLPCM\b', 'LPCM'),
+            (r'\bFLAC[\s.]?[\d.]+', 'FLAC'),                          # FLAC 2.0
+            (r'\bFLAC\b', 'FLAC'),
+            
+            # AAC - 确保不匹配到后面的字符
+            (r'\bAAC[\s.]?[\d.]+\b', 'AAC'),                          # AAC 2.0
+            (r'\bAAC\b', 'AAC'),
+            
+            # 其他
             (r'\bOpus\b', 'Opus'),
             (r'\bMP3\b', 'MP3'),
             (r'\bVORBIS\b', 'Vorbis'),
         ]
 
         matched_categories = set()
+        matched_contents = []  # 记录已匹配的内容
         for pattern, category in audio_patterns:
             if category not in matched_categories:
+                # 如果是独立 Atmos 类别，检查之前是否已包含 Atmos
+                if category == 'Atmos':
+                    already_has_atmos = any('atmos' in c.lower() for c in matched_contents)
+                    if already_has_atmos:
+                        continue
                 match = re.search(pattern, title, re.IGNORECASE)
                 if match:
                     # 返回原始匹配字符串
                     effects.append(match.group(0))
+                    matched_contents.append(match.group(0))
                     matched_categories.add(category)
 
         return effects
