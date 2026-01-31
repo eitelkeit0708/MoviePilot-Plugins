@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "2.5"
+    plugin_version = "2.6"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -462,6 +462,9 @@ class SubscribeAutofill(_PluginBase):
                 else:
                     if self._override_mode and subscribe.include:
                         logger.info(f"订阅记录:{subscribe.name} 覆盖模式：将覆盖现有include:{subscribe.include}")
+                        # 调试：输出订阅对象的所有属性
+                        subscribe_attrs = {k: v for k, v in vars(subscribe).items() if not k.startswith('_')}
+                        logger.debug(f"订阅记录:{subscribe.name} 订阅属性: {subscribe_attrs}")
                     
                     include_parts = []
 
@@ -517,15 +520,27 @@ class SubscribeAutofill(_PluginBase):
                             update_dict['include'] = f"{lookaheads}.*{include_parts[-1]}"
                         logger.info(f"订阅记录:{subscribe.name} 生成include: {update_dict['include']}")
                         
-                        # 覆盖模式下，清空特效字段（video_format）以避免冲突
+                        # 覆盖模式下，清空特效字段以避免冲突
                         if self._override_mode:
-                            # 检查是否有特效字段需要清空
-                            if hasattr(subscribe, 'video_format') and subscribe.video_format:
-                                update_dict['video_format'] = None
-                                logger.info(f"订阅记录:{subscribe.name} 覆盖模式：清空特效字段:{subscribe.video_format}")
-                            if hasattr(subscribe, 'audio_format') and subscribe.audio_format:
-                                update_dict['audio_format'] = None
-                                logger.info(f"订阅记录:{subscribe.name} 覆盖模式：清空音频特效字段:{subscribe.audio_format}")
+                            # 尝试多种可能的字段名：effect, video_format, quality_effect 等
+                            effect_fields = ['effect', 'video_format', 'quality_effect', 'video_effect']
+                            for field in effect_fields:
+                                if hasattr(subscribe, field):
+                                    field_value = getattr(subscribe, field, None)
+                                    if field_value:
+                                        update_dict[field] = None
+                                        logger.info(f"订阅记录:{subscribe.name} 覆盖模式：清空{field}字段:{field_value}")
+                                        break
+                            
+                            # 音频特效字段
+                            audio_fields = ['audio_format', 'audio_effect']
+                            for field in audio_fields:
+                                if hasattr(subscribe, field):
+                                    field_value = getattr(subscribe, field, None)
+                                    if field_value:
+                                        update_dict[field] = None
+                                        logger.info(f"订阅记录:{subscribe.name} 覆盖模式：清空{field}字段:{field_value}")
+                                        break
 
                 # 站点
                 if "站点" in self._update_details:
