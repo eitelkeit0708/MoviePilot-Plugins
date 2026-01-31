@@ -19,9 +19,7 @@ DEFAULT_SITE_GROUP_MAPPINGS = """馒头:MWeb|MTeam|TPTV
 彩虹岛:CHDWEB|CHDBits|CHDTV|CHDHKTV|SGNB
 我堡:OurTV|OurBits
 UBits:UBWEB|UBits|UBTV
-高清杜比:Dream|DBTV|QHstudIo
-HDSWEB:HDSWEB
-FRDS:FRDS"""
+高清杜比:Dream|DBTV|QHstudIo"""
 
 # 默认源正则
 DEFAULT_SOURCE_PATTERNS = """CR|Crunchyroll
@@ -47,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "2.1"
+    plugin_version = "2.2"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
