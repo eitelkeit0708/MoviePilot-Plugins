@@ -31,7 +31,7 @@ IQ|iqiyi
 Baha
 LINETV
 Disney[\\s.]*\\+?|DSNP
-HBO|HMAX
+HBO[\\s.]*Max|HBO|HMAX
 Hulu
 Paramount[\\s.]*\\+?
 Apple[\\s.]*TV[\\s.]*\\+?|ATVP"""
@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "2.7"
+    plugin_version = "2.8"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页

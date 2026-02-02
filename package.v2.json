@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "2.7",
+        "version": "2.8",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v2.8": "feat: 添加HBOMax源正则支持",
             "v2.7": "fix: 修复特效字段名为effect，覆盖模式现可正确清空特效字段",
             "v2.6": "fix: 修复特效字段名识别，添加调试日志输出订阅属性",
             "v2.5": "feat: 新增覆盖模式，支持覆盖现有include并清空特效字段",
