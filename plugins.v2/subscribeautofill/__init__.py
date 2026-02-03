@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "2.9"
+    plugin_version = "3.0"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -191,59 +191,52 @@ class SubscribeAutofill(_PluginBase):
 
         # 音频特效正则 - 按优先级排序（复合格式优先）
         # 同系列格式归同一类别，只匹配第一个
-        # 声道格式使用 \d+(?:\.\d+)? 精确匹配如 5.1, 7.1, 2.0
-        # 分隔符支持：空格、点、连字符、下划线
+        # 返回原始匹配字符串，确保 include 和标题一致
+        
+        # 声道匹配模式：可选的声道数 + 可选的 ch/channel 后缀
+        # ch/channel 后必须跟非字母，避免匹配到 -CHDWEB 等
+        ch = r'(?:[\s._-]*\d+(?:\.\d+)?(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
+        
         audio_patterns = [
-            # TrueHD 系列 - 全部归同一类别
-            (r'\bTrueHD[\s.\-_]*\d+(?:\.\d+)?[\s.\-_]*Atmos\b', 'TrueHD'),   # TrueHD 7.1 Atmos
-            (r'\bTrueHD[\s.\-_]*Atmos\b', 'TrueHD'),                          # TrueHD Atmos
-            (r'\bTrueHD[\s.\-_]*\d+(?:\.\d+)?', 'TrueHD'),                    # TrueHD 5.1/7.1
-            (r'\bTrueHD\b', 'TrueHD'),                                        # TrueHD
+            # --- TrueHD / Atmos ---
+            (rf'\bTrueHD{ch}[\s._-]*Atmos\b', 'TrueHD'),
+            (rf'\bTrueHD{ch}', 'TrueHD'),
             
-            # DTS:X 系列
-            (r'\bDTS[\s.\-_:]+X[\s.\-_]*\d+(?:\.\d+)?', 'DTSX'),              # DTS:X 7.1
-            (r'\bDTS[\s.\-_:]+X\b', 'DTSX'),                                  # DTS:X
+            # --- DTS 系列 ---
+            (rf'\bDTS[\s._-]*:?[\s._-]*X{ch}', 'DTSX'),
+            (rf'\bDTS[\s._-]*HD[\s._-]*MA{ch}', 'DTSHDMA'),
+            (rf'\bDTS[\s._-]*HD[\s._-]*HR{ch}', 'DTSHDHR'),
+            (rf'\bDTS[\s._-]*HD{ch}', 'DTSHD'),
+            (rf'\bDTS[\s._-]*ES{ch}', 'DTSES'),
             
-            # DTS-HD 系列
-            (r'\bDTS[\s.\-_]*HD[\s.\-_]*MA[\s.\-_]*\d+(?:\.\d+)?', 'DTSHDMA'),  # DTS-HD MA 5.1 / DTS.HD.MA.5.1
-            (r'\bDTS[\s.\-_]*HD[\s.\-_]*MA\b', 'DTSHDMA'),                      # DTS-HD MA
-            (r'\bDTS[\s.\-_]*HD[\s.\-_]*HR[\s.\-_]*\d+(?:\.\d+)?', 'DTSHDHR'),  # DTS-HD HR 5.1
-            (r'\bDTS[\s.\-_]*HD[\s.\-_]*HR\b', 'DTSHDHR'),                      # DTS-HD HR
+            # --- Dolby Digital Plus (DDP/EAC3) ---
+            (rf'\b(?:DDP|E-?AC-?3|DD\+){ch}[\s._-]*Atmos\b', 'DDP'),
+            (rf'\b(?:DDP|E-?AC-?3|DD\+){ch}', 'DDP'),
+            (r'\bDolby[\s._-]*Digital[\s._-]*Plus\b', 'DDP'),
             
-            # DDP 系列 - 全部归同一类别（包含 Atmos 变体）
-            # 支持 EAC3 / E-AC3 / E-AC-3 多种写法
-            (r'\bDDP[\s.\-_]*\d+(?:\.\d+)?[\s.\-_]*Atmos\b', 'DDP'),            # DDP 5.1 Atmos
-            (r'\bE[\-]?AC[\-]?3[\s.\-_]*\d+(?:\.\d+)?[\s.\-_]*Atmos\b', 'DDP'), # E-AC3/EAC3 5.1 Atmos
-            (r'\bDDP[\s.\-_]*Atmos\b|\bE[\-]?AC[\-]?3[\s.\-_]*Atmos\b', 'DDP'), # DDP/EAC3 Atmos
-            (r'\bDDP[\s.\-_]*\d+(?:\.\d+)?|\bE[\-]?AC[\-]?3[\s.\-_]*\d+(?:\.\d+)?', 'DDP'),  # DDP/EAC3 5.1
-            (r'\bDD\+[\s.\-_]*\d+(?:\.\d+)?', 'DDP'),                           # DD+ 5.1
-            (r'\bDDP\b|\bDD\+\b|\bE[\-]?AC[\-]?3\b|\bDolby[\s.\-_]*Digital[\s.\-_]*Plus\b', 'DDP'),
+            # --- Atmos (独立) ---
+            (r'\b(?:Dolby[\s._-]*)?Atmos\b', 'Atmos'),
             
-            # 独立 Atmos（不属于 TrueHD/DDP 时）
-            (r'\bDolby[\s.\-_]*Atmos\b|\bAtmos\b', 'Atmos'),
+            # --- Dolby Digital (AC3) ---
+            (rf'\b(?:DD|AC-?3|Dolby[\s._-]*Digital){ch}(?![\s._-]*\+|[\s._-]*Plus)', 'DD'),
             
-            # DD 系列
-            (r'\bDD[\s.\-_]*\d+(?:\.\d+)?(?!\+)|\bAC3[\s.\-_]*\d+(?:\.\d+)?', 'DD'),
-            (r'\bDD\b(?![P+])|\bAC3\b|\bDolby[\s.\-_]*Digital\b(?![\s.\-_]*Plus)', 'DD'),
+            # --- DTS 基础 ---
+            (rf'\bDTS{ch}(?![\s._-]*:?X|[\s._-]*HD|[\s._-]*ES)', 'DTS'),
             
-            # DTS 基础
-            (r'\bDTS[\s.\-_]*\d+(?:\.\d+)?', 'DTS'),                            # DTS 5.1
-            (r'\bDTS\b(?![\s.\-_:]+X)(?![\s.\-_]*HD)', 'DTS'),                  # DTS
+            # --- 无损 / PCM ---
+            (rf'\bL?PCM{ch}', 'LPCM'),
+            (rf'\bFLAC{ch}', 'FLAC'),
+            (rf'\bWAV{ch}', 'WAV'),
             
-            # 无损格式
-            (r'\bLPCM[\s.\-_]*\d+(?:\.\d+)?', 'LPCM'),                          # LPCM 2.0
-            (r'\bLPCM\b', 'LPCM'),
-            (r'\bFLAC[\s.\-_]*\d+(?:\.\d+)?', 'FLAC'),                          # FLAC 2.0
-            (r'\bFLAC\b', 'FLAC'),
+            # --- AAC ---
+            (rf'\bHE[\s._-]*AAC{ch}', 'AAC'),
+            (rf'\bAAC{ch}', 'AAC'),
             
-            # AAC
-            (r'\bAAC[\s.\-_]*\d+(?:\.\d+)?\b', 'AAC'),                          # AAC 2.0
-            (r'\bAAC\b', 'AAC'),
-            
-            # 其他
+            # --- 其他 ---
             (r'\bOpus\b', 'Opus'),
             (r'\bMP3\b', 'MP3'),
             (r'\bVORBIS\b', 'Vorbis'),
+            (r'\bOGG\b', 'OGG'),
         ]
 
         matched_categories = set()

@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "2.9",
+        "version": "3.0",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v3.0": "refactor: 重构音频正则-使用ch_pattern公共变量，新增DTS-HD/ES/WAV/HE-AAC/OGG支持",
             "v2.9": "feat: 增强正则鲁棒性-支持更多分隔符(-_)、变体(HDR10Plus/EAC3/10-bit)、严格边界(DV/HQ)",
             "v2.8": "feat: 添加HBOMax源正则支持",
             "v2.7": "fix: 修复特效字段名为effect，覆盖模式现可正确清空特效字段",
