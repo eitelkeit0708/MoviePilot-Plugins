@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "3.2",
+        "version": "3.3",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v3.3": "fix: 修复TrueHD/Atmos组合匹配顺序及声道位置，支持空格分隔声道(如AAC2 0)",
             "v3.2": "fix: 修复DD正则误匹配DDP中的DD问题",
             "v3.1": "fix: 修复HDR10+匹配、排除*Audio音轨标记误识别为声道数",
             "v3.0": "refactor: 重构音频正则-使用ch_pattern公共变量，新增DTS-HD/ES/WAV/HE-AAC/OGG支持",
