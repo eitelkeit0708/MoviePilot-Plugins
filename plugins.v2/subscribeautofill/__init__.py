@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.0"
+    plugin_version = "3.1"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -144,8 +144,8 @@ class SubscribeAutofill(_PluginBase):
             
             # HDR 系列 - 与 DV 是不同类别，可同时匹配 (DoVi HDR)
             # HDR10+/HDR10/HDRVivid/HLG/HDR 同属一个类别，只匹配第一个
-            (r'\bHDR10[\s.\-_]*(?:\+|Plus)\b', 'HDR'),         # HDR10+ / HDR10Plus / HDR10 Plus
-            (r'\bHDR10\b(?![\s.\-_]*(?:\+|Plus))', 'HDR'),     # HDR10 (不带+)
+            (r'\bHDR10\s*\+|\bHDR10[\s.\-_]*Plus\b', 'HDR'),         # HDR10+ / HDR10Plus / HDR10 Plus
+            (r'\bHDR10\b(?!\s*\+)(?![\s.\-_]*Plus)', 'HDR'),     # HDR10 (不带+)
             (r'\bHDR[\s.\-_]?Vivid\b|\bHDRVivid\b', 'HDR'),
             (r'\bHLG\b', 'HDR'),
             (r'\bHDR\b', 'HDR'),
@@ -195,7 +195,8 @@ class SubscribeAutofill(_PluginBase):
         
         # 声道匹配模式：可选的声道数 + 可选的 ch/channel 后缀
         # ch/channel 后必须跟非字母，避免匹配到 -CHDWEB 等
-        ch = r'(?:[\s._-]*\d+(?:\.\d+)?(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
+        # 使用负向前瞻排除 *Audio 音轨数量标记（如 2Audio 表示两条音轨）
+        ch = r'(?:[\s._-]*\d+(?:\.\d+)?(?![\s._-]*[Aa]udio)(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
         
         audio_patterns = [
             # --- TrueHD / Atmos ---
