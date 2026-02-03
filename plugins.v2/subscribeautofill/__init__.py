@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.3"
+    plugin_version = "3.4"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -196,8 +196,9 @@ class SubscribeAutofill(_PluginBase):
         # 声道匹配模式：可选的声道数 + 可选的 ch/channel 后缀
         # ch/channel 后必须跟非字母，避免匹配到 -CHDWEB 等
         # 使用负向前瞻排除 *Audio 音轨数量标记（如 2Audio 表示两条音轨）
-        # 支持点或空格分隔的小数声道（如 5.1 或 2 0），空格分隔时限制小数位为单个数字
-        ch = r'(?:[\s._-]*\d+(?:(?:\.\d+)|(?:\s\d))?(?![\s._-]*[Aa]udio)(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
+        # 支持点或空格分隔的小数声道（如 5.1, 5.1.4 或 2 0），空格分隔时限制小数位为单个数字
+        # 修复支持 3D 声道 (X.Y.Z)
+        ch = r'(?:[\s._-]*\d+(?:(?:\.\d+){0,2}|(?:\s\d))?(?![\s._-]*[Aa]udio)(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
         
         audio_patterns = [
             # --- TrueHD / Atmos ---
@@ -237,6 +238,9 @@ class SubscribeAutofill(_PluginBase):
             # --- AAC ---
             (rf'\bHE[\s._-]*AAC{ch}', 'AAC'),
             (rf'\bAAC{ch}', 'AAC'),
+            
+            # --- AV3A ---
+            (rf'\bAV3A{ch}', 'AV3A'),
             
             # --- 其他 ---
             (r'\bOpus\b', 'Opus'),
