@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.6"
+    plugin_version = "3.7"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -198,7 +198,8 @@ class SubscribeAutofill(_PluginBase):
         # 使用负向前瞻排除 *Audio 音轨数量标记（如 2Audio 表示两条音轨）
         # 支持点或空格分隔的小数声道（如 5.1, 5.1.4 或 2 0），空格分隔时限制小数位为单个数字
         # 修复支持 3D 声道 (X.Y.Z)
-        ch = r'(?:[\s._-]*\d+(?:(?:\.\d+){0,2}|(?:\s\d))?(?![\s._-]*[Aa]udio)(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
+        # 修复排除 bit (如 7.1.10bit 不应匹配为 7.1.10)
+        ch = r'(?:[\s._-]*\d+(?:(?:\.\d+){0,2}|(?:\s\d))?(?!\d)(?![\s._-]*[Aa]udio)(?![\s._-]*bit)(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
         
         audio_patterns = [
             # --- TrueHD / Atmos ---
@@ -220,7 +221,7 @@ class SubscribeAutofill(_PluginBase):
             (r'\bDolby[\s._-]*Digital[\s._-]*Plus\b', 'DDP'),
             
             # --- Atmos (独立) ---
-            (r'\b(?:Dolby[\s._-]*)?Atmos\b', 'Atmos'),
+            (rf'\b(?:Dolby[\s._-]*)?Atmos{ch}\b', 'Atmos'),
             
             # --- Dolby Digital (AC3) ---
             # DD 需要排除 DDP 的情况，使用负向前瞻确保 DD 后面不是 P/+

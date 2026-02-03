@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "3.6",
+        "version": "3.7",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v3.7": "fix: 修复bit深度数值干扰声道匹配(如10bit被误判为声道)，启用Atmos独立声道支持",
             "v3.6": "fix: 调整TrueHD Atmos正则顺序，优先匹配后置声道，防止声道数丢失",
             "v3.5": "fix: 修复DTS-HD与DTS-HD MA/HR的重复匹配问题",
             "v3.4": "feat: 新增AV3A和3D声道(X.Y.Z)支持，修复Atmos重复匹配",
