@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.5"
+    plugin_version = "3.6"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -202,9 +202,8 @@ class SubscribeAutofill(_PluginBase):
         
         audio_patterns = [
             # --- TrueHD / Atmos ---
-            # --- TrueHD / Atmos ---
-            (rf'\bTrueHD{ch}[\s._-]*Atmos\b', 'TrueHD'),
             (rf'\bTrueHD[\s._-]*Atmos{ch}\b', 'TrueHD'),
+            (rf'\bTrueHD{ch}[\s._-]*Atmos\b', 'TrueHD'),
             (rf'\bAtmos[\s._-]*TrueHD{ch}\b', 'TrueHD'),
             (rf'\bTrueHD{ch}', 'TrueHD'),
             
