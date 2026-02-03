@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.7"
+    plugin_version = "3.8"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -517,11 +517,11 @@ class SubscribeAutofill(_PluginBase):
                     if include_parts:
                         # 使用正向先行断言要求同时包含所有元素
                         if len(include_parts) == 1:
-                            update_dict['include'] = include_parts[0]
+                            update_dict['include'] = re.escape(include_parts[0])
                         else:
                             # (?=.*元素1)(?=.*元素2).*元素N
-                            lookaheads = ''.join([f'(?=.*{p})' for p in include_parts[:-1]])
-                            update_dict['include'] = f"{lookaheads}.*{include_parts[-1]}"
+                            lookaheads = ''.join([f'(?=.*{re.escape(p)})' for p in include_parts[:-1]])
+                            update_dict['include'] = f"{lookaheads}.*{re.escape(include_parts[-1])}"
                         logger.info(f"订阅记录:{subscribe.name} 生成include: {update_dict['include']}")
                         
                         # 覆盖模式下，清空特效字段（effect）以避免冲突
