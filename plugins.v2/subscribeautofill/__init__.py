@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.4"
+    plugin_version = "3.5"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -212,7 +212,7 @@ class SubscribeAutofill(_PluginBase):
             (rf'\bDTS[\s._-]*:?[\s._-]*X{ch}', 'DTSX'),
             (rf'\bDTS[\s._-]*HD[\s._-]*MA{ch}', 'DTSHDMA'),
             (rf'\bDTS[\s._-]*HD[\s._-]*HR{ch}', 'DTSHDHR'),
-            (rf'\bDTS[\s._-]*HD{ch}', 'DTSHD'),
+            (rf'\bDTS[\s._-]*HD(?![\s._-]*MA|[\s._-]*HR){ch}', 'DTSHD'),
             (rf'\bDTS[\s._-]*ES{ch}', 'DTSES'),
             
             # --- Dolby Digital Plus (DDP/EAC3) ---
