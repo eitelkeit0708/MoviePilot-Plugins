@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.11"
+    plugin_version = "3.12"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -59,13 +59,20 @@ class SubscribeAutofill(_PluginBase):
 
     def __escape_regex(self, text: str) -> str:
         """
-        轻量级正则转义，保留空格和点号以保持灵活性，仅转义会对正则逻辑产生致命影响的字符
+        轻量级正则转义并放宽分隔符：允许空格/点/下划线/连字符缺失或互换
         """
         if not text:
             return text
         # 转义字符：\ + * ? ^ $ ( ) [ ] { } |
-        # 保留字符：. (匹配任意字符，作为模糊分隔符) 和 空格 (作为分隔符)
-        return re.sub(r'([+*?^$()\[\]{}|\\])', r'\\\1', text)
+        parts = re.split(r'[\s._-]+', text)
+        escaped_parts = []
+        for part in parts:
+            if not part:
+                continue
+            escaped_parts.append(re.sub(r'([+*?^$()\[\]{}|\\])', r'\\\1', part))
+        if not escaped_parts:
+            return ""
+        return r'[\s._-]*'.join(escaped_parts)
 
     # 私有属性
     _enabled: bool = False
