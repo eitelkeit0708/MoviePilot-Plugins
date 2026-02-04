@@ -522,8 +522,8 @@ class SubscribeAutofill(_PluginBase):
                             resource_team = extracted_team
                         elif extracted_team and '@' in extracted_team and '@' not in resource_team:
                             # 如果提取结果包含@且原结果不含，优先使用提取结果 (修复 BiVerse@ADWeb 只识别到 ADWeb)
-                             resource_team = extracted_team
-                             logger.info(f"订阅记录:{subscribe.name} 优化制作组识别: {_meta.resource_team} -> {resource_team}")
+                            resource_team = extracted_team
+                            logger.info(f"订阅记录:{subscribe.name} 优化制作组识别: {_meta.resource_team} -> {resource_team}")
 
                         if resource_team:
                             include_parts.append(resource_team)
@@ -602,10 +602,10 @@ class SubscribeAutofill(_PluginBase):
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        pass
+        return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
         """
@@ -894,6 +894,7 @@ class SubscribeAutofill(_PluginBase):
             "enabled": False,
             "clear": False,
             "clear_handle": False,
+            "override_mode": False,
             "update_details": [],
             "site_group_mappings": DEFAULT_SITE_GROUP_MAPPINGS,
             "source_patterns": DEFAULT_SOURCE_PATTERNS,
