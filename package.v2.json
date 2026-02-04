@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "3.8",
+        "version": "3.9",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v3.9": "fix: 优化正则转义逻辑，不再转义点号和空格，解决v3.8生成的正则包含大量反斜杠问题",
             "v3.8": "fix: 为include字段生成添加正则转义，修复包含特殊字符(如HDR10+、DD+)时生成的正则无效问题",
             "v3.7": "fix: 修复bit深度数值干扰声道匹配(如10bit被误判为声道)，启用Atmos独立声道支持",
             "v3.6": "fix: 调整TrueHD Atmos正则顺序，优先匹配后置声道，防止声道数丢失",

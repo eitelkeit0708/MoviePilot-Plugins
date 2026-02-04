@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.8"
+    plugin_version = "3.9"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -56,6 +56,16 @@ class SubscribeAutofill(_PluginBase):
     plugin_order = 26
     # 可使用的用户级别
     auth_level = 2
+
+    def __escape_regex(self, text: str) -> str:
+        """
+        轻量级正则转义，保留空格和点号以保持灵活性，仅转义会对正则逻辑产生致命影响的字符
+        """
+        if not text:
+            return text
+        # 转义字符：\ + * ? ^ $ ( ) [ ] { } |
+        # 保留字符：. (匹配任意字符，作为模糊分隔符) 和 空格 (作为分隔符)
+        return re.sub(r'([+*?^$()\[\]{}|\\])', r'\\\1', text)
 
     # 私有属性
     _enabled: bool = False
@@ -517,11 +527,11 @@ class SubscribeAutofill(_PluginBase):
                     if include_parts:
                         # 使用正向先行断言要求同时包含所有元素
                         if len(include_parts) == 1:
-                            update_dict['include'] = re.escape(include_parts[0])
+                            update_dict['include'] = self.__escape_regex(include_parts[0])
                         else:
                             # (?=.*元素1)(?=.*元素2).*元素N
-                            lookaheads = ''.join([f'(?=.*{re.escape(p)})' for p in include_parts[:-1]])
-                            update_dict['include'] = f"{lookaheads}.*{re.escape(include_parts[-1])}"
+                            lookaheads = ''.join([f'(?=.*{self.__escape_regex(p)})' for p in include_parts[:-1]])
+                            update_dict['include'] = f"{lookaheads}.*{self.__escape_regex(include_parts[-1])}"
                         logger.info(f"订阅记录:{subscribe.name} 生成include: {update_dict['include']}")
                         
                         # 覆盖模式下，清空特效字段（effect）以避免冲突
