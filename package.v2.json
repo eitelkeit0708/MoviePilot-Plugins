@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "3.10",
+        "version": "3.11",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v3.11": "fix: 修复加载缩进错误并补齐默认配置/空API返回，避免订阅自动填充失效",
             "v3.10": "fix: 修复带@格式的制作组识别不完整问题(如BiVerse@ADWeb)，优化制作组提取正则支持末尾方括号",
             "v3.9": "fix: 优化正则转义逻辑，不再转义点号和空格，解决v3.8生成的正则包含大量反斜杠问题",
             "v3.8": "fix: 为include字段生成添加正则转义，修复包含特殊字符(如HDR10+、DD+)时生成的正则无效问题",
