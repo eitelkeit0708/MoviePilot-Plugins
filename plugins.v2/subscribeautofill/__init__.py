@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.9"
+    plugin_version = "3.10"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -283,7 +283,10 @@ class SubscribeAutofill(_PluginBase):
             return ""
         # 匹配末尾的制作组，支持@连接格式如 Nest@Audies, sh@CHDBits
         # 排除 *Audios/*Audio 这样的音轨数量标记
-        match = re.search(r'-([A-Za-z0-9]+(?:@[A-Za-z0-9]+)?)(?:\s*$|\.(?:mkv|mp4|avi|ts))', title, re.IGNORECASE)
+        # 匹配末尾的制作组，支持@连接格式如 Nest@Audies, sh@CHDBits
+        # 排除 *Audios/*Audio 这样的音轨数量标记
+        # 增加对 [ 结尾的支持（如 BiVerse@ADWeb[...）
+        match = re.search(r'-([A-Za-z0-9]+(?:@[A-Za-z0-9]+)?)(?:\[|\s*$|\.(?:mkv|mp4|avi|ts))', title, re.IGNORECASE)
         if match:
             group = match.group(1)
             # 排除音轨数量标记（如 6Audios, 3Audio）
@@ -512,8 +515,16 @@ class SubscribeAutofill(_PluginBase):
                     # 4. 制作组
                     if "制作组" in self._update_details:
                         resource_team = _meta.resource_team if _meta else None
+                        # 尝试从标题提取制作组，以弥补MP默认识别可能丢失@前缀的问题
+                        extracted_team = self.__extract_group_from_title(torrent_title)
+                        
                         if not resource_team:
-                            resource_team = self.__extract_group_from_title(torrent_title)
+                            resource_team = extracted_team
+                        elif extracted_team and '@' in extracted_team and '@' not in resource_team:
+                            # 如果提取结果包含@且原结果不含，优先使用提取结果 (修复 BiVerse@ADWeb 只识别到 ADWeb)
+                             resource_team = extracted_team
+                             logger.info(f"订阅记录:{subscribe.name} 优化制作组识别: {_meta.resource_team} -> {resource_team}")
+
                         if resource_team:
                             include_parts.append(resource_team)
                             logger.debug(f"订阅记录:{subscribe.name} 提取到制作组: {resource_team}")
