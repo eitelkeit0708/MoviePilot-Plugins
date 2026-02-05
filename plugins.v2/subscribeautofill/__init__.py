@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.12"
+    plugin_version = "3.13"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -72,7 +72,7 @@ class SubscribeAutofill(_PluginBase):
             escaped_parts.append(re.sub(r'([+*?^$()\[\]{}|\\])', r'\\\1', part))
         if not escaped_parts:
             return ""
-        return r'[\s._-]*'.join(escaped_parts)
+        return r'[\s._-]?'.join(escaped_parts)
 
     # 私有属性
     _enabled: bool = False
