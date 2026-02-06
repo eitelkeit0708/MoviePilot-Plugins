@@ -22,19 +22,19 @@ UBits:UBWEB|UBits|UBTV
 高清杜比:Dream|DBTV|QHstudIo"""
 
 # 默认源正则
-DEFAULT_SOURCE_PATTERNS = """CR|Crunchyroll
-Netflix|NF
+DEFAULT_SOURCE_PATTERNS = """\\bCR\\b|Crunchyroll
+Netflix|\\bNF\\b
 friDay|Friday
-AMZN|Amazon
-B-Global|BG
-IQ|iqiyi
+\\bAMZN\\b|Amazon
+B-Global|\\bBG\\b
+\\bIQ\\b|iqiyi
 Baha
 LINETV
-Disney[\\s.]*\\+?|DSNP
-HBO[\\s.]*Max|HBO|HMAX
+Disney[\\s.]*\\+?|\\bDSNP\\b
+HBO[\\s.]*Max|\\bHBO\\b|\\bHMAX\\b
 Hulu
 Paramount[\\s.]*\\+?
-Apple[\\s.]*TV[\\s.]*\\+?|ATVP"""
+Apple[\\s.]*TV[\\s.]*\\+?|\\bATVP\\b"""
 
 
 class SubscribeAutofill(_PluginBase):
@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.13"
+    plugin_version = "3.14"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
