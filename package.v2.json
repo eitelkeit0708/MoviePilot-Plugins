@@ -36,11 +36,12 @@
         "name": "订阅自动填充",
         "description": "电视剧下载后自动拆分媒体信息（特效/源/制作组）填充到订阅，支持站点-官组智能匹配",
         "labels": "订阅",
-        "version": "3.14",
+        "version": "3.15",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/teamwork.png",
         "author": "Eitelkeit",
         "level": 2,
         "history": {
+            "v3.15": "fix: 用户自定义视频源自动加边界，避免短码误触",
             "v3.14": "fix: 视频源短码加边界，避免CR误匹配",
             "v3.13": "fix: include分隔符改为0或1个，避免过度匹配",
             "v3.12": "fix: include分隔符容错，允许空格/点/下划线/连字符缺失或互换",

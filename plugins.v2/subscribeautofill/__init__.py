@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.14"
+    plugin_version = "3.15"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -73,6 +73,23 @@ class SubscribeAutofill(_PluginBase):
         if not escaped_parts:
             return ""
         return r'[\s._-]?'.join(escaped_parts)
+
+    @staticmethod
+    def __normalize_source_pattern(pattern: str) -> str:
+        """
+        将非正则的源字符串转为安全正则：避免短码误触并允许常见分隔符
+        """
+        if not pattern:
+            return pattern
+        # 若包含正则元字符，视为用户自定义正则，保持原样
+        if re.search(r'[\\\[\]{}()|?*+^$]', pattern):
+            return pattern
+        parts = re.split(r'[\s._-]+', pattern)
+        escaped_parts = [re.escape(p) for p in parts if p]
+        if not escaped_parts:
+            return pattern
+        core = r'[\s._-]*'.join(escaped_parts)
+        return rf'(?<![A-Za-z0-9]){core}(?![A-Za-z0-9])'
 
     # 私有属性
     _enabled: bool = False
@@ -115,7 +132,11 @@ class SubscribeAutofill(_PluginBase):
 
             # 解析源正则
             self._source_patterns = config.get("source_patterns") or DEFAULT_SOURCE_PATTERNS
-            self._parsed_sources = [p.strip() for p in self._source_patterns.strip().split('\n') if p.strip()]
+            self._parsed_sources = [
+                self.__normalize_source_pattern(p.strip())
+                for p in self._source_patterns.strip().split('\n')
+                if p.strip()
+            ]
             logger.info(f"解析到 {len(self._parsed_sources)} 个源正则")
 
             # 清理已处理历史
