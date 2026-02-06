@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.15"
+    plugin_version = "3.16"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -263,7 +263,7 @@ class SubscribeAutofill(_PluginBase):
             
             # --- Dolby Digital (AC3) ---
             # DD 需要排除 DDP 的情况，使用负向前瞻确保 DD 后面不是 P/+
-            (rf'\bDD(?![P+]){ch}|\bAC-?3{ch}|\bDolby[\s._-]*Digital{ch}(?![\s._-]*Plus)', 'DD'),
+            (rf'\bDD(?![P+])(?=(?:[\s._-]*\d|\b)){ch}|\bAC-?3{ch}|\bDolby[\s._-]*Digital{ch}(?![\s._-]*Plus)', 'DD'),
             
             # --- DTS 基础 ---
             (rf'\bDTS{ch}(?![\s._-]*:?X|[\s._-]*HD|[\s._-]*ES)', 'DTS'),
