@@ -45,7 +45,7 @@ class SubscribeAutofill(_PluginBase):
     # 插件图标
     plugin_icon = "teamwork.png"
     # 插件版本
-    plugin_version = "3.16"
+    plugin_version = "3.17"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -334,16 +334,19 @@ class SubscribeAutofill(_PluginBase):
         """从种子标题提取源，返回原始匹配字符串"""
         if not title:
             return None
+        best_match = None
         for source_pattern in self._parsed_sources:
             try:
                 match = re.search(source_pattern, title, re.IGNORECASE)
                 if match:
                     # 返回原始匹配字符串，而不是正则模式
-                    return match.group(0)
+                    matched_text = match.group(0)
+                    if not best_match or len(matched_text) > len(best_match):
+                        best_match = matched_text
             except re.error:
                 logger.warning(f"无效的源正则表达式: {source_pattern}")
                 continue
-        return None
+        return best_match
 
     def __get_site_by_group(self, resource_team: str, default_site: int) -> List[int]:
         """根据制作组匹配优先站点"""
