@@ -50,7 +50,7 @@ const dynamicLoadingCss = (cssFilePaths, dontAppendStylesToHead, exposeItemName)
     }
 
     if (dontAppendStylesToHead) {
-      const key = 'css__hanhanrescueseedingplus__' + exposeItemName;
+      const key = 'css__hanhanrescueseeding__' + exposeItemName;
       window[key] = window[key] || [];
       window[key].push(href);
       return;

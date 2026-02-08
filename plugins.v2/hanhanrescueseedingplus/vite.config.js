@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [
     vue(),
     federation({
-      name: 'hanhanrescueseedingplus',
+      name: 'hanhanrescueseeding',
       filename: 'remoteEntry.js',
       exposes: {
         './Page': './src/components/Page.vue',
