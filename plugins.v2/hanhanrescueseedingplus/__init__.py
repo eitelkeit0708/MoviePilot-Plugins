@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.3.1"
+    plugin_version = "1.3.2"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -137,15 +137,32 @@ class HanHanRescueSeedingPlus(_PluginBase):
     def _init_site(self) -> bool:
         """
         初始化站点信息，返回是否成功
+        通过遍历所有站点，查找URL中包含目标域名的站点
         """
         if self.site:
             return True
         
+        # 首先尝试精确匹配
         self.site = SiteOper().get_by_domain(self.domain)
-        if not self.site:
-            logger.warning(f"憨憨站点({self.domain})未配置，请先在MoviePilot站点管理中添加站点")
-            return False
-        return True
+        if self.site:
+            return True
+        
+        # 如果精确匹配失败，遍历所有站点查找URL中包含目标域名的站点
+        all_sites = SiteOper().list()
+        for site in all_sites:
+            # 检查站点URL是否包含目标域名
+            if site.url and self.domain in site.url:
+                self.site = site
+                logger.info(f"通过URL匹配到憨憨站点: {site.name} ({site.url})")
+                return True
+            # 也检查domain字段
+            if site.domain and self.domain in site.domain:
+                self.site = site
+                logger.info(f"通过domain匹配到憨憨站点: {site.name} ({site.domain})")
+                return True
+        
+        logger.warning(f"憨憨站点({self.domain})未配置，请先在MoviePilot站点管理中添加站点")
+        return False
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """
