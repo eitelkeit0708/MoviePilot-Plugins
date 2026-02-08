@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.4.3"
+    plugin_version = "1.4.4"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -240,7 +240,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
         new_config = {}
         for key, value in config.items():
             if key.startswith("hanhanrescueseeding_"):
-                new_key = key.replace("hanhanrescueseeding_", self.plugin_config_prefix)
+                new_key = key.replace("hanhanrescueseeding_", "")
                 new_config[new_key] = value
         
         # 调用父类方法更新配置
