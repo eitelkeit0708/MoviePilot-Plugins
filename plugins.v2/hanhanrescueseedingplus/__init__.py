@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.4.2"
+    plugin_version = "1.4.3"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -218,20 +218,33 @@ class HanHanRescueSeedingPlus(_PluginBase):
         """API Endpoint: Returns current plugin configuration."""
 
         return {
-            "enable": self._enable,
-            "run_once": self._run_once,
-            "cron": self._cron,
-            "downloader": self._downloader,
-            "seeding_count": self._seeding_count,
-            "download_limit": self._download_limit,
-            "all_downloaders": self._all_downloaders,
-            "save_path": self._save_path,
-            "custom_tag": self._custom_tag,
-            "enable_notification": self._enable_notification,
-            "notify_on_zero_torrents": self._notify_on_zero_torrents,
-            "history_rescue_enabled": self._history_rescue_enabled,
-            "user_id": self._user_id
+            "hanhanrescueseeding_enable": self._enable,
+            "hanhanrescueseeding_run_once": self._run_once,
+            "hanhanrescueseeding_cron": self._cron,
+            "hanhanrescueseeding_downloader": self._downloader,
+            "hanhanrescueseeding_seeding_count": self._seeding_count,
+            "hanhanrescueseeding_download_limit": self._download_limit,
+            "hanhanrescueseeding_all_downloaders": self._all_downloaders,
+            "hanhanrescueseeding_save_path": self._save_path,
+            "hanhanrescueseeding_custom_tag": self._custom_tag,
+            "hanhanrescueseeding_enable_notification": self._enable_notification,
+            "hanhanrescueseeding_notify_on_zero_torrents": self._notify_on_zero_torrents,
+            "hanhanrescueseeding_history_rescue_enabled": self._history_rescue_enabled,
+            "hanhanrescueseeding_user_id": self._user_id
         }
+    
+    def update_config(self, config: dict):
+        """
+        更新配置
+        """
+        new_config = {}
+        for key, value in config.items():
+            if key.startswith("hanhanrescueseeding_"):
+                new_key = key.replace("hanhanrescueseeding_", self.plugin_config_prefix)
+                new_config[new_key] = value
+        
+        # 调用父类方法更新配置
+        return super().update_config(new_config)
 
 
     def _get_download_records(self) -> List[Dict[str, Any]]:

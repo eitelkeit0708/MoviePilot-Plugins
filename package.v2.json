@@ -86,11 +86,12 @@
         "name": "憨憨保种区",
         "description": "自动下载憨憨保种区种子，支持定时任务和历史保种",
         "labels": "站点,下载",
-        "version": "1.4.2",
+        "version": "1.4.3",
         "icon": "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png",
         "author": "Eitelkeit (based on Seed680's work)",
         "level": 2,
         "history": {
+            "v1.4.3": "fix: 修复UI配置加载失败问题 (Config Key Mapping)",
             "v1.4.2": "fix: 回滚到Vue版本，并修正Federation模块名为原版名称以解决UI加载失败问题 (Internal: hanhanrescueseeding)",
             "v1.4.1": "fix: 尝试回滚插件名为 hanhanrescueseeding (已撤销)",
             "v1.4.0": "revert: 撤销 Vue移除操作，恢复原版前端架构",
