@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.4.6"
+    plugin_version = "1.5.0"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -165,90 +165,238 @@ class HanHanRescueSeedingPlus(_PluginBase):
         logger.warning(f"憨憨站点({self.domain})未配置，请先在MoviePilot站点管理中添加站点")
         return False
 
-    def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
+    def get_form(self) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
         """
-        return None, {
+        # 获取所有下载器
+        downloaders = [d.get("value") for d in self._all_downloaders]
+
+        return [
+            {
+                "component": "VForm",
+                "content": [
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "enable",
+                                            "label": "启用插件",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "run_once",
+                                            "label": "立即运行普通保种任务",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "history_rescue_enabled",
+                                            "label": "立即运行下载历史保种任务",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "enable_notification",
+                                            "label": "启用通知",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VSwitch",
+                                        "props": {
+                                            "model": "notify_on_zero_torrents",
+                                            "label": "种子数为0时发送通知",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VSelect",
+                                        "props": {
+                                            "model": "downloader",
+                                            "label": "下载器",
+                                            "items": downloaders,
+                                            "placeholder": "选择下载器，留空使用默认",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "cron",
+                                            "label": "执行周期",
+                                            "placeholder": "设置插件的执行周期，如：0 2 * * * (每天凌晨2点执行)",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "seeding_count",
+                                            "label": "做种人数",
+                                            "placeholder": "例:3或者1-3",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "download_limit",
+                                            "label": "单次下载数量",
+                                            "type": "number",
+                                            "placeholder": "每次执行时最多下载的种子数量，0表示无限制",
+                                        },
+                                    }
+                                ],
+                            },
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12, "md": 6},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "save_path",
+                                            "label": "保存路径",
+                                            "placeholder": "设置种子文件的保存路径",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "custom_tag",
+                                            "label": "自定义标签",
+                                            "placeholder": "为下载的种子添加自定义标签",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextField",
+                                        "props": {
+                                            "model": "user_id",
+                                            "label": "用户ID",
+                                            "placeholder": "憨憨用户ID，用于下载历史保种",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }
+        ], {
             "enable": self._enable,
             "run_once": self._run_once,
             "cron": self._cron,
             "downloader": self._downloader,
             "seeding_count": self._seeding_count,
             "download_limit": self._download_limit,
-            "all_downloaders": self._all_downloaders,
             "save_path": self._save_path,
             "custom_tag": self._custom_tag,
             "enable_notification": self._enable_notification,
             "notify_on_zero_torrents": self._notify_on_zero_torrents,
             "history_rescue_enabled": self._history_rescue_enabled,
-            "user_id": self._user_id
+            "user_id": self._user_id,
         }
-
-    def load_config(self, config: dict):
-        """加载配置"""
-        if config:
-            # 遍历配置中的键并设置相应的属性
-            for key in (
-                    "enable",
-                    "run_once",
-                    "cron",
-                    "downloader",
-                    "seeding_count",
-                    "download_limit",
-                    "save_path",
-                    "custom_tag",
-                    "enable_notification",
-                    "notify_on_zero_torrents",
-                    "history_rescue_enabled",
-                    "user_id"
-            ):
-                setattr(self, f"_{key}", config.get(key, getattr(self, f"_{key}")))
-
-    @staticmethod
-    def get_render_mode() -> Tuple[str, str]:
-        """
-        获取插件渲染模式
-        :return: 1、渲染模式，支持：vue/vuetify，默认vuetify
-        :return: 2、组件路径，默认 dist/assets
-        """
-        return "vue", "dist/assets"
-
-    # --- Instance methods for API endpoints ---
-    def _get_config(self) -> Dict[str, Any]:
-        """API Endpoint: Returns current plugin configuration."""
-
-        return {
-            "hanhanrescueseeding_enable": self._enable,
-            "hanhanrescueseeding_run_once": self._run_once,
-            "hanhanrescueseeding_cron": self._cron,
-            "hanhanrescueseeding_downloader": self._downloader,
-            "hanhanrescueseeding_seeding_count": self._seeding_count,
-            "hanhanrescueseeding_download_limit": self._download_limit,
-            "hanhanrescueseeding_all_downloaders": self._all_downloaders,
-            "hanhanrescueseeding_save_path": self._save_path,
-            "hanhanrescueseeding_custom_tag": self._custom_tag,
-            "hanhanrescueseeding_enable_notification": self._enable_notification,
-            "hanhanrescueseeding_notify_on_zero_torrents": self._notify_on_zero_torrents,
-            "hanhanrescueseeding_history_rescue_enabled": self._history_rescue_enabled,
-            "hanhanrescueseeding_user_id": self._user_id
-        }
-    
-    def update_config(self, config: dict):
-        """
-        更新配置
-        """
-        new_config = {}
-        for key, value in config.items():
-            if key.startswith("hanhanrescueseeding_"):
-                new_key = key.replace("hanhanrescueseeding_", "")
-                new_config[new_key] = value
-        
-        # 更新实时状态
-        self.init_plugin(new_config)
-
-        # 调用父类方法更新配置
-        return super().update_config(new_config)
 
 
     def _get_download_records(self) -> List[Dict[str, Any]]:
