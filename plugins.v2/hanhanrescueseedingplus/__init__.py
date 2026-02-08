@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.4.5"
+    plugin_version = "1.4.6"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -103,7 +103,8 @@ class HanHanRescueSeedingPlus(_PluginBase):
                     updated = True
                 
                 if updated:
-                    self.update_config(config=config)
+                    # 使用super()避免递归调用self.update_config
+                    super().update_config(config)
                     
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 
