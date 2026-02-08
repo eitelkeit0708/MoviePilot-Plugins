@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.3.0"
+    plugin_version = "1.3.1"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -66,14 +66,9 @@ class HanHanRescueSeedingPlus(_PluginBase):
         try:
 
             self.downloader_helper = DownloaderHelper()
-            # 获取站点信息
-            self.site = SiteOper().get_by_domain(self.domain)
-            if not self.site:
-                self.domain = "hhanclub.net"
-                self.site = SiteOper().get_by_domain(self.domain)
-                if not self.site:
-                    logger.error(f"憨憨站点未配置，请先在系统配置中添加站点")
-                    return
+            # 获取站点信息（延迟到实际使用时再强制检查）
+            self.site = None
+            self._init_site()
 
             # 读取配置
             if config:
@@ -138,6 +133,19 @@ class HanHanRescueSeedingPlus(_PluginBase):
                     self._scheduler.start()
         except Exception as e:
             logger.error(f"初始化失败：{str(e)}", exc_info=True)
+
+    def _init_site(self) -> bool:
+        """
+        初始化站点信息，返回是否成功
+        """
+        if self.site:
+            return True
+        
+        self.site = SiteOper().get_by_domain(self.domain)
+        if not self.site:
+            logger.warning(f"憨憨站点({self.domain})未配置，请先在MoviePilot站点管理中添加站点")
+            return False
+        return True
 
     def get_form(self) -> Tuple[Optional[List[dict]], Dict[str, Any]]:
         """
@@ -380,6 +388,11 @@ class HanHanRescueSeedingPlus(_PluginBase):
 
             if not self._downloader:
                 logger.error("未配置下载器，无法执行保种任务")
+                return
+            
+            # 检查站点是否已配置
+            if not self._init_site():
+                logger.error("憨憨站点未配置，无法执行保种任务")
                 return
             downloaded_count = 0
             success_downloaded_count = 0
@@ -647,6 +660,11 @@ class HanHanRescueSeedingPlus(_PluginBase):
         """
         if not self._user_id:
             logger.error("用户ID未配置，无法执行下载历史保种任务")
+            return
+        
+        # 检查站点是否已配置
+        if not self._init_site():
+            logger.error("憨憨站点未配置，无法执行历史保种任务")
             return
         
         try:
