@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.5.1"
+    plugin_version = "1.5.2"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -174,21 +174,31 @@ class HanHanRescueSeedingPlus(_PluginBase):
 
         
         # 获取下载记录并格式化
-        records = self.get_data("download_records") or []
-        records.reverse()
-        history_text = ""
-        for record in records:
-            status_text = "成功" if record.get('status') else "失败"
-            time_str = record.get('time', '')
-            name = record.get('name', '未知')
-            title = record.get('title', '')
-            size = record.get('size', 0) / 1024 / 1024 / 1024
-            message = record.get('message', '')
-            
-            history_text += f"[{time_str}] {name} - {title} ({size:.2f}GB) - {status_text}\n"
-            if message:
-                history_text += f"    └─ {message}\n"
-            history_text += "-" * 50 + "\n"
+        try:
+            records = self.get_data("download_records") or []
+            if isinstance(records, list):
+                records.reverse()
+                history_text = ""
+                for record in records:
+                    status_text = "成功" if record.get('status') else "失败"
+                    time_str = record.get('time', '')
+                    name = record.get('name', '未知')
+                    title = record.get('title', '')
+                    try:
+                        size = float(record.get('size') or 0) / 1024 / 1024 / 1024
+                    except (ValueError, TypeError):
+                        size = 0.0
+                    message = record.get('message', '')
+                    
+                    history_text += f"[{time_str}] {name} - {title} ({size:.2f}GB) - {status_text}\n"
+                    if message:
+                        history_text += f"    └─ {message}\n"
+                    history_text += "-" * 50 + "\n"
+            else:
+                 history_text = "下载记录格式错误"
+        except Exception as e:
+            history_text = f"读取下载记录失败: {str(e)}"
+            logger.error(f"读取下载记录失败: {str(e)}", exc_info=True)
             
         if not history_text:
             history_text = "暂无保种记录"
