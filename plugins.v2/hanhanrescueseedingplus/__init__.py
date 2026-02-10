@@ -31,7 +31,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/wikrin/MoviePilot-Plugins/main/icons/alter_1.png"
     # 插件版本
-    plugin_version = "1.5.0"
+    plugin_version = "1.5.1"
     # 插件作者
     plugin_author = "Eitelkeit"
     # 作者主页
@@ -171,6 +171,27 @@ class HanHanRescueSeedingPlus(_PluginBase):
         """
         # 获取所有下载器
         downloaders = [d.get("value") for d in self._all_downloaders]
+
+        
+        # 获取下载记录并格式化
+        records = self.get_data("download_records") or []
+        records.reverse()
+        history_text = ""
+        for record in records:
+            status_text = "成功" if record.get('status') else "失败"
+            time_str = record.get('time', '')
+            name = record.get('name', '未知')
+            title = record.get('title', '')
+            size = record.get('size', 0) / 1024 / 1024 / 1024
+            message = record.get('message', '')
+            
+            history_text += f"[{time_str}] {name} - {title} ({size:.2f}GB) - {status_text}\n"
+            if message:
+                history_text += f"    └─ {message}\n"
+            history_text += "-" * 50 + "\n"
+            
+        if not history_text:
+            history_text = "暂无保种记录"
 
         return [
             {
@@ -381,6 +402,27 @@ class HanHanRescueSeedingPlus(_PluginBase):
                             },
                         ],
                     },
+                    {
+                        "component": "VRow",
+                        "content": [
+                            {
+                                "component": "VCol",
+                                "props": {"cols": 12},
+                                "content": [
+                                    {
+                                        "component": "VTextarea",
+                                        "props": {
+                                            "model": "history_log",
+                                            "label": "运行记录",
+                                            "rows": 10,
+                                            "readonly": True,
+                                            "placeholder": "暂无记录",
+                                        },
+                                    }
+                                ],
+                            },
+                        ],
+                    },
                 ],
             }
         ], {
@@ -396,6 +438,7 @@ class HanHanRescueSeedingPlus(_PluginBase):
             "notify_on_zero_torrents": self._notify_on_zero_torrents,
             "history_rescue_enabled": self._history_rescue_enabled,
             "user_id": self._user_id,
+            "history_log": history_text
         }
 
 
