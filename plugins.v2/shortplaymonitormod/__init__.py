@@ -63,7 +63,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_B.png"
     # 插件版本
-    plugin_version = "1.0"
+    plugin_version = "1.1"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -90,6 +90,7 @@ class ShortPlayMonitorMod(_PluginBase):
     tmdbchain = None
     _interval = 10
     _notify = False
+    _combined_only = False
     _medias = {}
 
     # 定时器
@@ -111,6 +112,7 @@ class ShortPlayMonitorMod(_PluginBase):
             self._monitor_confs = config.get("monitor_confs")
             self._exclude_keywords = config.get("exclude_keywords") or ""
             self._transfer_type = config.get("transfer_type") or "link"
+            self._combined_only = config.get("combined_only") or False
 
         # 停止现有任务
         self.stop_service()
@@ -288,6 +290,20 @@ class ShortPlayMonitorMod(_PluginBase):
         :param source_dir: 监控目录
         """
         try:
+            # 仅处理合并版本检查
+            if self._combined_only and not is_directory:
+                file_parent = Path(event_path).parent
+                video_files = [f for f in file_parent.iterdir()
+                               if f.is_file() and f.suffix in settings.RMT_MEDIAEXT]
+                if len(video_files) != 1:
+                    logger.info(f"{event_path} 所在目录包含 {len(video_files)} 个视频文件，非合并版本，跳过处理")
+                    return
+                file_size_mb = video_files[0].stat().st_size / (1024 * 1024)
+                if file_size_mb <= 50:
+                    logger.info(f"{event_path} 文件大小 {file_size_mb:.1f}MB <= 50MB，非合并版本，跳过处理")
+                    return
+                logger.info(f"{event_path} 符合合并版本条件（单文件 {file_size_mb:.1f}MB），继续处理")
+
             # 转移路径
             dest_dir = self._dirconf.get(source_dir)
             # 是否重命名
@@ -790,6 +806,7 @@ class ShortPlayMonitorMod(_PluginBase):
             "interval": self._interval,
             "notify": self._notify,
             "image": self._image,
+            "combined_only": self._combined_only,
             "monitor_confs": self._monitor_confs
         })
 
@@ -874,6 +891,22 @@ class ShortPlayMonitorMod(_PluginBase):
                                         'props': {
                                             'model': 'notify',
                                             'label': '发送通知',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'combined_only',
+                                            'label': '仅处理合并版本',
                                         }
                                     }
                                 ]
@@ -1040,6 +1073,7 @@ class ShortPlayMonitorMod(_PluginBase):
             "onlyonce": False,
             "image": False,
             "notify": False,
+            "combined_only": False,
             "interval": 10,
             "monitor_confs": "",
             "exclude_keywords": "",

@@ -86,11 +86,12 @@
         "name": "短剧刮削Mod",
         "description": "短剧监控魔改版：支持无集数合并短剧自动编号",
         "labels": "刮削",
-        "version": "1.0",
+        "version": "1.1",
         "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/Amule_B.png",
         "author": "eitelkeit0708 (based on thsrite's work)",
         "level": 1,
         "history": {
+            "v1.1": "feat: 新增仅处理合并版本开关（目录内仅1个视频文件且>50MB）",
             "v1.0": "魔改版发布：支持无集数合并短剧自动编号E01，print替换为logger"
         }
     }
