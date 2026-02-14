@@ -63,7 +63,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.4"
+    plugin_version = "1.5"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -379,7 +379,7 @@ class ShortPlayMonitorMod(_PluginBase):
                     rename_conf = bool(rename_conf)
                     target = target_path.replace(dest_dir, "")
                     parent = Path(Path(target).parents[0])
-                    last = target.replace(str(parent), "")
+                    last = "/" + Path(target).name
                     if rename_conf:
                         # 自定义识别次
                         title, _ = WordsMatcher().prepare(str(parent))
@@ -390,7 +390,7 @@ class ShortPlayMonitorMod(_PluginBase):
                     if str(rename_conf) == "smart":
                         target = target_path.replace(dest_dir, "")
                         parent = Path(Path(target).parents[0])
-                        last = target.replace(str(parent), "")
+                        last = "/" + Path(target).name
                         # 取.第一个
                         title = Path(parent).name.split(".")[0]
                         target_path = Path(dest_dir).joinpath(title + last)
