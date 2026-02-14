@@ -63,7 +63,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.6"
+    plugin_version = "1.7"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -92,6 +92,7 @@ class ShortPlayMonitorMod(_PluginBase):
     _notify = False
     _combined_only = False
     _clear_history = False
+    _force_reprocess = False
     _medias = {}
 
     # 定时器
@@ -116,22 +117,13 @@ class ShortPlayMonitorMod(_PluginBase):
             self._combined_only = config.get("combined_only") or False
             self._clear_history = config.get("clear_history") or False
 
-        # 清除历史记录
+        # 清除历史记录：触发全量重新处理（跳过已存在检查）
         if self._clear_history:
-            logger.info("正在清除所有插件配置和历史记录...")
-            self._enabled = False
-            self._onlyonce = False
-            self._image = False
-            self._interval = 10
-            self._notify = False
-            self._monitor_confs = None
-            self._exclude_keywords = ""
-            self._transfer_type = "link"
-            self._combined_only = False
+            self._force_reprocess = True
             self._clear_history = False
+            self._onlyonce = True
             self.__update_config()
-            logger.info("插件配置和历史记录已清除")
-            return
+            logger.info("已启用强制重新处理模式，将全量同步并跳过已存在检查")
 
         # 停止现有任务
         self.stop_service()
@@ -238,6 +230,10 @@ class ShortPlayMonitorMod(_PluginBase):
                                    event_path=str(file_path),
                                    source_dir=mon_path)
         logger.info("全量同步短剧监控Mod目录完成！")
+        # 全量同步完成后重置强制处理标志
+        if self._force_reprocess:
+            self._force_reprocess = False
+            logger.info("强制重新处理模式已关闭")
 
     def __handle_image(self):
         """
@@ -457,8 +453,12 @@ class ShortPlayMonitorMod(_PluginBase):
 
                     # 文件：nfo、图片、视频文件
                     if Path(target_path).exists():
-                        logger.debug(f"目标文件 {target_path} 已存在")
-                        return
+                        if self._force_reprocess:
+                            logger.info(f"目标文件 {target_path} 已存在，强制重新处理模式，删除旧文件")
+                            Path(target_path).unlink()
+                        else:
+                            logger.debug(f"目标文件 {target_path} 已存在")
+                            return
 
                     # 硬链接
                     retcode = self.__transfer_command(file_item=Path(event_path),
@@ -950,7 +950,7 @@ class ShortPlayMonitorMod(_PluginBase):
                                         'component': 'VSwitch',
                                         'props': {
                                             'model': 'clear_history',
-                                            'label': '清除历史记录',
+                                            'label': '强制重新处理',
                                         }
                                     }
                                 ]
