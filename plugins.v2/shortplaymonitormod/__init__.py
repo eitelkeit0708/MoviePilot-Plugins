@@ -57,13 +57,13 @@ class FileMonitorHandler(FileSystemEventHandler):
 
 class ShortPlayMonitorMod(_PluginBase):
     # 插件名称
-    plugin_name = "短剧刮削Mod"
+    plugin_name = "短剧自动整理"
     # 插件描述
-    plugin_desc = "短剧监控魔改版：支持无集数合并短剧自动编号"
+    plugin_desc = "监控短剧目录，自动刮削、重命名、生成NFO，支持合并版本自动编号"
     # 插件图标
-    plugin_icon = "Amule_B.png"
+    plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.2"
+    plugin_version = "1.3"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页

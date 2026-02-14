@@ -83,17 +83,18 @@
         }
     },
     "ShortPlayMonitorMod": {
-        "name": "短剧刮削Mod",
-        "description": "短剧监控魔改版：支持无集数合并短剧自动编号",
+        "name": "短剧自动整理",
+        "description": "监控短剧目录，自动刮削、重命名、生成NFO，支持合并版本自动编号",
         "labels": "刮削",
-        "version": "1.2",
-        "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/Amule_B.png",
-        "author": "eitelkeit0708 (based on thsrite's work)",
+        "version": "1.3",
+        "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/mediaplay.png",
+        "author": "eitelkeit0708",
         "level": 1,
         "history": {
+            "v1.3": "refactor: 全面更新插件名称、图标，独立数据存储，避免与原版冲突",
             "v1.2": "fix: 修复 dest_dir 为空时 replace() 崩溃，添加目的目录配置检查",
             "v1.1": "feat: 新增仅处理合并版本开关（目录内仅1个视频文件且>50MB）",
-            "v1.0": "魔改版发布：支持无集数合并短剧自动编号E01，print替换为logger"
+            "v1.0": "初始版本：支持无集数合并短剧自动编号E01"
         }
     }
 }
