@@ -81,5 +81,17 @@
             "v1.1": "feat: 拆分填充选项为独立开关（视觉特效/音频特效/源/制作组），新增10bit/12bit/8bit识别",
             "v1.0": "初始版本：支持下载后自动拆分媒体信息整合到include，站点-官组智能匹配"
         }
+    },
+    "ShortPlayMonitorMod": {
+        "name": "短剧刮削Mod",
+        "description": "短剧监控魔改版：支持无集数合并短剧自动编号",
+        "labels": "刮削",
+        "version": "1.0",
+        "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/Amule_B.png",
+        "author": "eitelkeit0708 (based on thsrite's work)",
+        "level": 1,
+        "history": {
+            "v1.0": "魔改版发布：支持无集数合并短剧自动编号E01，print替换为logger"
+        }
     }
 }
