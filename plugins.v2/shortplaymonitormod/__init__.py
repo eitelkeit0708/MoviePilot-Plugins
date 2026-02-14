@@ -2,6 +2,8 @@ import datetime
 import os
 import re
 import threading
+import time
+import random
 from pathlib import Path
 from threading import Lock
 from typing import Any, List, Dict, Tuple, Optional
@@ -63,7 +65,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.8"
+    plugin_version = "1.9"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -466,37 +468,57 @@ class ShortPlayMonitorMod(_PluginBase):
                                                       transfer_type=self._transfer_type)
                     if retcode == 0:
                         logger.info(f"文件 {event_path} 硬链接完成")
+                        
+                        site_image = None
+                        site_metadata = None
+                        
+                        # 智能重命名模式下，检查是否需要获取站点元数据（如果NFO或封面缺失）
+                        if str(rename_conf) == "smart":
+                             if not (target_path.parent / "tvshow.nfo").exists() or not (target_path.parent / "poster.jpg").exists():
+                                 site_image, site_metadata = self.get_site_info(title)
+
                         # 生成 tvshow.nfo
                         if not (target_path.parent / "tvshow.nfo").exists():
                             self.__gen_tv_nfo_file(dir_path=target_path.parent,
-                                                   title=title)
+                                                   title=title,
+                                                   metadata=site_metadata)
 
                         # 生成缩略图
                         if not (target_path.parent / "poster.jpg").exists():
-                            thumb_path = self.gen_file_thumb(title=title,
-                                                             rename_conf=rename_conf,
-                                                             file_path=target_path)
-                            if thumb_path and Path(thumb_path).exists():
-                                self.__save_poster(input_path=thumb_path,
-                                                   poster_path=target_path.parent / "poster.jpg",
-                                                   cover_conf=cover_conf)
-                                if (target_path.parent / "poster.jpg").exists():
-                                    logger.info(f"{target_path.parent / 'poster.jpg'} 缩略图已生成")
-                                thumb_path.unlink()
-                            else:
-                                # 检查是否有缩略图
-                                thumb_files = SystemUtils.list_files(directory=target_path.parent,
-                                                                     extensions=[".jpg"])
-                                if thumb_files:
-                                    # 生成poster
-                                    for thumb in thumb_files:
-                                        self.__save_poster(input_path=thumb,
-                                                           poster_path=target_path.parent / "poster.jpg",
-                                                           cover_conf=cover_conf)
-                                        break
-                                    # 删除多余jpg
-                                    for thumb in thumb_files:
-                                        Path(thumb).unlink()
+                            # 如果从站点获取到了图片，直接保存
+                            if site_image:
+                                if self.__save_image(site_image, target_path.parent / "poster.jpg"):
+                                    # 按照配置裁剪
+                                    self.__save_poster(input_path=target_path.parent / "poster.jpg",
+                                                       poster_path=target_path.parent / "poster.jpg",
+                                                       cover_conf=cover_conf)
+                            
+                            # 如果站点没有图片，或者保存失败，或者不是smart模式，尝试ffmpeg截取
+                            if not (target_path.parent / "poster.jpg").exists():
+                                thumb_path = self.gen_file_thumb(title=title,
+                                                                 rename_conf=rename_conf,
+                                                                 file_path=target_path)
+                                if thumb_path and Path(thumb_path).exists():
+                                    self.__save_poster(input_path=thumb_path,
+                                                       poster_path=target_path.parent / "poster.jpg",
+                                                       cover_conf=cover_conf)
+                                    if (target_path.parent / "poster.jpg").exists():
+                                        logger.info(f"{target_path.parent / 'poster.jpg'} 缩略图已生成")
+                                    thumb_path.unlink()
+                                else:
+                                    # 检查是否有缩略图
+                                    thumb_files = SystemUtils.list_files(directory=target_path.parent,
+                                                                         extensions=[".jpg"])
+                                    if thumb_files:
+                                        # 生成poster
+                                        for thumb in thumb_files:
+                                            self.__save_poster(input_path=thumb,
+                                                               poster_path=target_path.parent / "poster.jpg",
+                                                               cover_conf=cover_conf)
+                                            break
+                                        # 删除多余jpg
+                                        for thumb in thumb_files:
+                                            Path(thumb).unlink()
                     else:
                         logger.error(f"文件 {event_path} 硬链接失败，错误码：{retcode}")
             if self._notify:
@@ -622,10 +644,12 @@ class ShortPlayMonitorMod(_PluginBase):
         except Exception as e:
             logger.error(f"保存封面失败: {str(e)}")
 
-    def __gen_tv_nfo_file(self, dir_path: Path, title: str):
+    def __gen_tv_nfo_file(self, dir_path: Path, title: str, metadata: dict = None):
         """
         生成电视剧的NFO描述文件
         :param dir_path: 电视剧根目录
+        :param title: 标题
+        :param metadata: 元数据字典
         """
         # 开始生成XML
         logger.info(f"正在生成电视剧NFO文件：{dir_path.name}")
@@ -633,8 +657,16 @@ class ShortPlayMonitorMod(_PluginBase):
         root = DomUtils.add_node(doc, doc, "tvshow")
 
         # 标题
-        DomUtils.add_node(doc, root, "title", title)
+        DomUtils.add_node(doc, root, "title", metadata.get("title") if metadata and metadata.get("title") else title)
         DomUtils.add_node(doc, root, "originaltitle", title)
+        
+        if metadata:
+            DomUtils.add_node(doc, root, "plot", metadata.get("plot") or "")
+            DomUtils.add_node(doc, root, "year", metadata.get("year") or "")
+            DomUtils.add_node(doc, root, "genre", metadata.get("genre") or "")
+            DomUtils.add_node(doc, root, "country", metadata.get("country") or "")
+            DomUtils.add_node(doc, root, "premiered", (metadata.get("year") or "") + "-01-01")
+            
         DomUtils.add_node(doc, root, "season", "-1")
         DomUtils.add_node(doc, root, "episode", "-1")
         # 保存
@@ -648,12 +680,18 @@ class ShortPlayMonitorMod(_PluginBase):
         file_path.write_bytes(xml_str)
         logger.info(f"NFO文件已保存：{file_path}")
 
-    def gen_file_thumb_from_site(self, title: str, file_path: Path):
+    def get_site_info(self, title: str):
         """
-        从agsv或者萝莉站查询封面
+        从agsv或者萝莉站查询封面和元数据
+        :return: image_url, metadata
         """
         try:
             image = None
+            metadata = None
+            
+            # 随机休眠防ban
+            time.sleep(random.randint(3, 6))
+            
             # 查询索引
             domain = "agsvpt.com"
             site = SiteOper().get_by_domain(domain)
@@ -661,32 +699,86 @@ class ShortPlayMonitorMod(_PluginBase):
             if site:
                 req_url = f"https://www.agsvpt.com/torrents.php?search_mode=0&search_area=0&page=0&notnewword=1&cat=419&search={title}"
                 image_xpath = "//*[@id='kdescr']/img[1]/@src"
+                desc_xpath = "//*[@id='kdescr']"
                 # 查询站点资源
                 logger.info(f"开始检索 {site.name} {title}")
-                image = self.__get_site_torrents(url=req_url, site=site, image_xpath=image_xpath, index=index)
+                image, desc_text = self.__get_site_torrents(url=req_url, site=site, image_xpath=image_xpath, desc_xpath=desc_xpath, index=index)
+                if desc_text:
+                    metadata = self.parse_site_metadata(desc_text)
+                    
             if not image:
                 domain = "ilolicon.com"
                 site = SiteOper().get_by_domain(domain)
                 index = SitesHelper().get_indexer(domain)
                 if site:
+                    # 再次休眠
+                    time.sleep(random.randint(2, 4))
+                    
                     req_url = f"https://share.ilolicon.com/torrents.php?search_mode=0&search_area=0&page=0&notnewword=1&cat=402&search={title}"
 
                     image_xpath = "//*[@id='kdescr']/img[1]/@src"
+                    desc_xpath = "//*[@id='kdescr']"
                     # 查询站点资源
                     logger.info(f"开始检索 {site.name} {title}")
-                    image = self.__get_site_torrents(url=req_url, site=site, image_xpath=image_xpath, index=index)
+                    image, desc_text = self.__get_site_torrents(url=req_url, site=site, image_xpath=image_xpath, desc_xpath=desc_xpath, index=index)
+                    if desc_text:
+                        metadata = self.parse_site_metadata(desc_text)
 
-            if not image:
-                logger.error(f"检索站点 {title} 封面失败")
-                return None
-
-            # 下载图片保存
-            if self.__save_image(url=image, file_path=file_path):
-                return file_path
-            return None
+            return image, metadata
         except Exception as e:
-            logger.error(f"检索站点 {title} 封面失败 {str(e)}")
-            return None
+            logger.error(f"检索站点 {title} 信息失败 {str(e)}")
+            return None, None
+
+    def parse_site_metadata(self, text: str) -> dict:
+        """
+        解析站点描述文本中的元数据
+        """
+        if not text:
+            return {}
+            
+        metadata = {}
+        try:
+            # 移除HTML标签获取纯文本
+            # 简单处理，实际 etree xpath string(.) 可能已经拿到了纯文本，这里假设传入的是包含标签的文本或者已被处理过
+            # 如果 __get_site_torrents 返回的是 text_content，这里直接正则
+            
+            # 常见格式：
+            # ◎片　　名　我的后台是老妈
+            # ◎年　　代　2025
+            # ◎产　　地　大陆
+            # ◎类　　别　剧情 / 逆袭 / 都市
+            # ◎语　　言　国语
+            # ◎简　　介　...
+            
+            name_match = re.search(r"◎片　　名[　\s]+(.+)", text)
+            if name_match:
+                metadata['title'] = name_match.group(1).strip()
+                
+            year_match = re.search(r"◎年　　代[　\s]+(.+)", text)
+            if year_match:
+                metadata['year'] = year_match.group(1).strip()
+                
+            country_match = re.search(r"◎产　　地[　\s]+(.+)", text)
+            if country_match:
+                metadata['country'] = country_match.group(1).strip()
+                
+            genre_match = re.search(r"◎类　　别[　\s]+(.+)", text)
+            if genre_match:
+                metadata['genre'] = genre_match.group(1).strip()
+                
+            language_match = re.search(r"◎语　　言[　\s]+(.+)", text)
+            if language_match:
+                metadata['language'] = language_match.group(1).strip()
+                
+            # 简介通常比较长，匹配 ◎简　　介 及其后的内容，直到遇到下一个 ◎ 或者结束
+            plot_match = re.search(r"◎简　　介[　\s]+([\s\S]+?)(?=◎|$)", text)
+            if plot_match:
+                metadata['plot'] = plot_match.group(1).strip()
+                
+        except Exception as e:
+            logger.error(f"解析元数据失败: {e}")
+            
+        return metadata
 
     @retry(RequestException, logger=logger)
     def __save_image(self, url: str, file_path: Path):
@@ -709,37 +801,50 @@ class ShortPlayMonitorMod(_PluginBase):
             logger.error(f"{file_path.stem}图片下载失败：{str(err)}")
             return False
 
-    def __get_site_torrents(self, url: str, site, image_xpath, index):
+    def __get_site_torrents(self, url: str, site, image_xpath, desc_xpath, index):
         """
         查询站点资源
         """
         page_source = self.__get_page_source(url=url, site=site)
         if not page_source:
             logger.error(f"请求站点 {site.name} 失败")
-            return None
+            return None, None
         _spider = SiteSpider(indexer=index, page=1)
         torrents = _spider.parse(page_source)
         if not torrents:
             logger.error(f"未检索到站点 {site.name} 资源")
-            return None
+            return None, None
 
         # 获取种子详情页
         torrent_detail_source = self.__get_page_source(url=torrents[0].get("page_url"), site=site)
         if not torrent_detail_source:
             logger.error(f"请求种子详情页失败 {torrents[0].get('page_url')}")
-            return None
+            return None, None
 
         html = etree.HTML(torrent_detail_source)
         if not html:
             logger.error(f"请求种子详情页失败 {torrents[0].get('page_url')}")
-            return None
+            return None, None
 
-        image = html.xpath(image_xpath)[0]
-        if not image:
-            logger.error(f"未获取到种子封面图 {torrents[0].get('page_url')}")
-            return None
+        image = None
+        desc_text = None
+        
+        try:
+            images = html.xpath(image_xpath)
+            if images:
+                image = str(images[0])
+            else:
+                logger.error(f"未获取到种子封面图 {torrents[0].get('page_url')}")
+                
+            # 获取描述文本
+            descs = html.xpath(desc_xpath)
+            if descs:
+                # 获取纯文本内容
+                desc_text = descs[0].xpath('string(.)')
+        except Exception as e:
+             logger.error(f"解析详情页异常: {e}")
 
-        return str(image)
+        return image, desc_text
 
     def __get_page_source(self, url: str, site):
         """
@@ -774,25 +879,15 @@ class ShortPlayMonitorMod(_PluginBase):
 
     def gen_file_thumb(self, title: str, file_path: Path, rename_conf: str):
         """
-        处理一个文件
+        处理一个文件，生成缩略图（FFmpeg）
         """
-        # 智能重命名时从站点检索
-        if str(rename_conf) == "smart":
-            thumb_path = file_path.with_name(file_path.stem + "-site.jpg")
-            if thumb_path.exists():
-                logger.info(f"缩略图已存在：{thumb_path}")
-                return
-            self.gen_file_thumb_from_site(title=title, file_path=thumb_path)
-            if Path(thumb_path).exists():
-                logger.info(f"{file_path} 缩略图已生成：{thumb_path}")
-                return thumb_path
         # 单线程处理
         with ffmpeg_lock:
             try:
                 thumb_path = file_path.with_name(file_path.stem + "-thumb.jpg")
                 if thumb_path.exists():
                     logger.info(f"缩略图已存在：{thumb_path}")
-                    return
+                    return thumb_path # Return thumb_path if exists so it can be used
                 self.get_thumb(video_path=str(file_path),
                                image_path=str(thumb_path),
                                frames=self._timeline)
