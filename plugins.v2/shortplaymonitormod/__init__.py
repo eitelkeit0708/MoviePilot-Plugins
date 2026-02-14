@@ -63,7 +63,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.5"
+    plugin_version = "1.6"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -91,6 +91,7 @@ class ShortPlayMonitorMod(_PluginBase):
     _interval = 10
     _notify = False
     _combined_only = False
+    _clear_history = False
     _medias = {}
 
     # 定时器
@@ -113,6 +114,24 @@ class ShortPlayMonitorMod(_PluginBase):
             self._exclude_keywords = config.get("exclude_keywords") or ""
             self._transfer_type = config.get("transfer_type") or "link"
             self._combined_only = config.get("combined_only") or False
+            self._clear_history = config.get("clear_history") or False
+
+        # 清除历史记录
+        if self._clear_history:
+            logger.info("正在清除所有插件配置和历史记录...")
+            self._enabled = False
+            self._onlyonce = False
+            self._image = False
+            self._interval = 10
+            self._notify = False
+            self._monitor_confs = None
+            self._exclude_keywords = ""
+            self._transfer_type = "link"
+            self._combined_only = False
+            self._clear_history = False
+            self.__update_config()
+            logger.info("插件配置和历史记录已清除")
+            return
 
         # 停止现有任务
         self.stop_service()
@@ -815,6 +834,7 @@ class ShortPlayMonitorMod(_PluginBase):
             "notify": self._notify,
             "image": self._image,
             "combined_only": self._combined_only,
+            "clear_history": self._clear_history,
             "monitor_confs": self._monitor_confs
         })
 
@@ -915,6 +935,22 @@ class ShortPlayMonitorMod(_PluginBase):
                                         'props': {
                                             'model': 'combined_only',
                                             'label': '仅处理合并版本',
+                                        }
+                                    }
+                                ]
+                            },
+                            {
+                                'component': 'VCol',
+                                'props': {
+                                    'cols': 12,
+                                    'md': 3
+                                },
+                                'content': [
+                                    {
+                                        'component': 'VSwitch',
+                                        'props': {
+                                            'model': 'clear_history',
+                                            'label': '清除历史记录',
                                         }
                                     }
                                 ]
@@ -1082,6 +1118,7 @@ class ShortPlayMonitorMod(_PluginBase):
             "image": False,
             "notify": False,
             "combined_only": False,
+            "clear_history": False,
             "interval": 10,
             "monitor_confs": "",
             "exclude_keywords": "",
