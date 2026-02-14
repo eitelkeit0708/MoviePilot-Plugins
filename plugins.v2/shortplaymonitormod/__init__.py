@@ -63,7 +63,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "Amule_B.png"
     # 插件版本
-    plugin_version = "1.1"
+    plugin_version = "1.2"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -306,6 +306,9 @@ class ShortPlayMonitorMod(_PluginBase):
 
             # 转移路径
             dest_dir = self._dirconf.get(source_dir)
+            if not dest_dir:
+                logger.error(f"未找到 {source_dir} 对应的目的目录配置，跳过处理")
+                return
             # 是否重命名
             rename_conf = self._renameconf.get(source_dir)
             # 封面比例
