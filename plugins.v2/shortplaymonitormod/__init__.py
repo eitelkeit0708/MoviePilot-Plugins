@@ -63,7 +63,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.3"
+    plugin_version = "1.4"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -349,18 +349,23 @@ class ShortPlayMonitorMod(_PluginBase):
                                                                  season=file_meta.begin_season or 1)
                     mediainfo.category = ""
                     # 转移
-                    transferinfo: TransferInfo = self.chain.transfer(mediainfo=mediainfo,
-                                                                     path=Path(event_path),
-                                                                     target=Path(dest_dir),
+                    transferinfo: TransferInfo = self.chain.transfer(path=Path(event_path),
                                                                      meta=file_meta,
+                                                                     mediainfo=mediainfo,
+                                                                     transfer_type=self._transfer_type,
+                                                                     target=Path(dest_dir),
                                                                      episodes_info=episodes_info)
                     if not transferinfo:
                         logger.error("文件转移模块运行失败")
                         transfer_flag = False
                     else:
-                        self.chain.scrape_metadata(fileitem=transferinfo.target_diritem,
-                                                   meta=file_meta,
-                                                   mediainfo=mediainfo)
+                        try:
+                            self.chain.scrape_metadata(path=transferinfo.target_path,
+                                                       mediainfo=mediainfo,
+                                                       transfer_type=self._transfer_type,
+                                                       metainfo=file_meta)
+                        except Exception as e:
+                            logger.warning(f"刮削元数据失败: {str(e)}")
                         transfer_flag = True
                 except Exception as e:
                     logger.error(f"{event_path} tmdb刮削失败: {str(e)}")
