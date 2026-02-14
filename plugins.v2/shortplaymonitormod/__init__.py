@@ -63,7 +63,7 @@ class ShortPlayMonitorMod(_PluginBase):
     # 插件图标
     plugin_icon = "mediaplay.png"
     # 插件版本
-    plugin_version = "1.7"
+    plugin_version = "1.8"
     # 插件作者
     plugin_author = "eitelkeit0708"
     # 作者主页
@@ -364,7 +364,7 @@ class ShortPlayMonitorMod(_PluginBase):
                                                                  season=file_meta.begin_season or 1)
                     mediainfo.category = ""
                     # 转移
-                    transferinfo: TransferInfo = self.chain.transfer(path=Path(event_path),
+                    transferinfo: TransferInfo = self.chain.transfer(Path(event_path),
                                                                      meta=file_meta,
                                                                      mediainfo=mediainfo,
                                                                      transfer_type=self._transfer_type,
