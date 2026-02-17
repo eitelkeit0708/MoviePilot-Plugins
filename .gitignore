@@ -26,6 +26,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+short.log
+rss.log
+rss_copy.log
 
 # IDE
 .idea/

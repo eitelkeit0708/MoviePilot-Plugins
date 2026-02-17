@@ -1,0 +1,100 @@
+Test.Movie.2025.2160p.WEB-DL.AV3A.5.1.4-TestGroup
+Complex.Audio.2025.BluRay.TrueHD.7.1.Atmos-Group
+Reverse.Order.2024.BluRay.Atmos.TrueHD.7.1-Group
+DTS.Edge.Case.2023.BluRay.DTS-ADE
+Interference.Check.2022.BluRay.DTS.2Audio-Group
+Dot.Separator.2021.WEB-DL.DDP.5.1.Atmos-Group
+Plus.Sign.2020.WEB-DL.DD+.5.1.Atmos-Group
+No.Space.2019.WEB-DL.AAC2.0-Group
+Ch.Suffix.2018.BluRay.FLAC.2.0ch-Group
+Test.Case.2017.BluRay.LPCM.1.0-Group
+Test.Case.2016.BluRay.DTS-ES.6.1-Group
+Test.Case.2015.UHD.BluRay.DTS:X.7.1-Group
+Multiple.Tracks.2014.BluRay.DTS-HD.MA.5.1.2Audio-Group
+Opus.Codec.2013.WEB-DL.Opus.2.0-Group
+Vorbis.Codec.2012.WEB-DL.Vorbis.5.1-Group
+Combo.TrueHD.Atmos.DTS-HD.MA.7.1.2025-Group
+Space.Separator.2011.BluRay.TrueHD 5.1-Group
+Separated.Atmos.2010.UHD.TrueHD.7.1.PF.Atmos-Group
+Channel.First.2009.BluRay.5.1.DTS-HD.MA-Group
+Messy.Case.2008.2160p.HEVC.10bit.HDR.DV.TrueHD.Atmos.7.1.2Audio-Group
+Tron.Ares.2001.1080p.REMUX.x265.10bit.DTS-X.5.1-FRDS
+The.Batman 2023 720p HDR10+ AAC.5.1.4.2Audio HEVC -CHD
+Fantastic.Four 1987 1080p HDTV DTS-HD.HR-4.0 H.264 10bit-CHD
+Dune.Part.Two.2020.1080p.HDTV.x265.8bit.DTS-HD.HR-1.0-FRDS
+Oppenheimer.2019.720p.HDR10+.x264.8bit.LPCM5.1.2-CtrlHD
+Avengers.Endgame.2009.1080p.HDR10+.H.264.8bit.AV3A.6.1-CtrlHD
+The.Batman.1987.2160p.DV.HDR.HEVC.Opus-2.0ch-CHD
+Tron.Ares.1991.1080p.DV.HDR.x265.8bit.Atmos.TrueHD.5.1.2-HDS
+Fantastic.Four.2016.1080p.DV.HDR.H.265.Atmos.2.0.2Audio.10bit-CHD
+Thunderbolts 2012 1080p REMUX Atmos 5.1.2 x265 10bit-CHD
+Everything.Everywhere.All.At.Once 1993 2160p DV.HDR DD+_4.0 HEVC -EPSiLON
+Mickey.17.2021.2160p.HDTV.H.265.DTS-X.5.1.2.2Audio.10bit-CHD
+Thunderbolts.2018.1080i.BluRay.H.265.8bit.DTS-X.2.0ch.2Audio-MTeam
+Gladiator.II.1984.1080p.DV.HDR.x264.8bit.Opus.4.0.2Audio-EPSiLON
+Parasite.1995.1080p.HDR10+.AVC.8bit.Atmos.2.0-EPSiLON
+Avatar.The.Way.of.Water.2016.1080p.BluRay.H.265.8bit.DTS-HD.MA.4.0.2Audio-HDS
+Inception.2004.1080p.WEB-DL.x264.8bit.DTS2.0ch-Wiki
+Dune.Part.Two 1990 1080i WEB-DL AC3 5.1.2 HEVC 10bit-EPSiLON
+Avatar.The.Way.of.Water.2009.720p.UHD.BluRay.HEVC.DTS-HD.MA.4.0.2Audio.10bit-DON
+The.Batman 1986 2160p REMUX DTS5.1.2 x264 8bit-Wiki
+Thunderbolts.2009.1080i.UHD.BluRay.H.265.AC3.5.1.4.2Audio.10bit-DON
+Interstellar.1992.1080p.UHD.BluRay.AVC.10bit.AC3.5.1.4.2Audio-CtrlHD
+Fantastic.Four.1987.720p.HDR10+.x264.AAC.6.1.-EPSiLON
+The.Batman 2005 720p BluRay DD+7.1 AVC -Wiki
+Inception.2002.1080p.BluRay.AVC.8bit.DD+.7.1.2Audio-CHD
+Inception 1999 1080i BluRay Opus.5.1.2 AVC 8bit-CHD
+Inception.1981.1080i.WEB-DL.x264.8bit.Opus.2.0-HDS
+Tron.Ares 1983 2160p BluRay Atmos.7.1 AVC 8bit-FRDS
+Inception.1988.720p.HDTV.H.264.8bit.FLAC 5.1.2-EPSiLON
+Interstellar.1993.720p.HDTV.H.265.8bit.Opus.5.1-HDS
+Dune.Part.Two 1989 720p HDR10+ Atmos.5.1 AVC 8bit-CHD
+Interstellar 1996 1080p WEB-DL FLAC-6.1 x264 8bit-EPSiLON
+Interstellar.1989.1080i.HDR10+.x265.8bit.Atmos 5.1-DON
+Mickey.17 2018 1080i REMUX LPCM 2.0 x264 -DON
+Everything.Everywhere.All.At.Once 2023 1080i BluRay Opus.5.1 AVC 10bit-EPSiLON
+Parasite.2022.2160p.HDTV.H.265.8bit.LPCM.6.1.2Audio-MTeam
+Spider-Man.No.Way.Home.1992.1080p.HDTV.H.265.AAC.2.0ch-Wiki
+Tron.Ares.1988.720p.HDR10+.AVC.AC3.4.0.10bit-MTeam
+Joker 2001 1080i REMUX DDP 5.1 AVC 10bit-FRDS
+The.Matrix.Resurrections.2020.2160p.DV.HDR.x265.AC3.5.1.2.8bit-MTeam
+Tron.Ares.2022.1080i.BluRay.H.265.8bit.Atmos_7.1-HDS
+Blade.Runner.2049 1990 1080p REMUX AAC.5.1.4.2Audio AVC -FRDS
+Mickey.17.1991.720p.BluRay.x265.8bit.DD+.5.1.Atmos-EPSiLON
+Oppenheimer.1984.720p.WEB-DL.x264.10bit.AC3.4.0-CtrlHD
+Dune.Part.Two.2023.1080p.BluRay.H.264.10bit.AAC_1.0-MTeam
+Spider-Man.No.Way.Home.2025.2160p.HDR10+.H.264.10bit.FLAC.6.1-MTeam
+Oppenheimer.1980.1080p.HDR10+.AVC.DD+.7.1-DON
+Avatar.The.Way.of.Water.1992.1080p.WEB-DL.x264.Opus.2.0ch-Wiki
+Blade.Runner.2049 2006 1080i WEB-DL DDP4.0 x264 10bit-CtrlHD
+Interstellar.1983.1080p.REMUX.H.264.DDP.5.1.Atmos-CHD
+Oppenheimer.2012.1080i.WEB-DL.HEVC.DTS2.0-DON
+Tron.Ares 1991 2160p WEB-DL LPCM5.1 x264 -CHD
+Parasite.2014.720p.WEB-DL.x265.8bit.TrueHD 2.0-EPSiLON
+Superman.Legacy.1988.720p.REMUX.AVC.10bit.DDP 2.0ch-CHD
+Joker 2022 2160p BluRay Atmos.6.1 HEVC -CtrlHD
+Everything.Everywhere.All.At.Once 1981 2160p WEB-DL LPCM.2.0ch x265 8bit-HDS
+Spider-Man.No.Way.Home.1980.2160p.HDR10+.H.265.TrueHD5.1.2-CHD
+The.Matrix.Resurrections.2017.1080i.WEB-DL.x264.LPCM-5.1.4.-DON
+The.Matrix.Resurrections.2015.1080p.UHD.BluRay.HEVC.10bit.DTS-X.5.1.2Audio-CtrlHD
+Avatar.The.Way.of.Water.1991.1080p.UHD.BluRay.H.264.DTS-X-2.0.10bit-MTeam
+Gladiator.II.2018.2160p.BluRay.x264.DTS-HD.HR.6.1.8bit-CtrlHD
+Interstellar.2003.1080p.REMUX.H.264.DTS-HD.HR.5.1.4.-Wiki
+Inception.2017.2160p.BluRay.x264.10bit.DTS-HD.MA_5.1.4-Wiki
+Gladiator.II 1998 2160p HDR10+ TrueHD.2.0.Atmos AVC 8bit-HDS
+Inception.2008.720p.DV.HDR.HEVC.Atmos.DDP.2.0ch-CHD
+Parasite.2012.720p.DV.HDR.AVC.DD+-7.1-FRDS
+Mickey.17.2001.720p.HDR10+.H.264.AAC 1.0.10bit-HDS
+The.Batman.2002.1080i.HDR10+.AVC.10bit.AC34.0-DON
+Avatar.The.Way.of.Water 1981 1080i REMUX DTS.7.1 H.264 8bit-DON
+Superman.Legacy.1991.1080p.WEB-DL.H.265.10bit.TrueHD7.1-CHD
+Inception.2011.720p.UHD.BluRay.H.265.Atmos.DDP.2.0ch.10bit-DON
+The.Batman.2019.1080p.WEB-DL.H.265.8bit.DD+.5.1.4-CtrlHD
+Avatar.The.Way.of.Water.2023.720p.HDR10+.H.265.DTS-HD.HR-5.1.2.-MTeam
+Parasite.2015.720p.WEB-DL.H.265.AC3 2.0.-FRDS
+Fantastic.Four.1984.1080i.HDR10+.HEVC.10bit.Atmos.5.1.4-FRDS
+Joker.2007.720p.REMUX.AVC.FLAC.7.1.10bit-FRDS
+Avatar.The.Way.of.Water.2015.1080p.HDTV.x265.DTS-HD.MA 5.1.8bit-FRDS
+Inception.1995.720p.DV.HDR.H.265.10bit.DTS.6.1.2Audio-HDS
+Fantastic.Four.2016.720p.WEB-DL.AVC.8bit.DDP 1.0-FRDS
+Dune.Part.Two 2021 1080i BluRay DTS-HD.MA.7.1.2Audio HEVC 10bit-HDS

@@ -83,7 +83,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/boeto/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "1.0.6"
+    plugin_version = "1.0.7"
     # 插件作者
     plugin_author = "eitelkeit"
     # 作者主页
@@ -1772,6 +1772,7 @@ class DoubanRankPlusOptimized(_PluginBase):
             exist_ok=True,
             username=self.plugin_name,
             save_path=save_path,
+            best_version=0,
         )
         if season:
             logger.info(f"已添加订阅: {mediainfo.title_year} 第 {season} 季")
