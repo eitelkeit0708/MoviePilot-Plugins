@@ -1,79 +1,94 @@
-# ChatGPT Plus Ultra 1.4.0
+# ChatGPT Plus Ultra 1.4.1
 
-面向 MoviePilot V2 的保守型辅助名称提取器。模型只提取 `name/year`；插件校验后，以 MP2 当前标题解析结果补齐事件需要的季集。它提供候选，不替代 TMDB 等媒体数据源，也不调整订阅、洗版、字幕或画质规则。
+面向 MoviePilot V2 的保守型辅助名称提取器。AI 只返回 `name/year` 两个字符串；插件验证后，使用 MP2 对**当前标题**的原生解析结果补齐 NameRecognize 事件的季集。它只提供候选，不替代媒体库匹配，不调整字幕、画质、站点或洗版规则。
 
-## 对照的主程序
+## 1.4.1：恢复可追踪日志，保留隐私边界
 
-2026-09-13 核对：V2 最新发布版为 `v2.15.6`；V2 分支 HEAD 为 `6a02e7de21c110d758e3fc44e79150ac1d4d7949`。两者 `app/chain/media.py` 的 blob 相同：`2c17871a2f42454685c7069ad2bdb6f63f658682`。未按 V3 的拆分接口实现。
+### 日志等级
 
-- [同步与异步辅助识别](https://github.com/jxxghp/MoviePilot/blob/6a02e7de21c110d758e3fc44e79150ac1d4d7949/app/chain/media.py)：`recognize_help`、`async_recognize_help`。
-- [原生 MetaInfo](https://github.com/jxxghp/MoviePilot/blob/6a02e7de21c110d758e3fc44e79150ac1d4d7949/app/core/metainfo.py)：读取当前标题的 `begin_season/begin_episode`，不调用会补默认季号的便利方法。
-- [事件管理器](https://github.com/jxxghp/MoviePilot/blob/6a02e7de21c110d758e3fc44e79150ac1d4d7949/app/core/event.py)：同一个事件可能经过多个插件；本插件尊重已有有效名称并保留不相关字段。
-- [主程序依赖](https://github.com/jxxghp/MoviePilot/blob/6a02e7de21c110d758e3fc44e79150ac1d4d7949/requirements.in)：沿用 `httpx~=0.28.1`；不安装或升级共享 OpenAI SDK。本插件不再依赖 `cacheout`，但不卸载其他插件需要的库。
+- **INFO**：实际 API 调用产生、且成功提交给 MP2 的新候选，包含关联 ID、名称、年份、来源、耗时。不把“提供候选”说成“最终识别成功”。
+- **DEBUG**：原始标题（脱敏并截断至 480 字符）、AI 的 name/year、当前标题原生解析的 name/year、最终回填的 name/year/season/episode、每次调用的来源、HTTP 请求次数、返回的 Token 用量、跳过或拒绝原因。季集明确标注 `season_episode_source=MetaInfo`。
+- **WARNING**：服务错误显示分类、密钥编号和可用的 HTTP 状态码，不显示服务端响应正文；同类提示 300 秒去重。结构/语义校验拒绝单独提示，也做去重，但不触发“密钥失效”通知。模型明确放弃识别不是 API 故障。
 
-## DeepSeek V4.1 Flash 设置
+示意日志（不是生产运行记录）：
 
-| 设置 | 官方服务建议值 |
+```text
+INFO ChatGPTPlusUltra: id=abc123 status=submitted reason=accepted source=api elapsed_ms=820.0 name="作品甲" year="2024"；已提交名称候选，最终匹配由 MP2 决定
+DEBUG ChatGPTPlusUltra: id=abc123 status=submitted reason=accepted source=cache elapsed_ms=0.2 title="[作品甲] 2024 S02E03" ai_name="作品甲" ai_year="2024" api_attempts=0 usage={} meta_name="作品甲" meta_year="2024" name="作品甲" year="2024" season=2 episode=3 season_episode_source=MetaInfo
+DEBUG ChatGPTPlusUltra: id=def456 status=rejected reason=field_set source=api ...
+DEBUG ChatGPTPlusUltra: id=def456 status=rejected reason=field_set source=cache ...
+```
+
+同一标题及同一配置使用相同关联 ID，方便串起重复轮询；它不是每次调用唯一的请求编号。来源直接由缓存的当前调用结果返回，**不通过全局统计前后差值推断**，因此并发时不会把别人发出的请求算到当前标题上。
+
+`source=api` 表示本次实际发出 HTTP 请求；`cache` 表示本地缓存复用（结合 status/reason 区分正负缓存）；`coalesced` 表示等待同标题正在进行的请求；`local` 表示本地跳过或冷却期间未发请求。缓存及并发复用的重复提交仅写 DEBUG，避免每 5 分钟的轮询重新刷满 INFO。
+
+本插件自身的诊断日志不输出密钥、Authorization/Cookie 原文、原始模型响应、完整服务端错误正文或聊天回复。标题中的 URL 整段隐藏，配置的密钥和常见凭据格式会被脱敏，控制字符被清理，字符串单行 JSON 转义。**普通片名仍然可见，不是匿名化日志**；无法自动识别所有无标签的个人信息，分享 DEBUG 日志前仍应检查。HTTPX 等依赖自己的日志不由本插件全局修改。
+
+### 常见 reason
+
+| reason | 含义 |
 | --- | --- |
-| API 基址 | `https://api.deepseek.com` 或 `https://api.deepseek.com/v1` |
-| 模型 ID | `deepseek-flash` |
-| 请求配置 | 自动，或 DeepSeek |
-| 兼容模式 | 上述官方基址均可关闭；已包含 `/v1` 时不会重复追加 |
-| 辅助识别 | 开启 |
-| 消息聊天 | 仅有需要时开启；新增安装默认关闭，旧安装保留原行为 |
-| 使用代理 | 按实际网络需要，不替用户更改 |
+| accepted | 名称候选通过插件校验，不代表媒体库匹配成功 |
+| no_name | 模型明确放弃或未给出可用名称 |
+| empty_response / invalid_json / not_object | 响应为空、坏 JSON、不是 JSON 对象 |
+| duplicate_key / field_set / field_type | 重复字段、字段不是恰好 name/year、值不是字符串 |
+| name_not_in_input / movie_marker_lost | 名称没有输入依据，或丢失了显式电影版标记 |
+| name_is_metadata / name_is_release_group | 把技术标签或 MP2 当前解析出的制作组当成片名 |
+| year_not_in_input / invalid_year_format | 年份没有独立数字依据或格式不合法 |
+| year_in_name / year_is_date | 数字只出现在片名中，或只出现在完整日期中 |
+| existing_result / event_changed | 之前已有名称，或事件在等待期间被其他处理器修改 |
+| stale_runtime / invalid_metainfo_number | 配置已更换/停用，或原生季集值不合法 |
+| adapter_error | 适配层异常；只记录异常类型，不转储异常正文 |
 
-模型 ID 来自 [DeepSeek 2026-09-10 公告](https://www.deepseek.com/en/news/deepseek-v4-1-flash/)。DeepSeek 请求使用 `thinking: {type: disabled}`；识别另外使用 `response_format: {type: json_object}`、`temperature: 0`、`max_tokens: 512`。不传入 tools、网络搜索工具或 function calling。参考 [JSON 模式](https://api-docs.deepseek.com/guides/json_mode/) 与 [思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。HTTP JSON 请求不是 SDK 参数：`thinking` 位于顶层，不套 `extra_body`。
+### 其他修复与统计
 
-使用第三方转发服务时，保留其实际基址和模型别名，手动选 DeepSeek 才会发送相应扩展。通用模式不发送 DeepSeek 专用参数，也不强制服务端 JSON 模式，但本地仍严格检查两个字段。不要把完整 `/chat/completions` 地址填成基址。
+1. 修复空提示词或空白提示词恢复默认后，没有把完整默认文本保存到配置的问题。保留旧自定义提示词备份，不覆盖 API、模型或其他配置项。
+2. 修复并发错误的较短冷却覆盖较长 Retry-After 的问题。已有的等待截止时间只延长，不缩短。
+3. 年份同时检查数字片名、完整日期和原生年份回退；新增纯技术/字幕标签拒绝。制作组保护使用当前 `MetaInfo.resource_team` 的证据，不按全局组名黑名单禁用资源。
+4. 缓存统计去除已过期条目；详情页增加识别 HTTP 次数、其他 HTTP 次数、模型校验结果分布及冷却状态。
+5. 只累计真实 HTTP 响应明确返回的非负整数 Token 字段，缓存重放不重复累计。`prompt_cache_hit_tokens` 是服务商的提示词缓存，不是本地识别结果缓存。服务商不返回用量时不估算，不声称这些数字等于账单或费用。
 
-## 提示词与校验
+年份、技术标签和名称依据检查仍是保守规则，不是数据库真值验证。仅有完整日期而没有独立发行年份的标题也可能被保守拒绝；真实发行日期与上传日期不能靠这条接口完全区分。现有文字依据检查不自由翻译、不自动简繁转换；剧场版标记保护可能拒绝一些合法别名。没有放宽这些规则去追求表面的识别成功率。
 
-新版完整提示词位于 `recognition.py:DEFAULT_PROMPT`，配置界面可查看、复制或修改。
+## MP2 兼容性
 
-- 方括号优先仅适用于真实片名，不把制作组、分辨率、字幕或集号标签当片名。
-- 优先保留输入中的中文名；没有可信中文名则使用原文，不凭模型记忆翻译、补名或补年份。
-- 保留续作编号、副标题、剧场版、电影版和 The Movie 等身份信息。
-- 年份未知使用空字符串，不强制编造四位数字。不能识别时输出 `{"name":"","year":""}`。
-- 输出必须恰好两个字符串字段 `name/year`。数组、额外字段、重复键、坏 JSON、代码围栏、null、数字类型均不交给 MP2。
-- 名称必须能在当前输入中找到文字依据，允许大小写、宽度及标点变化，不允许无依据翻译。显式电影版标记被丢失时保守拒绝。因此部分自由译名、简繁转换和标题缩写可能被拒绝，这是精确提取模式的取舍。
-- 年份必须在标题中有独立数字依据；这不是对发行年份真实性的数据库验证。模型候选和媒体库最终匹配成功是两件事。
+本次重新核对的 V2 分支 HEAD 为 `6a02e7de21c110d758e3fc44e79150ac1d4d7949`。1.4.0 对照的发布版为 `v2.15.6`，其 `app/chain/media.py` 与该 V2 HEAD 的 blob 均为 `2c17871a2f42454685c7069ad2bdb6f63f658682`。
 
-仅自动迁移空提示词、仓库旧默认提示词，以及本次修复对应的“STRICT 7 FIELDS 但只列 name/year”的已知两字段提示词。任意其他自定义内容保留。替换非空旧提示词时会保存 `previous_customize_prompt`，不覆盖模型、API 密钥及未知配置项。保存时勾选“恢复新版默认提示词”可手动恢复；运行时仍追加简短的两字段协议约束。
+- 同步及异步辅助识别：`app/chain/media.py` 的 `recognize_help`、`async_recognize_help`。
+- 当前标题解析：`app/core/metainfo.py` 的 `MetaInfo`；仅读取 `begin_season/begin_episode`，不调用会补默认季号的便利方法。
+- 事件：`app/core/event.py`；尊重已有有效名称并保留不相关事件字段。
+- 日志：`app/log.py`；继续使用 MP2 的 `logger.info/debug/warning` 单消息调用。
 
-## 缓存、错误与生命周期
+源代码基准：[MoviePilot V2 固定提交](https://github.com/jxxghp/MoviePilot/tree/6a02e7de21c110d758e3fc44e79150ac1d4d7949)。未按 V3 拆分接口重写，未动态替换主程序方法。
 
-完整标题 + 模型 + 基址 + 有效提示词 + 协议版本构成指纹；不删除方括号或季集，不跨资源复用季集。缓存为配置实例内存缓存，重启、停用或保存配置会重建，不写入用户数据库。
+### 仍然存在的主程序边界
 
-默认有效候选缓存 3600 秒，放弃识别缓存 600 秒，容量 1000 条；可配置。相同标题并发访问合并为一次调用，不同标题最多同时请求 2 个。缓存返回副本，清理过程中旧请求不能重新填入已经清空的缓存。
+NameRecognize 请求只有 `title`，返回字段读取 `name/year/season/episode`。**AI JSON 与插件事件是两层不同协议**，AI 不输出季集或 title。
 
-没有名称、格式不合格或不能可靠提取：负缓存并退出，不轮换或禁用密钥。401：仅禁用实际出错的密钥槽位，最多尝试 2 个不同密钥（可配置）。429：按 Retry-After 冷却，不用换密钥绕过共享限流。超时、网络错误、403、配置错误或服务端错误分别短暂冷却；不永久封禁有效密钥。失败结果另短缓存 30 秒，同类错误通知 5 分钟去重。重新保存配置会重置密钥健康状态。
+- 主程序名称/年份变化后会覆盖起始季集；任一季集非 None（包括 0）会设为 TV。本插件不让 AI 猜季集，明确的原生 S00 保留 0，原生无季集则传 None。
+- 两个 None 不能把主程序已经判为 TV 的类型强行改回电影。
+- 名称和年份都不变时，主程序提前返回，季集单独修正不能生效。
+- 原路径、副标题和父目录继承信息没有完整传入事件。当前标题的 MetaInfo 不是原调用者元数据的完整副本，无法保证保留不可见信息。
+- 没有最终匹配反馈。负缓存只减少模型请求，不更改主程序的订阅识别重试计数，也不保证消除重复媒体库查询。
 
-默认请求预算/超时 20 秒；排队与鉴权轮换共同消耗这个预算。HTTPX 的 connect/read/write/pool 超时不是严格总墙钟计时，缓慢持续传输仍可能超过该时间；不声称“20 秒必定结束”。没有 SDK 隐式重试，只有明确鉴权失败才在预算内轮换。日志和通知只包含错误类别与密钥编号，不输出密钥、原始模型响应或服务端错误正文。
+建议只开启一个 AI 名称识别提供者。本插件不覆盖之前的有效名称，但不能阻止后续其他插件覆盖结果。
 
-配置重载或停用会立即使旧结果失去回填资格；已开始的 HTTP 请求可结束后释放客户端，不中途强关正在使用的连接。聊天按渠道和用户隔离上下文，保存真实助手回复，并限制历史长度；`#清除` 清空当前会话。
+## 配置与升级
 
-## MP2 接口的已知边界
+更新到 **1.4.1** 后保存一次插件配置即可。1.4.0 的提示词无需重新复制；本次继续只接受 `name/year`，并保留现有模型和接口设置。需要完整识别详情时将 MP2 日志级别设为 **DEBUG**；INFO 也会显示 API 新候选。
 
-MP2 当前只向 NameRecognize 事件传入 `title`，读取返回的 `name/year/season/episode`。模型 JSON 仍只有两字段；插件内部事件包含 `title` 和原生解析出的季集，这是不同层的协议。
+DeepSeek 请求配置沿用 1.4.0：官方域名可自动识别，第三方转发按其实际基址和模型别名填写；选择 DeepSeek 配置后使用非思考模式及辅助识别 JSON 模式。不发送联网工具。API 基址可有 `/v1`，不会重复追加；不要填完整 `/chat/completions` 地址。没有在本次测试中验证真实服务商调用。
 
-1. 名称或年份改变后，主程序会覆盖起始季集；只要季或集非 None（包括 0），主程序会设为 TV。本插件不从模型读取季集；当前标题原生解析为电影无季集时传 None，明确 S00 则保留 0。
-2. 主程序不会因为两个 None 把已经是 TV 的类型改回电影。不能宣称本插件能强制修正所有电影/电视剧类型。
-3. 名称、年份都不变时，主程序提前退出，季集单独修正不能生效。
-4. 原始路径、副标题继承的季集、类型和年份不在事件输入内。本插件无法完整恢复这些不可见信息；原生当前标题年份仅在有输入依据时作为空年份回退。主程序仍可能清空不可见的继承字段。
-5. 无最终匹配反馈接口，插件负缓存只减少模型调用，不修改主程序订阅重试计数或保证消除所有重复媒体查询。
+默认有效候选缓存 3600 秒、负缓存 600 秒、容量 1000 条、同时请求 2 个，仍可配置。完整标题、接口、模型、有效提示词及校验协议版本参与缓存标识，不删除括号或季集。缓存为内存缓存；重启或保存配置会重建。仍只有明确 401 才禁用对应密钥并有限轮换；429/网络/超时/配置错误分类冷却，不用切换密钥规避限流。
 
-未动态替换 MP2 方法，未强制媒体类型、放宽候选过滤或更改其他插件。建议实际只开启一个 AI 名称识别提供者；本插件不覆盖之前的有效结果，但无法阻止后续其他插件覆盖它。
+默认请求预算 20 秒包含排队和鉴权轮换；HTTPX 的连接/读写/连接池超时不是严格总墙钟计时，缓慢持续传输仍可能超出。已发出的请求停用后可结束，但旧结果不能回填；客户端在请求结束后释放。聊天保持按渠道/用户隔离及有限历史，本次不扩展聊天功能。
 
-## 升级与验证
-
-通过原插件仓库更新到 1.4.0，保存一次插件配置。既有 API 和模型配置不会被静默替换；核对模型 ID/请求配置及辅助识别开关，必要时勾选恢复新版提示词。已有原插件外的错误缓存或主程序历史状态不由本插件清除。
-
-仓库根目录运行：
+## 测试
 
 ```sh
 python -m pytest -q tests/chatgptplusultra
 python -m compileall -q plugins.v2/chatgptplusultra tests/chatgptplusultra
 ```
 
-测试使用真实 HTTPX Client + MockTransport 替代外部网络；MP2 服务、MetaInfo/Rust/数据库为桩。`mp2_contract.py` 是经源码对照的同步/异步处理契约摘录，保留分支赋值顺序并移除了注释、类型注解及日志，并不是整个主程序。本测试可检查字段交付、缓存/并发、错误处理、配置迁移与主程序已知边界；不能替代真实 DeepSeek 或 NAS 上完整 MP2 的集成验证。
+本次插件测试共 94 项通过（原有 56 项，加 38 项日志、缓存来源、校验、并发冷却和配置边界回归）。HTTPX 为真实 0.28.1 Client，使用 MockTransport 替代外部网络；MP2 服务/数据库/原生 MetaInfo 为测试替身。`mp2_contract.py` 是同步/异步字段应用契约摘录，不是完整 MP2。未使用真实 API 密钥，也未在 NAS 进行下载、整理集成测试；未运行无关插件的测试套件。

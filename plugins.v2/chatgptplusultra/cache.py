@@ -19,16 +19,23 @@ class TTLCache:
         self._hits = self._misses = self._coalesced = 0
 
     def get_or_load(self, key, loader, timeout):
+        """Compatibility wrapper returning only the cached value."""
+        return self.get_or_load_with_source(key, loader, timeout)[0]
+
+    def _expire(self):
+        """Called under the lock; statistics must not count expired entries."""
+        now = self._timer()
+        for key in [k for k, (expiry, _) in self._entries.items() if expiry <= now]:
+            self._entries.pop(key, None)
+
+    def get_or_load_with_source(self, key, loader, timeout):
         """Never hold the cache lock during external I/O or while waiting."""
         with self._lock:
-            now = self._timer()
-            expired = [k for k, (expiry, _) in self._entries.items() if expiry <= now]
-            for k in expired:
-                self._entries.pop(k, None)
+            self._expire()
             if key in self._entries:
                 self._hits += 1
                 self._entries.move_to_end(key)
-                return deepcopy(self._entries[key][1])
+                return deepcopy(self._entries[key][1]), 'cache'
             flight_key = (self._generation, key)
             future = self._pending.get(flight_key)
             leader = future is None
@@ -38,7 +45,7 @@ class TTLCache:
             else:
                 self._coalesced += 1
         if not leader:
-            return deepcopy(future.result(timeout=max(0, timeout)))
+            return deepcopy(future.result(timeout=max(0, timeout))), 'coalesced'
         try:
             value, ttl = loader()
             with self._lock:
@@ -48,7 +55,7 @@ class TTLCache:
                     while len(self._entries) > self._maxsize:
                         self._entries.popitem(last=False)
             future.set_result(value)
-            return deepcopy(value)
+            return deepcopy(value), 'loader'
         except BaseException as exc:
             future.set_exception(exc)
             raise
@@ -64,5 +71,6 @@ class TTLCache:
 
     def stats(self):
         with self._lock:
+            self._expire()
             return {'hits': self._hits, 'misses': self._misses, 'coalesced': self._coalesced,
                     'size': len(self._entries), 'inflight': len(self._pending)}

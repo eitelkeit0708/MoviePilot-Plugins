@@ -13,7 +13,7 @@ from app.plugins import _PluginBase
 from app.schemas import NotificationType
 from app.schemas.types import EventType, ChainEventType
 from .openai import OpenAi, ProviderError
-from .recognition import DEFAULT_PROMPT, resolve_prompt, usable_title, has_name, build_event_result
+from .recognition import DEFAULT_PROMPT, resolve_prompt, usable_title, has_name, build_event_result, is_release_group
 
 
 def _bool(value):
@@ -32,7 +32,7 @@ class ChatGPTPlusUltra(_PluginBase):
     plugin_name = 'ChatGPT Plus Ultra'
     plugin_desc = '严格名称提取、季集安全适配、正负缓存与 DeepSeek Flash 支持。'
     plugin_icon = 'Chatgpt_A.png'
-    plugin_version = '1.4.0'
+    plugin_version = '1.4.1'
     plugin_author = 'eitelkeit0708'
     author_url = 'https://github.com/eitelkeit0708'
     plugin_config_prefix = 'chatgptplusultra_'
@@ -59,6 +59,7 @@ class ChatGPTPlusUltra(_PluginBase):
             changed = True
         if isinstance(original_prompt, str) and original_prompt.strip() and prompt != original_prompt.strip():
             cfg['previous_customize_prompt'] = original_prompt
+        if cfg.get('customize_prompt') != prompt:
             cfg['customize_prompt'] = prompt
             cfg['prompt_schema_version'] = 2
             changed = True
@@ -100,7 +101,7 @@ class ChatGPTPlusUltra(_PluginBase):
             # Preserve API settings and unknown config fields during one-shot actions/migration.
             self.update_config(cfg)
 
-    def _report_error(self, runtime, error):
+    def _report_error(self, runtime, error, rid=None):
         """Rate-limit sanitized diagnostics; cached failures must not flood notifications."""
         now = time.monotonic()
         key = (error.code, error.key_index)
@@ -112,48 +113,121 @@ class ChatGPTPlusUltra(_PluginBase):
                 return
             self._errors[key] = now
             notify = self._notify
-        logger.warning(f'ChatGPTPlusUltra: {error}')
+        logger.warning(f'ChatGPTPlusUltra: id={rid or "-"} {error}')
         if notify:
             self.post_message(mtype=NotificationType.Plugin, title=self.plugin_name,
                               text=f'辅助服务暂不可用：{error}；未修改资源或订阅。')
 
+    def _trace(self, runtime, title, status, reason, started, result=None, payload=None, meta=None):
+        """One request-local summary/detail, all untrusted scalars escaped and redacted."""
+        rid = runtime.trace_id(title)
+        source = result.source if result else 'local'
+        elapsed = round((time.monotonic() - started) * 1000, 2)
+        prefix = (f'ChatGPTPlusUltra: id={rid} status={status} reason={reason} '
+                  f'source={source} elapsed_ms={elapsed}')
+        safe = runtime.log_text
+        if payload:
+            summary = (f'{prefix} name={safe(payload["name"])} year={safe(payload["year"])}'
+                       '；已提交名称候选，最终匹配由 MP2 决定')
+            # Cache replays remain inspectable at DEBUG without flooding five-minute RSS runs.
+            if source == 'api':
+                logger.info(summary)
+        detail = f'{prefix} title={safe(title, limit=480)}'
+        if result:
+            identity = result.identity or {}
+            detail += (f' ai_name={safe(identity.get("name"))} ai_year={safe(identity.get("year"))}'
+                       f' api_attempts={result.attempts} usage={json.dumps(result.usage or {})}')
+        if result and result.error and result.error.http_status is not None:
+            detail += f' http={result.error.http_status}'
+        if meta is not None:
+            detail += (f' meta_name={safe(getattr(meta, "name", None))}'
+                       f' meta_year={safe(getattr(meta, "year", None))}')
+        if payload:
+            detail += (f' name={safe(payload["name"])} year={safe(payload["year"])}'
+                       f' season={safe(payload["season"])} episode={safe(payload["episode"])}'
+                       ' season_episode_source=MetaInfo')
+        logger.debug(detail)
+
+    def _warn_validation(self, runtime, reason, title):
+        """Structural/semantic rejection is not an API failure or a key-failure notification."""
+        if reason == 'no_name':
+            return
+        now = time.monotonic()
+        key = ('validation', reason)
+        with self._lock:
+            if runtime is not self.openai:
+                return
+            previous = self._errors.get(key)
+            if previous is not None and now - previous < 300:
+                return
+            self._errors[key] = now
+        logger.warning(f'ChatGPTPlusUltra: id={runtime.trace_id(title)} '
+                       f'候选未通过校验 reason={reason}；未禁用密钥，详情见 DEBUG')
+
     @eventmanager.register(ChainEventType.NameRecognize)
     def recognize(self, event: Event):
         """Provide a candidate only; MP2 remains responsible for media lookup and selection."""
+        started = time.monotonic()
         with self._lock:
             runtime = self.openai
             if not self._enabled or not self._recognize or not runtime:
                 return
         data = getattr(event, 'event_data', None)
-        if not isinstance(data, dict) or has_name(data) or not usable_title(data.get('title')):
+        title = data.get('title') if isinstance(data, dict) else None
+        if not usable_title(title):
+            self._trace(runtime, '', 'skipped', 'invalid_title', started)
             return
-        title = data['title']
+        if has_name(data):
+            self._trace(runtime, title, 'skipped', 'existing_result', started)
+            return
+        meta = result = None
         try:
-            # Use the same MP2 parser, not a second season/episode regex or LLM guess.
             meta = MetaInfo(title=title)
             if meta is None:
+                self._trace(runtime, title, 'skipped', 'metainfo_empty', started)
                 return
-            identity = runtime.get_media_name(filename=title)
-            if identity is None:
+            result = runtime.get_media_result(filename=title)
+            if result.error:
+                self._trace(runtime, title, 'error', result.reason, started, result, meta=meta)
+                self._report_error(runtime, result.error, runtime.trace_id(title))
                 return
-            payload = build_event_result(title, identity, meta)
+            if result.identity is None:
+                self._trace(runtime, title, 'abstained' if result.reason == 'no_name' else 'rejected',
+                            result.reason, started, result, meta=meta)
+                if result.source == 'api':
+                    self._warn_validation(runtime, result.reason, title)
+                return
+            if is_release_group(result.identity, meta):
+                self._trace(runtime, title, 'rejected', 'name_is_release_group', started, result, meta=meta)
+                return
+            payload = build_event_result(title, result.identity, meta)
             if payload is None:
+                self._trace(runtime, title, 'rejected', 'invalid_metainfo_number', started, result, meta=meta)
                 return
         except ProviderError as error:
-            self._report_error(runtime, error)
+            self._trace(runtime, title, 'error', error.code, started, result, meta=meta)
+            self._report_error(runtime, error, runtime.trace_id(title))
             return
-        except Exception:
-            logger.warning('ChatGPTPlusUltra: 元数据适配失败，已放弃本次辅助识别（详情已隐藏）')
+        except Exception as error:
+            # Type name is useful for programming errors; never stringify the exception payload.
+            self._trace(runtime, title, 'error', 'adapter_error', started, result, meta=meta)
+            logger.warning('ChatGPTPlusUltra: 元数据适配失败 exception_type=' +
+                           runtime.log_text(type(error).__name__) + '；已放弃本次辅助识别')
             return
+        skip_reason = None
         with self._lock:
-            # A disabled/reconfigured runtime must never publish its late answer.
             if runtime is not self.openai or not self._enabled or not self._recognize:
-                return
-            current = getattr(event, 'event_data', None)
-            if not isinstance(current, dict) or current.get('title') != title or has_name(current):
-                return
-            event.event_data = {**current, **payload}
-        logger.debug('ChatGPTPlusUltra: 已提交名称候选；这不代表媒体库最终匹配成功')
+                skip_reason = 'stale_runtime'
+            else:
+                current = getattr(event, 'event_data', None)
+                if not isinstance(current, dict) or current.get('title') != title or has_name(current):
+                    skip_reason = 'event_changed'
+                else:
+                    event.event_data = {**current, **payload}
+        if skip_reason:
+            self._trace(runtime, title, 'skipped', skip_reason, started, result, meta=meta)
+            return
+        self._trace(runtime, title, 'submitted', 'accepted', started, result, payload, meta)
 
     @eventmanager.register(EventType.UserMessage)
     def talk(self, event: Event):

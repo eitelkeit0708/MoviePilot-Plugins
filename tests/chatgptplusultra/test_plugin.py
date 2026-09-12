@@ -370,8 +370,8 @@ def test_notifications_never_contain_credentials(env, caplog):
 def test_manifest_version_and_unrelated_entries(env):
     manifest=json.loads((ROOT/'package.v2.json').read_text())
     entry=manifest['ChatGPTPlusUltra']
-    assert entry['version']==env.plugin.ChatGPTPlusUltra.plugin_version=='1.4.0'
-    assert next(iter(entry['history']))=='v1.4.0'
+    assert entry['version']==env.plugin.ChatGPTPlusUltra.plugin_version=='1.4.1'
+    assert next(iter(entry['history']))=='v1.4.1'
     assert manifest['SubscribeAutofill']['version']=='3.18'
 
 

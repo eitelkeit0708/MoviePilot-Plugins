@@ -3,7 +3,7 @@ import json
 import re
 import unicodedata
 
-SCHEMA_VERSION = 'name-year-v2'
+SCHEMA_VERSION = 'name-year-v3'
 DEFAULT_PROMPT = '''# 角色
 你是严格的 PT 资源名称提取器，不是影视知识问答助手。
 
@@ -72,7 +72,8 @@ def resolve_prompt(value):
 
 def usable_title(title):
     """Bound input size and skip known invalid placeholders, not whole release groups."""
-    if not isinstance(title, str) or not title.strip() or len(title) > 4096:
+    if (not isinstance(title, str) or not title.strip() or len(title) > 4096
+            or any(unicodedata.category(c) == 'Cs' for c in title)):
         return False
     compact = re.sub(r'[\s\[\]【】]', '', title).casefold()
     return compact not in {'错误种子', '错误种子错误种子', 'invalidtorrent', 'unknown'}
@@ -85,52 +86,101 @@ def has_name(data):
             and data['name'].strip().casefold() not in {'unknown', 'null', 'none', '未知', '未识别'})
 
 
+class _DuplicateKey(ValueError):
+    pass
+
+
 def _object_without_duplicates(pairs):
     obj = {}
     for key, value in pairs:
         if key in obj:
-            raise ValueError('duplicate field')
+            raise _DuplicateKey('duplicate field')
         obj[key] = value
     return obj
 
 
-def _grounded_year(year, title):
-    return (isinstance(year, str) and re.fullmatch(r'[12][0-9]{3}', year)
-            and re.search(r'(?<![A-Za-z0-9])' + year + r'(?![A-Za-z0-9])', title))
+def _fold(text):
+    return ''.join(c for c in unicodedata.normalize('NFKC', text).casefold() if c.isalnum())
 
 
-def _name_evidence(name, title):
-    # Extraction, not translation: tolerate punctuation/case/width changes only.
-    def fold(text):
-        return ''.join(c for c in unicodedata.normalize('NFKC', text).casefold() if c.isalnum())
-    normalized = fold(name)
-    if not normalized or normalized not in fold(title):
-        return False
-    movie_marker = r'剧场版|劇場版|电影版|電影版|(?<![A-Za-z])the[ ._-]+movie(?![A-Za-z])'
-    if re.search(movie_marker, title, re.I) and not re.search(movie_marker, name, re.I):
-        return False
-    return True
+def _year_reason(year, title, name=''):
+    """Only independent input evidence; no claim to validate database release dates."""
+    if not isinstance(year, str) or not re.fullmatch(r'[12][0-9]{3}', year):
+        return 'invalid_year_format'
+    matches = list(re.finditer(r'(?<![A-Za-z0-9])' + year + r'(?![A-Za-z0-9])', title))
+    if not matches:
+        return 'year_not_in_input'
+    date = year + r'[-/.](?:0?[1-9]|1[0-2])[-/.](?:0?[1-9]|[12][0-9]|3[01])(?![0-9])'
+    independent = [m for m in matches if not re.match(date, title[m.start():])]
+    if not independent:
+        return 'year_is_date'
+    if len(independent) <= _fold(name).count(year):
+        return 'year_in_name'
+    return 'accepted'
+
+
+def _grounded_year(year, title, name=''):
+    return _year_reason(year, title, name) == 'accepted'
+
+
+_NON_NAMES = frozenset(_fold(x) for x in (
+    '480p', '720p', '1080p', '1080i', '2160p', '4K', '8K', 'WEB-DL', 'WEBRip',
+    'BluRay', 'REMUX', 'HDR', 'HDR10', 'HDR10+', 'Dolby Vision', 'HEVC', 'x264',
+    'x265', 'H264', 'H265', 'AAC', 'DDP', 'FLAC', '国语中字', '国粤双语', '中英字幕',
+    '简繁字幕', '简体字幕', '繁体字幕', '中文字幕', '内嵌字幕', '内封字幕', '连载', '全集',
+))
+
+
+def inspect_identity(content, title):
+    """Return (identity, stable reason code); never return or log unvalidated content."""
+    if not isinstance(content, str) or not content.strip():
+        return None, 'empty_response'
+    if len(content) > 8192:
+        return None, 'response_too_long'
+    try:
+        obj = json.loads(content, object_pairs_hook=_object_without_duplicates)
+    except _DuplicateKey:
+        return None, 'duplicate_key'
+    except (ValueError, TypeError, RecursionError):
+        return None, 'invalid_json'
+    if not isinstance(obj, dict):
+        return None, 'not_object'
+    if set(obj) != {'name', 'year'}:
+        return None, 'field_set'
+    if not all(isinstance(obj[k], str) for k in ('name', 'year')):
+        return None, 'field_type'
+    name, year = obj['name'].strip(), obj['year'].strip()
+    if not has_name({'name': name}):
+        return None, 'no_name'
+    if len(name) > 200 or any(unicodedata.category(c).startswith('C') or c in '\u2028\u2029' for c in name):
+        return None, 'invalid_name'
+    if '/' in name:
+        return None, 'ambiguous_name'  # MP2 unconditionally truncates names at '/'.
+    normalized = _fold(name)
+    if normalized in _NON_NAMES:
+        return None, 'name_is_metadata'
+    if not normalized or normalized not in _fold(title):
+        return None, 'name_not_in_input'
+    marker = r'剧场版|劇場版|电影版|電影版|(?<![A-Za-z])the[ ._-]+movie(?![A-Za-z])'
+    if re.search(marker, title, re.I) and not re.search(marker, name, re.I):
+        return None, 'movie_marker_lost'
+    if year:
+        reason = _year_reason(year, title, name)
+        if reason != 'accepted':
+            return None, reason
+    return {'name': name, 'year': year}, 'accepted'
 
 
 def parse_identity(content, title):
-    """Validate BEFORE caching. None means abstention, never bad credentials."""
-    if not isinstance(content, str) or not content or len(content) > 8192:
-        return None
-    try:
-        obj = json.loads(content, object_pairs_hook=_object_without_duplicates)
-    except (ValueError, TypeError, RecursionError):
-        return None
-    if not isinstance(obj, dict) or set(obj) != {'name', 'year'}:
-        return None
-    if not all(isinstance(obj[k], str) for k in ('name', 'year')):
-        return None
-    name, year = obj['name'].strip(), obj['year'].strip()
-    if not has_name({'name': name}) or len(name) > 200 or any(ord(c) < 32 for c in name):
-        return None
-    # MP2 unconditionally splits name on '/'; refuse rather than silently truncate identity.
-    if '/' in name or not _name_evidence(name, title) or (year and not _grounded_year(year, title)):
-        return None
-    return {'name': name, 'year': year}
+    """Backward-compatible value-only interface."""
+    return inspect_identity(content, title)[0]
+
+
+def is_release_group(identity, meta):
+    """Use actual current-title MP2 evidence, not a global release-group blacklist."""
+    group = getattr(meta, 'resource_team', None)
+    return bool(isinstance(group, str) and group.strip() and
+                _fold(identity['name']) == _fold(group))
 
 
 def build_event_result(title, identity, meta):
@@ -146,7 +196,7 @@ def build_event_result(title, identity, meta):
             return None
     year = identity['year']
     original_year = str(getattr(meta, 'year', '') or '')
-    if not year and original_year != identity['name'] and _grounded_year(original_year, title):
+    if not year and original_year != identity['name'] and _grounded_year(original_year, title, identity['name']):
         year = original_year
     return {'title': title, 'name': identity['name'], 'year': year or None,
             'season': season, 'episode': episode}

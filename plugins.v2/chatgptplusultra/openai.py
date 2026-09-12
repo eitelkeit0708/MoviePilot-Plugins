@@ -3,7 +3,7 @@ import hashlib
 import json
 import math
 import time
-from collections import OrderedDict
+from collections import OrderedDict, Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -13,21 +13,43 @@ from urllib.parse import urlsplit
 import httpx
 from app.log import logger
 from .cache import TTLCache
-from .recognition import SCHEMA_VERSION, PROTOCOL_GUARD, parse_identity, resolve_prompt, usable_title
+from .diagnostics import safe_text
+from .recognition import SCHEMA_VERSION, PROTOCOL_GUARD, inspect_identity, resolve_prompt, usable_title
 
 
 class ProviderError(Exception):
     """Sanitized error: never contains request bodies, provider messages or keys."""
-    def __init__(self, code, key_index=None):
+    def __init__(self, code, key_index=None, http_status=None):
         self.code, self.key_index = code, key_index
+        self.http_status = http_status if type(http_status) is int and 100 <= http_status <= 599 else None
         suffix = f' (key #{key_index + 1})' if key_index is not None else ''
-        super().__init__(f'AI provider: {code}{suffix}')
+        http = f' http={self.http_status}' if self.http_status is not None else ''
+        super().__init__(f'AI provider: {code}{suffix}{http}')
 
 
 @dataclass(frozen=True)
 class _Failure:
     code: str
     key_index: object = None
+    http_status: object = None
+
+
+@dataclass(frozen=True)
+class _Recognition:
+    identity: object
+    reason: str
+
+
+@dataclass(frozen=True)
+class MediaResult:
+    """Per-caller diagnostics, not mutable global 'last request' state."""
+    identity: object
+    reason: str
+    source: str
+    elapsed_ms: float
+    attempts: int = 0
+    usage: object = None
+    error: object = None
 
 
 def normalize_endpoint(api_url, compatible=False):
@@ -72,6 +94,9 @@ class OpenAi:
         self._provider_cooldown = (0.0, None)
         self._sessions = OrderedDict()
         self._calls = self._abstentions = 0
+        self._recognition_calls = self._chat_calls = 0
+        self._usage = Counter()
+        self._reasons = Counter()
 
     def get_state(self):
         with self._lock:
@@ -81,7 +106,7 @@ class OpenAi:
         """No title cleanup: bracket names, editions and S/E remain distinct."""
         payload = [SCHEMA_VERSION, filename, self._model, self._api_url,
                    self._prompt, self._profile, self._deepseek]
-        return hashlib.sha256(json.dumps(payload, ensure_ascii=False).encode()).hexdigest()
+        return hashlib.sha256(json.dumps(payload, ensure_ascii=True).encode()).hexdigest()
 
     def _client_for(self, index):
         """Reuse MP2's httpx; no SDK dependency upgrades or nested automatic retries."""
@@ -121,10 +146,10 @@ class OpenAi:
             if status == 401:
                 self._health[index]['disabled'] = True
                 self._cursor = (index + 1) % len(self._keys)
-                return ProviderError('authentication', index)
+                return ProviderError('authentication', index, status)
             if status == 429:
                 delay, code = self._retry_after(exc), 'rate_limit'
-                self._health[index]['cooldown'] = now + delay
+                self._health[index]['cooldown'] = max(self._health[index]['cooldown'], now + delay)
             elif isinstance(exc, httpx.TimeoutException) or status == 408:
                 delay, code = 15, 'timeout'
             elif isinstance(exc, httpx.RequestError):
@@ -135,10 +160,11 @@ class OpenAi:
                 delay, code = 300, 'configuration'
             else:
                 delay, code = 30, 'service'
-            self._provider_cooldown = (now + delay, code)
-            return ProviderError(code, index)
+            if now + delay > self._provider_cooldown[0]:
+                self._provider_cooldown = (now + delay, code)
+            return ProviderError(code, index, status)
 
-    def _request(self, messages, media=False, max_tokens=2048):
+    def _request(self, messages, media=False, max_tokens=2048, diagnostics=None):
         """One admission budget; no automatic HTTP retries. Socket timeout is not a hard wall timer."""
         deadline = time.monotonic() + self._timeout
         acquired = False
@@ -179,6 +205,12 @@ class OpenAi:
                     http_client = self._client_for(index)
                     with self._lock:
                         self._calls += 1
+                        if media:
+                            self._recognition_calls += 1
+                        else:
+                            self._chat_calls += 1
+                    if diagnostics is not None:
+                        diagnostics['attempts'] += 1
                     response = http_client.post('chat/completions', json=params, timeout=remaining)
                     response.raise_for_status()
                 except ProviderError:
@@ -191,6 +223,9 @@ class OpenAi:
                     raise last_error from None
                 try:
                     body = response.json()
+                    usage = self._record_usage(body)
+                    if diagnostics is not None:
+                        diagnostics['usage'] = usage
                     choices = body.get('choices') if isinstance(body, dict) else None
                     if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
                         raise ValueError('invalid choices')
@@ -216,32 +251,68 @@ class OpenAi:
                     self._clients.clear()
             self._close_clients(retired)
 
-    def get_media_name(self, filename):
-        """Return a validated two-field identity or None; raise only sanitized provider errors."""
+    def _record_usage(self, body):
+        """Count only explicit nonnegative integer usage on actual HTTP responses."""
+        data = body.get('usage') if isinstance(body, dict) else None
+        fields = ('prompt_tokens', 'completion_tokens', 'prompt_cache_hit_tokens',
+                  'prompt_cache_miss_tokens')
+        usage = {key: data[key] for key in fields if isinstance(data, dict)
+                 and type(data.get(key)) is int and 0 <= data[key] <= 10**10}
+        if usage:
+            with self._lock:
+                self._usage.update(usage)
+                self._usage['usage_responses'] += 1
+        return usage
+
+    def log_text(self, value, limit=240):
+        return safe_text(value, self._keys, limit=limit)
+
+    def trace_id(self, title):
+        return self._extract_cache_key(title)[:12]
+
+    def get_media_result(self, filename):
+        """Value and source are returned atomically by the cache; no counter-delta guessing."""
+        started = time.monotonic()
+        details = {'attempts': 0, 'usage': {}}
+        def report(identity, reason, source, error=None):
+            return MediaResult(identity, reason, source, round((time.monotonic()-started)*1000, 2),
+                               details['attempts'], details['usage'], error)
         if not self.get_state():
-            raise ProviderError('closed' if self._closing else 'configuration')
+            error = ProviderError('closed' if self._closing else 'configuration')
+            return report(None, error.code, 'local', error)
         if not usable_title(filename):
-            return None
+            return report(None, 'invalid_title', 'local')
         def load():
             try:
                 raw = self._request([
                     {'role': 'system', 'content': self._prompt},
                     {'role': 'user', 'content': json.dumps({'input_title': filename}, ensure_ascii=False)}
-                ], media=True, max_tokens=512)
+                ], media=True, max_tokens=512, diagnostics=details)
             except ProviderError as exc:
-                return _Failure(exc.code, exc.key_index), 30.0
-            parsed = parse_identity(raw, filename)
-            if parsed is None:
-                with self._lock:
+                return _Failure(exc.code, exc.key_index, exc.http_status), 30.0
+            identity, reason = inspect_identity(raw, filename)
+            with self._lock:
+                self._reasons[reason] += 1
+                if identity is None:
                     self._abstentions += 1
-            return parsed, self._positive_ttl if parsed else self._negative_ttl
+            return _Recognition(identity, reason), self._positive_ttl if identity else self._negative_ttl
         try:
-            result = self._cache.get_or_load(self._extract_cache_key(filename), load, self._timeout)
+            result, source = self._cache.get_or_load_with_source(
+                self._extract_cache_key(filename), load, self._timeout)
         except TimeoutError:
-            raise ProviderError('busy') from None
+            return report(None, 'busy', 'coalesced', ProviderError('busy'))
+        if source == 'loader':
+            source = 'api' if details['attempts'] else 'local'
         if isinstance(result, _Failure):
-            raise ProviderError(result.code, result.key_index)
-        return result
+            return report(None, result.code, source, ProviderError(result.code, result.key_index, result.http_status))
+        return report(result.identity, result.reason, source)
+
+    def get_media_name(self, filename):
+        """Existing consumers still get a two-field dict/None or a sanitized exception."""
+        result = self.get_media_result(filename)
+        if result.error:
+            raise result.error
+        return result.identity
 
     def get_response(self, text, userid):
         """Serialize chat histories separately from recognition; store the answer, not the question."""
@@ -292,7 +363,12 @@ class OpenAi:
     def stats(self):
         data = self._cache.stats()
         with self._lock:
-            data.update(api_calls=self._calls, abstentions=self._abstentions)
+            data.update(api_calls=self._calls, abstentions=self._abstentions,
+                        recognition_api_calls=self._recognition_calls, other_api_calls=self._chat_calls,
+                        validation_results=dict(self._reasons), **dict(self._usage))
+            until, reason = self._provider_cooldown
+            data['provider_cooldown_remaining'] = round(max(0, until - time.monotonic()), 1)
+            data['provider_cooldown_reason'] = reason if data['provider_cooldown_remaining'] else None
         return data
 
     @staticmethod

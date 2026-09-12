@@ -22,11 +22,12 @@
         "name": "ChatGPT Plus Ultra",
         "description": "严格名称提取、MP2 原生季集适配、安全缓存与 DeepSeek Flash 支持。",
         "labels": "AI,识别",
-        "version": "1.4.0",
+        "version": "1.4.1",
         "icon": "https://raw.githubusercontent.com/jxxghp/MoviePilot-Plugins/main/icons/Chatgpt_A.png",
         "author": "eitelkeit0708",
         "level": 1,
         "history": {
+            "v1.4.1": "fix: 恢复分级脱敏日志、请求级缓存来源与拒绝原因；统计实际HTTP/Token用量；修复提示词空值持久化、并发冷却缩短、数字片名/日期及元数据标签误用",
             "v1.4.0": "fix: 严格 name/year 协议与提示词迁移；按完整标题缓存、负缓存与并发合并；原生季集适配；密钥分类冷却与脱敏；DeepSeek 非思考 JSON 模式；修复聊天上下文",
             "v1.3": "fix: 修复httpx.Client代理参数错误,将proxies改为proxy",
             "v1.2": "feat: 智能缓存键优化 - 提取文件名核心部分作为缓存键,简化返回值只含name+year,缓存命中率从67%提升到90%+",
