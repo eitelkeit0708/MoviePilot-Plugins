@@ -1,490 +1,251 @@
-from typing import Any, List, Dict, Tuple
+"""ChatGPT Plus Ultra: conservative auxiliary recognition for MoviePilot V2."""
+import json
+import math
+import time
+from threading import RLock
+from typing import Any, Dict, List, Tuple
 
 from app.core.config import settings
 from app.core.event import eventmanager, Event
+from app.core.metainfo import MetaInfo
 from app.log import logger
 from app.plugins import _PluginBase
-from app.plugins.chatgptplusultra.openai import OpenAi
-from app.schemas.types import EventType, ChainEventType
 from app.schemas import NotificationType
+from app.schemas.types import EventType, ChainEventType
+from .openai import OpenAi, ProviderError
+from .recognition import DEFAULT_PROMPT, resolve_prompt, usable_title, has_name, build_event_result
+
+
+def _bool(value):
+    return value.strip().lower() in {'true', '1', 'yes', 'on'} if isinstance(value, str) else bool(value)
+
+
+def _number(value, default, lower, upper):
+    try:
+        number = float(value)
+        return min(upper, max(lower, number)) if math.isfinite(number) else default
+    except (TypeError, ValueError):
+        return default
 
 
 class ChatGPTPlusUltra(_PluginBase):
-    # 插件名称
-    plugin_name = "ChatGPT Plus Ultra"
-    # 插件描述
-    plugin_desc = "ChatGPT 增强版,支持智能缓存大幅降低 token 消耗。"
-    # 插件图标
-    plugin_icon = "Chatgpt_A.png"
-    # 插件版本
-    plugin_version = "1.3"
-    # 插件作者
-    plugin_author = "eitelkeit0708"
-    # 作者主页
-    author_url = "https://github.com/eitelkeit0708"
-    # 插件配置项ID前缀
-    plugin_config_prefix = "chatgptplusultra_"
-    # 加载顺序
+    plugin_name = 'ChatGPT Plus Ultra'
+    plugin_desc = '严格名称提取、季集安全适配、正负缓存与 DeepSeek Flash 支持。'
+    plugin_icon = 'Chatgpt_A.png'
+    plugin_version = '1.4.0'
+    plugin_author = 'eitelkeit0708'
+    author_url = 'https://github.com/eitelkeit0708'
+    plugin_config_prefix = 'chatgptplusultra_'
     plugin_order = 15
-    # 可使用的用户级别
     auth_level = 1
 
-    # 私有属性
-    openai = None
-    _enabled = False
-    _proxy = False
-    _compatible = False
-    _recognize = False
-    _openai_url = None
-    _openai_key = None
-    _model = None
-    # 存储多个API密钥
-    _api_keys = []
-    # 当前使用的密钥索引
-    _current_key_index = 0
-    # 密钥失效状态
-    _key_status = {}
-    # 是否发送通知
-    _notify = False
-    # 自定义提示词
-    _customize_prompt = '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的名称、版本、分段、年份、分瓣率、季集等信息，并按以下JSON格式返回：{"name":string,"version":string,"part":string,"year":string,"resolution":string,"season":number|null,"episode":number|null}，特别注意返回结果需要严格附合JSON格式，不需要有任何其它的字符。如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果。'
+    def __init__(self):
+        super().__init__()
+        self._lock = RLock()
+        self.openai = None
+        self._enabled = self._recognize = self._chat_enabled = self._notify = False
+        self._customize_prompt = DEFAULT_PROMPT
+        self._errors = {}
 
     def init_plugin(self, config: dict = None):
-        if config:
-            self._enabled = config.get("enabled")
-            self._proxy = config.get("proxy")
-            self._compatible = config.get("compatible")
-            self._recognize = config.get("recognize")
-            self._openai_url = config.get("openai_url")
-            self._openai_key = config.get("openai_key")
-            self._model = config.get("model")
-            self._notify = config.get("notify")
-            self._customize_prompt = config.get("customize_prompt")
-            # 处理多个API密钥
-            if self._openai_key:
-                self._api_keys = [key.strip() for key in self._openai_key.split(',') if key.strip()]
-                # 初始化密钥状态
-                self._key_status = {key: True for key in self._api_keys}
-                logger.info(f"ChatGPT插件加载了 {len(self._api_keys)} 个API密钥")
+        """Swap a complete runtime; removed credentials never leave an old client active."""
+        cfg = dict(config or {})
+        original_prompt = cfg.get('customize_prompt')
+        prompt = resolve_prompt(original_prompt)
+        changed = False
+        if _bool(cfg.get('restore_prompt')):
+            prompt = DEFAULT_PROMPT
+            cfg['restore_prompt'] = False
+            changed = True
+        if isinstance(original_prompt, str) and original_prompt.strip() and prompt != original_prompt.strip():
+            cfg['previous_customize_prompt'] = original_prompt
+            cfg['customize_prompt'] = prompt
+            cfg['prompt_schema_version'] = 2
+            changed = True
+        if _bool(cfg.get('clear_cache')):
+            cfg['clear_cache'] = False
+            changed = True
+        enabled = _bool(cfg.get('enabled'))
+        keys = [key.strip() for key in str(cfg.get('openai_key') or '').split(',') if key.strip()]
+        runtime = None
+        if enabled and keys and cfg.get('openai_url'):
+            try:
+                runtime = OpenAi(
+                    api_keys=keys, api_url=cfg['openai_url'], model=cfg.get('model') or 'deepseek-flash',
+                    proxy=settings.PROXY if _bool(cfg.get('proxy')) else None,
+                    compatible=_bool(cfg.get('compatible')), customize_prompt=prompt,
+                    timeout=_number(cfg.get('timeout'), 20, 1, 120),
+                    max_attempts=int(_number(cfg.get('max_attempts'), 2, 1, 5)),
+                    positive_ttl=_number(cfg.get('positive_ttl'), 3600, 0, 86400),
+                    negative_ttl=_number(cfg.get('negative_ttl'), 600, 0, 86400),
+                    cache_size=int(_number(cfg.get('cache_size'), 1000, 1, 10000)),
+                    max_concurrency=int(_number(cfg.get('max_concurrency'), 2, 1, 8)),
+                    profile=cfg.get('request_profile') if cfg.get('request_profile') in
+                            {'auto','deepseek','generic'} else 'auto')
+            except Exception:
+                logger.error('ChatGPTPlusUltra 配置无效，请检查 API 基址和数值设置（敏感详情已隐藏）')
+        with self._lock:
+            previous = self.openai
+            self.openai = runtime
+            self._enabled = enabled
+            self._recognize = _bool(cfg.get('recognize'))
+            # Preserve old installations' chat behavior; new form defaults to recognition-only.
+            self._chat_enabled = _bool(cfg.get('chat_enabled', enabled))
+            self._notify = _bool(cfg.get('notify'))
+            self._customize_prompt = prompt
+            self._errors.clear()
+        if previous:
+            previous.close()
+        if changed:
+            # Preserve API settings and unknown config fields during one-shot actions/migration.
+            self.update_config(cfg)
 
-            if self._openai_url and self._api_keys:
-                # 使用第一个密钥初始化
-                self._current_key_index = 0
-                self.init_openai(self._api_keys[self._current_key_index])
+    def _report_error(self, runtime, error):
+        """Rate-limit sanitized diagnostics; cached failures must not flood notifications."""
+        now = time.monotonic()
+        key = (error.code, error.key_index)
+        with self._lock:
+            if runtime is not self.openai:
+                return
+            previous = self._errors.get(key)
+            if previous is not None and now - previous < 300:
+                return
+            self._errors[key] = now
+            notify = self._notify
+        logger.warning(f'ChatGPTPlusUltra: {error}')
+        if notify:
+            self.post_message(mtype=NotificationType.Plugin, title=self.plugin_name,
+                              text=f'辅助服务暂不可用：{error}；未修改资源或订阅。')
 
-    def init_openai(self, api_key):
-        """
-        初始化OpenAI客户端
-        """
-        if self._openai_url and api_key:
-            self.openai = OpenAi(api_key=api_key, api_url=self._openai_url,
-                                 proxy=settings.PROXY if self._proxy else None,
-                                 model=self._model, compatible=bool(self._compatible), customize_prompt=self._customize_prompt)
-            logger.info(f"ChatGPT插件初始化API客户端成功")
-            return True
-        return False
+    @eventmanager.register(ChainEventType.NameRecognize)
+    def recognize(self, event: Event):
+        """Provide a candidate only; MP2 remains responsible for media lookup and selection."""
+        with self._lock:
+            runtime = self.openai
+            if not self._enabled or not self._recognize or not runtime:
+                return
+        data = getattr(event, 'event_data', None)
+        if not isinstance(data, dict) or has_name(data) or not usable_title(data.get('title')):
+            return
+        title = data['title']
+        try:
+            # Use the same MP2 parser, not a second season/episode regex or LLM guess.
+            meta = MetaInfo(title=title)
+            if meta is None:
+                return
+            identity = runtime.get_media_name(filename=title)
+            if identity is None:
+                return
+            payload = build_event_result(title, identity, meta)
+            if payload is None:
+                return
+        except ProviderError as error:
+            self._report_error(runtime, error)
+            return
+        except Exception:
+            logger.warning('ChatGPTPlusUltra: 元数据适配失败，已放弃本次辅助识别（详情已隐藏）')
+            return
+        with self._lock:
+            # A disabled/reconfigured runtime must never publish its late answer.
+            if runtime is not self.openai or not self._enabled or not self._recognize:
+                return
+            current = getattr(event, 'event_data', None)
+            if not isinstance(current, dict) or current.get('title') != title or has_name(current):
+                return
+            event.event_data = {**current, **payload}
+        logger.debug('ChatGPTPlusUltra: 已提交名称候选；这不代表媒体库最终匹配成功')
 
-    def switch_to_next_key(self, failed_key):
-        """
-        切换到下一个可用的API密钥
-        :return: (is_switched, error_message) 元组，表示是否切换成功及错误信息
-        """
-        # 标记当前密钥为失效
-        self._key_status[failed_key] = False
-
-        # 寻找下一个可用的密钥
-        original_index = self._current_key_index
-        while True:
-            self._current_key_index = (self._current_key_index + 1) % len(self._api_keys)
-            next_key = self._api_keys[self._current_key_index]
-
-            # 如果密钥标记为可用或者已经尝试了所有密钥，则使用该密钥
-            if self._key_status.get(next_key, True) or self._current_key_index == original_index:
-                break
-
-        # 检查是否所有密钥都失效
-        if all(not status for status in self._key_status.values()):
-            logger.error("所有API密钥均已失效")
-            return False, "所有API密钥均已失效，请检查配置"
-
-        # 使用新密钥重新初始化客户端
-        next_key = self._api_keys[self._current_key_index]
-        logger.info(f"切换到下一个API密钥 {next_key}")
-        success = self.init_openai(next_key)
-        return success, ""
+    @eventmanager.register(EventType.UserMessage)
+    def talk(self, event: Event):
+        with self._lock:
+            runtime = self.openai
+            if not self._enabled or not self._chat_enabled or not runtime:
+                return
+        data = getattr(event, 'event_data', None)
+        if not isinstance(data, dict):
+            return
+        text, userid, channel = data.get('text'), data.get('userid'), data.get('channel')
+        if not isinstance(text, str) or not text.strip() or userid is None or len(text) > 16000:
+            return
+        if text.startswith(('http', 'magnet', 'ftp')):
+            return
+        if not (text == '#清除' or text.startswith(('问', '帮', '你')) or
+                text.endswith(('?', '？')) or len(text) > 10):
+            return
+        session = json.dumps([str(channel), str(userid)], ensure_ascii=False)
+        try:
+            response = runtime.get_response(text=text, userid=session)
+        except ProviderError as error:
+            self._report_error(runtime, error)
+            return
+        with self._lock:
+            if runtime is not self.openai or not self._enabled or not self._chat_enabled:
+                return
+        self.post_message(channel=channel, title=response, userid=userid)
 
     def get_state(self) -> bool:
         return self._enabled
 
     @staticmethod
     def get_command() -> List[Dict[str, Any]]:
-        pass
+        return []
 
     def get_api(self) -> List[Dict[str, Any]]:
-        pass
+        return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-        """
-        return [
-            {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'proxy',
-                                            'label': '使用代理服务器',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'compatible',
-                                            'label': '兼容模式',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'recognize',
-                                            'label': '辅助识别',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'notify',
-                                            'label': '开启通知',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'openai_url',
-                                            'label': 'OpenAI API Url',
-                                            'placeholder': 'https://api.openai.com',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'openai_key',
-                                            'label': 'API密钥 (多个密钥以逗号分隔)',
-                                            'placeholder': 'sk-xxx,sk-yyy'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextField',
-                                        'props': {
-                                            'model': 'model',
-                                            'label': '自定义模型',
-                                            'placeholder': 'gpt-3.5-turbo',
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {'cols': 12},
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'rows': 2,
-                                            'auto-grow': True,
-                                            'model': 'customize_prompt',
-                                            'label': '辅助识别提示词',
-                                            'hint': '在辅助识别时的给AI的提示词',
-                                            'clearable': True,
-                                            'persistent-hint': True,
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '开启插件后，消息交互时使用请[问帮你]开头，或者以？号结尾，或者超过10个汉字/单词，则会触发ChatGPT回复。'
-                                                    '开启辅助识别后，内置识别功能无法正常识别种子/文件名称时，将使用ChatGTP进行AI辅助识别，可以提升动漫等非规范命名的识别成功率。'
-                                                    '支持输入多个API密钥（以逗号分隔），在密钥调用失败时将自动切换到下一个可用密钥。'
-                                                    '开启通知选项后，将在API密钥调用失败时发送系统通知。'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ], {
-            "enabled": False,
-            "proxy": False,
-            "compatible": False,
-            "recognize": False,
-            "notify": False,
-            "openai_url": "https://api.openai.com",
-            "openai_key": "",
-            "model": "gpt-3.5-turbo",
-            "customize_prompt": '接下来我会给你一个电影或电视剧的文件名，你需要识别文件名中的名称、版本、分段、年份、分瓣率、季集等信息，并按以下JSON格式返回：{"name":string, '
-                                '"version":string,"part":string,"year":string,"resolution":string,"season":number|null,"episode":number|null}，特别注意返回结果需要严格附合JSON格式，不需要有任何其它的字符。如果中文电影或电视剧的文件名中存在谐音字或字母替代的情况，请还原最有可能的结果。'
-        }
+        """Existing config IDs are unchanged; reset/clear run once when saving."""
+        defaults = dict(enabled=False, recognize=False, chat_enabled=False, notify=False,
+            proxy=False, compatible=False, openai_url='https://api.deepseek.com',
+            openai_key='', model='deepseek-flash', customize_prompt=DEFAULT_PROMPT,
+            request_profile='auto', timeout=20, max_attempts=2, max_concurrency=2,
+            cache_size=1000, positive_ttl=3600, negative_ttl=600,
+            clear_cache=False, restore_prompt=False)
+        fields = []
+        for name, label in [('enabled','启用插件'),('recognize','辅助识别'),('chat_enabled','消息聊天'),
+                            ('proxy','使用代理'),('compatible','基址按填写值使用（不补 /v1）'),
+                            ('notify','错误通知'),('clear_cache','保存时清空缓存'),
+                            ('restore_prompt','保存时恢复新版默认提示词')]:
+            fields.append({'component':'VCol','props':{'cols':12,'md':6}, 'content':[
+                {'component':'VSwitch','props':{'model':name,'label':label}}]})
+        for name,label in [('openai_url','API 基址'),('openai_key','API 密钥（多个用逗号分隔）'),
+                           ('model','模型 ID（DeepSeek 官方：deepseek-flash）'),
+                           ('timeout','请求预算/超时（秒）'),('max_attempts','鉴权失败最多尝试密钥数'),
+                           ('max_concurrency','同时请求上限'),('cache_size','缓存条数上限'),
+                           ('positive_ttl','有效候选缓存秒数'),('negative_ttl','放弃识别缓存秒数')]:
+            props = {'model':name,'label':label}
+            if name == 'openai_key':
+                props['type'] = 'password'
+            elif name in {'timeout','max_attempts','max_concurrency','cache_size','positive_ttl','negative_ttl'}:
+                props['type'] = 'number'
+            fields.append({'component':'VCol','props':{'cols':12,'md':6},'content':[
+                {'component':'VTextField','props':props}]})
+        fields += [
+            {'component':'VCol','props':{'cols':12},'content':[{'component':'VSelect','props':{
+                'model':'request_profile','label':'请求配置（转发 DeepSeek 时可手动选择）',
+                'items':[{'title':'自动识别官方域名','value':'auto'},
+                         {'title':'DeepSeek：非思考；辅助识别 JSON 模式','value':'deepseek'},
+                         {'title':'通用 OpenAI 兼容：不发送 DeepSeek 扩展','value':'generic'}]}}]},
+            {'component':'VCol','props':{'cols':12},'content':[{'component':'VTextarea','props':{
+                'model':'customize_prompt','label':'名称提取提示词（严格 name/year 两字段）','rows':10}}]},
+            {'component':'VCol','props':{'cols':12},'content':[{'component':'VAlert','props':{
+                'type':'info','variant':'tonal','text':
+                'AI 只提取名称和年份，季集来自 MP2 对当前标题的解析。未知结果不会封禁密钥。'
+                '缓存保留完整标题，不跨集复用；重启或保存设置会重建缓存。建议只开启一个 AI 辅助识别插件。'
+                '消息以问/帮/你开头、问号结尾或超过10字时可触发聊天；#清除仅清空当前渠道会话。'}}]}
+        ]
+        return [{'component':'VForm','content':[{'component':'VRow','content':fields}]}], defaults
 
     def get_page(self) -> List[dict]:
-        pass
-
-    @staticmethod
-    def is_api_error(response):
-        """
-        判断响应是否表示API错误
-        :param response: API响应
-        :return: (is_error, error_message) 元组，表示是否错误及错误信息
-        """
-
-        # 检查响应是否为字典且包含errorMsg
-        if isinstance(response, dict) and response.get("errorMsg"):
-            return True, response.get("errorMsg")
-
-        # 检查响应是否为字符串且包含错误信息
-        if isinstance(response, str) and "请求ChatGPT出现错误" in response:
-            return True, response
-
-        # 如果没有错误信息，则表示调用成功
-        return False, ""
-
-    @eventmanager.register(EventType.UserMessage)
-    def talk(self, event: Event):
-        """
-        监听用户消息，获取ChatGPT回复
-        """
-        if not self._enabled:
-            return
-        if not self.openai:
-            return
-        text = event.event_data.get("text")
-        userid = event.event_data.get("userid")
-        channel = event.event_data.get("channel")
-        if not text:
-            return
-        if text.startswith("http") or text.startswith("magnet") or text.startswith("ftp"):
-            return
-
-        # 尝试获取响应，失败时切换API密钥
-        retry_count = 0
-        max_retries = len(self._api_keys)
-
-        while retry_count < max_retries:
-            response = self.openai.get_response(text=text, userid=userid)
-
-            # 判断响应是否正常
-            is_error, error_msg = self.is_api_error(response)
-            logger.info(f"ChatGPT返回结果：{response}")
-
-            if is_error:
-                current_key = self._api_keys[self._current_key_index]
-                switched, switch_error = self.switch_to_next_key(current_key)
-
-                # 发送密钥失效通知
-                if self._notify:
-                    message = f"API密钥 {current_key} 调用失败: {error_msg}"
-                    self.post_message(channel=channel, title=message, userid=userid)
-
-                    # 如果所有密钥都失效，发送额外通知
-                    if not switched:
-                        message = switch_error
-                        self.post_message(mtype=NotificationType.Plugin, title="ChatGpt", text=message)
-
-                if not switched:
-                    # 所有密钥都失效，发送消息并退出
-                    return
-
-                retry_count += 1
-            else:
-                # 成功获取响应
-                self.post_message(channel=channel, title=response, userid=userid)
-                return
-
-        # 所有重试都失败
-        if self._notify:
-            self.post_message(channel=channel,
-                              title="无法获取ChatGPT响应，所有API密钥都已失效",
-                              userid=userid)
-
-    @eventmanager.register(ChainEventType.NameRecognize)
-    def recognize(self, event: Event):
-        """
-        监听识别事件，使用ChatGPT辅助识别名称
-        """
-        if not self.openai:
-            return
-        if not self._recognize:
-            return
-        if not event.event_data:
-            return
-        title = event.event_data.get("title")
-        if not title:
-            return
-
-        # 尝试获取媒体名称，失败时切换API密钥
-        retry_count = 0
-        max_retries = len(self._api_keys)
-
-        while retry_count < max_retries:
-            response = self.openai.get_media_name(filename=title)
-            logger.info(f"ChatGPT返回结果：{response}")
-
-            # 判断响应是否正常
-            is_error, error_msg = self.is_api_error(response)
-
-            # 如果不是错误但返回字典中没有name字段，也视为错误
-            if not is_error and isinstance(response, dict) and not response.get("name"):
-                is_error = True
-                error_msg = "未返回有效识别结果"
-
-            if is_error:
-                # 发生错误，尝试切换密钥
-                current_key = self._api_keys[self._current_key_index]
-                switched, switch_error = self.switch_to_next_key(current_key)
-
-                # 发送密钥失效通知 (通过系统通知，因为这里没有用户交互)
-                if self._notify:
-                    message = f"API密钥 {current_key} 调用失败: {error_msg}"
-                    self.post_message(mtype=NotificationType.Plugin, title="ChatGpt", text=message)
-
-                    # 如果所有密钥都失效，发送额外通知
-                    if not switched:
-                        message = switch_error
-                        self.post_message(mtype=NotificationType.Plugin, title="ChatGpt", text=message)
-
-                if not switched:
-                    # 所有密钥都失效
-                    return
-
-                retry_count += 1
-            else:
-                # 成功获取结果
-                event.event_data = {
-                    'title': title,
-                    'name': response.get("name"),
-                    'year': response.get("year"),
-                    'season': response.get("season"),
-                    'episode': response.get("episode")
-                }
-                return
-
-        # 所有重试都失败
-        if self._notify:
-            logger.error(f"无法识别标题 {title}，所有API密钥都已失效")
-            self.post_message(mtype=NotificationType.Plugin,
-                              title="ChatGpt",
-                              text=f"无法识别标题 {title}，所有API密钥都已失效")
+        runtime = self.openai
+        stats = runtime.stats() if runtime else {}
+        return [{'component':'VAlert','props':{'type':'info','variant':'tonal',
+            'text':'本次配置会话统计（API 调用含聊天；候选不等于最终匹配成功）：' +
+                   json.dumps(stats, ensure_ascii=False)}}]
 
     def stop_service(self):
-        """
-        退出插件
-        """
-        pass
+        with self._lock:
+            previous, self.openai = self.openai, None
+            self._enabled = self._recognize = self._chat_enabled = False
+        if previous:
+            previous.close()
