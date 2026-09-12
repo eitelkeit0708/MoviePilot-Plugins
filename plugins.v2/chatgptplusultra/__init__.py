@@ -13,7 +13,7 @@ from app.plugins import _PluginBase
 from app.schemas import NotificationType
 from app.schemas.types import EventType, ChainEventType
 from .openai import OpenAi, ProviderError
-from .recognition import DEFAULT_PROMPT, resolve_prompt, usable_title, has_name, build_event_result, is_release_group
+from .recognition import DEFAULT_PROMPT, resolve_prompt, usable_title, has_name, build_event_result, is_release_group, unchanged_current_title
 
 
 def _bool(value):
@@ -30,9 +30,9 @@ def _number(value, default, lower, upper):
 
 class ChatGPTPlusUltra(_PluginBase):
     plugin_name = 'ChatGPT Plus Ultra'
-    plugin_desc = '严格名称提取、季集安全适配、正负缓存与 DeepSeek Flash 支持。'
+    plugin_desc = '严格名称提取、原生季集传递、正负缓存与 DeepSeek Flash 支持。'
     plugin_icon = 'Chatgpt_A.png'
-    plugin_version = '1.4.1'
+    plugin_version = '1.4.2'
     plugin_author = 'eitelkeit0708'
     author_url = 'https://github.com/eitelkeit0708'
     plugin_config_prefix = 'chatgptplusultra_'
@@ -127,8 +127,10 @@ class ChatGPTPlusUltra(_PluginBase):
                   f'source={source} elapsed_ms={elapsed}')
         safe = runtime.log_text
         if payload:
-            summary = (f'{prefix} name={safe(payload["name"])} year={safe(payload["year"])}'
-                       '；已提交名称候选，最终匹配由 MP2 决定')
+            explanation = ('；与当前标题解析一致，已提交供 MP2 结合原始上下文判定'
+                           if reason == 'unchanged_current_title'
+                           else '；已提交名称候选，最终匹配由 MP2 决定')
+            summary = f'{prefix} name={safe(payload["name"])} year={safe(payload["year"])}' + explanation
             # Cache replays remain inspectable at DEBUG without flooding five-minute RSS runs.
             if source == 'api':
                 logger.info(summary)
@@ -145,7 +147,7 @@ class ChatGPTPlusUltra(_PluginBase):
         if payload:
             detail += (f' name={safe(payload["name"])} year={safe(payload["year"])}'
                        f' season={safe(payload["season"])} episode={safe(payload["episode"])}'
-                       ' season_episode_source=MetaInfo')
+                       ' season_episode_source=MetaInfo identity_scope=current_title')
         logger.debug(detail)
 
     def _warn_validation(self, runtime, reason, title):
@@ -227,7 +229,9 @@ class ChatGPTPlusUltra(_PluginBase):
         if skip_reason:
             self._trace(runtime, title, 'skipped', skip_reason, started, result, meta=meta)
             return
-        self._trace(runtime, title, 'submitted', 'accepted', started, result, payload, meta)
+        # Title-only comparison is not a verdict on the actual host's org_meta.
+        reason = 'unchanged_current_title' if unchanged_current_title(payload, meta) else 'accepted'
+        self._trace(runtime, title, 'submitted', reason, started, result, payload, meta)
 
     @eventmanager.register(EventType.UserMessage)
     def talk(self, event: Event):

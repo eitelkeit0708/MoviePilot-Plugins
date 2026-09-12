@@ -3,7 +3,7 @@ import json
 import re
 import unicodedata
 
-SCHEMA_VERSION = 'name-year-v3'
+SCHEMA_VERSION = 'name-year-v4'
 DEFAULT_PROMPT = '''# 角色
 你是严格的 PT 资源名称提取器，不是影视知识问答助手。
 
@@ -38,6 +38,16 @@ name 为片名；year 为明确的四位年份或空字符串。
 输入：{"input_title":"[HHWEB][1080p][国语中字]"}
 输出：{"name":"","year":""}'''
 
+
+# Keep the exact 1.4.0/1.4.1 built-in for non-destructive prompt migration.
+LEGACY_EXTRACTION_PROMPT = DEFAULT_PROMPT
+DEFAULT_PROMPT = DEFAULT_PROMPT.replace(
+    '4. 必须保留作品身份：续作编号、副标题、剧场版/电影版/The Movie 等区别不能丢失。电影不得缩成同名电视剧或系列总名。去掉的是 S02E03 等季集标记，不是作品编号。',
+    '4. 必须保留所选片名自身的作品身份：续作编号、副标题、剧场版/电影版/The Movie 等区别不能丢失。电影不得缩成同名电视剧或系列总名。但其他独立别名中的电影版标记，不得强行拼入所选中文名。去掉的是 S02E03 等季集标记，不是作品编号。'
+) + '''
+输入：{"input_title":"The Stain 2026 [污点 / Buppha the Movie / The Stain]"}
+输出：{"name":"污点","year":"2026"}'''
+
 # Exact known user prompt: migrate this contradiction, but preserve arbitrary custom prompts.
 LEGACY_USER_PROMPT = '''# ROLE
 你是一个严谨的 PT 资源元数据提取器。
@@ -65,7 +75,8 @@ def resolve_prompt(value):
     """Upgrade only empty or explicitly known legacy prompts."""
     text = value.strip() if isinstance(value, str) else ''
     compact = lambda s: re.sub(r'\s+', '', s)
-    if not text or compact(text) in {compact(LEGACY_USER_PROMPT), compact(LEGACY_DEFAULT_PROMPT)}:
+    if not text or compact(text) in {compact(LEGACY_USER_PROMPT), compact(LEGACY_DEFAULT_PROMPT),
+                                        compact(LEGACY_EXTRACTION_PROMPT)}:
         return DEFAULT_PROMPT
     return text
 
@@ -131,6 +142,68 @@ _NON_NAMES = frozenset(_fold(x) for x in (
 ))
 
 
+_MOVIE_MARKER = re.compile(
+    r'剧场版|劇場版|电影版|電影版|(?<![A-Za-z])the[ ._-]+movie(?![A-Za-z])', re.I)
+
+
+def _source_fragments(title):
+    """Text spans split by bracket/alias boundaries; None for malformed brackets.
+
+    This locates literal name evidence only. It is not a media-type/episode
+    parser. Positions let standalone adjacent [剧场版] labels stay protected.
+    """
+    fragments, stack, start = [], [], 0
+    closing = {'[': ']', '【': '】'}
+    for match in re.finditer(r'[\[\]【】/／]', title):
+        if title[start:match.start()].strip():
+            fragments.append((start, match.start(), len(stack)))
+        token = match.group()
+        if token in closing:
+            stack.append(closing[token])
+        elif token in {']', '】'}:
+            if not stack or stack.pop() != token:
+                return None
+        start = match.end()
+    if stack:
+        return None
+    if title[start:].strip():
+        fragments.append((start, len(title), 0))
+    return fragments
+
+
+def _movie_marker_lost(name, title):
+    """Protect the selected name's source, not every unrelated alias in the input.
+
+    Prefer bracket evidence, then the first matching alias in input order. A
+    shorter external title must not bypass an explicit marked bracket title.
+    With unresolvable source boundaries retain the previous conservative veto.
+    """
+    if not _MOVIE_MARKER.search(title) or _MOVIE_MARKER.search(name):
+        return False
+    fragments = _source_fragments(title)
+    if fragments is None:
+        return True
+    normalized = _fold(name)
+    matches = [i for i, (start, end, _) in enumerate(fragments)
+               if normalized in _fold(title[start:end])]
+    if not matches:
+        return True
+    index = min(matches, key=lambda i: (fragments[i][2] == 0, fragments[i][0]))
+    start, end, _ = fragments[index]
+    if _MOVIE_MARKER.search(title[start:end]):
+        return True
+    for neighbor in (index - 1, index + 1):
+        if not 0 <= neighbor < len(fragments):
+            continue
+        left, right, _ = fragments[neighbor]
+        if not _MOVIE_MARKER.fullmatch(title[left:right].strip()):
+            continue
+        gap = title[right:start] if neighbor < index else title[end:left]
+        if re.fullmatch(r'[\s\[\]【】]*', gap):
+            return True
+    return False
+
+
 def inspect_identity(content, title):
     """Return (identity, stable reason code); never return or log unvalidated content."""
     if not isinstance(content, str) or not content.strip():
@@ -161,8 +234,7 @@ def inspect_identity(content, title):
         return None, 'name_is_metadata'
     if not normalized or normalized not in _fold(title):
         return None, 'name_not_in_input'
-    marker = r'剧场版|劇場版|电影版|電影版|(?<![A-Za-z])the[ ._-]+movie(?![A-Za-z])'
-    if re.search(marker, title, re.I) and not re.search(marker, name, re.I):
+    if _movie_marker_lost(name, title):
         return None, 'movie_marker_lost'
     if year:
         reason = _year_reason(year, title, name)
@@ -200,3 +272,21 @@ def build_event_result(title, identity, meta):
         year = original_year
     return {'title': title, 'name': identity['name'], 'year': year or None,
             'season': season, 'episode': episode}
+
+
+
+def unchanged_current_title(payload, meta):
+    """Diagnostic comparison only; MUST NOT control event publication or caching.
+
+    Mirror V2 recognize_help's returned-name normalization, but compare with
+    current-title MetaInfo, NOT the unseen original org_meta. Even equality
+    here cannot prove the actual host request has no useful identity change.
+    """
+    missing = object()
+    original_name = getattr(meta, 'name', missing)
+    original_year = getattr(meta, 'year', missing)
+    name = str(payload['name']).split('/')[0].strip().replace('.', ' ')
+    year = str(payload['year']).split('/')[0].strip() if payload.get('year') else None
+    if not str(year).isdigit():
+        year = None
+    return name == original_name and year == original_year
