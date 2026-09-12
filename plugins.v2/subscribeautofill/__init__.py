@@ -1,5 +1,7 @@
+import copy
 import json
 import re
+import threading
 import time
 from typing import Any, List, Dict, Tuple, Optional
 
@@ -7,12 +9,12 @@ from app.core.event import eventmanager, Event
 from app.db.downloadhistory_oper import DownloadHistoryOper
 from app.db.site_oper import SiteOper
 from app.db.subscribe_oper import SubscribeOper
+from app.helper.rule import RuleHelper
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas.types import EventType, SystemConfigKey
 
 
-# 默认站点-官组映射
 DEFAULT_SITE_GROUP_MAPPINGS = """馒头:MWeb|MTeam|TPTV
 观众:ADE|ADWeb|Audies
 憨憨:HHWEB
@@ -21,612 +23,418 @@ DEFAULT_SITE_GROUP_MAPPINGS = """馒头:MWeb|MTeam|TPTV
 UBits:UBWEB|UBits|UBTV
 高清杜比:Dream|DBTV|QHstudIo"""
 
-# 默认源正则
-DEFAULT_SOURCE_PATTERNS = """\\bCR\\b|Crunchyroll
-Netflix|\\bNF\\b
+DEFAULT_SOURCE_PATTERNS = r"""\bCR\b|Crunchyroll
+Netflix|\bNF\b
 friDay|Friday
-\\bAMZN\\b|Amazon
-B-Global|\\bBG\\b
-\\bIQ\\b|iqiyi
+\bAMZN\b|Amazon
+B-Global|\bBG\b
+\bIQ\b|iqiyi
 Baha
 LINETV
-Disney[\\s.]*\\+?|\\bDSNP\\b
-HBO[\\s.]*Max|\\bHBO\\b|\\bHMAX\\b
+Disney[\s.]*\+?|\bDSNP\b
+HBO[\s.]*Max|\bHBO\b|\bHMAX\b
 Hulu
-Paramount[\\s.]*\\+?
-Apple[\\s.]*TV[\\s.]*\\+?|\\bATVP\\b"""
+Paramount[\s.]*\+?
+Apple[\s.]*TV[\s.]*\+?|\bATVP\b"""
 
 
 class SubscribeAutofill(_PluginBase):
-    # 插件名称
     plugin_name = "订阅自动填充"
-    # 插件描述
-    plugin_desc = "电视剧下载后自动拆分媒体信息填充到订阅，支持站点-官组智能匹配。"
-    # 插件图标
+    plugin_desc = "下载后填充同组同站点，默认尊重订阅优先级规则，避免锁死画质和音轨。"
     plugin_icon = "teamwork.png"
-    # 插件版本
-    plugin_version = "3.17"
-    # 插件作者
+    plugin_version = "3.18"
     plugin_author = "Eitelkeit"
-    # 作者主页
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
-    # 插件配置项ID前缀
     plugin_config_prefix = "subscribeautofill_"
-    # 加载顺序
     plugin_order = 26
-    # 可使用的用户级别
     auth_level = 2
-
-    def __escape_regex(self, text: str) -> str:
-        """
-        轻量级正则转义并放宽分隔符：允许空格/点/下划线/连字符缺失或互换
-        """
-        if not text:
-            return text
-        # 转义字符：\ + * ? ^ $ ( ) [ ] { } |
-        parts = re.split(r'[\s._-]+', text)
-        escaped_parts = []
-        for part in parts:
-            if not part:
-                continue
-            escaped_parts.append(re.sub(r'([+*?^$()\[\]{}|\\])', r'\\\1', part))
-        if not escaped_parts:
-            return ""
-        return r'[\s._-]?'.join(escaped_parts)
-
-    @staticmethod
-    def __normalize_source_pattern(pattern: str) -> str:
-        """
-        将非正则的源字符串转为安全正则：避免短码误触并允许常见分隔符
-        """
-        if not pattern:
-            return pattern
-        # 若包含正则元字符，视为用户自定义正则，保持原样
-        if re.search(r'[\\\[\]{}()|?*+^$]', pattern):
-            return pattern
-        parts = re.split(r'[\s._-]+', pattern)
-        escaped_parts = [re.escape(p) for p in parts if p]
-        if not escaped_parts:
-            return pattern
-        core = r'[\s._-]*'.join(escaped_parts)
-        return rf'(?<![A-Za-z0-9]){core}(?![A-Za-z0-9])'
-
-    # 私有属性
-    _enabled: bool = False
-    _clear = False
-    _clear_handle = False
-    _override_mode = False  # 覆盖模式：覆盖现有include并清空特效字段
+    _enabled = False
+    _respect_rules = True
+    _override_mode = False
     _update_details = []
-    _site_group_mappings = ""
-    _source_patterns = ""
-    _parsed_site_mappings = {}
-    _parsed_sources = []
-    _subscribeoper = None
-    _downloadhistoryoper = None
-    _siteoper = None
+    _lock = threading.RLock()
 
     def init_plugin(self, config: dict = None):
+        config = config or {}
         self._downloadhistoryoper = DownloadHistoryOper()
         self._subscribeoper = SubscribeOper()
         self._siteoper = SiteOper()
-
-        if config:
-            self._enabled = config.get("enabled")
-            self._clear = config.get("clear")
-            self._clear_handle = config.get("clear_handle")
-            self._override_mode = config.get("override_mode", False)
-            self._update_details = config.get("update_details") or []
-
-            # 解析站点-官组映射
-            self._site_group_mappings = config.get("site_group_mappings") or DEFAULT_SITE_GROUP_MAPPINGS
-            self._parsed_site_mappings = {}
-            for line in self._site_group_mappings.strip().split('\n'):
-                line = line.strip()
-                if ':' in line:
-                    parts = line.split(':', 1)
-                    site_name = parts[0].strip()
-                    group_pattern = parts[1].strip()
-                    if site_name and group_pattern:
-                        self._parsed_site_mappings[site_name] = group_pattern
-            logger.info(f"解析到 {len(self._parsed_site_mappings)} 个站点-官组映射")
-
-            # 解析源正则
-            self._source_patterns = config.get("source_patterns") or DEFAULT_SOURCE_PATTERNS
-            self._parsed_sources = [
-                self.__normalize_source_pattern(p.strip())
-                for p in self._source_patterns.strip().split('\n')
-                if p.strip()
-            ]
-            logger.info(f"解析到 {len(self._parsed_sources)} 个源正则")
-
-            # 清理已处理历史
-            if self._clear_handle:
-                self.del_data(key="history_handle")
-                self._clear_handle = False
-                self.__update_config()
-                logger.info("已处理历史清理完成")
-
-            # 清理历史记录
-            if self._clear:
-                self.del_data(key="history")
-                self._clear = False
-                self.__update_config()
-                logger.info("历史记录清理完成")
+        self._rulehelper = RuleHelper()
+        self._enabled = bool(config.get("enabled", False))
+        self._respect_rules = bool(config.get("respect_rules", True))
+        self._override_mode = bool(config.get("override_mode", False))
+        self._clear = bool(config.get("clear", False))
+        self._clear_handle = bool(config.get("clear_handle", False))
+        self._update_details = config.get("update_details") or []
+        self._site_group_mappings = config.get("site_group_mappings") or DEFAULT_SITE_GROUP_MAPPINGS
+        self._source_patterns = config.get("source_patterns") or DEFAULT_SOURCE_PATTERNS
+        self._parsed_site_mappings = {}
+        for line in self._site_group_mappings.splitlines():
+            if ':' not in line:
+                continue
+            name, pattern = (p.strip() for p in line.split(':', 1))
+            if name and pattern:
+                try:
+                    re.compile(pattern, re.I)
+                    self._parsed_site_mappings[name] = pattern
+                except re.error:
+                    logger.warning(f"无效的官组正则，已跳过站点：{name}")
+        self._parsed_sources = []
+        for line in self._source_patterns.splitlines():
+            if not line.strip():
+                continue
+            try:
+                self._parsed_sources.append(self.__normalize_source_pattern(line.strip()))
+            except re.error:
+                logger.warning("无效的视频源正则，已跳过该配置行")
+        if self._clear_handle:
+            self.del_data(key="history_handle")
+            self._clear_handle = False
+            self.__update_config()
+        if self._clear:
+            self.del_data(key="history")
+            self._clear = False
+            self.__update_config()
+        logger.info(f"订阅自动填充：尊重优先级规则={self._respect_rules}，"
+                    f"站点映射={len(self._parsed_site_mappings)}，视频源={len(self._parsed_sources)}")
 
     def __update_config(self):
         self.update_config({
-            "enabled": self._enabled,
-            "clear": self._clear,
-            "clear_handle": self._clear_handle,
-            "override_mode": self._override_mode,
-            "update_details": self._update_details,
-            "site_group_mappings": self._site_group_mappings,
-            "source_patterns": self._source_patterns,
+            "enabled": self._enabled, "clear": self._clear,
+            "clear_handle": self._clear_handle, "override_mode": self._override_mode,
+            "respect_rules": self._respect_rules, "update_details": self._update_details,
+            "site_group_mappings": self._site_group_mappings, "source_patterns": self._source_patterns,
         })
 
-    def __extract_visual_effects_from_title(self, title: str) -> List[str]:
-        """从种子标题提取视觉特效元素，返回原始匹配字符串"""
-        effects = []
-        if not title:
-            return effects
+    @staticmethod
+    def __escape_regex(text: str) -> str:
+        """转义字面值，兼容 DDP5.1 / DDP 5.1 及发布名连接符。"""
+        if not text:
+            return ""
+        parts = re.split(r'[\s._-]+|(?<=[A-Za-z])(?=\d)', text)
+        return r'[\s._-]*'.join(re.escape(p) for p in parts if p)
 
-        # 视觉特效正则 - 按优先级排序
-        # 使用分组名标记类别避免重复，DV和HDR是不同类别可同时匹配
-        # 分隔符支持：空格、点、连字符、下划线
-        visual_patterns = [
-            # Dolby Vision 系列
+    @staticmethod
+    def __normalize_source_pattern(pattern: str) -> str:
+        """所有分支都加 ASCII 词界，包括已有的 CR|Crunchyroll 等旧配置。"""
+        if not pattern:
+            return ""
+        if not re.search(r'[\\\[\]{}()|?*+^$]', pattern):
+            pattern = r'[\s._-]*'.join(re.escape(p) for p in re.split(r'[\s._-]+', pattern) if p)
+        # 全局 flags 不能直接放进非捕获组，先转为作用域 flags。
+        re.compile(pattern, re.I)
+        flags = ''
+        while True:
+            match = re.match(r'^\(\?([aiLmsux]+)\)', pattern)
+            if not match:
+                break
+            flags += match.group(1)
+            pattern = pattern[match.end():]
+        if flags:
+            pattern = f"(?{''.join(dict.fromkeys(flags))}:{pattern})"
+        bounded = rf'(?<![A-Za-z0-9])(?:{pattern})(?![A-Za-z0-9])'
+        re.compile(bounded, re.I)
+        return bounded
+
+    def __extract_source_from_title(self, title: str) -> Optional[str]:
+        best = None
+        for pattern in self._parsed_sources:
+            try:
+                for match in re.finditer(pattern, title or '', re.I):
+                    text = match.group(0)
+                    if text and (best is None or len(text) > len(best)):
+                        best = text
+            except re.error:
+                logger.warning("视频源匹配失败，已跳过无效配置")
+        return best
+
+    @staticmethod
+    def __extract_group_from_title(title: str) -> str:
+        if not title:
+            return ""
+        match = re.search(
+            r'-((?:M-Team|VCB-Studio|[A-Za-z0-9]+)(?:@[A-Za-z0-9]+)*)'
+            r'(?=\[|\s*$|\.(?:mkv|mp4|avi|ts)(?:\s|$))', title, re.I)
+        if not match or re.fullmatch(r'\d+Audios?', match.group(1), re.I):
+            return ""
+        return match.group(1)
+
+    def __extract_visual_effects_from_title(self, title: str) -> List[str]:
+        """保留原有锁版模式的视觉提取；规则保护模式不调用此结果锁定画质。"""
+        patterns = [
             (r'\bDolby[\s.\-_]?Vision\b|\bDoVi\b|\bDovi\b', 'DV'),
             (r'\bDV[\s.\-_]?P\d\b', 'DV'),
-            # DV使用更严格边界，避免匹配DVD等
             (r'(?<![A-Za-z])DV(?![A-Za-z0-9])', 'DV'),
-            
-            # HDR 系列 - 与 DV 是不同类别，可同时匹配 (DoVi HDR)
-            # HDR10+/HDR10/HDRVivid/HLG/HDR 同属一个类别，只匹配第一个
-            (r'\bHDR10\s*\+|\bHDR10[\s.\-_]*Plus\b', 'HDR'),         # HDR10+ / HDR10Plus / HDR10 Plus
-            (r'\bHDR10\b(?!\s*\+)(?![\s.\-_]*Plus)', 'HDR'),     # HDR10 (不带+)
+            (r'\bHDR10\s*\+|\bHDR10[\s.\-_]*Plus\b', 'HDR'),
+            (r'\bHDR10\b(?!\s*\+)(?![\s.\-_]*Plus)', 'HDR'),
             (r'\bHDR[\s.\-_]?Vivid\b|\bHDRVivid\b', 'HDR'),
-            (r'\bHLG\b', 'HDR'),
-            (r'\bHDR\b', 'HDR'),
-            
-            # 增强特性
+            (r'\bHLG\b', 'HDR'), (r'\bHDR\b', 'HDR'),
             (r'\bIMAX[\s.\-_]?Enhanced\b|\bIMAX\b', 'IMAX'),
-            
-            # 帧率
             (r'\b120[\s.\-_]?[Ff]ps\b', 'fps'),
             (r'\b60[\s.\-_]?[Ff]ps\b', 'fps'),
             (r'\b30[\s.\-_]?[Ff]ps\b', 'fps'),
             (r'\b25[\s.\-_]?[Ff]ps\b', 'fps'),
             (r'\b24[\s.\-_]?[Ff]ps\b', 'fps'),
-            
-            # 常规
             (r'\bSDR\b', 'SDR'),
-            
-            # 高码 - 使用更严格边界避免误匹配
             (r'(?<![A-Za-z])HQ(?![A-Za-z0-9])|高码|\bEDR\b', 'HQ'),
-            
-            # 色深 - 支持 10bit / 10-bit / 10.bit / 10 bit
             (r'\b12[\s.\-_]?bit\b', 'bit'),
             (r'\b10[\s.\-_]?bit\b', 'bit'),
             (r'\b8[\s.\-_]?bit\b', 'bit'),
         ]
-
-        matched_categories = set()
-        for pattern, category in visual_patterns:
-            if category not in matched_categories:
-                match = re.search(pattern, title, re.IGNORECASE)
-                if match:
-                    # 返回原始匹配字符串
-                    effects.append(match.group(0))
-                    matched_categories.add(category)
-
-        return effects
+        found, categories = [], set()
+        for pattern, category in patterns:
+            if category in categories:
+                continue
+            match = re.search(pattern, title or '', re.I)
+            if match:
+                found.append(match.group(0))
+                categories.add(category)
+        return found
 
     def __extract_audio_effects_from_title(self, title: str) -> List[str]:
-        """从种子标题提取音频特效元素，返回原始匹配字符串"""
-        effects = []
-        if not title:
-            return effects
-
-        # 音频特效正则 - 按优先级排序（复合格式优先）
-        # 同系列格式归同一类别，只匹配第一个
-        # 返回原始匹配字符串，确保 include 和标题一致
-        
-        # 声道匹配模式：可选的声道数 + 可选的 ch/channel 后缀
-        # ch/channel 后必须跟非字母，避免匹配到 -CHDWEB 等
-        # 使用负向前瞻排除 *Audio 音轨数量标记（如 2Audio 表示两条音轨）
-        # 支持点或空格分隔的小数声道（如 5.1, 5.1.4 或 2 0），空格分隔时限制小数位为单个数字
-        # 修复支持 3D 声道 (X.Y.Z)
-        # 修复排除 bit (如 7.1.10bit 不应匹配为 7.1.10)
+        """保留原有音轨提取；只有显式锁版模式才将结果转成硬条件。"""
         ch = r'(?:[\s._-]*\d+(?:(?:\.\d+){0,2}|(?:\s\d))?(?!\d)(?![\s._-]*[Aa]udio)(?![\s._-]*bit)(?:[\s._-]*(?:ch|channel)(?![a-z]))?)?'
-        
-        audio_patterns = [
-            # --- TrueHD / Atmos ---
+        patterns = [
             (rf'\bTrueHD[\s._-]*Atmos{ch}\b', 'TrueHD'),
             (rf'\bTrueHD{ch}[\s._-]*Atmos\b', 'TrueHD'),
             (rf'\bAtmos[\s._-]*TrueHD{ch}\b', 'TrueHD'),
             (rf'\bTrueHD{ch}', 'TrueHD'),
-            
-            # --- DTS 系列 ---
             (rf'\bDTS[\s._-]*:?[\s._-]*X{ch}', 'DTSX'),
             (rf'\bDTS[\s._-]*HD[\s._-]*MA{ch}', 'DTSHDMA'),
             (rf'\bDTS[\s._-]*HD[\s._-]*HR{ch}', 'DTSHDHR'),
             (rf'\bDTS[\s._-]*HD(?![\s._-]*MA|[\s._-]*HR){ch}', 'DTSHD'),
             (rf'\bDTS[\s._-]*ES{ch}', 'DTSES'),
-            
-            # --- Dolby Digital Plus (DDP/EAC3) ---
             (rf'\b(?:DDP|E-?AC-?3|DD\+){ch}[\s._-]*Atmos\b', 'DDP'),
             (rf'\b(?:DDP|E-?AC-?3|DD\+){ch}', 'DDP'),
             (r'\bDolby[\s._-]*Digital[\s._-]*Plus\b', 'DDP'),
-            
-            # --- Atmos (独立) ---
             (rf'\b(?:Dolby[\s._-]*)?Atmos{ch}\b', 'Atmos'),
-            
-            # --- Dolby Digital (AC3) ---
-            # DD 需要排除 DDP 的情况，使用负向前瞻确保 DD 后面不是 P/+
             (rf'\bDD(?![P+])(?=(?:[\s._-]*\d|\b)){ch}|\bAC-?3{ch}|\bDolby[\s._-]*Digital{ch}(?![\s._-]*Plus)', 'DD'),
-            
-            # --- DTS 基础 ---
             (rf'\bDTS{ch}(?![\s._-]*:?X|[\s._-]*HD|[\s._-]*ES)', 'DTS'),
-            
-            # --- 无损 / PCM ---
-            (rf'\bL?PCM{ch}', 'LPCM'),
-            (rf'\bFLAC{ch}', 'FLAC'),
-            (rf'\bWAV{ch}', 'WAV'),
-            
-            # --- AAC ---
-            (rf'\bHE[\s._-]*AAC{ch}', 'AAC'),
-            (rf'\bAAC{ch}', 'AAC'),
-            
-            # --- AV3A ---
-            (rf'\bAV3A{ch}', 'AV3A'),
-            
-            # --- 其他 ---
-            (r'\bOpus\b', 'Opus'),
-            (r'\bMP3\b', 'MP3'),
-            (r'\bVORBIS\b', 'Vorbis'),
-            (r'\bOGG\b', 'OGG'),
+            (rf'\bL?PCM{ch}', 'LPCM'), (rf'\bFLAC{ch}', 'FLAC'),
+            (rf'\bWAV{ch}', 'WAV'), (rf'\bHE[\s._-]*AAC{ch}', 'AAC'),
+            (rf'\bAAC{ch}', 'AAC'), (rf'\bAV3A{ch}', 'AV3A'),
+            (r'\bOpus\b', 'Opus'), (r'\bMP3\b', 'MP3'),
+            (r'\bVORBIS\b', 'Vorbis'), (r'\bOGG\b', 'OGG'),
         ]
-
-        matched_categories = set()
-        matched_contents = []  # 记录已匹配的内容
-        for pattern, category in audio_patterns:
-            if category not in matched_categories:
-                # 如果是独立 Atmos 类别，检查之前是否已包含 Atmos
-                if category == 'Atmos':
-                    already_has_atmos = any('atmos' in c.lower() for c in matched_contents)
-                    if already_has_atmos:
-                        continue
-                match = re.search(pattern, title, re.IGNORECASE)
-                if match:
-                    # 返回原始匹配字符串
-                    effects.append(match.group(0))
-                    matched_contents.append(match.group(0))
-                    matched_categories.add(category)
-
-        return effects
-
-    def __extract_group_from_title(self, title: str) -> str:
-        """从种子标题提取制作组（保留@连接格式，排除*Audios音轨标记）"""
-        if not title:
-            return ""
-        # 匹配末尾的制作组，支持@连接格式如 Nest@Audies, sh@CHDBits
-        # 排除 *Audios/*Audio 这样的音轨数量标记
-        # 匹配末尾的制作组，支持@连接格式如 Nest@Audies, sh@CHDBits
-        # 排除 *Audios/*Audio 这样的音轨数量标记
-        # 增加对 [ 结尾的支持（如 BiVerse@ADWeb[...）
-        match = re.search(r'-([A-Za-z0-9]+(?:@[A-Za-z0-9]+)?)(?:\[|\s*$|\.(?:mkv|mp4|avi|ts))', title, re.IGNORECASE)
-        if match:
-            group = match.group(1)
-            # 排除音轨数量标记（如 6Audios, 3Audio）
-            if re.match(r'^\d+Audios?$', group, re.IGNORECASE):
-                return ""
-            return group
-        # 尝试匹配不带扩展名的情况
-        match = re.search(r'-([A-Za-z0-9]+(?:@[A-Za-z0-9]+)?)\s*$', title)
-        if match:
-            group = match.group(1)
-            if re.match(r'^\d+Audios?$', group, re.IGNORECASE):
-                return ""
-            return group
-        return ""
-
-    def __extract_source_from_title(self, title: str) -> Optional[str]:
-        """从种子标题提取源，返回原始匹配字符串"""
-        if not title:
-            return None
-        best_match = None
-        for source_pattern in self._parsed_sources:
-            try:
-                match = re.search(source_pattern, title, re.IGNORECASE)
-                if match:
-                    # 返回原始匹配字符串，而不是正则模式
-                    matched_text = match.group(0)
-                    if not best_match or len(matched_text) > len(best_match):
-                        best_match = matched_text
-            except re.error:
-                logger.warning(f"无效的源正则表达式: {source_pattern}")
+        found, categories = [], set()
+        for pattern, category in patterns:
+            if category in categories or (category == 'Atmos' and any('atmos' in s.lower() for s in found)):
                 continue
-        return best_match
+            match = re.search(pattern, title or '', re.I)
+            if match:
+                found.append(match.group(0))
+                categories.add(category)
+        return found
 
-    def __get_site_by_group(self, resource_team: str, default_site: int) -> List[int]:
-        """根据制作组匹配优先站点"""
-        if not resource_team:
-            return [default_site] if default_site else []
-
-        active_sites = self._siteoper.list_active()
-
-        for site_name, group_pattern in self._parsed_site_mappings.items():
-            try:
-                if re.search(group_pattern, resource_team, re.IGNORECASE):
-                    # 找到匹配的站点
-                    for site in active_sites:
-                        if site.name == site_name:
-                            logger.info(f"制作组 {resource_team} 匹配到站点 {site_name}")
-                            return [site.id]
-            except re.error:
-                logger.warning(f"无效的官组正则表达式: {group_pattern}")
-                continue
-
-        # 无匹配，返回默认站点
-        if default_site:
-            logger.info(f"制作组 {resource_team} 无匹配站点，使用默认站点")
-        return [default_site] if default_site else []
-
-    def __parse_pix(self, resource_pix):
-        """解析分辨率"""
+    @staticmethod
+    def __parse_pix(resource_pix):
         if not resource_pix:
             return None
-        if re.match(r"1080[pi]|x1080", resource_pix, re.IGNORECASE):
-            return "1080[pi]|x1080"
-        if re.match(r"4K|2160p|x2160", resource_pix, re.IGNORECASE):
-            return "4K|2160p|x2160"
-        if re.match(r"720[pi]|x720", resource_pix, re.IGNORECASE):
-            return "720[pi]|x720"
+        for pattern in [r'1080[pi]|x1080', r'4K|2160p|x2160', r'720[pi]|x720']:
+            if re.match(pattern, resource_pix, re.I):
+                return pattern
         return resource_pix
 
-    def __parse_type(self, resource_type):
-        """解析资源质量"""
+    @staticmethod
+    def __parse_type(resource_type):
         if not resource_type:
             return None
-        if re.match(r"Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD", resource_type, re.IGNORECASE):
-            return "Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD"
-        if re.match(r"Remux", resource_type, re.IGNORECASE):
-            return "Remux"
-        if re.match(r"Blu-?Ray", resource_type, re.IGNORECASE):
-            return "Blu-?Ray"
-        if re.match(r"UHD|UltraHD", resource_type, re.IGNORECASE):
-            return "UHD|UltraHD"
-        if re.match(r"WEB-?DL|WEB-?RIP", resource_type, re.IGNORECASE):
-            return "WEB-?DL|WEB-?RIP"
-        if re.match(r"HDTV", resource_type, re.IGNORECASE):
-            return "HDTV"
-        if re.match(r"[Hx].?265|HEVC", resource_type, re.IGNORECASE):
-            return "[Hx].?265|HEVC"
-        if re.match(r"[Hx].?264|AVC", resource_type, re.IGNORECASE):
-            return "[Hx].?264|AVC"
+        patterns = [r'Blu-?Ray.+VC-?1|Blu-?Ray.+AVC|UHD.+blu-?ray.+HEVC|MiniBD',
+                    r'Remux', r'Blu-?Ray', r'UHD|UltraHD', r'WEB-?DL|WEB-?RIP',
+                    r'HDTV', r'[Hx].?265|HEVC', r'[Hx].?264|AVC']
+        for pattern in patterns:
+            if re.match(pattern, resource_type, re.I):
+                return pattern
         return resource_type
+
+    @staticmethod
+    def __list_value(value) -> list:
+        if value is None or value == '':
+            return []
+        if isinstance(value, str):
+            value = json.loads(value)
+        if not isinstance(value, list):
+            raise ValueError('列表配置格式错误')
+        return value
+
+    def __rule_policy(self, subscribe, context) -> Tuple[bool, bool]:
+        """返回 (允许回填, 规则接管画质)。仅复检已下载资源，不创建/取消下载。"""
+        if not self._respect_rules:
+            return True, False
+        try:
+            own = self.__list_value(getattr(subscribe, 'filter_groups', None))
+            best = getattr(subscribe, 'best_version', 0) not in (None, False, 0, '', '0')
+            key = SystemConfigKey.BestVersionFilterRuleGroups if best else SystemConfigKey.SubscribeFilterRuleGroups
+            names = own or self.__list_value(self.systemconfig.get(key))
+            if not names:
+                return True, False
+            if not all(isinstance(n, str) and n.strip() for n in names):
+                raise ValueError('规则组名称格式错误')
+            names = list(dict.fromkeys(names))
+            definitions = self._rulehelper.get_rule_groups()
+            by_name = {g.name: g for g in definitions}
+            missing = [n for n in names if n not in by_name]
+            if missing:
+                logger.warning(f"订阅 {subscribe.id} 跳过回填：规则组已失效 {missing}；请重新选择，不回退放行")
+                return False, True
+            media = copy.deepcopy(getattr(context, 'media_info', None))
+            torrent = getattr(context, 'torrent_info', None)
+            if media is None or torrent is None:
+                logger.warning(f"订阅 {subscribe.id} 跳过回填：缺少媒体/种子上下文，无法复检规则")
+                return False, True
+            if getattr(subscribe, 'media_category', None):
+                media.category = subscribe.media_category
+            applicable = self._rulehelper.get_rule_group_by_media(media=media, group_names=names)
+            has_targeted = any(by_name[n].media_type or by_name[n].category for n in names)
+            if not applicable or (has_targeted and not any(g.media_type or g.category for g in applicable)):
+                logger.warning(f"订阅 {subscribe.id} 跳过回填：分类 {getattr(media, 'category', None)!r} "
+                               f"没有适用分类组；选择={names}")
+                return False, True
+            if any(not g.rule_string for g in applicable):
+                logger.warning(f"订阅 {subscribe.id} 跳过回填：适用规则组存在空规则串")
+                return False, True
+            # 原生过滤器会修改 pri_order，必须隔离事件中被其他监听器共享的对象。
+            matched = self.chain.filter_torrents(
+                rule_groups=names, torrent_list=[copy.deepcopy(torrent)], mediainfo=media)
+            logger.info(f"订阅 {subscribe.id} 下载后规则复检：来源={'单条' if own else ('洗版全局' if best else '普通全局')}，"
+                        f"分类={getattr(media, 'category', None)}，适用组={[g.name for g in applicable]}，"
+                        f"通过={bool(matched)}")
+            if not matched:
+                logger.warning(f"订阅 {subscribe.id} 当前下载不符合所选规则，跳过全部回填；已下发的下载不会被撤回")
+                return False, True
+            return True, True
+        except Exception as exc:
+            logger.warning(f"订阅 {subscribe.id} 优先级复检失败（{type(exc).__name__}），跳过回填")
+            return False, True
+
+    def __get_site_by_group(self, resource_team: str, default_site: Optional[int]) -> List[int]:
+        allowed = set()
+        for item in self.__list_value(self.systemconfig.get(SystemConfigKey.RssSites)):
+            try:
+                allowed.add(int(item))
+            except (TypeError, ValueError):
+                continue
+        active_sites = [s for s in self._siteoper.list_active() if int(s.id) in allowed]
+        if resource_team:
+            for name, pattern in self._parsed_site_mappings.items():
+                try:
+                    if any(re.fullmatch(pattern, p, re.I) for p in resource_team.split('@')):
+                        for site in active_sites:
+                            if site.name == name:
+                                return [int(site.id)]
+                except re.error:
+                    logger.warning(f"站点 {name} 官组匹配失败，已跳过")
+        return [int(default_site)] if default_site and any(int(s.id) == int(default_site) for s in active_sites) else []
+
+    def __build_update(self, subscribe, context, protected: bool) -> dict:
+        torrent = context.torrent_info
+        meta = getattr(context, 'meta_info', None)
+        title = torrent.title or ''
+        details = set(self._update_details)
+        if protected:
+            removed = details - {'制作组', '站点'}
+            if removed:
+                logger.info(f"订阅 {subscribe.id} 画质由优先级规则管理，不回填：{sorted(removed)}")
+            details &= {'制作组', '站点'}
+        update = {}
+        if '分辨率' in details and not subscribe.resolution:
+            value = self.__parse_pix(getattr(meta, 'resource_pix', None))
+            if value:
+                update['resolution'] = value
+        if '资源质量' in details and not subscribe.quality:
+            value = self.__parse_type(getattr(meta, 'resource_type', None))
+            if value:
+                update['quality'] = value
+        team = self.__extract_group_from_title(title) or getattr(meta, 'resource_team', None)
+        override = self._override_mode and not protected
+        if not subscribe.include or override:
+            parts = []
+            for option, extractor in [('视觉特效', self.__extract_visual_effects_from_title),
+                                      ('音频特效', self.__extract_audio_effects_from_title)]:
+                if option in details:
+                    parts.extend(rf'(?<![A-Za-z0-9]){self.__escape_regex(x)}(?![A-Za-z0-9])'
+                                 for x in extractor(title))
+            if '视频源' in details:
+                source = self.__extract_source_from_title(title)
+                if source:
+                    parts.append(rf'(?<![A-Za-z0-9]){self.__escape_regex(source)}(?![A-Za-z0-9])')
+            if '制作组' in details and team:
+                parts.append(rf'[-@]{re.escape(team)}(?![A-Za-z0-9])')
+            if parts:
+                expr = r'(?i)\A' + ''.join(rf'(?=[\s\S]*{p})' for p in dict.fromkeys(parts)) + r'[\s\S]*'
+                if re.search(expr, title, re.I):
+                    update['include'] = expr
+                    if override and getattr(subscribe, 'effect', None):
+                        update['effect'] = None
+                else:
+                    logger.warning(f"订阅 {subscribe.id} 自动生成条件不能匹配参考标题，未写入include")
+        if '站点' in details and not subscribe.sites:
+            sites = self.__get_site_by_group(team, getattr(torrent, 'site', None))
+            if sites:
+                update['sites'] = sites
+        return update
 
     @eventmanager.register(EventType.DownloadAdded)
     def download_notice(self, event: Event = None):
-        """
-        添加下载填充订阅制作组等信息
-        """
-        if not event:
-            logger.error("下载事件数据为空")
+        """这是下载后的监听器，不拦截、不触发、不取消首次下载。"""
+        if not self._enabled or not self._update_details or not event:
             return
-
-        if not self._enabled:
+        data = getattr(event, 'event_data', None) or {}
+        if not data.get('hash') or not data.get('context'):
+            logger.warning('订阅自动填充：下载事件缺少hash或context')
             return
+        with self._lock:
+            try:
+                self.__handle_download(data)
+            except Exception as exc:
+                logger.error(f"订阅自动填充处理失败（{type(exc).__name__}），未继续回填")
 
-        if len(self._update_details) == 0:
+    def __handle_download(self, data: dict):
+        history = self._downloadhistoryoper.get_by_hash(data['hash'])
+        if not history or history.type != '电视剧' or not history.tmdbid:
             return
-
-        if event:
-            event_data = event.event_data
-            if not event_data or not event_data.get("hash") or not event_data.get("context"):
-                logger.error(f"下载事件数据不完整 {event_data}")
-                return
-            download_hash = event_data.get("hash")
-            # 根据hash查询下载记录
-            download_history = self._downloadhistoryoper.get_by_hash(download_hash)
-            if not download_history:
-                logger.warning(f"种子hash:{download_hash} 对应下载记录不存在")
-                return
-
-            history_handle: List[str] = self.get_data('history_handle') or []
-
-            if f"{download_history.type}:{download_history.tmdbid}" in history_handle:
-                logger.warning(f"下载历史:{download_history.title} 已处理过，不再重复处理")
-                return
-
-            if download_history.type != '电视剧':
-                logger.warning(f"下载历史:{download_history.title} 不是电视剧，不进行官组填充")
-                return
-
-            # 根据下载历史查询订阅记录
-            subscribes = self._subscribeoper.list_by_tmdbid(tmdbid=download_history.tmdbid,
-                                                            season=int(download_history.seasons.replace('S', ''))
-                                                            if download_history.seasons and
-                                                               download_history.seasons.count('-') == 0 else None)
-            if not subscribes or len(subscribes) == 0:
-                logger.warning(f"下载历史:{download_history.title} tmdbid:{download_history.tmdbid} 对应订阅记录不存在")
-                return
-
-            logger.info(
-                f"获取到tmdbid {download_history.tmdbid} season {int(download_history.seasons.replace('S', '')) if download_history.seasons and download_history.seasons.count('-') == 0 else None} 订阅记录:{len(subscribes)} 个")
-
-            for subscribe in subscribes:
-                if subscribe.type != '电视剧':
-                    logger.warning(f"订阅记录:{subscribe.name} 不是电视剧，不进行官组填充")
+        season_text = str(history.seasons or '')
+        match = re.fullmatch(r'S?(\d+)', season_text.strip(), re.I)
+        if not match:
+            logger.warning('订阅自动填充：下载历史没有唯一季号，跳过；不把多季资源回填到全部订阅')
+            return
+        season = int(match.group(1))
+        subscribes = self._subscribeoper.list_by_tmdbid(tmdbid=history.tmdbid, season=season) or []
+        handled = self.get_data('history_handle') or []
+        if not isinstance(handled, list):
+            handled = []
+        for subscribe in subscribes:
+            if subscribe.type != '电视剧' or subscribe.season != season:
+                continue
+            # 旧的“电视剧:tmdbid”条目无法区分季，不再用于阻止其他季的回填。
+            key = f'subscribe:{subscribe.id}:{history.tmdbid}:S{season}'
+            if key in handled:
+                continue
+            try:
+                allowed, protected = self.__rule_policy(subscribe, data['context'])
+                if not allowed:
                     continue
-
-                # 开始填充官组和站点
-                context = event_data.get("context")
-                _torrent = context.torrent_info
-                _meta = context.meta_info
-
-                # 获取种子标题
-                torrent_title = _torrent.title if _torrent else ""
-                
-                # 调试日志：记录原始种子标题
-                logger.debug(f"订阅记录:{subscribe.name} 处理种子标题: {torrent_title}")
-
-                # 填充数据
-                update_dict = {}
-                skip_reasons = []  # 记录跳过原因
-
-                # 分辨率
-                if "分辨率" in self._update_details:
-                    if subscribe.resolution:
-                        skip_reasons.append(f"分辨率已存在:{subscribe.resolution}")
-                    else:
-                        resource_pix = _meta.resource_pix if _meta else None
-                        if resource_pix:
-                            resource_pix = self.__parse_pix(resource_pix)
-                            if resource_pix:
-                                update_dict['resolution'] = resource_pix
-                            else:
-                                skip_reasons.append("分辨率解析失败")
-                        else:
-                            skip_reasons.append("未获取到分辨率信息")
-
-                # 资源质量
-                if "资源质量" in self._update_details:
-                    if subscribe.quality:
-                        skip_reasons.append(f"资源质量已存在:{subscribe.quality}")
-                    else:
-                        resource_type = _meta.resource_type if _meta else None
-                        if resource_type:
-                            resource_type = self.__parse_type(resource_type)
-                            if resource_type:
-                                update_dict['quality'] = resource_type
-                            else:
-                                skip_reasons.append("资源质量解析失败")
-                        else:
-                            skip_reasons.append("未获取到资源质量信息")
-
-                # 构建 include 正则表达式
-                # 覆盖模式下，即使include已存在也重新生成
-                should_build_include = not subscribe.include or self._override_mode
-                if not should_build_include:
-                    skip_reasons.append(f"include已存在:{subscribe.include}")
-                else:
-                    if self._override_mode and subscribe.include:
-                        logger.info(f"订阅记录:{subscribe.name} 覆盖模式：将覆盖现有include:{subscribe.include}")
-                    
-                    include_parts = []
-
-                    # 1. 视觉特效
-                    if "视觉特效" in self._update_details:
-                        visual_effects = self.__extract_visual_effects_from_title(torrent_title)
-                        if visual_effects:
-                            include_parts.extend(visual_effects)
-                            logger.debug(f"订阅记录:{subscribe.name} 提取到视觉特效: {visual_effects}")
-                        else:
-                            skip_reasons.append("未检测到视觉特效")
-
-                    # 2. 音频特效
-                    if "音频特效" in self._update_details:
-                        audio_effects = self.__extract_audio_effects_from_title(torrent_title)
-                        if audio_effects:
-                            include_parts.extend(audio_effects)
-                            logger.debug(f"订阅记录:{subscribe.name} 提取到音频特效: {audio_effects}")
-                        else:
-                            skip_reasons.append("未检测到音频特效")
-
-                    # 3. 视频源
-                    if "视频源" in self._update_details:
-                        source = self.__extract_source_from_title(torrent_title)
-                        if source:
-                            include_parts.append(source)
-                            logger.debug(f"订阅记录:{subscribe.name} 提取到视频源: {source}")
-                        else:
-                            skip_reasons.append("未检测到视频源")
-
-                    # 4. 制作组
-                    if "制作组" in self._update_details:
-                        resource_team = _meta.resource_team if _meta else None
-                        # 尝试从标题提取制作组，以弥补MP默认识别可能丢失@前缀的问题
-                        extracted_team = self.__extract_group_from_title(torrent_title)
-                        
-                        if not resource_team:
-                            resource_team = extracted_team
-                        elif extracted_team and '@' in extracted_team and '@' not in resource_team:
-                            # 如果提取结果包含@且原结果不含，优先使用提取结果 (修复 BiVerse@ADWeb 只识别到 ADWeb)
-                            resource_team = extracted_team
-                            logger.info(f"订阅记录:{subscribe.name} 优化制作组识别: {_meta.resource_team} -> {resource_team}")
-
-                        if resource_team:
-                            include_parts.append(resource_team)
-                            logger.debug(f"订阅记录:{subscribe.name} 提取到制作组: {resource_team}")
-                        else:
-                            skip_reasons.append("未检测到制作组")
-
-                    # 调试日志：记录所有include组成部分
-                    if include_parts:
-                        logger.debug(f"订阅记录:{subscribe.name} include组成部分: {include_parts}")
-                        
-                    if include_parts:
-                        # 使用正向先行断言要求同时包含所有元素
-                        if len(include_parts) == 1:
-                            update_dict['include'] = self.__escape_regex(include_parts[0])
-                        else:
-                            # (?=.*元素1)(?=.*元素2).*元素N
-                            lookaheads = ''.join([f'(?=.*{self.__escape_regex(p)})' for p in include_parts[:-1]])
-                            update_dict['include'] = f"{lookaheads}.*{self.__escape_regex(include_parts[-1])}"
-                        logger.info(f"订阅记录:{subscribe.name} 生成include: {update_dict['include']}")
-                        
-                        # 覆盖模式下，清空特效字段（effect）以避免冲突
-                        if self._override_mode:
-                            # 特效字段名为 effect（对应UI中的"特效"下拉框）
-                            if hasattr(subscribe, 'effect') and subscribe.effect:
-                                update_dict['effect'] = None
-                                logger.info(f"订阅记录:{subscribe.name} 覆盖模式：清空effect字段:{subscribe.effect}")
-
-                # 站点
-                if "站点" in self._update_details:
-                    if subscribe.sites and len(subscribe.sites) > 0:
-                        skip_reasons.append(f"站点已存在:{subscribe.sites}")
-                    else:
-                        rss_sites = self.systemconfig.get(SystemConfigKey.RssSites) or []
-                        default_site = _torrent.site if _torrent and _torrent.site and int(_torrent.site) in rss_sites else None
-
-                        # 获取制作组
-                        resource_team = _meta.resource_team if _meta else None
-                        if not resource_team:
-                            resource_team = self.__extract_group_from_title(torrent_title)
-
-                        # 根据制作组匹配站点
-                        matched_sites = self.__get_site_by_group(resource_team, default_site)
-                        if matched_sites:
-                            update_dict['sites'] = matched_sites
-
-                # 记录跳过原因
-                if skip_reasons:
-                    logger.info(f"订阅记录:{subscribe.name} 跳过填充: {', '.join(skip_reasons)}")
-
-                if len(update_dict.keys()) == 0:
-                    logger.info(f"订阅记录:{subscribe.name} 无需填充")
+                update = self.__build_update(subscribe, data['context'], protected)
+                if not update:
                     continue
-
-                # 更新订阅记录
-                self._subscribeoper.update(subscribe.id, update_dict)
-                logger.info(f"订阅记录:{subscribe.name} 填充成功\\n {update_dict}")
-
-                # 读取历史记录
-                history = self.get_data('history') or []
-                history.append({
-                    'name': subscribe.name,
-                    'type': '种子下载自定义配置',
-                    'content': json.dumps(update_dict),
-                    "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(time.time()))
+                before = {field: getattr(subscribe, field, None) for field in update}
+                self._subscribeoper.update(subscribe.id, update)
+                records = self.get_data('history') or []
+                if not isinstance(records, list):
+                    records = [records]
+                records.append({
+                    'name': subscribe.name, 'subscribe_id': subscribe.id, 'season': season,
+                    'type': '下载后自动填充', 'before': before,
+                    'content': json.dumps(update),
+                    'time': time.strftime('%Y-%m-%d %H:%M:%S'),
                 })
-                # 保存历史
-                self.save_data(key="history", value=history)
-
-                # 保存已处理历史
-                history_handle.append(f"{download_history.type}:{download_history.tmdbid}")
-                self.save_data('history_handle', history_handle)
+                self.save_data(key='history', value=records)
+                handled.append(key)
+                self.save_data(key='history_handle', value=handled)
+                logger.info(f"订阅 {subscribe.id} S{season:02d} 下载后填充完成：字段={list(update)}，"
+                            f"规则保护={protected}；未修改优先级规则组")
+            except Exception as exc:
+                logger.error(f"订阅 {subscribe.id} 回填失败（{type(exc).__name__}），未继续处理该订阅")
 
     def get_state(self) -> bool:
         return self._enabled
@@ -639,412 +447,69 @@ class SubscribeAutofill(_PluginBase):
         return []
 
     def get_form(self) -> Tuple[List[dict], Dict[str, Any]]:
-        """
-        拼装插件配置页面，需要返回两块数据：1、页面配置；2、数据结构
-        """
-        return [
-            {
-                'component': 'VForm',
-                'content': [
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'enabled',
-                                            'label': '启用插件',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'clear',
-                                            'label': '清理历史记录',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'clear_handle',
-                                            'label': '清理已处理记录',
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 4
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSwitch',
-                                        'props': {
-                                            'model': 'override_mode',
-                                            'label': '覆盖模式',
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VSelect',
-                                        'props': {
-                                            'multiple': True,
-                                            'chips': True,
-                                            'model': 'update_details',
-                                            'label': '种子下载填充内容',
-                                            'items': [
-                                                {
-                                                    "title": "资源质量",
-                                                    "value": "资源质量"
-                                                },
-                                                {
-                                                    "title": "分辨率",
-                                                    "value": "分辨率"
-                                                },
-                                                {
-                                                    "title": "视觉特效",
-                                                    "value": "视觉特效"
-                                                },
-                                                {
-                                                    "title": "音频特效",
-                                                    "value": "音频特效"
-                                                },
-                                                {
-                                                    "title": "视频源",
-                                                    "value": "视频源"
-                                                },
-                                                {
-                                                    "title": "制作组",
-                                                    "value": "制作组"
-                                                },
-                                                {
-                                                    "title": "站点",
-                                                    "value": "站点"
-                                                }
-                                            ]
-                                        }
-                                    }
-                                ]
-                            },
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'site_group_mappings',
-                                            'label': '站点-官组映射配置',
-                                            'rows': 10,
-                                            'placeholder': '馒头:MWeb|MTeam|TPTV\n'
-                                                           '观众:ADE|ADWeb|Audies\n'
-                                                           '憨憨:HHWEB\n'
-                                                           '彩虹岛:CHDWEB|CHDBits|CHDTV|CHDHKTV|SGNB\n'
-                                                           '我堡:OurTV|OurBits\n'
-                                                           'UBits:UBWEB|UBits|UBTV\n'
-                                                           '高清杜比:Dream|DBTV|QHstudIo'
-                                        }
-                                    }
-                                ]
-                            },
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                    'md': 6
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VTextarea',
-                                        'props': {
-                                            'model': 'source_patterns',
-                                            'label': '视频源正则配置',
-                                            'rows': 10,
-                                            'placeholder': 'CR|Crunchyroll\n'
-                                                           'Netflix|NF\n'
-                                                           'friDay|Friday\n'
-                                                           'AMZN|Amazon\n'
-                                                           'B-Global|BG\n'
-                                                           'IQ|iqiyi\n'
-                                                           'Baha\n'
-                                                           'LINETV\n'
-                                                           'Disney\\+?|DSNP\n'
-                                                           'HBO|HMAX'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '填充内容说明：\n'
-                                                    '• 视觉特效：DV、HDR、HDR10、HDR10+、HDRVivid、60fps、10bit、12bit等\n'
-                                                    '• 音频特效：DTS-HD MA、TrueHD、Atmos、DDP、AAC、FLAC等\n'
-                                                    '• 视频源：Netflix、CR、Amazon等流媒体平台\n'
-                                                    '• 制作组：保留@连接格式（如Nest@Audies）\n'
-                                                    '• 选中的内容将组合成正则表达式填充到订阅的include字段\n\n'
-                                                    '覆盖模式说明：\n'
-                                                    '• 开启后，即使订阅已有include也会重新生成并覆盖\n'
-                                                    '• 同时会清空订阅的特效字段（如DV、HDR等），统一使用include匹配'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '站点-官组映射格式：站点名称:官组正则（多个用|分隔），每行一个。'
-                                                    '制作组匹配到站点官组后，优先使用该站点订阅。站点名称需与MoviePilot中的站点名称一致。'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '视频源正则格式：每行一个正则表达式，用于匹配种子标题中的视频源信息（如Netflix、CR、Amazon等）。'
-                                                    '匹配到的视频源会添加到include中。'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    {
-                        'component': 'VRow',
-                        'content': [
-                            {
-                                'component': 'VCol',
-                                'props': {
-                                    'cols': 12,
-                                },
-                                'content': [
-                                    {
-                                        'component': 'VAlert',
-                                        'props': {
-                                            'type': 'info',
-                                            'variant': 'tonal',
-                                            'text': '电视剧订阅未配置包含关键词、订阅站点等配置时，订阅或搜索下载后，'
-                                                    '将下载种子的制作组、站点等信息填充到订阅信息中，以保证后续订阅资源的统一性。'
-                                                    '（订阅新出的电视剧效果更佳。）'
-                                        }
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ], {
-            "enabled": False,
-            "clear": False,
-            "clear_handle": False,
-            "override_mode": False,
-            "update_details": [],
-            "site_group_mappings": DEFAULT_SITE_GROUP_MAPPINGS,
-            "source_patterns": DEFAULT_SOURCE_PATTERNS,
+        def col(component, props, md=12):
+            return {'component': 'VCol', 'props': {'cols': 12, 'md': md},
+                    'content': [{'component': component, 'props': props}]}
+
+        switches = [('enabled', '启用插件'), ('respect_rules', '尊重优先级规则（推荐）'),
+                    ('override_mode', '覆盖已有包含条件（仅锁版模式）'),
+                    ('clear', '清理历史记录'), ('clear_handle', '清理已处理记录')]
+        detail_names = ['资源质量', '分辨率', '视觉特效', '音频特效', '视频源', '制作组', '站点']
+        rows = [
+            {'component': 'VRow', 'content': [col('VSwitch', {'model': key, 'label': label}, 4)
+                                             for key, label in switches]},
+            {'component': 'VRow', 'content': [col('VSelect', {
+                'model': 'update_details', 'label': '下载后填充内容', 'multiple': True, 'chips': True,
+                'items': [{'title': name, 'value': name} for name in detail_names]})]},
+            {'component': 'VRow', 'content': [
+                col('VTextarea', {'model': 'site_group_mappings', 'label': '站点-官组映射配置',
+                                  'rows': 10, 'placeholder': DEFAULT_SITE_GROUP_MAPPINGS}, 6),
+                col('VTextarea', {'model': 'source_patterns', 'label': '视频源正则配置',
+                                  'rows': 10, 'placeholder': DEFAULT_SOURCE_PATTERNS}, 6)]},
+            {'component': 'VRow', 'content': [col('VAlert', {
+                'type': 'info', 'variant': 'tonal',
+                'text': '保护模式默认开启：使用单条订阅选择的规则组，留空则按普通/洗版模式使用全局规则。'
+                        '有规则组时，回填前先复检当前下载；失效组名、无适用分类或复检失败则跳过回填。'
+                        '规则接管画质时只填选中的制作组/站点，不锁分辨率、来源、画面或音轨，也不覆盖已有include/effect。'
+                        '本插件只在下载已经添加后运行，不能撤回不合规下载或修复首次选源。'})]},
+            {'component': 'VRow', 'content': [col('VAlert', {
+                'type': 'warning', 'variant': 'tonal',
+                'text': '关闭保护模式或未配置任何规则组时，选中的画质/音轨/平台将成为后续订阅的硬条件，不是加分。'
+                        '覆盖模式此时会替换已有include并清空effect。升级不会自动清理之前回填的字段，请人工检查。'})]},
+            {'component': 'VRow', 'content': [col('VAlert', {
+                'type': 'info', 'variant': 'tonal',
+                'text': '站点映射每行“站点名:组名正则”；仅在启用且属于订阅站点范围的站点中选择。'
+                        '视频源每行一个正则，所有分支自动加词界，CR不再匹配Crew。'
+                        '制作组保留@组合。已处理记录按订阅与季隔离；清理记录不会清理订阅字段。'})]},
+        ]
+        return [{'component': 'VForm', 'content': rows}], {
+            'enabled': False, 'respect_rules': True, 'override_mode': False,
+            'clear': False, 'clear_handle': False, 'update_details': [],
+            'site_group_mappings': DEFAULT_SITE_GROUP_MAPPINGS,
+            'source_patterns': DEFAULT_SOURCE_PATTERNS,
         }
 
     def get_page(self) -> List[dict]:
-        historys = self.get_data('history')
-        if not historys:
-            return [
-                {
-                    'component': 'div',
-                    'text': '暂无数据',
-                    'props': {
-                        'class': 'text-center',
-                    }
-                }
-            ]
-
-        if not isinstance(historys, list):
-            historys = [historys]
-
-        # 按照时间倒序
-        historys = sorted(historys, key=lambda x: x.get("time") or 0, reverse=True)
-
-        contens = [
-            {
-                'component': 'tr',
-                'props': {
-                    'class': 'text-sm'
-                },
-                'content': [
-                    {
-                        'component': 'td',
-                        'props': {
-                            'class': 'whitespace-nowrap break-keep text-high-emphasis'
-                        },
-                        'text': history.get("time")
-                    },
-                    {
-                        'component': 'td',
-                        'text': history.get("name")
-                    },
-                    {
-                        'component': 'td',
-                        'text': history.get("type")
-                    },
-                    {
-                        'component': 'td',
-                        'text': history.get("content").encode('utf-8').decode('unicode_escape') if history.get(
-                            "content") else ''
-                    }
-                ]
-            } for history in historys
-        ]
-
-        # 拼装页面
-        return [
-            {
-                'component': 'VRow',
-                'content': [
-                    {
-                        'component': 'VCol',
-                        'props': {
-                            'cols': 12,
-                        },
-                        'content': [
-                            {
-                                'component': 'VTable',
-                                'props': {
-                                    'hover': True
-                                },
-                                'content': [
-                                    {
-                                        'component': 'thead',
-                                        'content': [
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '执行时间'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '订阅名称'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '更新类型'
-                                            },
-                                            {
-                                                'component': 'th',
-                                                'props': {
-                                                    'class': 'text-start ps-4'
-                                                },
-                                                'text': '更新内容'
-                                            },
-                                        ]
-                                    },
-                                    {
-                                        'component': 'tbody',
-                                        'content': contens
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ]
-            }
-        ]
+        history = self.get_data('history') or []
+        if not history:
+            return [{'component': 'div', 'text': '暂无数据', 'props': {'class': 'text-center'}}]
+        if not isinstance(history, list):
+            history = [history]
+        rows = []
+        for item in sorted(history, key=lambda x: x.get('time') or '', reverse=True):
+            content = item.get('content') or ''
+            try:
+                content = json.dumps(json.loads(content), ensure_ascii=False)
+            except (ValueError, TypeError):
+                pass
+            rows.append({'component': 'tr', 'content': [
+                {'component': 'td', 'text': text} for text in
+                [item.get('time'), item.get('name'), item.get('type'), content]]})
+        return [{'component': 'VTable', 'props': {'hover': True}, 'content': [
+            {'component': 'thead', 'content': [{'component': 'tr', 'content': [
+                {'component': 'th', 'text': text} for text in ['执行时间', '订阅名称', '更新类型', '更新内容']]}]},
+            {'component': 'tbody', 'content': rows},
+        ]}]
 
     def stop_service(self):
-        """
-        退出插件
-        """
         pass
