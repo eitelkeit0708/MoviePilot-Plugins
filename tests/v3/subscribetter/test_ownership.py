@@ -25,6 +25,72 @@ def load_modules():
     return result
 
 
+class AdapterContractTests(unittest.TestCase):
+    """Run the real adapter against the fixed V3 Chain/Oper return contracts."""
+    def setUp(self):
+        from enum import Enum
+        from unittest.mock import patch
+        self.repository_module, self.ownership_module = load_modules()
+        self.chain = types.SimpleNamespace(add=Mock(return_value=(42, "新增订阅成功")))
+        self.oper = types.SimpleNamespace(get=Mock(), list_by_media_identity=Mock(return_value=[]), update=Mock())
+        media_type = Enum("MediaType", {"MOVIE": "电影", "TV": "电视剧"})
+        def normalize(source):
+            return types.SimpleNamespace(value=getattr(source, "value", source))
+        modules = {}
+        for name, values in {
+            "app": {}, "app.sdk": {}, "app.chain": {}, "app.db": {}, "app.db.oper": {}, "app.schemas": {},
+            "app.sdk.media": {"normalize_media_source": normalize,
+                              "resolve_media_identity": lambda media: (normalize(media.media_source), media.media_id)},
+            "app.chain.subscribe": {"SubscribeChain": lambda: self.chain},
+            "app.db.oper.subscribe": {"SubscribeOper": lambda: self.oper},
+            "app.schemas.types": {"MediaType": media_type},
+        }.items():
+            modules[name] = types.ModuleType(name)
+            modules[name].__dict__.update(values)
+        spec = importlib.util.spec_from_file_location("w01_subscribetter.mp_adapter", PLUGIN / "mp_adapter.py")
+        self.module = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, modules):
+            spec.loader.exec_module(self.module)
+        self.adapter = self.module.NativeAdapter()
+        self.target = self.repository_module.Target("电视剧", "themoviedb", "123", 0, "specials")
+
+    def test_V3_adapter_positive_id_accepts_nonempty_success_description(self):
+        self.assertEqual(42, self.adapter.create(self.target, {"name": "Fictional"}))
+        options = self.chain.add.call_args.kwargs
+        self.assertEqual("S", options["state"])
+        self.assertEqual(0, options["season"])
+        self.assertEqual("specials", options["episode_group"])
+        self.assertFalse(options["exist_ok"])
+
+    def test_V3_adapter_missing_invalid_or_existing_id_is_not_new_ownership(self):
+        for sid, message in ((None, "识别失败"), (0, "新增订阅失败"), (False, ""),
+                             (-1, ""), ("42", ""), (42, "订阅已存在"),
+                             (42, ""), (42, "未知结果说明")):
+            with self.subTest(sid=sid, message=message):
+                self.chain.add.return_value = sid, message
+                with self.assertRaises(RuntimeError):
+                    self.adapter.create(self.target, {})
+
+    def test_V3_adapter_success_message_still_requires_identity_and_S_readback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = self.repository_module.Repository(Path(directory) / "state.sqlite3")
+            owner = self.ownership_module.Ownership(repo, self.adapter)
+            native = types.SimpleNamespace(id=42, type="电视剧", media_source="themoviedb", media_id="wrong", season=0, episode_group="specials", state="S")
+            self.oper.get.return_value = native
+            task = owner.submit("real-adapter", self.target, {}, "admin")
+            self.assertEqual(42, task["native_id"])
+            self.assertEqual("PENDING", task["state"])
+            self.assertEqual("NATIVE_IDENTITY_MISMATCH", repo.get_action(task["id"])["error_code"])
+            native.media_id, native.state = "123", "R"
+            owner.reconcile()
+            self.assertEqual("PENDING", repo.get_task(task["id"])["state"])
+            self.assertEqual("HANDOFF_READBACK_FAILED", repo.get_action(task["id"])["error_code"])
+            native.state = "S"
+            owner.reconcile()
+            self.assertEqual("ACTIVE", repo.get_task(task["id"])["state"])
+            self.assertEqual(1, self.chain.add.call_count)
+
+
 class Host:
     def __init__(self):
         self.rows = {}
@@ -404,6 +470,24 @@ class PluginTests(unittest.TestCase):
         self.plugin.stop_service()
         self.assertFalse(self.plugin.get_state())
         self.assertEqual(3, len(self.listeners))
+
+    def test_V3_service_contract_separates_scheduler_and_callback_kwargs(self):
+        self.plugin.init_plugin({"enabled": True, "dry_run": False})
+        service = self.plugin.get_service()[0]
+        scheduler = Mock()
+        # Mirror scheduler/reconcile.py:442-448, including its own kwargs.
+        scheduler.add_job(Mock(), service["trigger"], **(service.get("kwargs") or {}),
+                          kwargs={"job_id": "SubscriBetter_ownership"}, replace_existing=True)
+        self.assertEqual(60, scheduler.add_job.call_args.kwargs["seconds"])
+        callback_kwargs = service.get("func_kwargs") or {}
+        self.assertEqual({"generation": self.plugin.generation}, callback_kwargs)
+        self.plugin.ownership.reconcile = Mock()
+        service["func"](**callback_kwargs)
+        self.plugin.ownership.reconcile.assert_called_once_with()
+        self.plugin.init_plugin({"enabled": True, "dry_run": False})
+        self.plugin.ownership.reconcile = Mock()
+        service["func"](**callback_kwargs)
+        self.plugin.ownership.reconcile.assert_not_called()
 
     def test_authenticated_api_rejects_anonymous_invalid_and_dryrun_mutations(self):
         from fastapi import FastAPI

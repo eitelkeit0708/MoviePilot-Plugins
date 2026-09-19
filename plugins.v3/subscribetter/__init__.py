@@ -165,7 +165,7 @@ class SubscriBetter(_PluginBase):
     def get_service(self):
         # The host owns scheduling; no private thread/client survives reload.
         return [{"id": "SubscriBetter_ownership", "name": "subscriBetter 订阅状态核对", "trigger": "interval",
-                 "func": self.reconcile, "kwargs": {"seconds": 60, "kwargs": {"generation": self.generation}}}]
+                 "func": self.reconcile, "kwargs": {"seconds": 60}, "func_kwargs": {"generation": self.generation}}]
 
     def reconcile(self, generation: int | None = None):
         with self.runtime_lock:

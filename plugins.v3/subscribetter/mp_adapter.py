@@ -58,13 +58,15 @@ class NativeAdapter:
             media_source=normalize_media_source(target.media_source), media_id=target.media_id)]
 
     def create(self, target: Target, snapshot: dict) -> int:
-        sid, error = SubscribeChain().add(
+        sid, message = SubscribeChain().add(
             title=snapshot.get("name") or target.media_id, year=snapshot.get("year") or "",
             mtype=MediaType(target.media_type), media_source=normalize_media_source(target.media_source),
             media_id=target.media_id, season=target.season, episode_group=target.episode_group or None,
             username=snapshot.get("username"), state="S", exist_ok=False, message=False,
         )
-        if not sid or error:
+        # Fixed V3 returns a description on success AND a positive ID for duplicates.
+        # Only confirmed new creation grants ownership; other outcomes need recovery.
+        if type(sid) is not int or sid <= 0 or message != "新增订阅成功":
             raise RuntimeError("native subscription creation not acknowledged")
         return sid
 
