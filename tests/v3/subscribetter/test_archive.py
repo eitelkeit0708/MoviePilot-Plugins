@@ -436,7 +436,7 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'IDENTITY_CONFLICT'):
                 sources.classify_target(self.key)
 
-    def second_publication(self, action='QUALITY_UPGRADE'):
+    def second_publication(self, action='QUALITY_UPGRADE', candidate_key=None):
         if action=='QUALITY_UPGRADE':
             self.item['MediaSources'][0]['MediaStreams'][0].update(Height=1080,Width=1920)
         self.archive.reconcile('test','10')
@@ -446,6 +446,8 @@ class ArchiveTests(unittest.TestCase):
         self.s.Scheduler(self.repo).open_opportunity('o2',self.task['id'],[self.a.TargetUnit(self.r.Target.from_task(self.task))],mode='ONESHOT',config=self.s.ScheduleConfig(observation_enabled=False))
         auth=self.archive.authority
         spec=copy.deepcopy(auth.plan('plan')['snapshot'])
+        if candidate_key:
+            spec.update(candidate_key=candidate_key,infohash='2'*40)
         spec['current']={self.key:dict(state='PRESENT',revision=current['revision'])}
         spec['targets'][self.key].update(action=action,reason=action)
         selected=[1] if action=='SIDECAR_SUPPLEMENT' else [0,1]
@@ -600,7 +602,7 @@ class ArchiveTests(unittest.TestCase):
         other=self.media('copy','copy.strm','d'*40,height=1080)
         other['MediaSources'][0]['MediaStreams'].append(dict(Type='Subtitle',IsExternal=True,Path='/Emby/Movies/movie.srt'))
         observed=self.archive.resolve_item('test','10',other)[0]
-        observed['assets']=[dict(self.manifest['assets'][0],location=observed['video']),dict(self.manifest['assets'][1],location=self.sources.cloud_stat('cloud','/115/media/movie.srt'))]
+        observed['assets']=[dict(self.manifest['assets'][0],content=self.m.content(observed['video']),location=observed['video']),dict(self.manifest['assets'][1],location=self.sources.cloud_stat('cloud','/115/media/movie.srt'))]
         with self.repo.connection(write=True) as db:
             self.archive._store_version(db,observed)
             self.archive._sync(db,self.key,'PRESENT','copy')
@@ -711,6 +713,81 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(observed['version_id'],own['id'])
             self.assertEqual(['legacy-source'],json.loads(own['data'])['source_evidence'])
             self.assertEqual([],json.loads(next(r for r in rows if r['library']=='20')['data'])['source_evidence'])
+
+    def supplement_with_prior_dependencies(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        observed=self.archive.resolve_item('test','10',self.item)[0]
+        dependencies=[]
+        self.item['MediaSources'][0]['MediaStreams'].append(dict(Type='Subtitle',IsExternal=True,Path='/Emby/Movies/other.srt'))
+        for name,role,sha in [('required.ttf','font','9'),('license.txt','license','8'),('other.srt','subtitle','7')]:
+            path='/115/media/'+name
+            self.sources.cloud['cloud',path]=dict(sha1=sha*40,size=5,cd2_id=name,p115_id='')
+            asset=dict(file_index=1,relative_path=name,role=role,targets=[self.key],requires=[],
+                       source_ref='prior:'+name,content=dict(sha1=sha*40,size=5),location=self.sources.cloud_stat('cloud',path))
+            dependencies.append(asset)
+            observed['assets'].append(asset)
+            observed.update(candidate_key='old:'+name,infohash=sha*40,source_assets=[asset],source_evidence=['prior:'+name])
+            with self.repo.connection(write=True) as db:
+                self.archive._store_version(db,observed)
+                self.archive._sync(db,self.key,'PRESENT','verified-dependencies')
+        manifest,consumer=self.second_publication(action='SIDECAR_SUPPLEMENT',candidate_key='new-subtitle')
+        self.sources.cloud['cloud','/115/media/movie.srt']['sha1']='e'*40
+        manifest['assets'][0]['content']['sha1']='e'*40
+        self.archive.authority.record_result('pub2','HANDED_OFF',dict(asset_manifest=manifest,consumer_receipt=consumer))
+        self.assertTrue(self.archive.confirm_ingest('pub2',manifest,consumer)['accepted'])
+        return dependencies,manifest
+
+    def test_review_N1_supplement_retains_coherent_dependencies_with_colliding_source_indices(self):
+        dependencies,manifest=self.supplement_with_prior_dependencies()
+        expected={a['location']['path'] for a in dependencies}|{'/115/media/movie.srt','/115/media/中文 {电影}.mkv'}
+        with self.repo.connection() as db:
+            observed=json.loads(db.execute('SELECT data FROM archive_versions WHERE active=1').fetchone()[0])
+            links=[json.loads(r[0]) for r in db.execute('SELECT a.data FROM archive_assets a JOIN archive_versions v ON v.id=a.version_id WHERE v.active=1')]
+            self.assertEqual(expected,{a['location']['path'] for a in links})
+            self.assertEqual(expected,{a['location']['path'] for a in observed['assets']})
+            self.assertEqual(4,len([a for a in observed['assets'] if a['file_index']==1]))
+            self.assertTrue(all(a['source_ref']=='prior:'+a['relative_path'] for a in observed['assets'] if a['location']['path'] in {d['location']['path'] for d in dependencies}))
+            subtitle=next(a for a in observed['assets'] if a['location']['path']=='/115/media/movie.srt')
+            self.assertEqual('e'*40,subtitle['content']['sha1'])
+            self.assertEqual(subtitle['content'],self.m.content(subtitle['location']))
+            self.assertNotIn(subtitle['source_ref'],{a['source_ref'] for a in dependencies})
+            candidate=self.archive.authority.plan('plan2')['snapshot']
+            with self.assertRaisesRegex(ValueError,'SOURCE_ASSETS_UNVERIFIED'):
+                self.archive._candidate_asset_proof(db,'new-subtitle',candidate,[dependencies[0]])
+            self.assertTrue(self.archive._candidate_asset_proof(db,'new-subtitle',candidate,manifest['assets']))
+            self.assertTrue(self.archive._candidate_asset_proof(db,'old:required.ttf',dict(infohash='9'*40),[dependencies[0]]))
+        self.assertEqual('COMPLETE',self.archive.reconcile('test','10')['status'])
+        self.assertEqual('PRESENT',self.archive.current([self.key])[self.key]['state'])
+
+    def test_review_N1_missing_retained_font_license_or_other_subtitle_blocks_reliable_current(self):
+        dependencies,_=self.supplement_with_prior_dependencies()
+        for asset in dependencies:
+            with self.subTest(role=asset['role']):
+                key=('cloud',asset['location']['path'])
+                value=self.sources.cloud.pop(key)
+                scan=self.archive.reconcile('test','10')
+                self.assertEqual('ERROR',scan['status'])
+                self.assertEqual(['CLOUD_NOT_FOUND'],scan['diagnostics'])
+                self.assertNotEqual('PRESENT',self.archive.current([self.key])[self.key]['state'])
+                self.sources.cloud[key]=value
+                self.assertEqual('COMPLETE',self.archive.reconcile('test','10')['status'])
+
+    def test_review_N1_retained_dependency_rejects_unproved_bytes_or_account_rebinding(self):
+        dependencies,_=self.supplement_with_prior_dependencies()
+        path=dependencies[0]['location']['path']
+        self.sources.cloud['cloud',path]['sha1']='6'*40
+        scan=self.archive.reconcile('test','10')
+        self.assertEqual(['ASSET_CONTENT_CONFLICT'],scan['diagnostics'])
+        self.sources.cloud['cloud',path]['sha1']='9'*40
+        original=self.sources.cloud_stat
+        def wrong_account(scope,actual,**kwargs):
+            result=original(scope,actual,**kwargs)
+            return dict(result,account_ref='different-account') if actual==path else result
+        with patch.object(self.sources,'cloud_stat',side_effect=wrong_account):
+            scan=self.archive.reconcile('test','10')
+        self.assertEqual(['ASSET_SCOPE_CONFLICT'],scan['diagnostics'])
+        self.assertNotEqual('PRESENT',self.archive.current([self.key])[self.key]['state'])
 
     def test_review_I2_independent_library_and_service_associations_share_only_bytes(self):
         rules=[self.mapping,dict(self.mapping,id='other-library',library_id='20'),

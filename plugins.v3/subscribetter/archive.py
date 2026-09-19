@@ -456,10 +456,13 @@ class Archive:
                     for asset in json.loads(previous[0]).get('assets', []):
                         location = asset['location']
                         current = self.sources.cloud_stat(location['cloud_scope_id'], location['path'], refresh=True)
-                        replacement = any((a['location']['cloud_scope_id'], a['location'].get('account_ref'), a['location']['path'], content(a['location'])) ==
-                                          (current['cloud_scope_id'], current.get('account_ref'), current['path'], content(current)) for a in replacements)
-                        if content(current) != content(location) and not replacement:
-                            raise ValueError('ASSET_CONTENT_CONFLICT')
+                        if self._location_key(current) != self._location_key(location):
+                            raise ValueError('ASSET_SCOPE_CONFLICT')
+                        if content(current) != content(location):
+                            replacement = next((a for a in replacements if key in a.get('targets', []) and self._location_key(a['location']) == self._location_key(current) and content(a['location']) == content(current)), None)
+                            if replacement is None:
+                                raise ValueError('ASSET_CONTENT_CONFLICT')
+                            asset = replacement
                         assets.append(dict(asset, location=current))
                 self._subtitle_association(assets, streams, item_path)
                 result.append({'version_id': version_id, 'target_key': key, 'service': service, 'library': str(library),
@@ -532,6 +535,24 @@ class Archive:
     def _live_versions(db, key):
         return db.execute("SELECT v.* FROM archive_versions v WHERE v.target_key=? AND v.active=1 AND NOT EXISTS(SELECT 1 FROM archive_assets a JOIN archive_locations l ON l.id=a.location_id WHERE a.version_id=v.id AND l.state!='PRESENT') ORDER BY v.id", (key,))
 
+    @staticmethod
+    def _location_key(location):
+        return location['cloud_scope_id'], location.get('account_ref'), posix(location['path'])
+
+    @staticmethod
+    def _required_assets(previous, current, version):
+        # file_index/requires belong to their source, not a global current file
+        # table. Current requirements are the complete set of scoped locations.
+        required = {}
+        for asset in [*previous, *current]:
+            actual = content(asset['location'])
+            if 'content' in asset and content(asset['content']) != actual:
+                raise ValueError('ASSET_CONTENT_CONFLICT')
+            value = dict(asset, content=actual)
+            value.setdefault('source_ref', 'archive:' + version)
+            required[Archive._location_key(asset['location'])] = value
+        return list(required.values())
+
     def _store_version(self, db, observed):
         key, version = observed['target_key'], observed['version_id']
         db.execute("INSERT OR IGNORE INTO archive_targets VALUES(?,'UNKNOWN','',?,?)", (key, '{}', utcnow()))
@@ -539,20 +560,21 @@ class Archive:
         if prior:
             prior = json.loads(prior[0])
             # Claims belong to this exact associated version, never just its hash.
-            observed = dict(observed, source_evidence=list(dict.fromkeys(prior.get('source_evidence', []) + observed.get('source_evidence', []))), assets=observed['assets'] or prior.get('assets', []))
+            observed = dict(observed, source_evidence=list(dict.fromkeys(prior.get('source_evidence', []) + observed.get('source_evidence', []))),
+                            assets=self._required_assets(prior.get('assets', []), observed['assets'], version))
+            if 'source_assets' not in observed:
+                observed['source_assets'] = prior.get('source_assets', prior.get('assets', []))
             if prior.get('publication_raw') and not observed.get('publication_raw'):
                 observed['publication_raw'] = prior['publication_raw']
                 observed['raw'] = dict(prior['publication_raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'])
+        observed = dict(observed, assets=self._required_assets([dict(file_index=-1, role='video', location=observed['video'])], observed['assets'], version))
         db.execute('INSERT INTO archive_versions VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET active=1,data=excluded.data',
                    (version, key, observed['service'], observed['library'], encoded(observed)))
         # These are the current required links; immutable archive_sources retains
         # each historical asset set when this same video acquires new sidecars.
         db.execute('DELETE FROM archive_assets WHERE version_id=?', (version,))
         affected = set()
-        assets = list(observed['assets'])
-        if not any(a['role'] == 'video' and a['location'] == observed['video'] for a in assets):
-            assets.append(dict(file_index=-1, role='video', location=observed['video']))
-        for asset in assets:
+        for asset in observed['assets']:
             loc = asset['location']
             c = content(loc)
             cid = digest(c)
@@ -624,6 +646,8 @@ class Archive:
 
     def _verify_final(self, manifest, table, selected, consumer, target_keys):
         verified = self._verify_assets(manifest, table, selected, consumer)
+        source_ref = digest([manifest.get('plan_id'), manifest.get('candidate_key'), manifest['manifest_ref']])
+        verified = {i: dict(a, source_ref=source_ref) for i, a in verified.items()}
         refs = consumer.get('emby')
         if not isinstance(refs, list) or not 1 <= len(refs) <= 1000:
             raise ValueError('EMBY_ASSOCIATION_REQUIRED')
@@ -657,7 +681,8 @@ class Archive:
                 if any(a['location']['cloud_scope_id'] != observed['video']['cloud_scope_id'] or
                        not within(a['location']['path'], parent) for a in related):
                     raise ValueError('ASSET_ASSOCIATION_CONFLICT')
-                self._subtitle_association(related, observed['streams'], observed['item_path'])
+                required = self._required_assets(observed['assets'], related, observed['version_id'])
+                self._subtitle_association(required, observed['streams'], observed['item_path'])
                 publication = manifest.get('publication', {}).get(key)
                 if not isinstance(publication, dict) or not isinstance(publication.get('raw'), dict):
                     raise ValueError('PUBLICATION_EVIDENCE_MISSING')
@@ -666,7 +691,7 @@ class Archive:
                     raise ValueError('CLASSIFICATION_CHANGED')
                 raw = dict(publication['raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'])
                 observed.update(raw=raw, publication_raw=publication['raw'], classification=classification,
-                                assets=related, source_evidence=[manifest['manifest_ref']])
+                                assets=required, source_assets=related, source_evidence=[manifest['manifest_ref']])
                 result.append(observed)
         return result
 
@@ -836,7 +861,8 @@ class Archive:
                 covered.update(matched)
                 references.append('action-receipt:' + str(row['id']))
         for row in db.execute("SELECT id,data FROM archive_sources WHERE json_extract(data,'$.candidate_key')=? AND json_extract(data,'$.infohash')=?", (candidate_key, candidate.get('infohash'))):
-            proven = json.loads(row['data']).get('assets', [])
+            source = json.loads(row['data'])
+            proven = source.get('source_assets', source.get('assets', []))
             matched = {digest({k: a[k] for k in fields}) for a in proven if all(k in a for k in fields)} & wanted
             if matched:
                 covered.update(matched)
