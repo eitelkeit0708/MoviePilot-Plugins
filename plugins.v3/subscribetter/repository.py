@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 4:
+            if revision > 5:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -119,6 +119,12 @@ class Repository:
                 db.execute("ALTER TABLE plans ADD COLUMN task_generation INTEGER NOT NULL DEFAULT 0")
                 db.execute("ALTER TABLE plan_actions ADD COLUMN task_generation INTEGER NOT NULL DEFAULT 0")
                 db.execute("PRAGMA user_version=4")
+            if revision < 5:
+                db.execute("CREATE TABLE candidates (candidate_key TEXT PRIMARY KEY, data TEXT NOT NULL, first_seen TEXT NOT NULL, updated_at TEXT NOT NULL)")
+                db.execute("CREATE TABLE managed_downloads (downloader TEXT NOT NULL, infohash TEXT NOT NULL, save_path TEXT NOT NULL, file_table TEXT NOT NULL, marker TEXT NOT NULL, add_action TEXT NOT NULL, client_id TEXT, state TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL, PRIMARY KEY(downloader,infohash))")
+                db.execute("CREATE TABLE exclusions (id TEXT PRIMARY KEY, criteria TEXT NOT NULL, reason TEXT NOT NULL, expires_at TEXT, active INTEGER NOT NULL DEFAULT 1)")
+                db.execute("CREATE TABLE organized_assets (plan_id TEXT NOT NULL REFERENCES plans(id), file_index INTEGER NOT NULL, source TEXT NOT NULL, destination TEXT, size INTEGER NOT NULL, sha256 TEXT, state TEXT NOT NULL, evidence TEXT NOT NULL, PRIMARY KEY(plan_id,file_index))")
+                db.execute("PRAGMA user_version=5")
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:

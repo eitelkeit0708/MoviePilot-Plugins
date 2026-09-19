@@ -357,6 +357,8 @@ class AuthorityTests(unittest.TestCase):
             for table in ('plans', 'plan_actions'):
                 if 'task_generation' in [row[1] for row in db.execute('PRAGMA table_info(' + table + ')')]:
                     db.execute('ALTER TABLE ' + table + ' DROP COLUMN task_generation')
+            for table in ('organized_assets','managed_downloads','exclusions','candidates'):
+                db.execute('DROP TABLE '+table)
             db.execute('PRAGMA user_version=3')
         migrated = self.r.Repository(self.path)
         auth = self.m.Authority(migrated)

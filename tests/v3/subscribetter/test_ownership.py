@@ -439,6 +439,7 @@ class PluginTests(unittest.TestCase):
             ResourceSelection = "selection"
             ResourceDownload = "download"
             SubscribeCompletionCheck = "completion"
+            TransferIntercept = "transfer"
             SubscribeAdded = "added"
             SubscribeDeleted = "deleted"
         cls.listeners = {}
@@ -482,13 +483,13 @@ class PluginTests(unittest.TestCase):
         self.assertFalse(self.plugin.get_state())
         generation = self.plugin.generation
         self.plugin.init_plugin({"enabled": True, "dry_run": True})
-        self.assertEqual(5, len(self.listeners))
+        self.assertEqual(6, len(self.listeners))
         self.plugin.ownership.reconcile = Mock()
         self.plugin.reconcile(generation=generation)
         self.plugin.ownership.reconcile.assert_not_called()
         self.plugin.stop_service()
         self.assertFalse(self.plugin.get_state())
-        self.assertEqual(3, len(self.listeners))
+        self.assertEqual(4, len(self.listeners))
 
     def create_owned_fixture(self):
         self.plugin.init_plugin({"enabled": True, "dry_run": False})

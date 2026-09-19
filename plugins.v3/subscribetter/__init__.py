@@ -16,6 +16,8 @@ from .meta import MetaCorrector, MetaService, _stored
 from .meta_compat import MetaPatch
 from .scheduler import Scheduler
 from .planner import Authority
+from .execution import TransferGuard
+from .candidates import CandidateService, HostCandidateAdapter
 
 
 class Config(BaseModel):
@@ -143,6 +145,8 @@ class SubscriBetter(_PluginBase):
                 self.repository = Repository(self.get_data_path() / "subscribetter.sqlite3")
                 self.scheduler = Scheduler(self.repository)
                 self.authority = Authority(self.repository)
+                self.candidates = CandidateService(self.repository, HostCandidateAdapter())
+                self.transfer_guard = TransferGuard(self.repository)
                 self.meta_corrector = MetaCorrector(self.config.meta_protected_names)
                 self.meta_service = MetaService(self.repository, self.meta_corrector)
                 self.meta_patch = MetaPatch(self.meta_corrector)
@@ -174,6 +178,7 @@ class SubscriBetter(_PluginBase):
         return [(ChainEventType.ResourceSelection, self.resource_selection),
                 (ChainEventType.ResourceDownload, self.resource_download),
                 (ChainEventType.SubscribeCompletionCheck, self.completion_check),
+                (ChainEventType.TransferIntercept, self.transfer_intercept),
                 (EventType.SubscribeAdded, self.subscribe_added),
                 (EventType.SubscribeDeleted, self.subscribe_deleted)]
 
@@ -188,7 +193,12 @@ class SubscriBetter(_PluginBase):
                     and (self._safety_required() or (self.running and self.config.enabled)))
 
     def _safety_required(self) -> bool:
-        return bool(getattr(getattr(self, "guard", None), "known_ids", ()))
+        return bool(getattr(getattr(self, "guard", None), "known_ids", ())
+                    or (getattr(self, 'transfer_guard', None) and self.transfer_guard.required()))
+
+    def transfer_intercept(self, event):
+        if getattr(self, 'transfer_guard', None):
+            self.transfer_guard.intercept(event)
 
     def _ordinary_work_active(self) -> bool:
         return bool(getattr(self, "lifecycle_active", False) and self.running and not self.errors
@@ -208,7 +218,7 @@ class SubscriBetter(_PluginBase):
                     self.errors.extend(f"SHELL_PAUSE_FAILED:{sid}" for sid in self.ownership.ensure_paused())
                 except Exception:
                     self.errors.append("SAFE_STOP_PAUSE_FAILED")
-            for event, callback in self._listeners()[3:]:
+            for event, callback in self._listeners()[4:]:
                 eventmanager.remove_event_listener(event, callback)
 
     @staticmethod
