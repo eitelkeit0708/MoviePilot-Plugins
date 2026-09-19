@@ -7,6 +7,7 @@ repeat an already authorized external call merely because a worker lease died.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 import json
 import math
 from pathlib import PurePosixPath
@@ -332,7 +333,84 @@ class Authority:
         with self.repository.connection(write=True) as db:
             return self._begin(db, action_id, plan_id, vector, kind, indices, payload, now)
 
-    def _begin(self, db, action_id, plan_id, vector, kind, indices, payload, now, queued=False):
+    def download_references(self, downloader, infohash, save_path, *, db=None):
+        """One coherent physical download cohort, including indivisible references."""
+        if db is None:
+            with self.repository.connection() as connection:
+                return self.download_references(downloader, infohash, save_path, db=connection)
+        result, table = [], {}
+        for row in db.execute("SELECT * FROM plans WHERE authorization='ACTIVE' ORDER BY id"):
+            plan = self._plan(row); snapshot = plan['snapshot']
+            if (snapshot['downloader'], snapshot['infohash'], snapshot['save_path']) != (downloader, infohash.lower(), save_path):
+                continue
+            owned = {r[0] for r in db.execute("SELECT p.target_key FROM plan_targets p JOIN target_units t ON t.target_key=p.target_key WHERE p.plan_id=? AND p.state='ACTIVE' AND t.owner_plan_id=p.plan_id AND t.generation=p.generation", (plan['id'],))}
+            indices = []
+            for item in snapshot['torrent_files']:
+                identity = (item['path'], item['size'])
+                if item['index'] in table and table[item['index']] != identity:
+                    raise ValueError('shared torrent table conflicts')
+                table[item['index']] = identity
+                if item['index'] in snapshot['selected_indices'] and owned.intersection(item['targets']):
+                    indices.append(item['index'])
+            if indices:
+                keys = sorted({key for i in indices for key in snapshot['torrent_files'][i]['targets']})
+                result.append(dict(plan_id=plan['id'], indices=indices, vector=self._vector(db, keys)))
+        return result
+
+    def begin_shared_attempt(self, action_id, family, references, kind, payload, *, exclusion_token, now=None):
+        """Authorize one client RPC against every participant in one write transaction.
+
+        Actions retain the exact cohort, whole wanted set and operation cycle. A
+        later cohort cannot turn an uncertain older physical RPC into a retry.
+        """
+        if kind not in ('ADD', 'SET_WANTED', 'RESUME') or not references:
+            raise ValueError('complete download cohort required')
+        with self.repository.connection(write=True) as db:
+            if self.download_references(*family, db=db) != references:
+                raise ValueError('SHARED_AUTHORITY_CHANGED')
+            token = sha256(encoded([tuple(r) for r in db.execute('SELECT * FROM exclusions ORDER BY id')]).encode()).hexdigest()
+            if token != exclusion_token:
+                raise ValueError('EXCLUSIONS_CHANGED')
+            managed=db.execute('SELECT save_path,evidence FROM managed_downloads WHERE downloader=? AND infohash=?',tuple(family[:2])).fetchone()
+            if not managed or managed['save_path']!=family[2] or json.loads(managed['evidence']).get('cycle',0)!=payload.get('cycle'):
+                raise ValueError('DOWNLOAD_CYCLE_CHANGED')
+            shared = dict(action_id=action_id, family=list(family), references=references,
+                          wanted=sorted({i for ref in references for i in ref['indices']}))
+            if payload.get('wanted_indices')!=shared['wanted']:
+                raise ValueError('SHARED_SELECTION_CHANGED')
+            data = dict(payload, shared=shared)
+            for row in db.execute("SELECT a.payload,p.snapshot FROM plan_actions a JOIN plans p ON p.id=a.plan_id WHERE a.kind IN ('ADD','SET_WANTED','RESUME') AND a.state IN ('IN_FLIGHT','UNKNOWN')"):
+                old, previous = json.loads(row['snapshot']), json.loads(row['payload'])
+                if [old['downloader'], old['infohash'], old['save_path']] == list(family) and previous.get('shared', {}).get('action_id') != action_id:
+                    raise ValueError('SHARED_OUTCOME_UNRESOLVED')
+            actions = [self._begin(db, action_id + ':' + ref['plan_id'], ref['plan_id'], ref['vector'], kind, ref['indices'], data, now) for ref in references]
+            if len({a['dispatch'] for a in actions}) != 1:
+                raise ValueError('SHARED_DISPATCH_CONFLICT')
+            return actions
+
+    def begin_history_repair(self, original_id, vector, missing_paths, *, exclusion_token, now=None):
+        """A separate bounded compensation for a returned partial local DB call.
+
+        An in-flight call is not replayable. Later repairs must demonstrate a
+        strictly smaller missing set; identical uncertain repairs cannot retry.
+        """
+        with self.repository.connection(write=True) as db:
+            original=db.execute("SELECT * FROM plan_actions WHERE id=? AND kind='ORGANIZE' AND state='UNKNOWN'",(original_id,)).fetchone()
+            if not original or original['targets']!=encoded(vector):raise ValueError('HISTORY_REPAIR_AUTHORITY_CHANGED')
+            payload=json.loads(original['payload'])
+            if payload.get('verb')!='history' or not missing_paths or len(set(missing_paths))!=len(missing_paths) or not set(missing_paths)<=set(payload['paths']):
+                raise ValueError('EXACT_HISTORY_COMPENSATION_REQUIRED')
+            token=sha256(encoded([tuple(r) for r in db.execute('SELECT * FROM exclusions ORDER BY id')]).encode()).hexdigest()
+            if token!=exclusion_token:raise ValueError('EXCLUSIONS_CHANGED')
+            data=dict(payload,verb='history-repair',original_action=original_id,missing_paths=sorted(missing_paths))
+            action_id='history-repair:'+sha256(encoded(data).encode()).hexdigest()
+            reconciles={original_id}
+            for row in db.execute("SELECT id,payload FROM plan_actions WHERE plan_id=? AND kind='ORGANIZE' AND state='UNKNOWN'",(original['plan_id'],)):
+                previous=json.loads(row['payload'])
+                if previous.get('original_action')==original_id and set(missing_paths)<set(previous['missing_paths']):reconciles.add(row['id'])
+            return self._begin(db,action_id,original['plan_id'],vector,'ORGANIZE',json.loads(original['files']),data,now,reconciles=reconciles)
+
+    def _begin(self, db, action_id, plan_id, vector, kind, indices, payload, now, queued=False, reconciles=()):
         identifier(action_id)
         plan = self._plan(db.execute('SELECT * FROM plans WHERE id=?', (plan_id,)).fetchone())
         self._task_active(db, plan)
@@ -349,6 +427,7 @@ class Authority:
             if old['state'] != 'PENDING' or queued:
                 return {**dict(old), 'dispatch': False}
         for row in db.execute("SELECT id,files FROM plan_actions WHERE plan_id=? AND kind=? AND state IN ('IN_FLIGHT','UNKNOWN') AND id!=?", (plan_id, kind, action_id)):
+            if row['id'] in reconciles:continue
             if set(indices) & set(json.loads(row['files'])):
                 raise ValueError('overlapping external attempt outcome unresolved')
         at = stamp(now)

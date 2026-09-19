@@ -137,6 +137,29 @@ class ExecutionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.files('a'*40)
 
+    def test_host_tr_namedtuple_file_ids_and_integer_rpc_task_ids(self):
+        from typing import NamedTuple
+        from types import SimpleNamespace
+        class File(NamedTuple):
+            id:int
+            name:str
+            size:int
+            selected:bool
+            completed:int
+        calls=[]
+        class TR:
+            def get_files(self,tid):
+                return [File(7,'E02.srt',10,True,10),File(3,'E02.mkv',200,False,0)]
+            def stop_torrents(self,ids):calls.append(('pause',ids));return True
+            def start_torrents(self,ids):calls.append(('resume',ids));return True
+            def set_files(self,tid,indices):calls.append(('wanted',tid,indices));return True
+            def set_unwanted_files(self,tid,indices):calls.append(('unwanted',tid,indices));return True
+        client=self.e.ConfiguredDownloader(SimpleNamespace(type='transmission',instance=TR()))
+        self.assertEqual([7,3],[f['id'] for f in client.files('a'*40)])
+        client.pause('2');client.resume('2');client.select_files('2',[7],True);client.select_files('2',[3],False)
+        self.assertEqual([('pause',2),('resume',2),('wanted',2,[7]),('unwanted',2,[3])],calls)
+        client.pause('1'*40);self.assertEqual(('pause','1'*40),calls[-1])
+
     def test_organize_only_completed_authorized_files_with_readback(self):
         self.assertTrue(hasattr(self.e,'Organizer'),'W05 organizer missing')
         import shutil
@@ -190,6 +213,195 @@ class ExecutionTests(unittest.TestCase):
         self.auth.cancel('sibling',self.auth.vector([self.keys[0]]),reason='cancel')
         self.assertEqual('PAUSED_VERIFIED',self.executor.execute('plan',b'torrent')['state'])
         self.assertEqual({3,7},self.client.wanted)
+
+    def test_review_repeat_execute_resume_does_not_pause_running_task(self):
+        self.assertEqual('RUNNING',self.executor.execute('plan',b'torrent',resume=True)['state'])
+        before=list(self.client.calls)
+        self.assertEqual('RUNNING',self.executor.execute('plan',b'torrent',resume=True)['state'])
+        self.assertEqual(before,self.client.calls)
+        self.assertEqual('DOWNLOADING',self.client.state)
+
+    def test_review_shared_excluded_sibling_prevents_client_wide_resume(self):
+        self.executor.execute('plan',b'torrent')
+        other=deepcopy(self.spec);other['selected_indices']=[0]
+        other['targets']={self.keys[0]:next(iter(other['targets'].values()))}
+        other['current']={self.keys[0]:dict(state='MISSING',revision=0)}
+        self.auth.prepare('sibling','round',other,now=NOW)
+        self.auth.claim('sibling',self.auth.vector([self.keys[0]]),now=NOW)
+        self.executor.execute('sibling',b'torrent')
+        self.e.Exclusions(self.repo).add('deny-e01',{'targets':[self.keys[0]]},reason='review')
+        before=list(self.client.calls)
+        self.assertEqual('BLOCKED',self.executor.resume('plan')['state'])
+        self.assertEqual(before,self.client.calls)
+
+    def _sibling(self):
+        other=deepcopy(self.spec);other['selected_indices']=[0]
+        other['targets']={self.keys[0]:next(iter(other['targets'].values()))}
+        other['current']={self.keys[0]:dict(state='MISSING',revision=0)}
+        self.auth.prepare('sibling','round',other,now=NOW)
+        self.auth.claim('sibling',self.auth.vector([self.keys[0]]),now=NOW)
+
+    def test_shared_cohort_changes_between_revalidation_and_transaction_send_zero_rpc(self):
+        for change in ('cancel','exclude','new','current','task','cycle'):
+            with self.subTest(change=change):
+                if change!='new':self._sibling()
+                self.assertEqual('PAUSED_VERIFIED',self.executor.execute('plan',b'torrent')['state'])
+                original=self.executor.authority.begin_shared_attempt
+                def race(*args,**kwargs):
+                    if change=='cancel':self.auth.cancel('sibling',self.auth.vector([self.keys[0]]),reason='race')
+                    elif change=='exclude':self.e.Exclusions(self.repo).add('race',{'targets':[self.keys[0]]},reason='race')
+                    elif change=='new':self._sibling()
+                    elif change=='current':self.auth.update_current(self.keys[0],{'state':'PRESENT','evidence_ref':'race'},expected_revision=0)
+                    elif change=='cycle':self.executor._new_cycle(self.spec)
+                    else:self.repo.set_state(self.auth.plan('sibling')['task_id'],'PAUSED','race')
+                    return original(*args,**kwargs)
+                self.executor.authority.begin_shared_attempt=race
+                before=list(self.client.calls)
+                self.assertEqual('BLOCKED',self.executor.resume('plan')['state'])
+                self.assertEqual(before,self.client.calls)
+                self.doCleanups();self.setUp()
+
+    def test_resume_new_pause_cycle_and_unknown_cohort_never_replay(self):
+        self.assertEqual('RUNNING',self.executor.execute('plan',b'torrent',resume=True)['state'])
+        self.assertEqual('PAUSED_VERIFIED',self.executor.execute('plan',b'torrent')['state'])
+        self.assertEqual('RUNNING',self.executor.resume('plan')['state'])
+        self.assertEqual(2,self.client.calls.count('resume'))
+        self.assertEqual(1,self.client.calls.count('pause'))
+        self.client.state='PAUSED'
+        self.assertEqual('RUNNING',self.executor.resume('plan')['state'])
+        self.assertEqual(3,self.client.calls.count('resume'))
+
+    def test_legacy_resume_running_readback_does_not_send_new_shared_attempt(self):
+        self.executor.execute('plan',b'torrent')
+        vector=self.auth.vector([self.keys[1]])
+        self.auth.begin_attempt('legacy-resume','plan',vector,'RESUME',[1,2],{'verb':'resume','id':'a'*40})
+        self.auth.record_result('legacy-resume','UNKNOWN',{'code':'legacy lost response'})
+        self.client.state='DOWNLOADING';before=list(self.client.calls)
+        self.assertEqual('RUNNING',self.executor.resume('plan')['state'])
+        self.assertEqual(before,self.client.calls)
+        self.executor.reconcile('plan');self.assertEqual('SUCCEEDED',self.auth.action('legacy-resume')['state'])
+
+    def test_unknown_shared_resume_receipt_settles_only_original_cohort(self):
+        self._sibling();self.executor.execute('plan',b'torrent')
+        def lost(tid):
+            self.client.calls.append('resume');self.client.state='DOWNLOADING';raise TimeoutError()
+        self.client.resume=lost
+        self.assertEqual('UNKNOWN',self.executor.resume('plan')['state'])
+        with self.repo.connection() as db:
+            actions=[dict(r) for r in db.execute("SELECT * FROM plan_actions WHERE kind='RESUME'")]
+        self.assertEqual({'plan','sibling'},{a['plan_id'] for a in actions})
+        self.auth.cancel('sibling',self.auth.vector([self.keys[0]]),reason='after send')
+        before=list(self.client.calls)
+        self.assertEqual('BLOCKED',self.executor.execute('plan',b'torrent')['state'])
+        self.assertEqual(before,self.client.calls)
+        self.assertEqual('RECONCILED',self.executor.reconcile('plan')['state'])
+        self.assertTrue(all(self.auth.action(a['id'])['state']=='SUCCEEDED' for a in actions))
+        self.assertEqual(1,self.client.calls.count('resume'))
+
+    def test_copy_receipt_committed_before_asset_projection_recovers_without_copy(self):
+        import shutil,json
+        source=Path(self.tmp.name)/'source';source.mkdir();target=Path(self.tmp.name)/'target';target.mkdir()
+        for f in self.files:(source/f['path']).write_bytes(b'x'*f['size'])
+        calls=[]
+        class Host:
+            def history(inner,*args):return True
+            def history_receipt(inner,*args):return True
+            def transfer_receipt(inner,*args):return True
+            def transfer(inner,src,dest,item,snapshot):
+                calls.append(item['index']);out=dest/src.name
+                with self.repo.connection(write=True) as db:db.execute('UPDATE organized_assets SET destination=? WHERE source=?',(str(out),str(src)))
+                shutil.copyfile(src,out);return out
+        class Crash(BaseException):pass
+        original=self.executor.authority.record_result
+        def crash(action,outcome,evidence,**kwargs):
+            original(action,outcome,evidence,**kwargs)
+            if json.loads(self.auth.action(action)['payload']).get('verb')=='organize:1':raise Crash()
+        self.executor.execute('plan',b'torrent');self.client.stats.update({3:200,7:10})
+        org=self.e.Organizer(self.executor,Host(),source_root=lambda s:source)
+        self.executor.authority.record_result=crash
+        with self.assertRaises(Crash):org.organize('plan',target)
+        self.executor.authority.record_result=original
+        self.assertEqual('RECONCILED',org.reconcile('plan')['state'])
+        self.assertEqual('COMPLETE',org.organize('plan',target)['state'])
+        self.assertEqual([1,2],calls)
+
+    def test_shared_font_and_license_keep_all_consumers_in_common_video_directory(self):
+        from types import ModuleType,SimpleNamespace
+        from unittest.mock import patch
+        import sys,shutil
+        files=load('candidates').bind_files([('Pack/Show.S01E01.mkv',1),('Pack/Show.S01E02.mkv',1),('Pack/Fonts/shared.ttf',1),('Pack/LICENSE.txt',1)],self.r.Target('电视剧','tmdb','42',1),dependencies={0:[2],1:[2],2:[3]})
+        self.assertEqual(set(self.keys),set(files[2]['targets']))
+        root=Path(self.tmp.name);source=root/'font-source';source.mkdir();dest=root/'font-dest';dest.mkdir()
+        calls=[]
+        class Chain:
+            def plan_transfer(inner,**kw):return SimpleNamespace(final_target_path=Path(kw['target_path'])/kw['fileitem'].name)
+            def transfer(inner,**kw):
+                calls.append(kw);out=Path(kw['target_path'])/kw['fileitem'].name;out.parent.mkdir(exist_ok=True)
+                shutil.copyfile(kw['fileitem'].path,out);return SimpleNamespace(success=True,target_item=SimpleNamespace(path=str(out)))
+        modules={}
+        for name,values in {'app.chain.transfer':{'TransferChain':Chain},'app.sdk.media':{'MetaInfoPath':lambda p:SimpleNamespace()},'app.schemas.file':{'FileItem':SimpleNamespace},'app.schemas.system':{'TransferDirectoryConf':SimpleNamespace}}.items():
+            module=ModuleType(name);module.__dict__.update(values);modules[name]=module
+        host=self.e.HostOrganization(None);host.transfer_receipt=lambda *a:True
+        host.video_outputs={0:dest/'E01.mkv',1:dest/'E02.mkv'}
+        for path in host.video_outputs.values():path.write_bytes(b'v')
+        with patch.dict(sys.modules,modules):
+            for item in files[2:]:
+                src=source/Path(item['path']).name;src.write_bytes(b'x')
+                out=host.transfer(src,dest,item,dict(torrent_files=files,save_path=str(source),selected_indices=[0,1,2,3]))
+                self.assertEqual(b'x',out.read_bytes())
+                self.assertEqual(set(self.keys),set(item['targets']))
+        self.assertEqual([dest/'Fonts',dest],[kw['target_path'] for kw in calls])
+        self.assertTrue(all(not kw['target_directory'].renaming for kw in calls))
+        separate=dest/'separate';separate.mkdir();(separate/'E02.mkv').write_bytes(b'v')
+        host.video_outputs[1]=separate/'E02.mkv'
+        with patch.dict(sys.modules,modules),self.assertRaisesRegex(ValueError,'SHARED_DEPENDENCY_DIRECTORY_CONFLICT'):
+            host.transfer(source/'shared.ttf',dest,files[2],dict(torrent_files=files,save_path=str(source)))
+        self.assertEqual(2,len(calls))
+
+    def test_partial_public_history_compensates_only_missing_rows_without_replay(self):
+        from types import ModuleType,SimpleNamespace
+        from unittest.mock import patch
+        import sys,json
+        source=Path(self.tmp.name)/'history-source';source.mkdir()
+        dest=Path(self.tmp.name)/'history-target';dest.mkdir()
+        for f in self.files:(source/f['path']).write_bytes(b'x'*f['size'])
+        rows=[];writes=[];headers=[]
+        class Oper:
+            def get_by_hash(inner,h):return headers[-1] if headers else None
+            def add(inner,**kw):headers.append(SimpleNamespace(**kw))
+            def get_files_by_hash(inner,h,state=1):return list(rows)
+            def add_files(inner,items):
+                for item in items:
+                    writes.append(item['fullpath']);rows.append(SimpleNamespace(**item))
+                    if len(writes)==1:raise RuntimeError('committed first file, second write failed')
+        modules={}
+        for name,values in {'app.db.oper.downloadhistory':{'DownloadHistoryOper':Oper},'app.sdk.media':{'resolve_media_identity':lambda **kw:(SimpleNamespace(value='tmdb'),'42')}}.items():
+            module=ModuleType(name);module.__dict__.update(values);modules[name]=module
+        host=self.e.HostOrganization(SimpleNamespace(title='fixture',year=2026),repository=self.repo)
+        self.executor.execute('plan',b'torrent');self.client.stats.update({3:200,7:10})
+        org=self.e.Organizer(self.executor,host,source_root=lambda s:source)
+        with patch.dict(sys.modules,modules):
+            self.assertEqual('UNKNOWN',org.organize('plan',dest)['state'])
+            with self.repo.connection() as db:original=db.execute("SELECT id FROM plan_actions WHERE kind='ORGANIZE'").fetchone()[0]
+            rows[0].downloader='unrelated'
+            org.reconcile('plan');self.assertEqual(1,len(writes));rows[0].downloader='test'
+            headers[-1].media_id='43'
+            org.reconcile('plan');self.assertEqual(1,len(writes));headers[-1].media_id='42'
+            begin=self.executor.authority.begin_history_repair
+            def race(*args,**kw):
+                self.e.Exclusions(self.repo).add('history-race',{'targets':[self.keys[1]]},reason='race')
+                return begin(*args,**kw)
+            self.executor.authority.begin_history_repair=race
+            org.reconcile('plan');self.assertEqual(1,len(writes))
+            self.executor.authority.begin_history_repair=begin;self.e.Exclusions(self.repo).revoke('history-race')
+            self.assertEqual('RECONCILED',org.reconcile('plan')['state'])
+            self.assertEqual('SUCCEEDED',self.auth.action(original)['state'])
+            self.assertEqual(2,len(writes));self.assertEqual(2,len(set(writes)))
+            org.reconcile('plan');self.assertEqual(2,len(writes))
+            with self.repo.connection() as db:
+                repairs=[json.loads(r[0]) for r in db.execute("SELECT payload FROM plan_actions WHERE kind='ORGANIZE'") if json.loads(r[0]).get('verb')=='history-repair']
+            self.assertEqual([[str(source/'E02.srt')]],[p['missing_paths'] for p in repairs])
+            self.assertEqual(1,len(headers))
 
     def test_reconcile_lost_add_needs_marker_exact_identity_and_full_table(self):
         self.assertTrue(hasattr(self.executor,'reconcile'),'durable exact reconciliation missing')

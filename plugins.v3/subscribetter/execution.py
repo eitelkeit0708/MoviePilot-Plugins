@@ -43,7 +43,9 @@ class ConfiguredDownloader:
             status='CHECKING' if state.startswith('checking') else states.get(state,'DISCONNECTED')
             total=value(row,'total_size');done=value(row,'downloaded');speed=value(row,'dlspeed')
         else:
-            actual=value(row,'hash_string',value(row,'hashString'));tid=str(value(row,'id'));path=value(row,'download_dir',value(row,'downloadDir'));state=str(value(row,'status','')).lower()
+            actual=value(row,'hash_string',value(row,'hashString'));tid=value(row,'id');path=value(row,'download_dir',value(row,'downloadDir'));state=str(value(row,'status','')).lower()
+            if type(tid)is not int or tid<0:
+                raise ValueError('TR_TASK_ID_INVALID')
             status={'stopped':'PAUSED','check_pending':'CHECKING','checking':'CHECKING','download_pending':'QUEUED','downloading':'DOWNLOADING','seed_pending':'QUEUED','seeding':'COMPLETED'}.get(state,'DISCONNECTED')
             total=value(row,'total_size');done=value(row,'downloaded_ever');speed=value(row,'rate_download')
         if str(actual).lower()!=infohash.lower():
@@ -59,7 +61,9 @@ class ConfiguredDownloader:
             rows=[dict(r,id=i) if isinstance(r,dict) else r for i,r in rows.items()]
         result=[]
         for row in rows:
-            size=value(row,'size');index=value(row,'index',value(row,'id'));name=value(row,'name')
+            # transmission_rpc.File is a NamedTuple: its inherited .index is a
+            # tuple method. Each public client has an explicit ID field.
+            size=value(row,'size');index=value(row,'index' if self.kind=='qbittorrent' else 'id');name=value(row,'name')
             if self.kind=='qbittorrent':
                 priority=value(row,'priority');progress=value(row,'progress')
                 if type(priority)is not int or priority not in (0,1,6,7):
@@ -82,22 +86,32 @@ class ConfiguredDownloader:
                 return None
             return ids[0]
         result=self.instance.add_torrent(content=content,is_paused=True,download_dir=save_path,labels=[marker])
-        if result is None or str(value(result,'hash_string',value(result,'hashString'))).lower()!=infohash:
+        if result is None or str(value(result,'hash_string',value(result,'hashString'))).lower()!=infohash or type(value(result,'id'))is not int or value(result,'id')<0:
             return None
         return str(value(result,'id'))
 
+    def _rpc_id(self,task_id):
+        if self.kind=='qbittorrent':return task_id
+        # SQLite identity is textual; Transmission distinguishes integer IDs
+        # from string hashes and its public host wrapper does not coerce them.
+        if type(task_id)is int and task_id>=0:return task_id
+        if isinstance(task_id,str) and len(task_id) in (40,64) and all(c in '0123456789abcdef' for c in task_id.lower()):return task_id
+        if isinstance(task_id,str) and task_id.isascii() and task_id.isdecimal():return int(task_id)
+        raise ValueError('TR_TASK_ID_INVALID')
+
     def pause(self,task_id):
-        return self.instance.stop_torrents(ids=task_id)
+        return self.instance.stop_torrents(ids=self._rpc_id(task_id))
 
     def resume(self,task_id):
-        return self.instance.start_torrents(ids=task_id)
+        return self.instance.start_torrents(ids=self._rpc_id(task_id))
 
     def select_files(self,task_id,indices,wanted):
         if not indices or type(wanted)is not bool:
             raise ValueError('EXACT_SELECTION_REQUIRED')
         if self.kind=='qbittorrent':
             return self.instance.set_files(torrent_hash=task_id,file_ids=indices,priority=int(wanted))
-        return self.instance.set_files(task_id,indices) if wanted else self.instance.set_unwanted_files(task_id,indices)
+        tid=self._rpc_id(task_id)
+        return self.instance.set_files(tid,indices) if wanted else self.instance.set_unwanted_files(tid,indices)
 
 
 class Exclusions:
@@ -199,22 +213,60 @@ class StrictExecutor:
         if not changes or set(changes)-{'client_id','state','evidence'}:
             raise ValueError('invalid execution update')
         with self.repository.connection(write=True) as db:
+            if 'evidence' in changes:
+                old=db.execute('SELECT evidence FROM managed_downloads WHERE downloader=? AND infohash=?',(s['downloader'],s['infohash'])).fetchone()
+                changes['evidence']={**(json.loads(old[0]) if old else {}),**changes['evidence']}
             db.execute('UPDATE managed_downloads SET '+','.join(k+'=?' for k in changes)+',updated_at=? WHERE downloader=? AND infohash=?',(*[encoded(v) if k=='evidence' else v for k,v in changes.items()],utcnow(),s['downloader'],s['infohash']))
+
+    def _cohort(self,s):
+        token=self.exclusions.token()
+        refs=self.authority.download_references(s['downloader'],s['infohash'],s['save_path'])
+        for ref in refs:
+            plan,_,indices,vector=self._plan(ref['plan_id'])
+            if indices!=ref['indices'] or vector!=ref['vector']:
+                raise ValueError('SHARED_AUTHORITY_CHANGED')
+        return refs,token
+
+    def _new_cycle(self,s):
+        owned=self._owned(s)
+        cycle=json.loads(owned['evidence']).get('cycle',0)+1
+        self._save(s,state='PREPARING',evidence={'cycle':cycle})
+
+    def _receipt(self,action,outcome,evidence):
+        """Only the persisted original cohort can receive a physical RPC receipt."""
+        shared=json.loads(action['payload']).get('shared')
+        ids=[action['id']] if not shared else [shared['action_id']+':'+r['plan_id'] for r in shared['references']]
+        for action_id in ids:self.authority.record_result(action_id,outcome,evidence)
 
     def _mutation(self,plan,indices,vector,verb,kind,fn,payload):
         s=plan['snapshot']
-        self._fresh_candidate(plan,vector,payload.get('content_sha1'))
-        action_id='exec:'+sha256(encoded([plan['id'],verb,payload,vector]).encode()).hexdigest()
-        action=self.authority.begin_attempt(action_id,plan['id'],vector,kind,indices,dict(verb=verb,**payload))
+        if kind in ('ADD','SET_WANTED','RESUME'):
+            refs,token=self._cohort(s)
+            if not any(ref==dict(plan_id=plan['id'],indices=indices,vector=vector) for ref in refs):
+                raise ValueError('SHARED_AUTHORITY_CHANGED')
+            union=sorted({i for ref in refs for i in ref['indices']})
+            if 'wanted_indices' in payload and payload['wanted_indices']!=union:
+                raise ValueError('SHARED_SELECTION_CHANGED')
+            owned=self._owned(s)
+            payload=dict(payload,verb=verb,cycle=json.loads(owned['evidence']).get('cycle',0),wanted_indices=union)
+            family=[s['downloader'],s['infohash'],s['save_path']]
+            action_id='exec:'+sha256(encoded([family,refs,payload]).encode()).hexdigest()
+            actions=self.authority.begin_shared_attempt(action_id,family,refs,kind,payload,exclusion_token=token)
+            action=next(a for a in actions if a['plan_id']==plan['id'])
+            action_id=action['id']
+        else:
+            self._fresh_candidate(plan,vector,payload.get('content_sha1'))
+            action_id='exec:'+sha256(encoded([plan['id'],verb,payload,vector]).encode()).hexdigest()
+            action=self.authority.begin_attempt(action_id,plan['id'],vector,kind,indices,dict(verb=verb,**payload))
         if not action['dispatch']:
             return action['state']=='SUCCEEDED',action_id,None
         try:
             result=fn()
         except Exception:
-            self.authority.record_result(action_id,'UNKNOWN',{'code':'CLIENT_RESPONSE_UNKNOWN'})
+            self._receipt(action,'UNKNOWN',{'code':'CLIENT_RESPONSE_UNKNOWN'})
             return False,action_id,None
         outcome='SUCCEEDED' if result is not None and result is not False else 'UNKNOWN'
-        self.authority.record_result(action_id,outcome,{'accepted':outcome=='SUCCEEDED'})
+        self._receipt(action,outcome,{'accepted':outcome=='SUCCEEDED'})
         return outcome=='SUCCEEDED',action_id,result
 
     @staticmethod
@@ -285,6 +337,15 @@ class StrictExecutor:
                 task=self._task(s,task)
                 if str(task['id'])!=owned['client_id']:
                     raise ValueError('CLIENT_TASK_ID_CHANGED')
+                mapping=self._table(s,client.files(s['infohash']))
+                refs,_=self._cohort(s)
+                union={i for ref in refs for i in ref['indices']}
+                unchanged={i for i,r in mapping.items() if r['wanted']}==union
+                if resume and unchanged and task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
+                    self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
+                    return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
+                if owned['state'] in ('RUNNING','PAUSED_VERIFIED') and (task['state']!='PAUSED' or not unchanged):
+                    self._new_cycle(s)
                 if task['state']!='PAUSED':
                     ok,_,_=self._mutation(plan,indices,vector,'pause','SET_WANTED',lambda:client.pause(task['id']),{'id':task['id']})
                     if not ok or self._task(s,client.task(s['infohash']))['state']!='PAUSED':
@@ -296,14 +357,11 @@ class StrictExecutor:
                 wanted=sorted(mapping[i]['id'] for i in union)
                 unwanted=sorted(r['id'] for i,r in mapping.items() if i not in union)
                 if {r['id'] for r in mapping.values() if r['wanted']}!=set(wanted):
-                    with self.repository.connection() as db:
-                        registered={r[0] for r in db.execute('SELECT target_key FROM target_units')}
-                    shared_vector=self.authority.vector(sorted({k for f in s['torrent_files'] for k in f['targets']} & registered))
                     for ids,enabled in ((unwanted,False),(wanted,True)):
                         if not ids:continue
                         if set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))!=union:
                             raise ValueError('SHARED_SELECTION_CHANGED')
-                        ok,_,_=self._mutation(plan,indices,vector,'select:'+str(enabled),'SET_WANTED',lambda:client.select_files(task['id'],ids,enabled),{'id':task['id'],'indices':ids,'wanted':enabled,'shared_authority':shared_vector})
+                        ok,_,_=self._mutation(plan,indices,vector,'select:'+str(enabled),'SET_WANTED',lambda:client.select_files(task['id'],ids,enabled),{'id':task['id'],'indices':ids,'wanted':enabled,'wanted_indices':sorted(union)})
                         if not ok:
                             raise ValueError('SELECTION_OUTCOME_UNKNOWN')
                 self._selection(s,client)
@@ -327,8 +385,14 @@ class StrictExecutor:
                 task=self._task(s,client.task(s['infohash']))
                 if str(task['id'])!=owned['client_id']:
                     raise ValueError('CLIENT_TASK_ID_CHANGED')
-                self._selection(s,client)
-                ok,_,_=self._mutation(plan,indices,vector,'resume','RESUME',lambda:client.resume(task['id']),{'id':task['id']})
+                _,union=self._selection(s,client)
+                self._cohort(s)
+                if task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
+                    self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
+                    return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
+                if owned['state']=='RUNNING' and task['state']=='PAUSED':
+                    self._new_cycle(s)
+                ok,_,_=self._mutation(plan,indices,vector,'resume','RESUME',lambda:client.resume(task['id']),{'id':task['id'],'wanted_indices':sorted(union)})
                 state=self._task(s,client.task(s['infohash']))['state']
                 if not ok or state not in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='PAUSED_VERIFIED',evidence={'code':'RESUME_NOT_ACCEPTED','actual_state':state})
@@ -368,12 +432,12 @@ class StrictExecutor:
                     adds=db.execute("SELECT * FROM plan_actions WHERE plan_id=? AND kind='ADD' AND state IN ('IN_FLIGHT','UNKNOWN')",(owned['add_action'],)).fetchall()
                 if len(adds)!=1 or json.loads(adds[0]['payload']).get('marker')!=owned['marker']:
                     return {'state':'UNKNOWN','reason':'ADD_INTENT_UNPROVEN'}
-                self.authority.record_result(adds[0]['id'],'SUCCEEDED',{'evidence':'exact marker/hash/layout/full table paused readback','client_id':task['id']})
+                self._receipt(adds[0],'SUCCEEDED',{'evidence':'exact marker/hash/layout/full table paused readback','client_id':task['id']})
                 self._save(s,client_id=task['id'],state='ADDED',evidence={'reconciled_add':adds[0]['id']})
             elif owned['client_id']!=task['id']:
                 raise ValueError('CLIENT_TASK_ID_CHANGED')
             with self.repository.connection() as db:
-                pending=db.execute("SELECT * FROM plan_actions WHERE plan_id=? AND kind IN ('SET_WANTED','RESUME') AND state IN ('IN_FLIGHT','UNKNOWN')",(plan_id,)).fetchall()
+                pending=[r for r in db.execute("SELECT a.*,p.snapshot AS plan_snapshot FROM plan_actions a JOIN plans p ON p.id=a.plan_id WHERE a.kind IN ('SET_WANTED','RESUME') AND a.state IN ('IN_FLIGHT','UNKNOWN')") if all(json.loads(r['plan_snapshot'])[k]==s[k] for k in ('downloader','infohash','save_path'))]
             actual={r['id']:r for r in mapping.values()};remaining=[]
             for action in pending:
                 payload=json.loads(action['payload']);verb=payload.get('verb');matched=False
@@ -381,9 +445,12 @@ class StrictExecutor:
                 elif verb.startswith('select:'):
                     matched=task['state']=='PAUSED' and all(i in actual and actual[i]['wanted']==payload['wanted'] for i in payload['indices'])
                 elif verb=='resume':
-                    try:self._selection(s,client);matched=task['state'] in ('DOWNLOADING','QUEUED','COMPLETED')
+                    try:
+                        wanted=payload.get('shared',{}).get('wanted')
+                        if wanted is None:_,wanted=self._selection(s,client)
+                        matched={i for i,r in mapping.items() if r['wanted']}==set(wanted) and task['state'] in ('DOWNLOADING','QUEUED','COMPLETED')
                     except ValueError:matched=False
-                if matched:self.authority.record_result(action['id'],'SUCCEEDED',{'evidence':'exact task and whole file selection readback','actual_state':task['state']})
+                if matched:self._receipt(action,'SUCCEEDED',{'evidence':'exact task and whole file selection readback','actual_state':task['state']})
                 else:remaining.append(action['id'])
             return {'state':'UNKNOWN' if remaining else 'RECONCILED','unresolved_actions':remaining}
 
@@ -441,7 +508,8 @@ class Organizer:
                 if any(paths[i].stat().st_size!=s['torrent_files'][i]['size'] for i in indices):
                     raise ValueError('COMPLETED_ASSET_SIZE_MISMATCH')
                 self.executor.sample(plan_id)
-                ok,_,_=self.executor._mutation(plan,indices,vector,'history','ORGANIZE',lambda:self.host.history(s,paths),{'paths':[str(paths[i]) for i in indices],'content_sha1':content_sha1})
+                history_snapshot=dict(s,selected_indices=indices,targets={k:s['targets'][k] for k in vector})
+                ok,_,_=self.executor._mutation(plan,indices,vector,'history','ORGANIZE',lambda:self.host.history(history_snapshot,paths),{'paths':[str(paths[i]) for i in indices],'content_sha1':content_sha1})
                 if not ok:
                     return {'state':'UNKNOWN','reason':'HISTORY_OUTCOME_UNKNOWN'}
                 outputs=[]
@@ -476,21 +544,45 @@ class Organizer:
 
     def reconcile(self,plan_id):
         """Reconcile an uncertain copy from persisted destination + public history."""
+        with MUTATION_LOCK:
+            return self._reconcile(plan_id)
+
+    def _reconcile(self,plan_id):
         plan=self.executor.authority.plan(plan_id);s=plan['snapshot'];settled=[]
         with self.repository.connection() as db:
             rows=db.execute("SELECT * FROM organized_assets WHERE plan_id=? AND state='AUTHORIZED'",(plan_id,)).fetchall()
-            actions=db.execute("SELECT * FROM plan_actions WHERE plan_id=? AND kind='ORGANIZE' AND state IN ('UNKNOWN','IN_FLIGHT')",(plan_id,)).fetchall()
+            actions=db.execute("SELECT * FROM plan_actions WHERE plan_id=? AND kind='ORGANIZE' AND state IN ('UNKNOWN','IN_FLIGHT','SUCCEEDED')",(plan_id,)).fetchall()
         for action in actions:
             payload=json.loads(action['payload'])
-            if payload.get('verb')=='history' and self.host.history_receipt(s,payload['paths']):
-                self.executor.authority.record_result(action['id'],'SUCCEEDED',{'evidence':'public exact download history readback'});settled.append(action['id'])
+            if payload.get('verb')!='history' or action['state']=='SUCCEEDED':continue
+            history_snapshot=dict(s,selected_indices=json.loads(action['files']),targets={k:s['targets'][k] for k in json.loads(action['targets'])})
+            complete=self.host.history_receipt(history_snapshot,payload['paths'])
+            if not complete and action['state']=='UNKNOWN' and hasattr(self.host,'history_missing'):
+                try:
+                    token=self.executor.exclusions.token()
+                    current,_,_,vector=self.executor._plan(plan_id)
+                    self.executor._fresh_candidate(current,vector,payload.get('content_sha1'))
+                    missing=self.host.history_missing(history_snapshot,payload['paths'])
+                    repair=self.executor.authority.begin_history_repair(action['id'],vector,missing,exclusion_token=token)
+                    if repair['dispatch']:
+                        try:
+                            complete=self.host.repair_history(history_snapshot,payload['paths'],missing)
+                            self.executor.authority.record_result(repair['id'],'SUCCEEDED' if complete else 'UNKNOWN',{'evidence':'bounded missing history rows and full readback'})
+                        except Exception:
+                            self.executor.authority.record_result(repair['id'],'UNKNOWN',{'code':'LOCAL_HISTORY_REPAIR_RETURNED'})
+                except (ValueError,RuntimeError):pass
+            if complete:
+                for prior in actions:
+                    data=json.loads(prior['payload'])
+                    if prior['id']==action['id'] or data.get('original_action')==action['id']:
+                        self.executor.authority.record_result(prior['id'],'SUCCEEDED',{'evidence':'public exact download history readback'});settled.append(prior['id'])
         for row in rows:
             if not row['destination']:continue
             evidence=json.loads(row['evidence'])
             try:
                 destination=safe_local(evidence['target_root'],row['destination'])
                 if destination.stat().st_size!=row['size'] or digest(destination)!=row['sha256'] or not self.host.transfer_receipt(row['source'],str(destination),s):continue
-                matched=[a for a in actions if json.loads(a['payload']).get('verb')=='organize:'+str(row['file_index']) and json.loads(a['payload']).get('sha256')==row['sha256']]
+                matched=[a for a in actions if all(json.loads(a['payload']).get(k)==v for k,v in dict(verb='organize:'+str(row['file_index']),sha256=row['sha256'],source=row['source'],target_root=evidence['target_root']).items()) and json.loads(a['targets'])==evidence['vector']]
                 if len(matched)!=1:continue
                 self.executor.authority.record_result(matched[0]['id'],'SUCCEEDED',{'evidence':'public exact transfer history and destination content readback'})
                 with self.repository.connection(write=True) as db:
@@ -588,35 +680,50 @@ class HostOrganization:
         scope=sha256(encoded(sorted(s['targets'])).encode()).hexdigest()
         if row is None or not isinstance(value(row,'note'),dict) or row.note.get('strict_scope')!=scope:
             oper.add(path=s['save_path'],type=identities[0][0],title=self.media.title,year=str(self.media.year or ''),media_source=source.value,media_id=str(mid),seasons=','.join(sorted({f'S{i[3]:02}' for i in identities if i[3] is not None})),episodes=','.join(sorted({f'E{i[5]:02}' for i in identities if i[5] is not None})),episode_group=identities[0][4],downloader=s['downloader'],download_hash=s['infohash'],torrent_name=PurePosixPath(s['torrent_files'][0]['path']).parts[0],username='subscriBetter',note={'strict_plan':True,'strict_scope':scope,'candidate_key':s['candidate_key']})
-        before=oper.get_files_by_hash(s['infohash'],state=1)
-        expected={str(p) for p in paths.values()}
-        if self.repository is not None:
-            with self.repository.connection() as db:
-                previous=db.execute("SELECT a.payload,p.snapshot FROM plan_actions a JOIN plans p ON p.id=a.plan_id WHERE a.kind='ORGANIZE' AND a.state='SUCCEEDED'").fetchall()
-            for previous_row in previous:
-                old=json.loads(previous_row['snapshot']);payload=json.loads(previous_row['payload'])
-                if (old['infohash'],old['downloader'],old['save_path'])==(s['infohash'],s['downloader'],s['save_path']) and payload.get('verb')=='history':expected.update(payload['paths'])
-        if any(value(r,'downloader')!=s['downloader'] or value(r,'fullpath') not in expected for r in before):
-            raise ValueError('HISTORY_FILES_CONFLICT')
-        missing=expected-{value(r,'fullpath') for r in before}
-        oper.add_files([dict(downloader=s['downloader'],download_hash=s['infohash'],fullpath=str(paths[i]),savepath=s['save_path'],filepath=s['torrent_files'][i]['path'],torrentname=PurePosixPath(s['torrent_files'][i]['path']).parts[0],state=1) for i in paths if str(paths[i]) in missing])
-        row=oper.get_by_hash(s['infohash'])
-        return row is not None and row.downloader==s['downloader'] and {value(r,'fullpath') for r in oper.get_files_by_hash(s['infohash'],state=1)}==expected
+        selected=[str(paths[i]) for i in s['selected_indices']]
+        return self.repair_history(s,selected,self.history_missing(s,selected))
 
-    def history_receipt(self,snapshot,paths):
+    def _history_state(self,snapshot,paths):
+        """Validate the header and every existing file before any compensation."""
         from app.db.oper.downloadhistory import DownloadHistoryOper
         oper=DownloadHistoryOper();row=oper.get_by_hash(snapshot['infohash'])
         identity=json.loads(next(iter(snapshot['targets'])))
-        if row is None or row.downloader!=snapshot['downloader'] or row.path!=snapshot['save_path'] or (row.media_source,str(row.media_id))!=(identity[1],identity[2]):return False
-        files=oper.get_files_by_hash(snapshot['infohash'],state=1)
-        expected=set(paths)
+        if row is None or row.downloader!=snapshot['downloader'] or row.path!=snapshot['save_path'] or (row.media_source,str(row.media_id))!=(identity[1],identity[2]):
+            raise ValueError('HISTORY_IDENTITY_CONFLICT')
+        expected={}
+        def include(s,selected):
+            if len(selected)!=len(s['selected_indices']) or len(set(selected))!=len(selected):raise ValueError('HISTORY_SCOPE_CONFLICT')
+            for i,path in zip(s['selected_indices'],selected):
+                item=dict(downloader=s['downloader'],download_hash=s['infohash'],fullpath=path,savepath=s['save_path'],filepath=s['torrent_files'][i]['path'],torrentname=PurePosixPath(s['torrent_files'][i]['path']).parts[0],state=1)
+                if path in expected and expected[path]!=item:raise ValueError('HISTORY_SCOPE_CONFLICT')
+                expected[path]=item
+        include(snapshot,paths)
         if self.repository is not None:
             with self.repository.connection() as db:
-                previous=db.execute("SELECT a.payload,p.snapshot FROM plan_actions a JOIN plans p ON p.id=a.plan_id WHERE a.kind='ORGANIZE' AND a.state='SUCCEEDED'").fetchall()
-            for item in previous:
-                old=json.loads(item['snapshot']);payload=json.loads(item['payload'])
-                if (old['infohash'],old['downloader'],old['save_path'])==(snapshot['infohash'],snapshot['downloader'],snapshot['save_path']) and payload.get('verb')=='history':expected.update(payload['paths'])
-        return expected=={value(f,'fullpath') for f in files} and all(value(f,'downloader')==snapshot['downloader'] for f in files)
+                previous=db.execute("SELECT a.payload,a.files,p.snapshot FROM plan_actions a JOIN plans p ON p.id=a.plan_id WHERE a.kind='ORGANIZE' AND a.state='SUCCEEDED'").fetchall()
+            for prior in previous:
+                old=json.loads(prior['snapshot']);payload=json.loads(prior['payload'])
+                if all(old[k]==snapshot[k] for k in ('infohash','downloader','save_path')) and payload.get('verb')=='history':include(dict(old,selected_indices=json.loads(prior['files'])),payload['paths'])
+        files=oper.get_files_by_hash(snapshot['infohash'],state=1)
+        present=[value(f,'fullpath') for f in files]
+        if len(set(present))!=len(present) or any(value(f,'fullpath') not in expected or any(value(f,k)!=v for k,v in expected[value(f,'fullpath')].items()) for f in files):
+            raise ValueError('HISTORY_FILES_CONFLICT')
+        missing=set(expected)-set(present)
+        if not missing<=set(paths):raise ValueError('PRIOR_HISTORY_FILES_MISSING')
+        return oper,expected,sorted(missing)
+
+    def history_missing(self,snapshot,paths):
+        return self._history_state(snapshot,paths)[2]
+
+    def repair_history(self,snapshot,paths,missing):
+        oper,expected,actual=self._history_state(snapshot,paths)
+        if sorted(missing)!=actual:raise ValueError('HISTORY_ROWS_CHANGED')
+        if actual:oper.add_files([expected[path] for path in actual])
+        return self.history_receipt(snapshot,paths)
+
+    def history_receipt(self,snapshot,paths):
+        try:return not self.history_missing(snapshot,paths)
+        except ValueError:return False
 
     @staticmethod
     def transfer_receipt(source,destination,snapshot):
@@ -630,8 +737,9 @@ class HostOrganization:
         from app.sdk.media import MetaInfoPath
         from app.schemas.file import FileItem
         from app.schemas.system import TransferDirectoryConf
-        videos=[f for f in snapshot['torrent_files'] if f['role']=='video' and set(item['targets'])<=set(f['targets'])]
-        if len(videos)!=1:
+        rename=item['role'] in ('video','subtitle')
+        videos=[f for f in snapshot['torrent_files'] if f['role']=='video' and (set(item['targets'])<=set(f['targets']) if rename else set(item['targets'])&set(f['targets']))]
+        if not videos or (rename and len(videos)!=1) or not set(item['targets'])<={k for video in videos for k in video['targets']}:
             raise ValueError('UNIQUE_TRANSFER_VIDEO_REQUIRED')
         meta=(self.meta_factory or MetaInfoPath)(Path(videos[0]['path']))
         scopes=[json.loads(k) for k in item['targets']]
@@ -640,16 +748,21 @@ class HostOrganization:
             meta.begin_episode=min(k[5] for k in scopes);meta.end_episode=max(k[5] for k in scopes) if len(scopes)>1 else None
         # Non-video dependencies retain their real names and relative directories;
         # fonts must keep the names referenced by ASS and licenses remain readable.
-        rename=item['role'] in ('video','subtitle')
         target=destination
         if not rename:
-            video=self.video_outputs.get(videos[0]['index'])
-            if video is None and self.repository is not None:
-                with self.repository.connection() as db:
-                    row=db.execute("SELECT destination FROM organized_assets WHERE source=? AND state='COMPLETE'",(str(Path(snapshot['save_path'])/videos[0]['path']),)).fetchone()
-                video=Path(row[0]) if row else None
-            if video is None:raise ValueError('ORGANIZED_VIDEO_RECEIPT_REQUIRED')
-            target=video.parent/('Fonts' if src.suffix.casefold() in ('.ttf','.otf','.woff','.woff2') else '')
+            parents=set()
+            for consumer in videos:
+                video=self.video_outputs.get(consumer['index'])
+                if video is None and self.repository is not None:
+                    with self.repository.connection() as db:
+                        row=db.execute("SELECT destination FROM organized_assets WHERE source=? AND state='COMPLETE'",(str(Path(snapshot['save_path'])/consumer['path']),)).fetchone()
+                    video=Path(row[0]) if row else None
+                if video is None:raise ValueError('ORGANIZED_VIDEO_RECEIPT_REQUIRED')
+                parents.add(safe_local(destination,video).parent)
+            # The configured host season layout puts these consumers together.
+            # An arbitrary ancestor is not proof that subtitles can find a font.
+            if len(parents)!=1:raise ValueError('SHARED_DEPENDENCY_DIRECTORY_CONFLICT')
+            target=parents.pop()/('Fonts' if src.suffix.casefold() in ('.ttf','.otf','.woff','.woff2') else '')
         directory=TransferDirectoryConf(storage='local',download_path=snapshot['save_path'],library_storage='local',library_path=str(target),transfer_type='copy',overwrite_mode='never',renaming=rename,scraping=False,notify=False,library_type_folder=False,library_category_folder=False)
         chain=TransferChain()
         kwargs=dict(fileitem=FileItem(storage='local',path=str(src),type='file',name=src.name,basename=src.stem,extension=src.suffix.lstrip('.'),size=item['size']),meta=meta,mediainfo=self.media,target_directory=directory,target_storage='local',target_path=target,transfer_type='copy',scrape=False,library_type_folder=False,library_category_folder=False)
