@@ -390,6 +390,22 @@ class PolicyTests(unittest.TestCase):
         stale = replace(self.facts(), predicate_hash=self.m._hash(self.p.rules))
         self.assertEqual("FACTS_REQUIRE_RENORMALIZATION", self.admit(stale).reason)
 
+    def test_review_fix2_unknown_source_defers_but_known_rejection_remains(self):
+        for category in ["欧美剧", "国产剧"]:
+            self.p = self.m.Policy({"stable-id": category}, 7,
+                                  overrides={"RemuxSource": {"ge": ["size", 100]}})
+            with self.subTest(category=category, evidence="missing"):
+                facts = self.facts()
+                self.assertIsNone(facts.source)
+                self.assertIn("predicate:RemuxSource", facts.missing)
+                self.assertTrue(facts.source_admission["web" if category == "国产剧" else "movie"])
+                self.assertEqual("DEFER", self.admit(facts).status)
+            with self.subTest(category=category, evidence="confirmed_non_remux"):
+                self.assertEqual("ALLOW", self.admit(self.facts(size=0)).status)
+            with self.subTest(category=category, evidence="no_allowed_source"):
+                self.assertEqual("REJECT", self.admit(self.facts("2160p -HHWEB 中文字幕", size=0)).status)
+        self.assertEqual("REJECT", self.admit(self.facts(size=200)).status)  # Domestic WEB rejects confirmed REMUX.
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -582,8 +582,10 @@ class Policy:
         if source != "any" and facts.source_admission.get(source) is not True:
             allowed = facts.source_admission.get(source)
             return self._decision("DEFER" if allowed is None else "REJECT", "SOURCE_PREDICATE", category)
-        if source != "any" and (facts.source is None or source == "web" and facts.source != "web"):
-            return self._decision("DEFER" if "source" in facts.missing else "REJECT", "SOURCE_NOT_ALLOWED", category)
+        if source != "any" and facts.source is None:
+            return self._decision("DEFER", "SOURCE_EVIDENCE_MISSING", category)
+        if source == "web" and facts.source != "web":
+            return self._decision("REJECT", "SOURCE_NOT_ALLOWED", category)
         if group in {"official", "hhweb"} and getattr(facts, group) is not True:
             return self._decision("DEFER" if getattr(facts, group) is None else "REJECT", "GROUP_NOT_ALLOWED", category)
         rank = self.rank(facts, policy_name)
