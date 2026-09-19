@@ -214,9 +214,11 @@ class Repository:
             row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
             return json.loads(row[0]) if row else None
 
-    def action_state(self, task_id: int, state: str, error_code: str | None = None):
+    def action_state(self, task_id: int, state: str, error_code: str | None = None,
+                     expected_state: str | None = None):
         with self.connection(write=True) as db:
-            db.execute("UPDATE outbox SET state=?,error_code=?,updated_at=? WHERE task_id=? AND state!='CANCELLED'", (state, error_code, utcnow(), task_id))
+            db.execute("UPDATE outbox SET state=?,error_code=?,updated_at=? WHERE task_id=? AND state!='CANCELLED' AND (? IS NULL OR state=?)",
+                       (state, error_code, utcnow(), task_id, expected_state, expected_state))
 
     def start_create(self, task_id: int) -> bool:
         with self.connection(write=True) as db:

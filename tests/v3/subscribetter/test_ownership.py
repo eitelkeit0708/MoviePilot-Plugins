@@ -125,6 +125,48 @@ class OwnershipTests(unittest.TestCase):
         self.assertEqual("ACTIVE", self.repo.get_task(row["id"])["state"])
         self.assertEqual(1, self.host.creates)
 
+    def test_T148_unknown_survives_action_read_failure_without_duplicate_create(self):
+        task = self.repo.submit("uncertain", self.target, {}, "admin")
+        self.assertTrue(self.repo.start_create(task["id"]))
+        original = self.repo.get_action
+        self.repo.get_action = Mock(side_effect=RuntimeError("temporary action read failure"))
+        self.service._handoff(task)
+        self.repo.get_action = original
+        self.assertEqual("UNKNOWN", original(task["id"])["state"])
+        self.assertEqual("CREATE_OUTCOME_UNKNOWN", original(task["id"])["error_code"])
+        self.service.reconcile()
+        self.assertEqual(0, self.host.creates)
+
+    def test_T148_preflight_cannot_erase_concurrent_unknown_dispatch(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event
+        for mode in ("failure", "conflict"):
+            with self.subTest(mode=mode):
+                target = self.repo_module.Target("电影", "themoviedb", mode)
+                task = self.repo.submit(mode, target, {}, "admin")
+                entered, continue_read = Event(), Event()
+                def find(_target):
+                    entered.set()
+                    if not continue_read.wait(3):
+                        raise AssertionError("read gate timed out")
+                    if mode == "failure":
+                        raise RuntimeError("preflight read failed")
+                    return [{"type": target.media_type, "media_source": target.media_source,
+                             "media_id": target.media_id, "season": None, "episode_group": ""}]
+                self.host.find = find
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(self.service._handoff, task)
+                    try:
+                        self.assertTrue(entered.wait(3))
+                        self.assertTrue(self.repo.start_create(task["id"]))
+                    finally:
+                        continue_read.set()
+                    future.result(timeout=3)
+                self.assertEqual("UNKNOWN", self.repo.get_action(task["id"])["state"])
+                self.assertEqual("CREATE_OUTCOME_UNKNOWN", self.repo.get_action(task["id"])["error_code"])
+        self.service.reconcile()
+        self.assertEqual(0, self.host.creates)
+
     def test_reconciliation_advances_past_unknown_page_and_wraps_after_reload(self):
         for i in range(100):
             target = self.repo_module.Target("电影", "themoviedb", str(i + 1))

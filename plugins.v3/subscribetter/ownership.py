@@ -45,18 +45,16 @@ class Ownership:
     def _handoff(self, task: dict):
         task_id = task["id"]
         target = Target.from_task(task)
-        dispatched = False
         try:
             if task["native_id"] is None:
                 action = self.repository.get_action(task_id)
                 if not action or action["state"] != "PENDING":
                     return
                 if any(self.matches(target, row) for row in self.adapter.find(target)):
-                    self.repository.action_state(task_id, "PENDING", "NATIVE_CONFLICT")
+                    self.repository.action_state(task_id, "PENDING", "NATIVE_CONFLICT", expected_state="PENDING")
                     return
                 if not self.repository.start_create(task_id):
                     return
-                dispatched = True
                 sid = self.adapter.create(target, task["snapshot"])
                 self.repository.bind_native(task_id, sid)
                 task = self.repository.get_task(task_id)
@@ -78,9 +76,10 @@ class Ownership:
         except Exception:
             # Error bodies can contain host URLs/credentials. Persist a bounded code only.
             current = self.repository.get_task(task_id)
-            unknown = dispatched and current["native_id"] is None
-            self.repository.action_state(task_id, "UNKNOWN" if unknown else "PENDING",
-                                         "CREATE_OUTCOME_UNKNOWN" if unknown else "HOST_UNAVAILABLE")
+            # UNKNOWN belongs to the durable dispatch record, not this invocation.
+            # Without a bound ID only still-PENDING actions may remain retryable.
+            self.repository.action_state(task_id, "PENDING", "HOST_UNAVAILABLE",
+                                         expected_state="PENDING" if current["native_id"] is None else None)
 
     def reconcile(self):
         with self.lock:
