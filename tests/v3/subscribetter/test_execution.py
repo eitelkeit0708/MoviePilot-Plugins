@@ -281,6 +281,61 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(before,self.client.calls)
         self.executor.reconcile('plan');self.assertEqual('SUCCEEDED',self.auth.action('legacy-resume')['state'])
 
+    def test_execute_consumes_external_pause_before_overwriting_running_state(self):
+        self.assertEqual('RUNNING',self.executor.execute('plan',b'torrent',resume=True)['state'])
+        self.client.state='PAUSED'
+        self.assertEqual('RUNNING',self.executor.execute('plan',b'torrent',resume=True)['state'])
+        self.assertEqual('RUNNING',self.executor.resume('plan')['state'])
+        self.assertEqual(2,self.client.calls.count('resume'))
+        self.client.state='PAUSED'
+        self.assertEqual('PAUSED_VERIFIED',self.executor.execute('plan',b'torrent')['state'])
+        restarted=self.e.StrictExecutor(self.repo,lambda name:self.client,revalidate=self.executor.revalidate,verify_torrent=self.executor.verify_torrent)
+        self.assertEqual('RUNNING',restarted.resume('plan')['state'])
+        self.assertEqual(3,self.client.calls.count('resume'))
+
+    def test_returned_history_repair_without_progress_can_retry_missing_rows(self):
+        source=Path(self.tmp.name)/'repair-source';source.mkdir();dest=Path(self.tmp.name)/'repair-target';dest.mkdir()
+        for f in self.files:(source/f['path']).write_bytes(b'x'*f['size'])
+        rows=[];batches=[]
+        class Host:
+            def history(inner,s,paths):
+                rows.append(str(paths[1]));raise RuntimeError('first row committed; second failed')
+            def history_receipt(inner,s,paths):return set(paths)==set(rows)
+            def history_missing(inner,s,paths):return sorted(set(paths)-set(rows))
+            def repair_history(inner,s,paths,missing):
+                batches.append(list(missing))
+                if len(batches)==1:raise RuntimeError('temporary local failure before any write, returned')
+                rows.extend(missing);return inner.history_receipt(s,paths)
+        self.executor.execute('plan',b'torrent');self.client.stats.update({3:200,7:10})
+        org=self.e.Organizer(self.executor,Host(),source_root=lambda s:source)
+        self.assertEqual('UNKNOWN',org.organize('plan',dest)['state'])
+        self.assertEqual('UNKNOWN',org.reconcile('plan')['state'])
+        self.assertEqual('RECONCILED',org.reconcile('plan')['state'])
+        self.assertEqual([[str(source/'E02.srt')]]*2,batches)
+        self.assertEqual(2,len(rows));self.assertEqual(2,len(set(rows)))
+        org.reconcile('plan');self.assertEqual(2,len(batches))
+
+    def test_history_repair_inflight_ambiguous_and_exhaustion_cannot_redispatch(self):
+        vector=self.auth.vector([self.keys[1]]);paths=['/test/E02.mkv','/test/E02.srt']
+        self.auth.begin_attempt('history-original','plan',vector,'ORGANIZE',[1,2],{'verb':'history','paths':paths})
+        self.auth.record_result('history-original','UNKNOWN',{'code':'CLIENT_RESPONSE_UNKNOWN'})
+        def attempt():return self.auth.begin_history_repair('history-original',vector,[paths[1]],exclusion_token=self.executor.exclusions.token())
+        first=attempt();self.assertTrue(first['dispatch'])
+        with self.assertRaisesRegex(ValueError,'HISTORY_REPAIR_IN_FLIGHT'):attempt()
+        self.auth.record_result(first['id'],'UNKNOWN',{'code':'ambiguous transport'})
+        with self.assertRaisesRegex(ValueError,'HISTORY_REPAIR_RETURN_UNPROVEN'):attempt()
+        self.auth.record_result(first['id'],'UNKNOWN',{'code':'LOCAL_HISTORY_REPAIR_RETURNED'})
+        second=attempt();self.assertTrue(second['dispatch']);self.assertNotEqual(first['id'],second['id'])
+        self.auth.record_result(second['id'],'UNKNOWN',{'code':'LOCAL_HISTORY_REPAIR_RETURNED'})
+        third=attempt();self.assertTrue(third['dispatch'])
+        self.auth.record_result(third['id'],'UNKNOWN',{'code':'LOCAL_HISTORY_REPAIR_RETURNED'})
+        with self.assertRaisesRegex(ValueError,'HISTORY_REPAIR_EXHAUSTED'):attempt()
+        with self.repo.connection() as db:self.assertEqual(4,db.execute('SELECT COUNT(*) FROM plan_actions').fetchone()[0])
+        from types import SimpleNamespace
+        host=SimpleNamespace(history_receipt=lambda *a:False,history_missing=lambda *a:[paths[1]],repair_history=lambda *a:self.fail('exhausted repair dispatched'))
+        result=self.e.Organizer(self.executor,host).reconcile('plan')
+        self.assertEqual(('BLOCKED','HISTORY_REPAIR_EXHAUSTED'),(result['state'],result['reason']))
+
     def test_unknown_shared_resume_receipt_settles_only_original_cohort(self):
         self._sibling();self.executor.execute('plan',b'torrent')
         def lost(tid):

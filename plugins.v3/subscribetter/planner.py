@@ -17,6 +17,7 @@ from .repository import Target
 from .scheduler import ACTIONS, ScheduleConfig, instant, parse, readiness, stamp
 
 BARRIERS = {'PUBLISHING', 'PUBLISH_OUTCOME_UNKNOWN', 'HANDED_OFF'}
+HISTORY_REPAIR_LIMIT = 3
 TRANSFER_PHASES = {'PENDING', 'QUEUED', 'DOWNLOADING', 'WAITING_ASSETS', 'RAPID_WAIT',
                    'RAPID_IN_FLIGHT', 'CD2_UPLOADING', 'REMOTE_VERIFIED', 'READY_TO_PUBLISH', 'FAILED'}
 ATTEMPT_KINDS = {'ADD', 'SET_WANTED', 'RESUME', 'RAPID', 'CD2_UPLOAD', 'ORGANIZE', 'REFRESH', 'PUBLISH'}
@@ -391,8 +392,8 @@ class Authority:
     def begin_history_repair(self, original_id, vector, missing_paths, *, exclusion_token, now=None):
         """A separate bounded compensation for a returned partial local DB call.
 
-        An in-flight call is not replayable. Later repairs must demonstrate a
-        strictly smaller missing set; identical uncertain repairs cannot retry.
+        An in-flight or ambiguous call is not replayable. A returned local call
+        plus fresh complete readback permits at most three durable compensations.
         """
         with self.repository.connection(write=True) as db:
             original=db.execute("SELECT * FROM plan_actions WHERE id=? AND kind='ORGANIZE' AND state='UNKNOWN'",(original_id,)).fetchone()
@@ -402,12 +403,20 @@ class Authority:
                 raise ValueError('EXACT_HISTORY_COMPENSATION_REQUIRED')
             token=sha256(encoded([tuple(r) for r in db.execute('SELECT * FROM exclusions ORDER BY id')]).encode()).hexdigest()
             if token!=exclusion_token:raise ValueError('EXCLUSIONS_CHANGED')
-            data=dict(payload,verb='history-repair',original_action=original_id,missing_paths=sorted(missing_paths))
-            action_id='history-repair:'+sha256(encoded(data).encode()).hexdigest()
             reconciles={original_id}
-            for row in db.execute("SELECT id,payload FROM plan_actions WHERE plan_id=? AND kind='ORGANIZE' AND state='UNKNOWN'",(original['plan_id'],)):
+            repairs=[]
+            for row in db.execute("SELECT id,payload,state FROM plan_actions WHERE plan_id=? AND kind='ORGANIZE' ORDER BY created_at,id",(original['plan_id'],)):
                 previous=json.loads(row['payload'])
-                if previous.get('original_action')==original_id and set(missing_paths)<set(previous['missing_paths']):reconciles.add(row['id'])
+                if previous.get('original_action')!=original_id:continue
+                if row['state'] in ('IN_FLIGHT','PENDING'):raise ValueError('HISTORY_REPAIR_IN_FLIGHT')
+                receipts=db.execute("SELECT evidence FROM action_receipts WHERE action_id=? AND outcome='UNKNOWN'",(row['id'],)).fetchall()
+                if row['state']!='UNKNOWN' or not any(json.loads(r[0]).get('code')=='LOCAL_HISTORY_REPAIR_RETURNED' for r in receipts):
+                    raise ValueError('HISTORY_REPAIR_RETURN_UNPROVEN')
+                if not set(missing_paths)<=set(previous['missing_paths']):raise ValueError('HISTORY_ROWS_CHANGED')
+                repairs.append(row['id']);reconciles.add(row['id'])
+            if len(repairs)>=HISTORY_REPAIR_LIMIT:raise ValueError('HISTORY_REPAIR_EXHAUSTED')
+            data=dict(payload,verb='history-repair',original_action=original_id,missing_paths=sorted(missing_paths),repair_sequence=len(repairs)+1,repair_limit=HISTORY_REPAIR_LIMIT)
+            action_id='history-repair:'+sha256(encoded(data).encode()).hexdigest()
             return self._begin(db,action_id,original['plan_id'],vector,'ORGANIZE',json.loads(original['files']),data,now,reconciles=reconciles)
 
     def _begin(self, db, action_id, plan_id, vector, kind, indices, payload, now, queued=False, reconciles=()):

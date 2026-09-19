@@ -232,6 +232,12 @@ class StrictExecutor:
         cycle=json.loads(owned['evidence']).get('cycle',0)+1
         self._save(s,state='PREPARING',evidence={'cycle':cycle})
 
+    def _prepare_cycle(self,s,owned,task,*,selection_changed=False):
+        # Consume the old running state before either public entry can replace
+        # it with PAUSED_VERIFIED. PREPARING consumes this transition only once.
+        if owned['state'] in ('RUNNING','PAUSED_VERIFIED') and (owned['state']=='RUNNING' or task['state']!='PAUSED' or selection_changed):
+            self._new_cycle(s)
+
     def _receipt(self,action,outcome,evidence):
         """Only the persisted original cohort can receive a physical RPC receipt."""
         shared=json.loads(action['payload']).get('shared')
@@ -344,8 +350,7 @@ class StrictExecutor:
                 if resume and unchanged and task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
                     return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
-                if owned['state'] in ('RUNNING','PAUSED_VERIFIED') and (task['state']!='PAUSED' or not unchanged):
-                    self._new_cycle(s)
+                self._prepare_cycle(s,owned,task,selection_changed=not unchanged)
                 if task['state']!='PAUSED':
                     ok,_,_=self._mutation(plan,indices,vector,'pause','SET_WANTED',lambda:client.pause(task['id']),{'id':task['id']})
                     if not ok or self._task(s,client.task(s['infohash']))['state']!='PAUSED':
@@ -390,8 +395,7 @@ class StrictExecutor:
                 if task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
                     return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
-                if owned['state']=='RUNNING' and task['state']=='PAUSED':
-                    self._new_cycle(s)
+                self._prepare_cycle(s,owned,task)
                 ok,_,_=self._mutation(plan,indices,vector,'resume','RESUME',lambda:client.resume(task['id']),{'id':task['id'],'wanted_indices':sorted(union)})
                 state=self._task(s,client.task(s['infohash']))['state']
                 if not ok or state not in ('DOWNLOADING','QUEUED','COMPLETED'):
@@ -567,10 +571,12 @@ class Organizer:
                     if repair['dispatch']:
                         try:
                             complete=self.host.repair_history(history_snapshot,payload['paths'],missing)
-                            self.executor.authority.record_result(repair['id'],'SUCCEEDED' if complete else 'UNKNOWN',{'evidence':'bounded missing history rows and full readback'})
+                            self.executor.authority.record_result(repair['id'],'SUCCEEDED' if complete else 'UNKNOWN',{'code':'LOCAL_HISTORY_REPAIR_RETURNED','evidence':'bounded missing history rows and full readback'})
                         except Exception:
                             self.executor.authority.record_result(repair['id'],'UNKNOWN',{'code':'LOCAL_HISTORY_REPAIR_RETURNED'})
-                except (ValueError,RuntimeError):pass
+                except (ValueError,RuntimeError) as error:
+                    if str(error)=='HISTORY_REPAIR_EXHAUSTED':
+                        return {'state':'BLOCKED','reason':'HISTORY_REPAIR_EXHAUSTED','settled_actions':settled}
             if complete:
                 for prior in actions:
                     data=json.loads(prior['payload'])
