@@ -296,6 +296,78 @@ class AuthorityTests(unittest.TestCase):
         self.assertEqual(task, self.r.Repository(backup).get_task(task['id']))
 
 
+    def test_review_R1_settled_cancelled_target_releases_without_replacement_budget(self):
+        from dataclasses import asdict
+        import json
+        config = self.s.ScheduleConfig(observation_enabled=False)
+        with self.repo.connection(write=True) as db:
+            db.execute('UPDATE opportunities SET config=? WHERE id=?', (json.dumps(asdict(config)), 'round'))
+        a = self.claim()
+        self.auth.set_transfer_phase('A', a, 'READY_TO_PUBLISH')
+        first, sibling = {self.keys[0]: a[self.keys[0]]}, {self.keys[1]: a[self.keys[1]]}
+        self.publish('A', first, [0], 'publish-first')
+        self.publish('A', sibling, [1], 'publish-sibling')
+        self.auth.record_result('publish-first', 'UNKNOWN', {'reason': 'timeout'}, now=NOW)
+        self.auth.cancel('A', first, reason='cancel-first')
+        self.auth.resolve_publish('publish-first', 'NOT_SENT', dict(sender_stopped=True, remote_operation_settled=True,
+                                  consumer_cannot_apply=True, evidence_ref='verified-never-sent'), now=NOW)
+        vector = self.auth.vector(self.keys)
+        self.assertIsNone(vector[self.keys[0]]['owner_plan_id'])
+        self.assertEqual(a[self.keys[0]]['generation'] + 1, vector[self.keys[0]]['generation'])
+        self.assertEqual('A', vector[self.keys[1]]['owner_plan_id'])
+        self.assertEqual('PUBLISHING', vector[self.keys[1]]['publish_phase'])
+        self.auth.prepare('A-new', 'round', self.spec([self.keys[0]], candidate='A'), now=NOW)
+        self.assertEqual('A-new', self.auth.claim('A-new', {self.keys[0]: vector[self.keys[0]]}, now=NOW)[self.keys[0]]['owner_plan_id'])
+        self.assertEqual('RESOLVED_NOT_SENT', self.auth.action('publish-first')['state'])
+        self.assertEqual('ACTIVE', self.auth.plan('A')['authorization'])
+
+    def test_review_R2_pause_resume_revokes_queued_and_unqueued_old_execution(self):
+        a = self.claim()
+        self.auth.queue_attempt('old-add', 'A', a, 'ADD', [0, 1], {}, now=NOW)
+        self.repo.set_state(self.task_id, 'PAUSED', 'admin')
+        self.repo.set_state(self.task_id, 'PASSIVE', 'admin')
+        self.assertEqual(3, self.repo.get_task(self.task_id)['generation'])
+        for operation_id, kind in (('old-add', 'ADD'), ('fresh-key-old-plan', 'RESUME')):
+            with self.subTest(operation_id=operation_id), self.assertRaises(ValueError):
+                self.auth.begin_attempt(operation_id, 'A', a, kind, [0, 1], {}, now=NOW)
+        self.auth.cancel('A', a, reason='explicit-reauthorization')
+        self.auth.prepare('A-new', 'round', self.spec(candidate='A'), now=NOW)
+        renewed = self.auth.claim('A-new', self.auth.vector(self.keys), now=NOW)
+        self.assertTrue(self.auth.begin_attempt('new-add', 'A-new', renewed, 'ADD', [0, 1], {}, now=NOW)['dispatch'])
+
+    def test_review_R2_pause_resume_keeps_issued_publish_receipts_and_barrier(self):
+        a = self.claim()
+        self.auth.set_transfer_phase('A', a, 'READY_TO_PUBLISH')
+        self.publish('A', a, [0, 1])
+        self.repo.set_state(self.task_id, 'PAUSED', 'admin')
+        self.repo.set_state(self.task_id, 'PASSIVE', 'admin')
+        self.auth.record_result('publish', 'UNKNOWN', {'timeout': True}, now=NOW)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN', self.auth.vector(self.keys)[self.keys[0]]['publish_phase'])
+        self.auth.record_result('publish', 'HANDED_OFF', {'late-verified-location': True}, now=NOW)
+        self.assertEqual('HANDED_OFF', self.auth.vector(self.keys)[self.keys[0]]['publish_phase'])
+
+
+    def test_review_R2_schema3_migration_keeps_unknown_barrier_and_requires_reauthorization(self):
+        a = self.claim()
+        self.auth.set_transfer_phase('A', a, 'READY_TO_PUBLISH')
+        self.publish('A', a, [0, 1])
+        self.auth.record_result('publish', 'UNKNOWN', {'timeout': True}, now=NOW)
+        frozen = self.auth.plan('A')['snapshot']
+        with self.repo.connection(write=True) as db:
+            for table in ('plans', 'plan_actions'):
+                if 'task_generation' in [row[1] for row in db.execute('PRAGMA table_info(' + table + ')')]:
+                    db.execute('ALTER TABLE ' + table + ' DROP COLUMN task_generation')
+            db.execute('PRAGMA user_version=3')
+        migrated = self.r.Repository(self.path)
+        auth = self.m.Authority(migrated)
+        self.assertEqual(0, auth.plan('A').get('task_generation'), 'legacy plan authorization must be unknown, not silently current')
+        self.assertEqual(0, auth.action('publish').get('task_generation'))
+        self.assertEqual(frozen, auth.plan('A')['snapshot'])
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN', auth.vector(self.keys)[self.keys[0]]['publish_phase'])
+        auth.record_result('publish', 'HANDED_OFF', {'late': True}, now=NOW)
+        self.assertEqual('HANDED_OFF', auth.vector(self.keys)[self.keys[0]]['publish_phase'])
+
+
 class PlanSelectionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

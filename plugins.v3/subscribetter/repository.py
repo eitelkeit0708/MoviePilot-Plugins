@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 3:
+            if revision > 4:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -113,6 +113,12 @@ class Repository:
                     "PRAGMA user_version=3",
                 ):
                     db.execute(statement)
+            if revision < 4:
+                # Legacy plans lack proof of the task generation at authorization.
+                # Preserve their receipts/barriers; require explicit new authorization.
+                db.execute("ALTER TABLE plans ADD COLUMN task_generation INTEGER NOT NULL DEFAULT 0")
+                db.execute("ALTER TABLE plan_actions ADD COLUMN task_generation INTEGER NOT NULL DEFAULT 0")
+                db.execute("PRAGMA user_version=4")
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:

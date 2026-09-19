@@ -143,7 +143,8 @@ class Authority:
                 if old['snapshot'] != text or old['opportunity_id'] != opportunity_id:
                     raise ValueError('immutable plan id reused')
                 return self._plan(old)
-            db.execute("INSERT INTO plans VALUES(?,?,?,?,'PREPARED','PENDING',?)", (plan_id, opportunity_id, opportunity['task_id'], text, stamp(now)))
+            task_generation = db.execute('SELECT generation FROM tasks WHERE id=?', (opportunity['task_id'],)).fetchone()[0]
+            db.execute("INSERT INTO plans(id,opportunity_id,task_id,snapshot,authorization,transfer_phase,created_at,task_generation) VALUES(?,?,?,?,'PREPARED','PENDING',?,?)", (plan_id, opportunity_id, opportunity['task_id'], text, stamp(now), task_generation))
             for key, action in targets.items():
                 db.execute("INSERT INTO plan_targets(plan_id,target_key,state,action) VALUES(?,?,'PREPARED',?)", (plan_id, key, action['action']))
             self.repository._audit(db, opportunity['task_id'], 'PLAN_PREPARED:' + plan_id, 'planner')
@@ -198,9 +199,11 @@ class Authority:
 
     @staticmethod
     def _task_active(db, plan):
-        task = db.execute('SELECT state FROM tasks WHERE id=?', (plan['task_id'],)).fetchone()
+        task = db.execute('SELECT state,generation FROM tasks WHERE id=?', (plan['task_id'],)).fetchone()
         if not task or task['state'] not in ('ACTIVE', 'PASSIVE'):
             raise ValueError('task stopped/paused/released')
+        if plan['task_generation'] != task['generation']:
+            raise ValueError('task execution generation changed; explicit new plan required')
 
     def _acquire(self, db, plan_id, expected, *, replacement, reason, safe_isolation, now, immediate, progress, failure_id=None):
         plan = self._plan(db.execute('SELECT * FROM plans WHERE id=?', (plan_id,)).fetchone())
@@ -339,9 +342,9 @@ class Authority:
         if kind != 'PUBLISH' and any(plan['snapshot']['current'][k]['revision'] != actual[k]['current_revision'] for k in vector):
             raise ValueError('current archive changed; execution must be re-evaluated')
         old = db.execute('SELECT * FROM plan_actions WHERE id=?', (action_id,)).fetchone()
-        fields = (plan_id, kind, encoded(vector), encoded(sorted(indices)), encoded(payload))
+        fields = (plan_id, kind, encoded(vector), encoded(sorted(indices)), encoded(payload), plan['task_generation'])
         if old:
-            if tuple(old[k] for k in ('plan_id', 'kind', 'targets', 'files', 'payload')) != fields:
+            if tuple(old[k] for k in ('plan_id', 'kind', 'targets', 'files', 'payload', 'task_generation')) != fields:
                 raise ValueError('attempt id reused with different operation')
             if old['state'] != 'PENDING' or queued:
                 return {**dict(old), 'dispatch': False}
@@ -352,7 +355,7 @@ class Authority:
         if old:
             db.execute("UPDATE plan_actions SET state='IN_FLIGHT',updated_at=? WHERE id=?", (at, action_id))
         else:
-            db.execute('INSERT INTO plan_actions VALUES(?,?,?,?,?,?,?,?,?)', (action_id, *fields, 'PENDING' if queued else 'IN_FLIGHT', at, at))
+            db.execute('INSERT INTO plan_actions(id,plan_id,kind,targets,files,payload,task_generation,state,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)', (action_id, *fields, 'PENDING' if queued else 'IN_FLIGHT', at, at))
         self.repository._audit(db, plan['task_id'], 'ATTEMPT_AUTHORIZED:' + action_id, 'executor')
         return {**dict(db.execute('SELECT * FROM plan_actions WHERE id=?', (action_id,)).fetchone()), 'dispatch': not queued}
 
@@ -444,6 +447,10 @@ class Authority:
                 raise ValueError('no unresolved publication')
             db.execute('INSERT OR IGNORE INTO action_receipts(action_id,outcome,evidence,at) VALUES(?,?,?,?)', (action_id, 'RESOLVED_' + resolution, encoded(proof), stamp(now)))
             db.execute('UPDATE plan_actions SET state=?,updated_at=? WHERE id=?', ('RESOLVED_' + resolution, stamp(now), action_id))
+            # Cancellation intentionally held ownership while a remote sender could
+            # still act. Release only those cancelled targets this attempt resolved;
+            # active siblings and other outstanding publication batches stay owned.
+            db.execute("UPDATE target_units SET owner_plan_id=NULL,generation=generation+1 WHERE publish_action_id=? AND owner_plan_id=? AND EXISTS (SELECT 1 FROM plan_targets p WHERE p.plan_id=target_units.owner_plan_id AND p.target_key=target_units.target_key AND p.generation=target_units.generation AND p.state='CANCELLED')", (action_id, row['plan_id']))
             db.execute('UPDATE target_units SET publish_phase=?,publish_action_id=NULL WHERE publish_action_id=?', (resolution, action_id))
 
     def record_progress(self, plan_id, indices, file_stats, *, torrent, status, now=None):

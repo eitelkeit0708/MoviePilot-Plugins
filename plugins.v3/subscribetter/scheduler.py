@@ -81,8 +81,9 @@ def readiness(db, opportunity, target_key, action, now, *, immediate=False, goal
     task = db.execute('SELECT state FROM tasks WHERE id=?', (opportunity['task_id'],)).fetchone()
     if not target or not task or task['state'] not in ('ACTIVE', 'PASSIVE') or opportunity['state'] != 'ACTIVE':
         return {'ready': False, 'reason': 'TASK_NOT_ACTIVE', 'earliest': None}
-    lifecycle = db.execute('SELECT state FROM task_lifecycle WHERE task_id=?', (opportunity['task_id'],)).fetchone()
-    if lifecycle and lifecycle['state'] == 'EXPIRED' and opportunity['mode'] == 'CONTINUOUS' and action in UPGRADES and not approved:
+    lifecycle = db.execute('SELECT expires_at FROM task_lifecycle WHERE task_id=?', (opportunity['task_id'],)).fetchone()
+    expired = lifecycle and lifecycle['expires_at'] is not None and instant(now) >= parse(lifecycle['expires_at'])
+    if expired and opportunity['mode'] == 'CONTINUOUS' and action in UPGRADES and not approved:
         return {'ready': False, 'reason': 'ACTIVE_UPGRADE_EXPIRED', 'earliest': None}
     if immediate or (config.goal_early_enabled and goal_reached):
         return {'ready': True, 'reason': 'EXPLICIT_TIME_BYPASS', 'earliest': stamp(now)}
@@ -126,7 +127,7 @@ class Scheduler:
             for row in db.execute("SELECT * FROM opportunities WHERE task_id=? AND state='ACTIVE'", (task_id,)):
                 old = json.loads(row['scope'])
                 if set(old) & set(scope):
-                    if old == scope:
+                    if old == scope and row['mode'] == mode and ScheduleConfig(**json.loads(row['config'])) == config:
                         return dict(row)
                     raise ValueError('overlapping active opportunity requires explicit merge/queue')
             at = stamp(now)

@@ -234,5 +234,33 @@ class SchedulerTests(unittest.TestCase):
         self.assertIsNotNone(self.schedule.target(self.keys[0])['cooldown_until'])
 
 
+    def test_review_R3_authorization_checks_expiry_without_tick(self):
+        with self.repo.connection(write=True) as db:
+            db.execute("UPDATE opportunities SET mode='CONTINUOUS' WHERE id='round'")
+        self.schedule.configure_lifecycle(self.task_id, self.keys, movie_days=1, tv_days=1,
+                                          anchor='COMPLETE_COLLECTED', now=fixture.NOW)
+        self.schedule.update_completion(self.task_id, self.keys, scope_closed=True, collected=True, now=fixture.NOW)
+        later = fixture.NOW + timedelta(days=2)
+        self.assertEqual('ACTIVE', self.schedule.lifecycle(self.task_id)['state'])
+        self.assertFalse(self.schedule.ready('round', self.keys[0], 'QUALITY_UPGRADE', now=later)['ready'])
+        for action in ('ACQUIRE', 'REPLACE_INVALID', 'SIDECAR_SUPPLEMENT'):
+            self.assertTrue(self.schedule.ready('round', self.keys[0], action, now=later)['ready'])
+        spec = self.spec()
+        for item in spec['targets'].values():
+            item.update(action='QUALITY_UPGRADE', reason='QUALITY_UPGRADE')
+        self.auth.prepare('late-upgrade', 'round', spec, now=later)
+        with self.assertRaises(ValueError):
+            self.auth.claim('late-upgrade', self.auth.vector(self.keys), now=later, immediate=True)
+
+    def test_review_R4_different_mode_or_validated_config_requires_explicit_merge(self):
+        from dataclasses import replace
+        original = self.s.ScheduleConfig(**json.loads(self.schedule.opportunity('round')['config']))
+        for mode, config in (('CONTINUOUS', original),
+                             ('ONESHOT', replace(original, observation_enabled=True, base_seconds=10, quiet_seconds=10, max_seconds=30))):
+            with self.subTest(mode=mode, config=config), self.assertRaises(ValueError):
+                self.schedule.open_opportunity('different-mode-or-config', self.task_id, self.units, mode=mode, config=config, now=fixture.NOW)
+        self.assertEqual('round', self.schedule.open_opportunity('same', self.task_id, self.units, mode='ONESHOT', config=original, now=fixture.NOW)['id'])
+
+
 if __name__ == '__main__':
     unittest.main()
