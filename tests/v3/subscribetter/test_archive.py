@@ -436,6 +436,300 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'IDENTITY_CONFLICT'):
                 sources.classify_target(self.key)
 
+    def second_publication(self, action='QUALITY_UPGRADE'):
+        if action=='QUALITY_UPGRADE':
+            self.item['MediaSources'][0]['MediaStreams'][0].update(Height=1080,Width=1920)
+        self.archive.reconcile('test','10')
+        current=self.archive.current([self.key])[self.key]
+        with self.repo.connection(write=True) as db:
+            db.execute('UPDATE target_units SET cooldown_until=NULL WHERE target_key=?',(self.key,))
+        self.s.Scheduler(self.repo).open_opportunity('o2',self.task['id'],[self.a.TargetUnit(self.r.Target.from_task(self.task))],mode='ONESHOT',config=self.s.ScheduleConfig(observation_enabled=False))
+        auth=self.archive.authority
+        spec=copy.deepcopy(auth.plan('plan')['snapshot'])
+        spec['current']={self.key:dict(state='PRESENT',revision=current['revision'])}
+        spec['targets'][self.key].update(action=action,reason=action)
+        selected=[1] if action=='SIDECAR_SUPPLEMENT' else [0,1]
+        spec['selected_indices']=selected
+        auth.prepare('plan2','o2',spec)
+        vector=auth.claim('plan2',auth.vector([self.key]))
+        auth.set_transfer_phase('plan2',vector,'READY_TO_PUBLISH')
+        auth.begin_publish('pub2','plan2',vector,selected,validation=dict(policy_revision=self.policy.semantic_hash,parse_revision='parse',current_revisions={self.key:current['revision']},checks={self.key:dict(identity=True,admission=True,scope=True,not_excluded=True,current_allows=True,assets_complete=True,remote_verified=True)}))
+        if action=='QUALITY_UPGRADE':
+            self.sources.cloud['cloud','/115/media/中文 {电影}.mkv']['sha1']='b'*40
+        self.item['MediaSources'][0]['MediaStreams'][0].update(Height=2160,Width=3840)
+        manifest=copy.deepcopy(self.manifest)
+        manifest.update(plan_id='plan2',manifest_ref='second-manifest')
+        manifest['assets'][0]['content']['sha1']='b'*40
+        manifest['assets']=[a for a in manifest['assets'] if a['file_index'] in selected]
+        consumer=dict(self.consumer,action_id='pub2',evidence_ref='second-consumer')
+        consumer['assets']=[a for a in consumer['assets'] if a['file_index'] in selected]
+        auth.record_result('pub2','HANDED_OFF',dict(asset_manifest=manifest,consumer_receipt=consumer))
+        return manifest,consumer
+
+    def expire_archive(self):
+        with self.repo.connection(write=True) as db:
+            db.execute("UPDATE archive_targets SET updated_at='2000-01-01T00:00:00+00:00'")
+            db.execute("UPDATE archive_versions SET data=json_set(data,'$.observed_at','2000-01-01T00:00:00+00:00')")
+
+    def test_review_I1_expired_handoff_survives_restart_without_relaxing_current_ttl(self):
+        self.publication()
+        self.expire_archive()
+        before=self.archive.current([self.key])[self.key]
+        self.assertEqual('UNKNOWN',before['state'])
+        self.assertEqual('COMPLETE',self.archive.reconcile('test','10',target_keys=[self.key])['status'])
+        self.assertEqual(before,self.archive.current([self.key])[self.key])
+        self.archive=self.m.Archive(self.repo,self.policy,self.sources,mappings=[self.mapping])
+        self.assertTrue(self.archive.confirm_ingest('pub',self.manifest,self.consumer)['accepted'])
+        self.assertEqual('PRESENT',self.archive.current([self.key])[self.key]['state'])
+        self.assertIsNotNone(self.s.Scheduler(self.repo).target(self.key)['last_ingest_confirmed_at'])
+        with self.repo.connection() as db:
+            self.assertEqual('ARCHIVED',db.execute("SELECT state FROM opportunities WHERE id='o'").fetchone()[0])
+
+    def test_review_I1_expired_upgrade_preserves_comparison_and_refreshes_surviving_copy(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.media('copy','copy.strm','a'*40,height=1080)
+        manifest,consumer=self.second_publication()
+        self.expire_archive()
+        self.assertTrue(self.archive.confirm_ingest('pub2',manifest,consumer)['accepted'])
+        current=self.archive.current([self.key])[self.key]
+        self.assertEqual('PRESENT',current['state'])
+        self.assertEqual({1080,2160},{v.facts.resolution for v in current['versions']})
+
+    def test_review_I1_expired_stale_generation_keeps_receipt_only_and_no_promotion(self):
+        self.publication()
+        self.repo.set_state(self.task['id'],'PAUSED','test')
+        self.expire_archive()
+        before=self.archive.current([self.key])[self.key]
+        result=self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertFalse(result['accepted'])
+        self.assertTrue(result['receipt_only'])
+        self.assertEqual(before,self.archive.current([self.key])[self.key])
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT count(*) FROM archive_versions').fetchone()[0])
+            self.assertEqual(0,db.execute('SELECT count(*) FROM ingest_receipts').fetchone()[0])
+            self.assertEqual(1,db.execute("SELECT count(*) FROM action_receipts WHERE outcome='STALE_INGEST'").fetchone()[0])
+            proof=json.loads(db.execute("SELECT evidence FROM action_receipts WHERE outcome='STALE_INGEST'").fetchone()[0])
+            self.assertFalse(proof[self.key]['improvement_verified'])
+        self.assertIsNone(self.s.Scheduler(self.repo).target(self.key)['last_ingest_confirmed_at'])
+
+    def test_review_I1_refresh_failure_and_pagination_do_not_clear_barrier(self):
+        self.publication()
+        self.expire_archive()
+        self.sources.fail_at=0
+        with self.assertRaisesRegex(ValueError,'BASELINE_REFRESH'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertEqual('HANDED_OFF',self.s.Scheduler(self.repo).target(self.key)['publish_phase'])
+        self.assertEqual('UNKNOWN',self.archive.current([self.key])[self.key]['state'])
+        self.sources.fail_at=None
+        for index in range(11):
+            item=self.media('extra'+str(index),'extra'+str(index)+'.strm','d'*40,height=1080)
+            item['ProviderIds']['Tmdb']='99'
+        original=self.sources.emby_page
+        with patch.object(self.sources,'emby_page',side_effect=lambda service,library,start,limit:original(service,library,start,1)):
+            with self.assertRaisesRegex(ValueError,'BASELINE_REFRESH_INCOMPLETE'):
+                self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+            self.assertEqual('UNKNOWN',self.archive.current([self.key])[self.key]['state'])
+            with self.assertRaisesRegex(ValueError,'BASELINE_REFRESH_INCOMPLETE'):
+                self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+            self.assertTrue(self.archive.confirm_ingest('pub',self.manifest,self.consumer)['accepted'])
+
+    def test_review_I1_one_empty_library_snapshot_cannot_retire_a_surviving_copy(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.media('copy','copy.strm','a'*40,height=1080)
+        manifest,consumer=self.second_publication()
+        self.expire_archive()
+        original=self.sources.emby_page
+        snapshots=[0]
+        def page(service,library,start,limit):
+            result=original(service,library,start,limit)
+            if snapshots[0]==0:
+                result['Items']=[i for i in result['Items'] if i['Id']!='copy']
+                result['TotalRecordCount']=len(result['Items'])
+            snapshots[0]+=1
+            return result
+        with patch.object(self.sources,'emby_page',side_effect=page):
+            self.assertTrue(self.archive.confirm_ingest('pub2',manifest,consumer)['accepted'])
+        self.assertEqual(2,len(self.archive.current([self.key])[self.key]['versions']))
+
+    def test_review_I1_active_authority_still_requires_improvement_and_new_better_copy_blocks(self):
+        self.publication()
+        proof=dict(receipt_id='unverified',version_id='unverified',evidence_ref='unverified',association_verified=True,all_assets_verified=True,consumer_settled=True,improvement_verified=False)
+        with self.assertRaisesRegex(ValueError,'improvement proof incomplete'):
+            self.archive.authority.confirm_ingest('pub',{self.key:proof})
+        self.expire_archive()
+        self.media('copy','copy.strm','d'*40)
+        self.sources.items[-1]['MediaSources'][0]['MediaStreams'][0]['VideoRange']='HDR10'
+        with self.assertRaisesRegex(ValueError,'CURRENT_POLICY_CURRENT_BETTER'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertEqual('HANDED_OFF',self.s.Scheduler(self.repo).target(self.key)['publish_phase'])
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT count(*) FROM ingest_receipts').fetchone()[0])
+
+    def test_review_I1_refresh_comparison_and_current_vector_must_share_revision(self):
+        self.publication()
+        self.expire_archive()
+        authority=self.archive.authority
+        original=authority.vector
+        before=original([self.key])[self.key]['current_revision']
+        def raced(keys):
+            authority.update_current(self.key,dict(state='MISSING',archive_revision=self.archive.current([self.key])[self.key]['archive_revision'],evidence_ref='concurrent'),expected_revision=before)
+            return original(keys)
+        with patch.object(authority,'vector',side_effect=raced),self.assertRaisesRegex(ValueError,'STALE_CURRENT'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertEqual('HANDED_OFF',self.s.Scheduler(self.repo).target(self.key)['publish_phase'])
+
+    def test_review_I5_second_publication_retires_replaced_content_keeps_independent_copy(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.media('copy','copy.strm','a'*40,height=1080)
+        manifest,consumer=self.second_publication()
+        self.assertTrue(self.archive.confirm_ingest('pub2',manifest,consumer)['accepted'])
+        with self.repo.connection() as db:
+            active=[json.loads(r[0]) for r in db.execute('SELECT data FROM archive_versions WHERE active=1')]
+            self.assertEqual({('/115/media/中文 {电影}.mkv','b'*40),('/115/media/copy.mkv','a'*40)}, {(o['video']['path'],o['video']['sha1']) for o in active})
+            self.assertEqual(3,db.execute('SELECT count(*) FROM archive_versions').fetchone()[0])
+            self.assertGreaterEqual(db.execute('SELECT count(*) FROM archive_sources').fetchone()[0],4)
+            self.assertEqual(0,db.execute("SELECT count(*) FROM archive_versions v JOIN archive_assets a ON a.version_id=v.id JOIN archive_locations l ON l.id=a.location_id WHERE v.active=1 AND l.state='REPLACED'").fetchone()[0])
+        self.assertEqual(2,len(self.archive.current([self.key])[self.key]['versions']))
+
+    def test_review_I5_shared_required_subtitle_replacement_invalidates_other_claims(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        other=self.media('copy','copy.strm','d'*40,height=1080)
+        other['MediaSources'][0]['MediaStreams'].append(dict(Type='Subtitle',IsExternal=True,Path='/Emby/Movies/movie.srt'))
+        observed=self.archive.resolve_item('test','10',other)[0]
+        observed['assets']=[dict(self.manifest['assets'][0],location=observed['video']),dict(self.manifest['assets'][1],location=self.sources.cloud_stat('cloud','/115/media/movie.srt'))]
+        with self.repo.connection(write=True) as db:
+            self.archive._store_version(db,observed)
+            self.archive._sync(db,self.key,'PRESENT','copy')
+        manifest,consumer=self.second_publication()
+        self.sources.cloud['cloud','/115/media/movie.srt']['sha1']='e'*40
+        manifest['assets'][1]['content']['sha1']='e'*40
+        self.archive.authority.record_result('pub2','HANDED_OFF',dict(asset_manifest=manifest,consumer_receipt=consumer))
+        self.expire_archive()
+        self.assertTrue(self.archive.confirm_ingest('pub2',manifest,consumer)['accepted'])
+        self.assertEqual(1,len(self.archive.current([self.key])[self.key]['versions']))
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT active FROM archive_versions WHERE id=?',(observed['version_id'],)).fetchone()[0])
+
+    def test_review_I5_sidecar_replacement_keeps_video_required_and_old_source_history(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        before=self.archive.current([self.key])[self.key]
+        clock=self.s.Scheduler(self.repo).target(self.key)['last_ingest_confirmed_at']
+        manifest,consumer=self.second_publication(action='SIDECAR_SUPPLEMENT')
+        self.sources.cloud['cloud','/115/media/movie.srt']['sha1']='e'*40
+        manifest['assets'][0]['content']['sha1']='e'*40
+        self.archive.authority.record_result('pub2','HANDED_OFF',dict(asset_manifest=manifest,consumer_receipt=consumer))
+        self.assertTrue(self.archive.confirm_ingest('pub2',manifest,consumer)['accepted'])
+        self.assertEqual(before['versions'][0].version_id,self.archive.current([self.key])[self.key]['versions'][0].version_id)
+        self.assertEqual(clock,self.s.Scheduler(self.repo).target(self.key)['last_ingest_confirmed_at'])
+        with self.repo.connection() as db:
+            links=[json.loads(r[0]) for r in db.execute('SELECT a.data FROM archive_assets a JOIN archive_versions v ON v.id=a.version_id WHERE v.active=1')]
+            self.assertEqual({'video','subtitle'},{a['role'] for a in links})
+            historical=[json.loads(r[0]) for r in db.execute('SELECT data FROM archive_sources')]
+            self.assertTrue(any(a['location']['sha1']=='c'*40 for o in historical for a in o['assets'] if a['role']=='subtitle'))
+            self.assertTrue(any(a['location']['sha1']=='e'*40 for o in historical for a in o['assets'] if a['role']=='subtitle'))
+        self.sources.cloud['cloud','/115/media/中文 {电影}.mkv']['sha1']='b'*40
+        self.assertEqual('COMPLETE',self.archive.reconcile('test','10')['status'])
+        self.assertEqual(1,len(self.archive.current([self.key])[self.key]['versions']))
+
+    def test_review_I4_grouped_sources_keep_independent_strm_snapshots_and_quality(self):
+        other=self.media('second','copy.strm','b'*40,height=1080)
+        self.item['MediaSources'].extend(other['MediaSources'])
+        self.sources.items=[self.item]
+        self.assertEqual('COMPLETE',self.archive.reconcile('test','10')['status'])
+        current=self.archive.current([self.key])[self.key]
+        self.assertEqual({1080,2160},{v.facts.resolution for v in current['versions']})
+        observations=self.archive.resolve_item('test','10',self.item)
+        self.assertEqual({'a'*40,'b'*40},{o['video']['sha1'] for o in observations})
+        self.assertEqual(2,len({o['strm']['path'] for o in observations}))
+        (self.strms/'copy.strm').write_text('/Cloud/115/media/changed.mkv')
+        self.archive.validate_observation(observations[0])
+        with self.assertRaisesRegex(ValueError,'STRM_CHANGED'):
+            self.archive.validate_observation(observations[1])
+        bad=copy.deepcopy(self.item)
+        bad['MediaSources'][1]['Path']='/Emby/MoviesElse/copy.strm'
+        with self.assertRaisesRegex(ValueError,'NO_MAPPING'):
+            self.archive.resolve_item('test','10',bad)
+        bad['MediaSources']=bad['MediaSources'][:1]
+        bad['MediaSources'][0]['Path']='/Cloud/115/media/conflicting.mkv'
+        with self.assertRaisesRegex(ValueError,'PLAYBACK_SOURCE_CONFLICT'):
+            self.archive.resolve_item('test','10',bad)
+
+    def test_review_I3_retained_required_subtitle_still_needs_stream_association(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.item['MediaSources'][0]['MediaStreams']=[s for s in self.item['MediaSources'][0]['MediaStreams'] if s['Type']!='Subtitle']
+        result=self.archive.reconcile('test','10')
+        self.assertEqual('ERROR',result['status'])
+        self.assertEqual(['SUBTITLE_ASSOCIATION_MISSING'],result['diagnostics'])
+        self.assertNotEqual('PRESENT',self.archive.current([self.key])[self.key]['state'])
+        with self.repo.connection() as db:
+            self.assertEqual(1,db.execute('SELECT count(*) FROM archive_sources').fetchone()[0])
+            self.assertEqual(2,db.execute('SELECT count(*) FROM archive_assets').fetchone()[0])
+        self.item['MediaSources'][0]['MediaStreams'].append(dict(Type='Subtitle',IsExternal=True,Path='/Emby/Movies/movie.srt'))
+        self.assertEqual('COMPLETE',self.archive.reconcile('test','10')['status'])
+        self.assertEqual('PRESENT',self.archive.current([self.key])[self.key]['state'])
+
+    def test_review_I3_retained_idx_sub_pair_requires_its_current_idx_stream(self):
+        observed=self.archive.resolve_item('test','10',self.item)[0]
+        assets=[]
+        for index,suffix in enumerate(('idx','sub')):
+            path='/115/media/movie.'+suffix
+            self.sources.cloud['cloud',path]=dict(sha1=str(index+1)*40,size=5,cd2_id=suffix,p115_id='')
+            assets.append(dict(file_index=index,role='subtitle',location=self.sources.cloud_stat('cloud',path),content=dict(sha1=str(index+1)*40,size=5)))
+        observed['assets']=assets
+        self.item['MediaSources'][0]['MediaStreams'].append(dict(Type='Subtitle',IsExternal=True,Path='/Emby/Movies/movie.idx'))
+        with self.repo.connection(write=True) as db:
+            self.archive._store_version(db,observed)
+            self.archive._sync(db,self.key,'PRESENT','idx-sub')
+        self.assertEqual('COMPLETE',self.archive.reconcile('test','10')['status'])
+        self.item['MediaSources'][0]['MediaStreams'][-1]['Path']='/Emby/Movies/unrelated.idx'
+        result=self.archive.reconcile('test','10')
+        self.assertEqual(['SUBTITLE_ASSOCIATION_MISSING'],result['diagnostics'])
+        self.assertEqual('ERROR',self.archive.current([self.key])[self.key]['state'])
+
+    def test_review_I2_unambiguous_legacy_identity_keeps_its_own_claims_only(self):
+        rules=[self.mapping,dict(self.mapping,id='other-library',library_id='20')]
+        self.archive=self.m.Archive(self.repo,self.policy,self.sources,mappings=rules)
+        observed=self.archive.resolve_item('test','10',self.item)[0]
+        remote=observed['video']
+        observed['version_id']=self.m.digest([self.key,'cloud',remote.get('account_ref'),remote['path'],self.m.content(remote)])
+        observed['source_evidence']=['legacy-source']
+        with self.repo.connection(write=True) as db:
+            self.archive._store_version(db,observed)
+            self.archive._sync(db,self.key,'PRESENT','legacy')
+        self.archive.reconcile('test','10')
+        self.archive.reconcile('test','20')
+        with self.repo.connection() as db:
+            rows=[dict(r) for r in db.execute('SELECT * FROM archive_versions WHERE active=1')]
+            self.assertEqual(2,len(rows))
+            own=next(r for r in rows if r['library']=='10')
+            self.assertEqual(observed['version_id'],own['id'])
+            self.assertEqual(['legacy-source'],json.loads(own['data'])['source_evidence'])
+            self.assertEqual([],json.loads(next(r for r in rows if r['library']=='20')['data'])['source_evidence'])
+
+    def test_review_I2_independent_library_and_service_associations_share_only_bytes(self):
+        rules=[self.mapping,dict(self.mapping,id='other-library',library_id='20'),
+               dict(self.mapping,id='other-service',emby_service='second')]
+        self.archive=self.m.Archive(self.repo,self.policy,self.sources,mappings=rules)
+        for service,library in [('test','10'),('test','20'),('second','10')]:
+            self.assertEqual('COMPLETE',self.archive.reconcile(service,library)['status'])
+        self.assertEqual(3,len(self.archive.current([self.key])[self.key]['versions']))
+        self.sources.items=[]
+        self.archive.reconcile('test','10')
+        self.archive.reconcile('test','10')
+        current=self.archive.current([self.key])[self.key]
+        self.assertEqual('PRESENT',current['state'])
+        self.assertEqual(2,len(current['versions']))
+        with self.repo.connection() as db:
+            self.assertEqual({('test','20'),('second','10')},{tuple(r) for r in db.execute('SELECT service,library FROM archive_versions WHERE active=1')})
+            self.assertEqual(1,db.execute('SELECT count(*) FROM archive_contents').fetchone()[0])
+            self.assertEqual(1,db.execute('SELECT count(*) FROM archive_locations').fetchone()[0])
+
 
 if __name__ == '__main__':
     unittest.main()

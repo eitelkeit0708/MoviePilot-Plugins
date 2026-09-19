@@ -420,7 +420,7 @@ class Archive:
         self.mappings = Mappings(mappings)
         self.authority = Authority(repository)
 
-    def resolve_item(self, service, library, item, *, series=None):
+    def resolve_item(self, service, library, item, *, series=None, replacements=(), ignored=()):
         item = item_projection(item)
         rules = self.mappings.scoped(service, library)
         keys = units(item, rules, series or {})
@@ -429,27 +429,42 @@ class Archive:
             raise ValueError('MEDIA_SOURCES_INCOMPLETE')
         result = []
         for media_source in sources:
-            rule, path, check = self.mappings.resolve(service, library, item.get('Path'), media_source.get('Path'))
+            source_path = media_source.get('Path')
+            item_path = source_path if str(source_path).lower().endswith('.strm') else item.get('Path')
+            rule, path, check = self.mappings.resolve(service, library, item_path, source_path)
             remote = self.sources.cloud_stat(rule['cloud_scope_id'], path, refresh=True)
             if (remote.get('cloud_scope_id'), remote.get('path')) != (rule['cloud_scope_id'], path):
                 raise ValueError('CLOUD_SCOPE_CONFLICT')
             remote = dict(remote, **content(remote))
             raw, streams = stream_facts(item, media_source)
             for key in keys:
-                version_id = digest([key, rule['cloud_scope_id'], remote.get('account_ref'), path, content(remote)])
+                identity = [key, rule['cloud_scope_id'], remote.get('account_ref'), path, content(remote)]
+                version_id = digest([service, str(library), *identity])
                 assets = []
                 with self.repository.connection() as db:
+                    # Keep a pre-fix ID only when its relational AND observed scope
+                    # agree. A legacy cross-scope collision cannot donate claims.
+                    legacy = db.execute('SELECT service,library,data FROM archive_versions WHERE id=?', (digest(identity),)).fetchone()
+                    if legacy and (legacy['service'], legacy['library']) == (service, str(library)):
+                        old = json.loads(legacy['data'])
+                        if (old['service'], old['library']) == (service, str(library)):
+                            version_id = digest(identity)
                     previous = db.execute('SELECT data FROM archive_versions WHERE id=?', (version_id,)).fetchone()
+                if version_id in ignored:
+                    continue
                 if previous:
                     for asset in json.loads(previous[0]).get('assets', []):
                         location = asset['location']
                         current = self.sources.cloud_stat(location['cloud_scope_id'], location['path'], refresh=True)
-                        if content(current) != content(location):
+                        replacement = any((a['location']['cloud_scope_id'], a['location'].get('account_ref'), a['location']['path'], content(a['location'])) ==
+                                          (current['cloud_scope_id'], current.get('account_ref'), current['path'], content(current)) for a in replacements)
+                        if content(current) != content(location) and not replacement:
                             raise ValueError('ASSET_CONTENT_CONFLICT')
                         assets.append(dict(asset, location=current))
+                self._subtitle_association(assets, streams, item_path)
                 result.append({'version_id': version_id, 'target_key': key, 'service': service, 'library': str(library),
                                'item_id': str(item.get('Id')), 'source_id': str(media_source.get('Id')),
-                               'item_path': item.get('Path'),
+                               'item_path': item_path,
                                'mapping_revision': self.mappings.revision, 'mapping_id': rule['id'],
                                'strm': check, 'video': remote, 'raw': raw, 'streams': streams,
                                'identity': json.loads(key), 'reliable': True, 'observed_at': utcnow(),
@@ -457,6 +472,20 @@ class Archive:
         if len({(r['target_key'], r['version_id']) for r in result}) != len(result):
             raise ValueError('AMBIGUOUS_MEDIA_SOURCE')
         return result
+
+    @staticmethod
+    def _subtitle_association(assets, streams, item_path):
+        external = {s['Path'] for s in streams if s.get('Type') == 'Subtitle' and s.get('IsExternal') is True and isinstance(s.get('Path'), str)}
+        for asset in assets:
+            if asset['role'] != 'subtitle':
+                continue
+            dest = PurePosixPath(asset['location']['path'])
+            names = {dest.name}
+            if dest.suffix.lower() == '.sub':
+                names.add(dest.with_suffix('.idx').name)
+            valid = {str(PurePosixPath(item_path).parent / name) for name in names} | {str(dest.parent / name) for name in names}
+            if not external & valid:
+                raise ValueError('SUBTITLE_ASSOCIATION_MISSING')
 
     def validate_observation(self, observation):
         if observation['mapping_revision'] != self.mappings.revision:
@@ -485,17 +514,23 @@ class Archive:
                 if row and (instant() - parse(row['updated_at'])).total_seconds() > 900:
                     state, diagnostics = 'UNKNOWN', ['STALE_OBSERVATION']
                 versions = []
-                for v in db.execute('SELECT * FROM archive_versions WHERE target_key=? AND active=1 ORDER BY id', (key,)):
+                for v in self._live_versions(db, key):
                     observed = json.loads(v['data'])
                     versions.append(Version(v['id'], self.policy.normalize(observed['raw'], current=True), reliable=observed['reliable']))
                     if (instant() - parse(observed['observed_at'])).total_seconds() > 900:
                         state, diagnostics = 'UNKNOWN', ['STALE_OBSERVATION']
+                if state == 'PRESENT' and not versions:
+                    state, diagnostics = 'UNKNOWN', ['REPLACED_REQUIRED_ASSET']
                 if managed and (not managed['current_facts'] or json.loads(managed['current_facts']).get('archive_revision') != (row['revision'] if row else None)):
                     state, diagnostics = 'UNKNOWN', ['CURRENT_BINDING_REQUIRED']
                 result[key] = dict(state=state, revision=managed['current_revision'] if managed else None,
                                    archive_revision=row['revision'] if row else None, versions=versions,
                                    evidence_ref=data.get('evidence_ref'), diagnostics=diagnostics)
             return result
+
+    @staticmethod
+    def _live_versions(db, key):
+        return db.execute("SELECT v.* FROM archive_versions v WHERE v.target_key=? AND v.active=1 AND NOT EXISTS(SELECT 1 FROM archive_assets a JOIN archive_locations l ON l.id=a.location_id WHERE a.version_id=v.id AND l.state!='PRESENT') ORDER BY v.id", (key,))
 
     def _store_version(self, db, observed):
         key, version = observed['target_key'], observed['version_id']
@@ -510,21 +545,39 @@ class Archive:
                 observed['raw'] = dict(prior['publication_raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'])
         db.execute('INSERT INTO archive_versions VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET active=1,data=excluded.data',
                    (version, key, observed['service'], observed['library'], encoded(observed)))
-        assets = observed['assets'] or [dict(file_index=-1, role='video', location=observed['video'])]
+        # These are the current required links; immutable archive_sources retains
+        # each historical asset set when this same video acquires new sidecars.
+        db.execute('DELETE FROM archive_assets WHERE version_id=?', (version,))
+        affected = set()
+        assets = list(observed['assets'])
+        if not any(a['role'] == 'video' and a['location'] == observed['video'] for a in assets):
+            assets.append(dict(file_index=-1, role='video', location=observed['video']))
         for asset in assets:
             loc = asset['location']
             c = content(loc)
             cid = digest(c)
             lid = digest([loc['cloud_scope_id'], loc.get('account_ref'), loc['path'], cid])
             db.execute('INSERT OR IGNORE INTO archive_contents VALUES(?,?,?)', (cid, c['sha1'], c['size']))
-            db.execute("UPDATE archive_locations SET state='REPLACED' WHERE scope=? AND path=? AND content_id!=?", (loc['cloud_scope_id'], loc['path'], cid))
+            old_locations = db.execute('SELECT id,data FROM archive_locations WHERE scope=? AND path=? AND content_id!=?', (loc['cloud_scope_id'], loc['path'], cid)).fetchall()
+            for old in old_locations:
+                if json.loads(old['data']).get('account_ref') != loc.get('account_ref'):
+                    continue
+                affected.update(r[0] for r in db.execute('SELECT DISTINCT v.target_key FROM archive_versions v JOIN archive_assets a ON a.version_id=v.id WHERE v.active=1 AND a.location_id=?', (old['id'],)))
+                db.execute("UPDATE archive_locations SET state='REPLACED' WHERE id=?", (old['id'],))
+                db.execute('UPDATE archive_versions SET active=0 WHERE id IN (SELECT version_id FROM archive_assets WHERE location_id=?)', (old['id'],))
             db.execute("INSERT INTO archive_locations VALUES(?,?,?,?,'PRESENT',?) ON CONFLICT(id) DO UPDATE SET state='PRESENT',data=excluded.data", (lid, cid, loc['cloud_scope_id'], loc['path'], encoded(loc)))
             db.execute('INSERT INTO archive_assets VALUES(?,?,?,?) ON CONFLICT(version_id,file_index,location_id) DO UPDATE SET data=excluded.data', (version, asset['file_index'], lid, encoded(asset)))
         source = {k: v for k, v in observed.items() if k != 'observed_at'}
         db.execute('INSERT OR IGNORE INTO archive_sources VALUES(?,?,?,?)', (digest(source), version, encoded(source), utcnow()))
+        for other in affected - {key}:
+            remaining = bool(self._live_versions(db, other).fetchone())
+            self._sync(db, other, 'PRESENT' if remaining else 'UNKNOWN', 'replaced:' + version,
+                       diagnostics=() if remaining else ('REPLACED_REQUIRED_ASSET',))
 
     def _sync(self, db, key, state, evidence_ref, diagnostics=(), **extra):
-        versions = [json.loads(r[0]) for r in db.execute('SELECT data FROM archive_versions WHERE target_key=? AND active=1 ORDER BY id', (key,))]
+        versions = [json.loads(r['data']) for r in self._live_versions(db, key)]
+        if state == 'PRESENT' and not versions:
+            state, diagnostics = 'UNKNOWN', ('REPLACED_REQUIRED_ASSET',)
         data = {'mapping_revision': self.mappings.revision, 'diagnostics': list(diagnostics), 'evidence_ref': evidence_ref, **extra}
         # Observed-at/watermark changes alone must not invalidate a frozen plan.
         stable = [{k: v for k, v in o.items() if k != 'observed_at'} for o in versions]
@@ -583,7 +636,7 @@ class Archive:
             if item.get('Type') == 'Episode':
                 sid = str(item.get('SeriesId', ''))
                 series[sid] = self.sources.emby_item(service, library, sid)
-            observations.extend(self.resolve_item(service, library, item, series=series))
+            observations.extend(self.resolve_item(service, library, item, series=series, replacements=verified.values()))
         result = []
         for key in target_keys:
             videos = [a for a in verified.values() if a['role'] == 'video' and key in a['targets']]
@@ -604,17 +657,7 @@ class Archive:
                 if any(a['location']['cloud_scope_id'] != observed['video']['cloud_scope_id'] or
                        not within(a['location']['path'], parent) for a in related):
                     raise ValueError('ASSET_ASSOCIATION_CONFLICT')
-                for asset in related:
-                    if asset['role'] != 'subtitle':
-                        continue
-                    dest = PurePosixPath(asset['location']['path'])
-                    names = {dest.name}
-                    if dest.suffix.lower() == '.sub':
-                        names.add(dest.with_suffix('.idx').name)
-                    external = [s.get('Path') for s in observed['streams'] if s.get('Type') == 'Subtitle' and s.get('IsExternal') is True and isinstance(s.get('Path'), str)]
-                    valid = {str(PurePosixPath(observed['item_path']).parent / name) for name in names} | {str(dest.parent / name) for name in names}
-                    if not set(external) & valid:
-                        raise ValueError('SUBTITLE_ASSOCIATION_MISSING')
+                self._subtitle_association(related, observed['streams'], observed['item_path'])
                 publication = manifest.get('publication', {}).get(key)
                 if not isinstance(publication, dict) or not isinstance(publication.get('raw'), dict):
                     raise ValueError('PUBLICATION_EVIDENCE_MISSING')
@@ -626,6 +669,59 @@ class Archive:
                                 assets=related, source_evidence=[manifest['manifest_ref']])
                 result.append(observed)
         return result
+
+    def _publication_baseline(self, action, baseline, observed):
+        """Fresh scoped snapshots are comparison evidence until Authority commits.
+
+        The frozen pre-ingest versions remain historical comparison facts. They
+        are never relabelled fresh or written back as still-present versions.
+        """
+        keys = sorted(baseline)
+        published = {o['version_id'] for o in observed}
+        replacements = [a for o in observed for a in o['assets']]
+        replacement_paths = {(a['location']['cloud_scope_id'], a['location'].get('account_ref'), a['location']['path']): content(a['location']) for a in replacements}
+        ignored = []
+        with self.repository.connection() as db:
+            for key in keys:
+                row = db.execute('SELECT * FROM archive_targets WHERE target_key=?', (key,)).fetchone()
+                managed = db.execute('SELECT current_facts FROM target_units WHERE target_key=?', (key,)).fetchone()
+                if not row or row['state'] not in ('PRESENT', 'MISSING', 'INVALID') or json.loads(row['data']).get('mapping_revision') != self.mappings.revision or not managed or json.loads(managed[0] or '{}').get('archive_revision') != row['revision']:
+                    raise ValueError('CURRENT_UNCONFIRMED')
+                baseline[key] = dict(baseline[key], state=row['state'])
+                for old in db.execute('SELECT id,data FROM archive_versions WHERE target_key=? AND active=1', (key,)):
+                    value = json.loads(old['data'])
+                    locations = [a['location'] for a in value['assets']] or [value['video']]
+                    if old['id'] not in published and any((loc['cloud_scope_id'], loc.get('account_ref'), loc['path']) in replacement_paths and replacement_paths[loc['cloud_scope_id'], loc.get('account_ref'), loc['path']] != content(loc) for loc in locations):
+                        ignored.append(old['id'])
+        fresh = []
+        scopes = sorted({(r['emby_service'], r['library_id']) for r in self.mappings.rules})
+        # Keep a positive association seen in either pass. Only two complete
+        # independent snapshots may retire an absent old independent copy.
+        for service, library, absence_pass in [(s, l, p) for s, l in scopes for p in (1, 2)]:
+            publication = dict(id=action['id'], ignored=sorted(ignored), replacements=replacements, absence_pass=absence_pass)
+            scan_id = None
+            with self.repository.connection() as db:
+                for scan in db.execute("SELECT * FROM archive_scans WHERE service=? AND library=? AND state IN ('INCOMPLETE','COMPLETE') AND json_extract(data,'$.publication.id')=? ORDER BY rowid DESC", (service, library, action['id'])):
+                    data = json.loads(scan['data'])
+                    if data['mapping'] == self.mappings.revision and data['targets'] == keys and data.get('publication') == publication and (instant() - parse(data['started_at'])).total_seconds() <= 900:
+                        scan_id = scan['id']
+                        break
+            result = self.reconcile(service, library, target_keys=keys, scan_id=scan_id,
+                                    limits=dict(page_size=100, pages=10, items=1000), _publication=publication)
+            if result['status'] != 'COMPLETE':
+                raise ValueError('BASELINE_REFRESH_' + (result['diagnostics'][0] if result['diagnostics'] else result['status']))
+            with self.repository.connection() as db:
+                fresh.extend(o for r in db.execute('SELECT resolved FROM archive_scan_items WHERE scan_id=?', (result['scan_id'],)) for o in json.loads(r[0]))
+        fresh = list({o['version_id']: o for o in fresh}.values())
+        if not published <= {o['version_id'] for o in fresh}:
+            raise ValueError('BASELINE_REFRESH_PUBLICATION_MISSING')
+        for o in fresh:
+            self.validate_observation(o)
+            if o['version_id'] not in published:
+                # Both the pre-ingest comparison and newer independent copy
+                # constrain admission; fresh metadata cannot erase old evidence.
+                baseline[o['target_key']]['versions'].append(Version(o['version_id'], self.policy.normalize(o['raw'], current=True), reliable=o['reliable']))
+        return baseline, fresh
 
     def confirm_ingest(self, action_id, manifest, consumer_receipt, *, now=None):
         manifest = json.loads(encoded(manifest))
@@ -659,6 +755,27 @@ class Archive:
             o.update(candidate_key=plan['snapshot']['candidate_key'], infohash=plan['snapshot']['infohash'])
         confirmations = {}
         for key in vector:
+            versions = [o for o in observed if o['target_key'] == key]
+            confirmations[key] = dict(receipt_id=digest([action_id, key]), version_id=versions[0]['version_id'] if len(versions) == 1 else digest(sorted(o['version_id'] for o in versions)),
+                                      association_verified=True, all_assets_verified=True, improvement_verified=False,
+                                      consumer_settled=True, evidence_ref=digest([manifest, consumer, key]))
+        with self.repository.connection() as db:
+            try:
+                self.authority._match(db, vector, owner=plan['id'], allow_barrier=True)
+                self.authority._task_active(db, plan)
+                stale = False
+            except ValueError:
+                stale = True
+        if stale:
+            # Shared Authority rechecks the fence in its write transaction. If
+            # authority changed again, the missing improvement proof fails closed.
+            return self.authority.confirm_ingest(action_id, confirmations, now=now)
+        if any(baseline[k]['revision'] != expected[k]['current_revision'] for k in vector):
+            raise ValueError('STALE_CURRENT')
+        refreshed = None
+        if any(b['state'] == 'UNKNOWN' and b['diagnostics'] == ['STALE_OBSERVATION'] for b in baseline.values()):
+            baseline, refreshed = self._publication_baseline(action, baseline, observed)
+        for key in vector:
             before = baseline[key]
             if before['state'] not in ('PRESENT', 'MISSING', 'INVALID'):
                 raise ValueError('CURRENT_UNCONFIRMED')
@@ -676,9 +793,7 @@ class Archive:
                     raise ValueError('PLANNED_QUALITY_CONFLICT')
                 if target['action'] == 'SIDECAR_SUPPLEMENT' and o['version_id'] not in {v.version_id for v in before['versions']}:
                     raise ValueError('SIDECAR_VIDEO_CHANGED')
-            confirmations[key] = dict(receipt_id=digest([action_id, key]), version_id=versions[0]['version_id'] if len(versions) == 1 else digest(sorted(o['version_id'] for o in versions)),
-                                      association_verified=True, all_assets_verified=True, improvement_verified=True,
-                                      consumer_settled=True, evidence_ref=digest([manifest, consumer, key]))
+            confirmations[key]['improvement_verified'] = True
         with self.repository.connection(write=True) as db:
             actual = self.authority._vector(db, vector)
             if any(actual[k]['current_revision'] != expected[k]['current_revision'] for k in vector):
@@ -686,10 +801,17 @@ class Archive:
             self.authority._revisions(db, plan['snapshot'])
             if digest([tuple(r) for r in db.execute('SELECT * FROM exclusions ORDER BY id')]) != exclusion_token:
                 raise ValueError('EXCLUSIONS_CHANGED')
-            for o in observed:
+            for o in (refreshed or []) + observed:
                 self.validate_observation(o)
             result = self.authority.confirm_ingest(action_id, confirmations, now=now, db=db)
             if result['accepted']:
+                if refreshed is not None:
+                    for key in vector:
+                        db.execute('UPDATE archive_versions SET active=0 WHERE target_key=?', (key,))
+                    published = {o['version_id'] for o in observed}
+                    for o in refreshed:
+                        if o['version_id'] not in published:
+                            self._store_version(db, o)
                 for o in observed:
                     self._store_version(db, o)
                 for key in vector:
@@ -805,7 +927,7 @@ class Archive:
                 result['current_revisions'] = {k: self.authority._vector(db, [k])[k]['current_revision'] for k in keys}
             return result
 
-    def reconcile(self, service, library, *, target_keys=None, limits=None, scan_id=None):
+    def reconcile(self, service, library, *, target_keys=None, limits=None, scan_id=None, _publication=None):
         limits = {**dict(page_size=100, pages=10, items=100), **(limits or {})}
         if any(type(v) is not int or v < 1 or v > 1000 for v in limits.values()) or set(limits) != {'page_size', 'pages', 'items'}:
             raise ValueError('INVALID_SCAN_LIMITS')
@@ -818,13 +940,15 @@ class Archive:
                 raise ValueError('SCAN_UNKNOWN')
             if row:
                 scan = json.loads(row['data'])
-                if (row['service'], row['library'], scan['targets'], scan['mapping']) != (service, library, keys, self.mappings.revision):
+                if (row['service'], row['library'], scan['targets'], scan['mapping'], scan.get('publication')) != (service, library, keys, self.mappings.revision, _publication):
                     raise ValueError('STALE_SCAN')
                 if row['state'] in ('COMPLETE', 'ERROR'):
                     return dict(status=row['state'], scan_id=scan_id, **scan)
             else:
                 scan_id = uuid4().hex
                 scan = dict(targets=keys, mapping=self.mappings.revision, start=0, total=None, phase='COLLECT', started_at=utcnow(), diagnostics=[])
+                if _publication is not None:
+                    scan['publication'] = _publication
                 db.execute("INSERT INTO archive_scans VALUES(?,?,?,'INCOMPLETE',?)", (scan_id, service, library, encoded(scan)))
         try:
             self.mappings.mounts(service, library)
@@ -863,7 +987,9 @@ class Archive:
                     if item['Type'] != 'Series':
                         identity = units(item, self.mappings.scoped(service, library), series)
                         if keys is None or set(identity) & set(keys):
-                            observed = self.resolve_item(service, library, item, series=series)
+                            observed = self.resolve_item(service, library, item, series=series,
+                                                         replacements=(_publication or {}).get('replacements', ()),
+                                                         ignored=(_publication or {}).get('ignored', ()))
                             observed = [o for o in observed if keys is None or o['target_key'] in keys]
                     with self.repository.connection(write=True) as db:
                         db.execute('UPDATE archive_scan_items SET resolved=? WHERE scan_id=? AND item_id=?', (encoded(observed), scan_id, row['item_id']))
@@ -883,7 +1009,7 @@ class Archive:
                     newer = db.execute('SELECT updated_at FROM archive_targets WHERE target_key=?', (key,)).fetchone()
                     if newer and parse(newer[0]) > parse(scan['started_at']):
                         continue
-                    if not managed or managed[0] not in BARRIERS:
+                    if _publication is None and (not managed or managed[0] not in BARRIERS):
                         self._sync(db, key, 'ERROR', scan_id, [code])
             return dict(status='ERROR', scan_id=scan_id, **scan)
 
@@ -906,6 +1032,8 @@ class Archive:
             if any(parse(r[0]) > parse(scan['started_at']) for key in keys for r in db.execute('SELECT updated_at FROM archive_targets WHERE target_key=?', (key,))):
                 raise ValueError('SCAN_SUPERSEDED')
             for key in keys:
+                if scan.get('publication') is not None:
+                    continue
                 managed = db.execute('SELECT publish_phase FROM target_units WHERE target_key=?', (key,)).fetchone()
                 if managed and managed[0] in BARRIERS:
                     continue

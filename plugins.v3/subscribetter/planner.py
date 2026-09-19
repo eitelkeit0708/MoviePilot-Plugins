@@ -684,13 +684,15 @@ class Authority:
         if set(confirmations) != set(vector):
             raise ValueError('final confirmation must cover the exact publication batch')
         for proof in confirmations.values():
-            for name in ('association_verified', 'all_assets_verified', 'improvement_verified', 'consumer_settled'):
+            for name in ('association_verified', 'all_assets_verified', 'consumer_settled'):
                 if proof.get(name) is not True:
                     raise ValueError('final association/asset/consumer proof incomplete')
             identifier(proof.get('version_id'))
             identifier(proof.get('receipt_id'))
             identifier(proof.get('evidence_ref'))
         if row['state'] == 'INGEST_CONFIRMED':
+            if any(proof.get('improvement_verified') is not True for proof in confirmations.values()):
+                raise ValueError('final improvement proof incomplete')
             for key, proof in confirmations.items():
                 prior = db.execute('SELECT * FROM ingest_receipts WHERE id=?', (proof['receipt_id'],)).fetchone()
                 if not prior or (prior['target_key'], prior['version_id'], prior['plan_id']) != (key, proof['version_id'], row['plan_id']):
@@ -705,6 +707,8 @@ class Authority:
         except ValueError:
             db.execute('INSERT OR IGNORE INTO action_receipts(action_id,outcome,evidence,at) VALUES(?,?,?,?)', (action_id, 'STALE_INGEST', encoded(confirmations), stamp(now)))
             return {'accepted': False, 'reason': 'STALE_AUTHORITY', 'receipt_only': True}
+        if any(proof.get('improvement_verified') is not True for proof in confirmations.values()):
+            raise ValueError('final improvement proof incomplete')
         if any(db.execute('SELECT publish_action_id FROM target_units WHERE target_key=?', (key,)).fetchone()[0] != action_id for key in vector):
             raise ValueError('different publication owns target barrier')
         opportunity = db.execute('SELECT * FROM opportunities WHERE id=?', (plan['opportunity_id'],)).fetchone()
