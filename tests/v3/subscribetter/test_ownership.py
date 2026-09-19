@@ -341,12 +341,31 @@ class GuardTests(unittest.TestCase):
         self.guard = self.module.Guard(self.repo, self.host, lambda native: False)
 
     def event(self, origin, contexts=None, valid=True, subscribe=None):
-        import json
+        from copy import deepcopy
         data = types.SimpleNamespace(origin=origin, contexts=contexts or [], context=(contexts or [None])[0],
                                      updated=False, updated_contexts=None, cancel=False, source="native", reason="", subscribe=subscribe)
         snap = types.SimpleNamespace(valid=valid, input=types.SimpleNamespace(**vars(data)))
+        snap.input.contexts = deepcopy(data.contexts)
         # Snapshot is distinct; mutations must hit event.event_data.
         return types.SimpleNamespace(event_data=data, snapshot=lambda: snap)
+
+    def test_V3_context_media_info_preserves_unrelated_original_and_prior_removals(self):
+        owned = types.SimpleNamespace(media_info=types.SimpleNamespace(type="电视剧", media_source="themoviedb", media_id="123"))
+        other = types.SimpleNamespace(media_info=types.SimpleNamespace(type="电影", media_source="themoviedb", media_id="987"))
+        event = self.event(self.origin(), [owned, other])
+        self.guard.selection(event)
+        self.assertEqual([other], event.event_data.updated_contexts)
+        self.assertIs(other, event.event_data.updated_contexts[0])
+        self.assertIsNot(other, event.snapshot().input.contexts[1])
+        for previous in ([owned], []):
+            event = self.event(self.origin(), [owned, other])
+            event.event_data.updated = True
+            event.event_data.updated_contexts = previous
+            self.guard.selection(event)
+            self.assertEqual([], event.event_data.updated_contexts)
+        event = self.event(self.origin(), [owned, other], valid=False)
+        self.guard.selection(event)
+        self.assertEqual([], event.event_data.updated_contexts)
 
     def origin(self, sid=42):
         import json
@@ -470,6 +489,79 @@ class PluginTests(unittest.TestCase):
         self.plugin.stop_service()
         self.assertFalse(self.plugin.get_state())
         self.assertEqual(3, len(self.listeners))
+
+    def create_owned_fixture(self):
+        self.plugin.init_plugin({"enabled": True, "dry_run": False})
+        request = self.mod.IntentRequest(intent_key="safety-duty", media_type="电视剧", media_source="themoviedb", media_id="123", season=0, name="Fictional")
+        task = self.plugin.submit_intent(request, user=self.TokenPayload())
+        return task, self.plugin.adapter
+
+    def test_V3_host_lifecycle_keeps_disabled_stopped_ownership_guarded(self):
+        import json
+        from unittest.mock import patch
+        task, host = self.create_owned_fixture()
+        self.plugin.repository.set_state(task.id, "STOPPED", "admin")
+        with patch.object(self.mod, "NativeAdapter", return_value=host):
+            self.plugin.init_plugin({"enabled": False, "dry_run": True})
+        # Faithful lifecycle gate: host enables/disables the entire owner class.
+        enabled_classes = {type(self.plugin)} if self.plugin.get_state() else set()
+        native = host.rows[42]
+        origin = "Subscribe|" + json.dumps(native)
+        selection = types.SimpleNamespace(event_data=types.SimpleNamespace(origin=origin, contexts=[object()], updated=False, updated_contexts=None),
+                                          snapshot=lambda: types.SimpleNamespace(valid=False))
+        download = types.SimpleNamespace(event_data=types.SimpleNamespace(origin=origin, cancel=False), snapshot=lambda: types.SimpleNamespace(valid=True))
+        completion = types.SimpleNamespace(event_data=types.SimpleNamespace(subscribe=types.SimpleNamespace(**native), cancel=False), snapshot=lambda: types.SimpleNamespace(valid=True))
+        for (_, callback), event in zip(self.plugin._listeners()[:3], (selection, download, completion)):
+            self.assertIs(callback.__self__, self.plugin)
+            if type(callback.__self__) in enabled_classes:
+                callback(event)
+        self.assertTrue(selection.event_data.updated)
+        self.assertEqual([], selection.event_data.updated_contexts)
+        self.assertTrue(download.event_data.cancel)
+        self.assertTrue(completion.event_data.cancel)
+        diagnostics = self.plugin.diagnostics(user=self.TokenPayload())
+        self.assertFalse(diagnostics.enabled)
+        self.assertFalse(diagnostics.ordinary_work_active)
+        self.assertTrue(diagnostics.safety_required)
+        self.assertTrue(diagnostics.safety_active)
+        self.assertEqual("S", native["state"])
+        self.plugin.stop_service()
+        self.assertFalse(self.plugin.get_state(), "real stop must still obey the host lifecycle")
+        diagnostics = self.plugin.diagnostics(user=self.TokenPayload())
+        self.assertTrue(diagnostics.safety_required)
+        self.assertFalse(diagnostics.safety_active)
+
+    def test_V3_safety_duty_survives_capability_and_warm_storage_failure(self):
+        from unittest.mock import patch
+        _, host = self.create_owned_fixture()
+        host.capabilities = lambda: ["HOST_CONTRACT_MISMATCH"]
+        with patch.object(self.mod, "NativeAdapter", return_value=host):
+            self.plugin.init_plugin({"enabled": False, "dry_run": True})
+        self.assertTrue(self.plugin.get_state())
+        self.assertFalse(self.plugin.diagnostics(user=self.TokenPayload()).ordinary_work_active)
+        with patch.object(self.mod, "Repository", side_effect=RuntimeError("store unavailable")):
+            self.plugin.init_plugin({"enabled": False, "dry_run": True})
+            self.assertTrue(self.plugin.get_state(), "retain the known owned safety duty on warm failure")
+            cold = self.mod.SubscriBetter()
+            cold.data_path = self.plugin.data_path
+            cold.init_plugin({"enabled": False, "dry_run": True})
+        self.assertFalse(cold.get_state(), "cold failure cannot infer unknown ownership")
+        diagnostics = cold.diagnostics(user=self.TokenPayload())
+        self.assertIn("INITIALIZATION_FAILED", diagnostics.errors)
+        self.assertFalse(diagnostics.safety_active)
+
+    def test_V3_release_removes_safety_duty_without_enabling_ordinary_work(self):
+        from unittest.mock import patch
+        task, host = self.create_owned_fixture()
+        preview = self.plugin.release_preview(task.id, user=self.TokenPayload())
+        self.plugin.release_native(task.id, self.mod.ReleaseRequest(revision=preview.revision), user=self.TokenPayload())
+        with patch.object(self.mod, "NativeAdapter", return_value=host):
+            self.plugin.init_plugin({"enabled": False, "dry_run": True})
+        self.assertFalse(self.plugin.get_state())
+        diagnostics = self.plugin.diagnostics(user=self.TokenPayload())
+        self.assertFalse(diagnostics.enabled)
+        self.assertFalse(diagnostics.safety_required)
+        self.assertFalse(diagnostics.safety_active)
 
     def test_V3_service_contract_separates_scheduler_and_callback_kwargs(self):
         self.plugin.init_plugin({"enabled": True, "dry_run": False})

@@ -55,6 +55,9 @@ class TaskList(BaseModel):
 
 class Diagnostics(BaseModel):
     enabled: bool
+    ordinary_work_active: bool
+    safety_required: bool
+    safety_active: bool
     dry_run: bool
     generation: int
     errors: list[str]
@@ -102,6 +105,7 @@ class SubscriBetter(_PluginBase):
             self.runtime_lock = RLock()
         with self.runtime_lock:
             self.generation = getattr(self, "generation", 0) + 1
+            self.lifecycle_active = True
             self.errors = []
             self.running = False
             try:
@@ -137,17 +141,27 @@ class SubscriBetter(_PluginBase):
                 (EventType.SubscribeDeleted, self.subscribe_deleted)]
 
     def _auto_scope(self, native: dict) -> bool:
-        return bool(self.running and self.config.enabled and not self.config.dry_run
+        return bool(self._ordinary_work_active()
                     and native.get("type") in self.config.auto_types
                     and native.get("id") not in self.auto_baseline)
 
     def get_state(self) -> bool:
-        return bool(getattr(self, "running", False) and self.config.enabled)
+        # V3 gates this plugin's entire event-owner class through this public hook.
+        return bool(getattr(self, "lifecycle_active", False)
+                    and (self._safety_required() or (self.running and self.config.enabled)))
+
+    def _safety_required(self) -> bool:
+        return bool(getattr(getattr(self, "guard", None), "known_ids", ()))
+
+    def _ordinary_work_active(self) -> bool:
+        return bool(getattr(self, "lifecycle_active", False) and self.running and not self.errors
+                    and self.config.enabled and not self.config.dry_run)
 
     def stop_service(self):
         if not hasattr(self, "runtime_lock"):
             return
         with self.runtime_lock:
+            self.lifecycle_active = False
             self.running = False
             self.generation += 1
             if hasattr(self, "ownership"):
@@ -175,7 +189,7 @@ class SubscriBetter(_PluginBase):
                 return
             try:
                 self.ownership.ensure_paused()
-                if self.config.enabled and not self.config.dry_run:
+                if self._ordinary_work_active():
                     self.ownership.reconcile()
                     for native in self.adapter.list():
                         if self._auto_scope(native) and not self.repository.by_native_id(native["id"]):
@@ -191,7 +205,7 @@ class SubscriBetter(_PluginBase):
 
     def subscribe_added(self, event):
         with self.runtime_lock:
-            if not self.running or not self.config.enabled or self.config.dry_run:
+            if not self._ordinary_work_active():
                 return
             try:
                 sid = field(event.event_data, "subscribe_id")
@@ -229,7 +243,7 @@ class SubscriBetter(_PluginBase):
             raise HTTPException(403, "Administrator permission required")
 
     def _writes_enabled(self):
-        if not self.running or self.errors or not self.config.enabled or self.config.dry_run:
+        if not self._ordinary_work_active():
             raise HTTPException(409, "Enable plugin and disable dry-run before changing native ownership")
 
     def diagnostics(self, user: TokenPayload = Depends(verify_token)) -> Diagnostics:
@@ -241,7 +255,10 @@ class SubscriBetter(_PluginBase):
             self.errors = list(dict.fromkeys(self.errors + ["OWNERSHIP_STORE_UNAVAILABLE"]))
         if getattr(getattr(self, "guard", None), "unhealthy", False):
             self.errors = list(dict.fromkeys(self.errors + ["GUARD_INPUT_OR_STORE_UNHEALTHY"]))
-        return Diagnostics(enabled=self.get_state(), dry_run=self.config.dry_run, generation=self.generation,
+        safety_required = self._safety_required()
+        return Diagnostics(enabled=self.config.enabled, ordinary_work_active=self._ordinary_work_active(),
+                           safety_required=safety_required, safety_active=self.lifecycle_active and safety_required,
+                           dry_run=self.config.dry_run, generation=self.generation,
                            errors=list(dict.fromkeys(self.errors)), pending=pending)
 
     def tasks(self, limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0),
@@ -315,12 +332,12 @@ class SubscriBetter(_PluginBase):
     def get_form(self):
         return [{"component": "VForm", "content": [
             {"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
-             "text": "当前完成订阅接管基础。下载、排序和交付尚未启用。停用不会恢复原生壳；返回原生需先检查差异。"},
-            {"component": "VSwitch", "props": {"model": "enabled", "label": "启用订阅管理"}},
+             "text": "当前完成订阅接管基础，下载、排序和交付尚未启用。关闭普通工作后，已有受管壳仍保持暂停与安全保护，宿主可显示插件运行；解除保护须显式返回原生控制。"},
+            {"component": "VSwitch", "props": {"model": "enabled", "label": "启用普通订阅管理工作"}},
             {"component": "VSwitch", "props": {"model": "dry_run", "label": "只读 / dry-run（保留现有安全隔离）"}},
             {"component": "VSelect", "props": {"model": "auto_types", "label": "自动纳管启用后的新订阅", "multiple": True, "items": ["电影", "电视剧"]}},
         ]}], Config().model_dump()
 
     def get_page(self):
         return [{"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
-                 "text": "订阅基础接口已提供：tasks、intents、state、release-preview、release、recover。仅管理员可用；完整调度与交付仍在实现。"}]
+                 "text": f"普通工作：{'运行' if self._ordinary_work_active() else '关闭或受阻'}；已有任务安全保护：{'运行' if self.lifecycle_active and self._safety_required() else '未运行'}。管理接口仅管理员可用；完整调度与交付仍在实现。"}]

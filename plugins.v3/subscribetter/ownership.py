@@ -260,7 +260,7 @@ class Guard:
 
     @staticmethod
     def _other_identity(context, native: dict) -> bool:
-        media = field(context, "mediainfo")
+        media = field(context, "media_info")
         # Only positively identified unrelated contexts are retained on an owned route.
         source, mid, mtype = field(media, "media_source"), field(media, "media_id"), field(media, "type")
         source, mtype = field(source, "value", source), field(mtype, "value", mtype)
