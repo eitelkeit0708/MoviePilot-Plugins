@@ -99,6 +99,75 @@ class OwnershipTests(unittest.TestCase):
         self.assertEqual(1, self.host.creates)
         self.assertEqual("NATIVE_CONFLICT", self.repo.pending_actions()[0]["error_code"])
 
+    def test_T148_explicit_adoption_resolves_conflict_before_pause(self):
+        self.host.create(self.target, {"name": "Native", "keyword": "keep"})
+        self.host.rows[42]["state"] = "R"
+        row = self.submit()
+        def check_persisted():
+            current = self.repo.get_task(row["id"])
+            self.assertEqual(42, current["native_id"])
+            self.assertEqual("R", current["snapshot"]["state"])
+            self.assertEqual("keep", current["snapshot"]["keyword"])
+        self.host.before_pause = check_persisted
+        adopted = self.submit("explicit", native_id=42, adopt=True)
+        self.assertEqual(row["id"], adopted["id"])
+        self.assertEqual("ACTIVE", adopted["state"])
+        self.assertEqual(1, self.host.creates)
+
+    def test_T148_pre_dispatch_read_failure_remains_retryable(self):
+        find = self.host.find
+        self.host.find = Mock(side_effect=RuntimeError("temporary read failure"))
+        row = self.submit()
+        self.assertEqual("PENDING", self.repo.pending_actions()[0]["state"])
+        self.assertEqual(0, self.host.creates)
+        self.host.find = find
+        self.service.reconcile()
+        self.assertEqual("ACTIVE", self.repo.get_task(row["id"])["state"])
+        self.assertEqual(1, self.host.creates)
+
+    def test_reconciliation_advances_past_unknown_page_and_wraps_after_reload(self):
+        for i in range(100):
+            target = self.repo_module.Target("电影", "themoviedb", str(i + 1))
+            task = self.repo.submit(f"unknown-{i}", target, {}, "admin")
+            self.repo.start_create(task["id"])
+        later = self.repo.submit("later", self.target, {}, "admin")
+        self.service.reconcile()
+        self.assertEqual(0, self.host.creates, "one reconciliation run must remain bounded")
+        reloaded = self.module.Ownership(self.repo, self.host)
+        reloaded.reconcile()
+        self.assertEqual("ACTIVE", self.repo.get_task(later["id"])["state"])
+        # A repaired early action must not be lost after the cursor reaches the tail.
+        self.repo.action_state(1, "PENDING", "HOST_UNAVAILABLE")
+        attempted = Mock(side_effect=self.host.find)
+        self.host.find = attempted
+        reloaded.reconcile()
+        self.assertTrue(any(call.args[0].media_id == "1" for call in attempted.call_args_list))
+
+    def test_direct_handoff_is_not_limited_to_first_thousand_actions(self):
+        # Seed through the public repository, keeping this a real SQLite regression.
+        for i in range(1000):
+            target = self.repo_module.Target("电影", "themoviedb", str(i + 1))
+            task = self.repo.submit(f"unknown-{i}", target, {}, "admin")
+            self.repo.start_create(task["id"])
+        row = self.submit("later-direct")
+        self.assertEqual("ACTIVE", row["state"])
+        self.assertEqual(1, self.host.creates)
+
+    def test_reconciliation_wraps_existing_cycle_before_new_arrivals(self):
+        for i in range(101):
+            target = self.repo_module.Target("电影", "themoviedb", str(i + 1))
+            task = self.repo.submit(f"unknown-{i}", target, {}, "admin")
+            self.repo.start_create(task["id"])
+        self.service.reconcile()
+        for i in range(101, 301):
+            target = self.repo_module.Target("电影", "themoviedb", str(i + 1))
+            task = self.repo.submit(f"new-{i}", target, {}, "admin")
+            self.repo.start_create(task["id"])
+        self.service.reconcile()
+        self.repo.action_state(1, "PENDING", "HOST_UNAVAILABLE")
+        self.service.reconcile()
+        self.assertEqual("ACTIVE", self.repo.get_task(1)["state"])
+
     def test_T148_lost_create_response_is_not_replayed_or_adopted(self):
         original = self.host.create
         def lost(*args):
@@ -348,6 +417,48 @@ class PluginTests(unittest.TestCase):
             self.assertFalse(self.plugin._auto_scope(host.rows[100]))
         finally:
             self.mod.NativeAdapter = original
+
+    def test_T150_queued_mutations_recheck_enablement_after_stop(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event, RLock
+        from fastapi import HTTPException
+        for operation in ("submit", "release", "recover"):
+            with self.subTest(operation=operation):
+                self.plugin.init_plugin({"enabled": True, "dry_run": False})
+                waiting = Event()
+                underlying = RLock()
+                class ObservedLock:
+                    def __enter__(self):
+                        waiting.set()
+                        underlying.acquire()
+                    def __exit__(self, *args):
+                        underlying.release()
+                self.plugin.runtime_lock = ObservedLock()
+                user = self.TokenPayload()
+                if operation == "submit":
+                    request = self.mod.IntentRequest(intent_key="queued", media_type="电影", media_source="themoviedb", media_id="555", name="Fictional")
+                    invoke = lambda: self.plugin.submit_intent(request, user=user)
+                    method = "submit"
+                elif operation == "release":
+                    invoke = lambda: self.plugin.release_native(1, self.mod.ReleaseRequest(revision="0" * 64), user=user)
+                    method = "release"
+                else:
+                    invoke = lambda: self.plugin.recover_native(1, self.mod.RecoveryRequest(native_id=42, confirm_adoption=True), user=user)
+                    method = "recover_native"
+                mutation = Mock(side_effect=AssertionError("mutation ran after stop"))
+                setattr(self.plugin.ownership, method, mutation)
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    underlying.acquire()
+                    try:
+                        future = pool.submit(invoke)
+                        self.assertTrue(waiting.wait(3), "request did not reach lock")
+                        self.plugin.stop_service()
+                    finally:
+                        underlying.release()
+                    with self.assertRaises(HTTPException) as caught:
+                        future.result(timeout=3)
+                    self.assertEqual(409, caught.exception.status_code)
+                mutation.assert_not_called()
 
 
 class RecoveryTests(unittest.TestCase):

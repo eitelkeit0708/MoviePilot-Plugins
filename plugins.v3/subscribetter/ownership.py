@@ -45,17 +45,18 @@ class Ownership:
     def _handoff(self, task: dict):
         task_id = task["id"]
         target = Target.from_task(task)
+        dispatched = False
         try:
             if task["native_id"] is None:
-                actions = {a["task_id"]: a for a in self.repository.pending_actions(1000)}
-                action = actions.get(task_id)
-                if not action or action["state"] == "UNKNOWN":
+                action = self.repository.get_action(task_id)
+                if not action or action["state"] != "PENDING":
                     return
                 if any(self.matches(target, row) for row in self.adapter.find(target)):
                     self.repository.action_state(task_id, "PENDING", "NATIVE_CONFLICT")
                     return
                 if not self.repository.start_create(task_id):
                     return
+                dispatched = True
                 sid = self.adapter.create(target, task["snapshot"])
                 self.repository.bind_native(task_id, sid)
                 task = self.repository.get_task(task_id)
@@ -77,17 +78,28 @@ class Ownership:
         except Exception:
             # Error bodies can contain host URLs/credentials. Persist a bounded code only.
             current = self.repository.get_task(task_id)
-            self.repository.action_state(task_id, "UNKNOWN" if current["native_id"] is None else "PENDING",
-                                         "CREATE_OUTCOME_UNKNOWN" if current["native_id"] is None else "HOST_UNAVAILABLE")
+            unknown = dispatched and current["native_id"] is None
+            self.repository.action_state(task_id, "UNKNOWN" if unknown else "PENDING",
+                                         "CREATE_OUTCOME_UNKNOWN" if unknown else "HOST_UNAVAILABLE")
 
     def reconcile(self):
         with self.lock:
-            for action in self.repository.pending_actions():
+            progress = self.repository.setting("ownership_outbox_progress")
+            if progress is None:
+                progress = {"after_id": 0, "through_id": self.repository.action_high_watermark()}
+            actions = self.repository.pending_actions(**progress)
+            if not actions:
+                # Freeze the cycle tail so continuous arrivals cannot starve retries.
+                progress = {"after_id": 0, "through_id": self.repository.action_high_watermark()}
+                actions = self.repository.pending_actions(**progress)
+            for action in actions:
                 task = self.repository.get_task(action["task_id"])
                 if task["state"] == "PENDING":
                     self._handoff(task)
                 elif task["state"] == "RELEASING":
                     self._release(task)
+                progress["after_id"] = action["id"]
+                self.repository.setting("ownership_outbox_progress", progress)
 
     def recover_native(self, task_id: int, native_id: int, actor: str) -> dict:
         """Explicit administrator adoption resolves a lost create response without guessing."""

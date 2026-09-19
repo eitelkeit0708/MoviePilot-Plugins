@@ -88,6 +88,45 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.mod.Repository(self.path)
 
+    def test_explicit_conflict_adoption_is_atomic_and_cannot_steal_or_revive(self):
+        task = self.submit()
+        self.repo.action_state(task["id"], "PENDING", "NATIVE_CONFLICT")
+        snapshot = {"name": "Native", "state": "R", "keyword": "preserved"}
+        adopted = self.repo.submit("adopt", self.target, snapshot, "admin", 42, True)
+        self.assertEqual(task["id"], adopted["id"])
+        self.assertEqual(42, adopted["native_id"])
+        self.assertEqual(snapshot, adopted["snapshot"])
+        with self.repo.connection() as db:
+            self.assertEqual(1, db.execute("SELECT count(*) FROM audit WHERE action='EXPLICIT_NATIVE_ADOPTED' AND task_id=?", (task["id"],)).fetchone()[0])
+        with self.assertRaises(ValueError):
+            self.repo.submit("steal", self.target, {}, "admin", 43, True)
+        other = self.mod.Target("电视剧", "themoviedb", "other", 0, "specials")
+        with self.assertRaises(ValueError):
+            self.repo.submit("steal-other", other, {}, "admin", 42, True)
+        stopped = self.repo.submit("stopped", other, {}, "admin")
+        self.repo.set_state(stopped["id"], "STOPPED", "admin")
+        with self.assertRaises(ValueError):
+            self.repo.submit("revive", other, {}, "admin", 99, True)
+        self.assertEqual("STOPPED", self.repo.get_task(stopped["id"])["state"])
+        self.assertIsNone(self.repo.get_task(stopped["id"])["native_id"])
+
+    def test_competing_explicit_adoptions_bind_one_native_snapshot(self):
+        from threading import Barrier
+        task = self.submit()
+        self.repo.action_state(task["id"], "PENDING", "NATIVE_CONFLICT")
+        gate = Barrier(2)
+        def adopt(sid):
+            gate.wait(timeout=3)
+            try:
+                return self.repo.submit(f"adopt-{sid}", self.target, {"name": str(sid)}, "admin", sid, True)
+            except ValueError:
+                return None
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(adopt, (42, 43)))
+        self.assertEqual(1, sum(row is not None for row in results))
+        current = self.repo.get_task(task["id"])
+        self.assertEqual(str(current["native_id"]), current["snapshot"]["name"])
+
 
 if __name__ == "__main__":
     unittest.main()

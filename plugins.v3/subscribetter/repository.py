@@ -132,8 +132,19 @@ class Repository:
                     raise ValueError("idempotency key reused with different input")
                 return self._task(db.execute("SELECT * FROM tasks WHERE id=?", (intent["task_id"],)).fetchone())
             row = db.execute("SELECT * FROM tasks WHERE target_key=?", (target.key,)).fetchone()
+            if native_id is not None:
+                owner = db.execute("SELECT id FROM tasks WHERE native_id=?", (native_id,)).fetchone()
+                if owner and (row is None or owner["id"] != row["id"]):
+                    raise ValueError("native subscription already owned")
             if row and native_id is not None and row["native_id"] != native_id:
-                raise ValueError("target already belongs to another native subscription")
+                action = db.execute("SELECT * FROM outbox WHERE task_id=?", (row["id"],)).fetchone()
+                if (row["native_id"] is not None or row["state"] != "PENDING" or not action
+                        or action["operation"] != "HANDOFF" or action["state"] != "PENDING"):
+                    raise ValueError("target cannot be adopted in its current state")
+                db.execute("UPDATE tasks SET native_id=?,snapshot=?,generation=generation+1,updated_at=? WHERE id=?",
+                           (native_id, json.dumps(snapshot, ensure_ascii=False), utcnow(), row["id"]))
+                db.execute("UPDATE outbox SET error_code=NULL,updated_at=? WHERE task_id=?", (utcnow(), row["id"]))
+                self._audit(db, row["id"], "EXPLICIT_NATIVE_ADOPTED", actor)
             now = utcnow()
             if row is None:
                 cursor = db.execute("INSERT INTO tasks(target_key,media_type,media_source,media_id,season,episode_group,state,native_id,snapshot,actor,created_at,updated_at) VALUES(?,?,?,?,?,?,'PENDING',?,?,?,?,?)",
@@ -181,9 +192,20 @@ class Repository:
             self._audit(db, task_id, state, actor)
             return self._task(db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone())
 
-    def pending_actions(self, limit: int = 100) -> list[dict]:
+    def pending_actions(self, limit: int = 100, after_id: int = 0, through_id: int | None = None) -> list[dict]:
+        if not 1 <= limit <= 1000 or after_id < 0:
+            raise ValueError("invalid action pagination")
         with self.connection() as db:
-            return [dict(row) for row in db.execute("SELECT * FROM outbox WHERE state IN ('PENDING','UNKNOWN') ORDER BY id LIMIT ?", (limit,))]
+            return [dict(row) for row in db.execute("SELECT * FROM outbox WHERE state IN ('PENDING','UNKNOWN') AND id>? AND (? IS NULL OR id<=?) ORDER BY id LIMIT ?", (after_id, through_id, through_id, limit))]
+
+    def action_high_watermark(self) -> int:
+        with self.connection() as db:
+            return db.execute("SELECT COALESCE(MAX(id),0) FROM outbox").fetchone()[0]
+
+    def get_action(self, task_id: int) -> dict | None:
+        with self.connection() as db:
+            row = db.execute("SELECT * FROM outbox WHERE task_id=?", (task_id,)).fetchone()
+            return dict(row) if row else None
 
     def setting(self, key: str, value: Any = None) -> Any:
         with self.connection(write=value is not None) as db:

@@ -251,8 +251,8 @@ class SubscriBetter(_PluginBase):
 
     def submit_intent(self, request: IntentRequest, user: TokenPayload = Depends(verify_token)) -> TaskView:
         self._authorize(user)
-        self._writes_enabled()
         with self.runtime_lock:
+            self._writes_enabled()
             try:
                 target = make_target(request.media_type, request.media_source, request.media_id, request.season, request.episode_group)
                 row = self.ownership.submit(request.intent_key, target, {"name": request.name, "year": request.year, "username": user.username},
@@ -281,8 +281,8 @@ class SubscriBetter(_PluginBase):
 
     def release_native(self, task_id: int, request: ReleaseRequest, user: TokenPayload = Depends(verify_token)) -> TaskView:
         self._authorize(user)
-        self._writes_enabled()
         with self.runtime_lock:
+            self._writes_enabled()
             try:
                 row = self.ownership.release(task_id, request.revision, str(user.username))
                 self.guard.refresh_cache()
@@ -292,8 +292,8 @@ class SubscriBetter(_PluginBase):
 
     def recover_native(self, task_id: int, request: RecoveryRequest, user: TokenPayload = Depends(verify_token)) -> TaskView:
         self._authorize(user)
-        self._writes_enabled()
         with self.runtime_lock:
+            self._writes_enabled()
             try:
                 row = self.ownership.recover_native(task_id, request.native_id, str(user.username))
                 self.guard.refresh_cache()
