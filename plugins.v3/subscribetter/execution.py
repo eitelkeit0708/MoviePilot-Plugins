@@ -667,7 +667,10 @@ class TransferGuard:
                 destination=value(data,'target_path')
                 if value(data,'target_storage','local')!='local' or not destination:
                     continue
-                safe_local(evidence['target_root'],destination,exists=False)
+                # Native extras ignore overwrite_mode=never; reject occupied targets
+                # ponytail: atomic no-replace after this check needs host support.
+                if safe_local(evidence['target_root'],destination,exists=False).exists():
+                    continue
                 if row['destination'] is not None and Path(destination)!=Path(row['destination']):
                     continue
                 safe_local(p['snapshot']['save_path'],path)

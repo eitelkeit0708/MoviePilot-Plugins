@@ -596,6 +596,7 @@ class ExecutionTests(unittest.TestCase):
     def test_organizer_real_guard_admits_current_dispatch_only(self):
         import shutil
         from types import SimpleNamespace
+        from unittest.mock import patch
         with tempfile.TemporaryDirectory(dir=PLUGIN.parents[1]) as directory:
             source=Path(directory)/'source';source.mkdir();dest=Path(directory)/'dest';dest.mkdir()
             layout=source.as_posix()
@@ -612,6 +613,25 @@ class ExecutionTests(unittest.TestCase):
             class Host:
                 def history(inner,*args):return True
                 def transfer(inner,src,target,item,snapshot):
+                    output=target/src.name
+                    for directory in (False,True):
+                        if directory:output.mkdir()
+                        else:output.write_bytes(b'foreign')
+                        occupied=event(src,output);guard.intercept(occupied)
+                        self.assertTrue(occupied.event_data['cancel'])
+                        if directory:output.rmdir()
+                        else:
+                            self.assertEqual(b'foreign',output.read_bytes());output.unlink()
+                    outside=event(src,target.parent/src.name);guard.intercept(outside)
+                    self.assertTrue(outside.event_data['cancel'])
+                    # Model both link types at the filesystem boundary, including a
+                    # broken link whose exists() is false. No Windows symlink privilege.
+                    for existing in (False,True):
+                        if existing:output.write_bytes(b'foreign')
+                        with patch.object(Path,'is_symlink',lambda p:p==output):
+                            linked=event(src,output);guard.intercept(linked)
+                            self.assertTrue(linked.event_data['cancel'])
+                        if existing:output.unlink()
                     check=event(src,target/src.name);guard.intercept(check)
                     self.assertFalse(check.event_data['cancel'])
                     shutil.copyfile(src,target/src.name);return target/src.name
