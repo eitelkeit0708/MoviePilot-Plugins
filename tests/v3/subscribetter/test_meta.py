@@ -134,6 +134,29 @@ class MetaTests(unittest.TestCase):
             service.replay(["path:1"])
             self.assertEqual(2, parser.call_count)
 
+    def test_managed_parent_season_survives_numeric_false_episode_repair(self):
+        for path, expected in (("/GATE24.2024/S00/GATE24.2024.mkv", 0),
+                               ("/GATE24.2024/S02/GATE24.2024.mkv", 2),
+                               ("/GATE24.2024/Season 0/GATE24.2024.mkv", 0),
+                               ("/GATE24.2024/第2季/GATE24.2024.mkv", 2),
+                               ("/GATE24.2024.S00/Extras/GATE24.2024.mkv", 0),
+                               ("/GATE24.2024.S00/S02/GATE24.2024.mkv", 2),
+                               ("/GATE24.2024/S02/GATE24.S03.2024.mkv", 3)):
+            with self.subTest(path=path):
+                original = native("GAT", begin_season=2, total_season=1, end_episode=2024, total_episode=2001)
+                result = self.c.correct_path(original, path, custom_words=["#"])
+                self.assertEqual("OK", result.status)
+                self.assertEqual("GATE24", result.meta.en_name)
+                self.assertEqual("电视剧", result.meta.type)
+                self.assertEqual((expected, None, 1, None, None, 0), tuple(getattr(result.meta, key) for key in
+                                 ("begin_season", "end_season", "total_season", "begin_episode", "end_episode", "total_episode")))
+                self.assertEqual(24, original.begin_episode)
+        # Positive folder evidence repairs stale native seasons, but an explicit lock still wins.
+        original = native("GAT", begin_season=8, total_season=1)
+        result = self.c.correct_path(original, "/GATE24/S00/GATE24.2024.mkv", locks=("season",))
+        self.assertEqual(8, result.meta.begin_season)
+        self.assertIsNone(result.meta.begin_episode)
+
     def test_explicit_ranges_s00_and_subtitle_conflict(self):
         result = self.c.correct(native(begin_season=1), "Fictional.S00E02-E04.1080p")
         self.assertEqual((0, 2, 4, 3), (result.meta.begin_season, result.meta.begin_episode, result.meta.end_episode, result.meta.total_episode))
@@ -518,6 +541,18 @@ def run_host_contract():
         managed = core.MetaCorrector().correct_path(result, path, custom_words=["#"])
         outputs["managed_rust_path:" + path] = managed.record()
         checks["managed_rust_final_s00_path"] = managed.status == "OK" and (managed.meta.begin_season, managed.meta.begin_episode, managed.meta.end_episode, managed.meta.total_episode) == (0, 2, 4, 3)
+        for engine, words in (("python", python_words), ("rust", ["#"])):
+            for path, season in (("/GATE24.2024/S00/GATE24.2024.mkv", 0),
+                                 ("/GATE24.2024/S02/GATE24.2024.mkv", 2),
+                                 ("/GATE24.2024/S02/GATE24.S03.2024.mkv", 3)):
+                result = MetaInfoPath(Path(path), custom_words=words)
+                managed = core.MetaCorrector().correct_path(result, path, custom_words=words)
+                key = f"managed_{engine}_parent_season:{path}"
+                outputs[key] = managed.record()
+                corrected = core.snapshot(managed.meta)
+                checks[key] = (managed.status == "OK" and managed.meta.name == "GATE24" and
+                               tuple(corrected[k] for k in ("type", "begin_season", "end_season", "total_season", "begin_episode", "end_episode", "total_episode")) ==
+                               ("电视剧", season, None, 1, None, None, 0))
         checks["actual_rust_bridge_called"] = any(c["path"] == "rust" for c in calls[before:])
         checks["actual_python_bridge_called"] = any(c["path"] == "python" for c in calls)
         preserved = originals[names[0]]("GATE24", custom_words=python_words)

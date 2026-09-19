@@ -14,7 +14,7 @@ FIELDS = ("title", "org_string", "subtitle", "isfile", "cn_name", "en_name", "or
           "resource_effect", "resource_pix", "resource_team", "customization", "web_source",
           "video_encode", "video_bit", "audio_encode", "fps")
 LOCKS = frozenset(("name", "year", "type", "season", "episode", "identity"))
-SEASON = re.compile(r"(?<![A-Za-z0-9])S(\d{1,3})(?:\s*-\s*S?(\d{1,3}))?(?!\d)", re.I)
+SEASON = re.compile(r"(?<![A-Za-z0-9])S(?:eason[ ._-]*)?(\d{1,3})(?:\s*-\s*S?(\d{1,3}))?(?!\d)", re.I)
 EPISODE = re.compile(r"(?<![A-Za-z0-9])(?:S\d{1,3})?E(?:P)?(\d{1,4})(?:\s*-\s*(?:E(?:P)?)?(\d{1,4}))?(?![A-Za-z0-9])", re.I)
 CN_SEASON = re.compile(r"第\s*(\d{1,3})(?:\s*-\s*(\d{1,3}))?\s*季")
 CN_EPISODE = re.compile(r"第\s*(\d{1,4})(?:\s*-\s*(\d{1,4}))?\s*[集话話]")
@@ -70,7 +70,7 @@ class MetaCorrector:
         if (not isinstance(protected_names, (list, tuple)) or len(protected_names) > 100
                 or any(not isinstance(n, str) or not 1 <= len(n.strip()) <= 160 for n in protected_names)):
             raise ValueError("invalid protected names")
-        self.rules = {"core": 2, "protected_names": sorted(set(n.strip() for n in protected_names))}
+        self.rules = {"core": 3, "protected_names": sorted(set(n.strip() for n in protected_names))}
         self.revision = _digest(self.rules)
 
     def correct(self, native, title, subtitle=None, custom_words=None, locks=(), *, context_known=True):
@@ -105,8 +105,8 @@ class MetaCorrector:
             def set_type(value):
                 current = getattr(result, "type", None)
                 result.type = type(current)(value) if isinstance(current, Enum) else value
-            def clear_scope():
-                for group in ("season", "episode"):
+            def clear_scope(groups=("season", "episode")):
+                for group in groups:
                     if group not in locked:
                         setattr(result, "begin_" + group, None)
                         setattr(result, "end_" + group, None)
@@ -165,9 +165,11 @@ class MetaCorrector:
                 reasons.append("NUMERIC_NAME_PROTECTED")
                 trailing = re.search(r"(\d+)$", protected)
                 false_episode = trailing and before["begin_episode"] == int(trailing[1])
-                if not season and not episode and false_episode:
-                    clear_scope()
-                    if "type" not in locked and not ({"season", "episode"} & locked):
+                if not episode and false_episode:
+                    clear_scope(("episode",))
+                    if not season:
+                        clear_scope(("season",))
+                    if not season and "type" not in locked and not ({"season", "episode"} & locked):
                         set_type("电影" if movie else "未知")
             titles, ambiguous_blocks = [], []
             for match in BRACKET.finditer(text):
@@ -232,6 +234,7 @@ class MetaCorrector:
         """Managed final-path correction; caller supplies the actual path and words.
 
         No parent parser calls and no third hook. Filename evidence is primary;
+        missing season evidence falls back to the nearest explicit parent scope.
         parent explicit tags remain constraints, while an auxiliary-only filename
         takes its title evidence from the immediate parent, like the host merge.
         """
@@ -242,7 +245,15 @@ class MetaCorrector:
         for part in (item.name, item.parent.name, item.parent.parent.name):
             locked.update(_tag_locks(part))
         title = item.parent.name if len(item.stem) <= 16 and AUXILIARY_STEM.fullmatch(item.stem) else item.name
-        return self.correct(native, title, custom_words=custom_words, locks=sorted(locked))
+        parent_season = None
+        if not any(pattern.search(title) for pattern in (SEASON, CN_SEASON)):
+            for part in (item.parent.name, item.parent.parent.name):
+                # Only explicit season tokens are supplementary evidence, never parent names/episodes.
+                tokens = [match[0] for pattern in (SEASON, CN_SEASON) for match in pattern.finditer(part)]
+                if tokens:
+                    parent_season = " ".join(tokens)
+                    break
+        return self.correct(native, title, subtitle=parent_season, custom_words=custom_words, locks=sorted(locked))
 
 
 def _stored(value):
