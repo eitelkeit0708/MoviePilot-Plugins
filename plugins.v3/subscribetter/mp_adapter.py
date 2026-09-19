@@ -25,6 +25,23 @@ def target_from_native(native: dict) -> Target:
 
 class NativeAdapter:
     @staticmethod
+    def classify(media) -> dict:
+        """Refresh via public SDK, outside Meta hooks and synchronous veto events."""
+        from copy import deepcopy
+        from app.sdk.classification import classify_media
+
+        subject = deepcopy(media)
+        previous = getattr(subject, "classification", None)
+        if previous is not None:
+            # The SDK returns a deepcopy without evaluating if not assembled. Mark
+            # only evaluation stale; preserve explicit manual/subscription selection.
+            subject.classification = previous.model_copy(
+                deep=True, update={"state": "not_evaluated", "policy_revision": 0})
+        result = getattr(classify_media(subject), "classification", None)
+        return result.model_dump(mode="json") if result is not None else {
+            "state": "not_evaluated", "policy_revision": 0, "effective": None}
+
+    @staticmethod
     def capabilities() -> list[str]:
         failures = []
         if sys.version_info < (3, 14):
