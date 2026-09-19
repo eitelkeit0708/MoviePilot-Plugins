@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 1:
+            if revision > 2:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -87,6 +87,11 @@ class Repository:
                 )
                 for statement in statements:
                     db.execute(statement)
+            if revision < 2:
+                db.execute("CREATE TABLE parse_revisions (revision TEXT PRIMARY KEY, rules TEXT NOT NULL, created_at TEXT NOT NULL)")
+                db.execute("CREATE TABLE parse_samples (sample_key TEXT PRIMARY KEY, task_id INTEGER REFERENCES tasks(id), inputs TEXT NOT NULL, native TEXT NOT NULL, result TEXT NOT NULL, revision TEXT NOT NULL REFERENCES parse_revisions(revision), replay_allowed INTEGER NOT NULL, updated_at TEXT NOT NULL)")
+                db.execute("CREATE TABLE parse_history (sample_key TEXT NOT NULL REFERENCES parse_samples(sample_key), digest TEXT NOT NULL, revision TEXT NOT NULL REFERENCES parse_revisions(revision), record TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(sample_key,digest))")
+                db.execute("PRAGMA user_version=2")
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:
@@ -213,6 +218,42 @@ class Repository:
                 db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, json.dumps(value)))
             row = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
             return json.loads(row[0]) if row else None
+
+    def save_parse_sample(self, key: str, data: dict, rules: dict, task_id: int | None, replay_allowed: bool):
+        revision = data["result"]["revision"]
+        with self.connection(write=True) as db:
+            existing = db.execute("SELECT task_id FROM parse_samples WHERE sample_key=?", (key,)).fetchone()
+            if existing and existing[0] != task_id:
+                raise ValueError("sample belongs to another task")
+            db.execute("INSERT OR IGNORE INTO parse_revisions VALUES(?,?,?)", (revision, json.dumps(rules, ensure_ascii=False), utcnow()))
+            db.execute("INSERT INTO parse_samples VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(sample_key) DO UPDATE SET inputs=excluded.inputs,native=excluded.native,result=excluded.result,revision=excluded.revision,replay_allowed=excluded.replay_allowed,updated_at=excluded.updated_at",
+                       (key, task_id, json.dumps(data["inputs"], ensure_ascii=False), json.dumps(data["native"], ensure_ascii=False),
+                        json.dumps(data["result"], ensure_ascii=False), revision, int(replay_allowed), utcnow()))
+            record = json.dumps(data, ensure_ascii=False, sort_keys=True)
+            db.execute("INSERT OR IGNORE INTO parse_history VALUES(?,?,?,?,?)", (key, hashlib.sha256(record.encode()).hexdigest(), revision, record, utcnow()))
+
+    def parse_history(self, key: str, limit: int = 100, offset: int = 0) -> list[dict]:
+        if not isinstance(key, str) or not 1 <= len(key) <= 256 or not 1 <= limit <= 100 or offset < 0:
+            raise ValueError("invalid parse history selection")
+        with self.connection() as db:
+            return [dict(revision=row[0], record=json.loads(row[1]), created_at=row[2]) for row in db.execute(
+                "SELECT revision,record,created_at FROM parse_history WHERE sample_key=? ORDER BY created_at,digest LIMIT ? OFFSET ?", (key, limit, offset))]
+
+    def parse_samples(self, keys: list[str] | None = None, limit: int = 100, offset: int = 0) -> list[dict]:
+        if not 1 <= limit <= 100 or offset < 0 or (keys is not None and (not 1 <= len(keys) <= 100 or any(not isinstance(k, str) or not 1 <= len(k) <= 256 for k in keys))):
+            raise ValueError("invalid parse sample selection")
+        query = "SELECT p.*,t.state AS task_state FROM parse_samples p LEFT JOIN tasks t ON t.id=p.task_id"
+        args = []
+        if keys is not None:
+            query += " WHERE p.sample_key IN (" + ",".join("?" for _ in keys) + ")"
+            args.extend(keys)
+        query += " ORDER BY p.sample_key LIMIT ? OFFSET ?"
+        with self.connection() as db:
+            rows = [dict(row) for row in db.execute(query, (*args, limit, offset))]
+        for row in rows:
+            for field in ("inputs", "native", "result"):
+                row[field] = json.loads(row[field])
+        return rows
 
     def action_state(self, task_id: int, state: str, error_code: str | None = None,
                      expected_state: str | None = None):

@@ -1,6 +1,6 @@
 """subscriBetter V3: durable ownership foundation; download/delivery workers are not enabled."""
 from threading import RLock
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -12,6 +12,8 @@ from app.schemas.types import ChainEventType, EventType
 from .mp_adapter import NativeAdapter, make_target, target_from_native
 from .repository import Repository
 from .ownership import Guard, Ownership, field
+from .meta import MetaCorrector, MetaService
+from .meta_compat import MetaPatch
 
 
 class Config(BaseModel):
@@ -19,6 +21,8 @@ class Config(BaseModel):
     enabled: bool = False
     dry_run: bool = True
     auto_types: list[Literal["电影", "电视剧"]] = Field(default_factory=list, max_length=2)
+    enhance_host_meta: bool = False
+    meta_protected_names: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=100)
 
 
 class IntentRequest(BaseModel):
@@ -63,6 +67,22 @@ class Diagnostics(BaseModel):
     errors: list[str]
     pending: int
     foundation_only: bool = True
+    meta: dict = Field(default_factory=dict)
+
+
+class ParseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    sample_key: str = Field(min_length=1, max_length=256)
+    title: str = Field(min_length=1, max_length=8192)
+    subtitle: str | None = Field(default=None, max_length=8192)
+    custom_words: list[Annotated[str, Field(max_length=2048)]] | None = Field(default=None, max_length=100)
+    locks: list[Literal["name", "year", "type", "season", "episode", "identity"]] = Field(default_factory=list, max_length=6)
+    task_id: int | None = Field(default=None, gt=0)
+
+
+class ReplayRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    sample_keys: list[Annotated[str, Field(min_length=1, max_length=256)]] = Field(min_length=1, max_length=100)
 
 
 class StateRequest(BaseModel):
@@ -104,6 +124,8 @@ class SubscriBetter(_PluginBase):
         if not hasattr(self, "runtime_lock"):
             self.runtime_lock = RLock()
         with self.runtime_lock:
+            if hasattr(self, "meta_patch"):
+                self.meta_patch.uninstall()
             self.generation = getattr(self, "generation", 0) + 1
             self.lifecycle_active = True
             self.errors = []
@@ -115,6 +137,15 @@ class SubscriBetter(_PluginBase):
                 self.errors.append("INVALID_CONFIG")
             try:
                 self.repository = Repository(self.get_data_path() / "subscribetter.sqlite3")
+                self.meta_corrector = MetaCorrector(self.config.meta_protected_names)
+                self.meta_service = MetaService(self.repository, self.meta_corrector)
+                self.meta_patch = MetaPatch(self.meta_corrector)
+                if self.config.enabled and not self.config.dry_run and self.config.enhance_host_meta:
+                    try:
+                        from app.chain.system import SystemChain
+                        self.meta_patch.install(SystemChain.get_server_local_version())
+                    except Exception:
+                        self.meta_patch.state = "INITIALIZATION_FAILED"
                 self.adapter = NativeAdapter()
                 self.ownership = Ownership(self.repository, self.adapter)
                 self.guard = Guard(self.repository, self.adapter, self._auto_scope)
@@ -164,6 +195,8 @@ class SubscriBetter(_PluginBase):
             self.lifecycle_active = False
             self.running = False
             self.generation += 1
+            if hasattr(self, "meta_patch"):
+                self.meta_patch.uninstall()
             if hasattr(self, "ownership"):
                 try:
                     self.errors.extend(f"SHELL_PAUSE_FAILED:{sid}" for sid in self.ownership.ensure_paused())
@@ -259,7 +292,31 @@ class SubscriBetter(_PluginBase):
         return Diagnostics(enabled=self.config.enabled, ordinary_work_active=self._ordinary_work_active(),
                            safety_required=safety_required, safety_active=self.lifecycle_active and safety_required,
                            dry_run=self.config.dry_run, generation=self.generation,
-                           errors=list(dict.fromkeys(self.errors)), pending=pending)
+                           errors=list(dict.fromkeys(self.errors)), pending=pending,
+                           meta=self.meta_patch.diagnostics() if hasattr(self, "meta_patch") else {"state": "UNAVAILABLE"})
+
+    def parse_sample(self, request: ParseRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        with self.runtime_lock:
+            try:
+                fields = request.model_dump()
+                key = fields.pop("sample_key")
+                return self.meta_service.parse(key, **fields).record()
+            except ValueError as error:
+                raise HTTPException(409, str(error)) from None
+
+    def parse_samples(self, limit: int = Query(100, ge=1, le=100), offset: int = Query(0, ge=0),
+                      user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        return {"samples": self.repository.parse_samples(limit=limit, offset=offset)}
+
+    def replay_samples(self, request: ReplayRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        with self.runtime_lock:
+            try:
+                return {"results": self.meta_service.replay(request.sample_keys)}
+            except ValueError as error:
+                raise HTTPException(409, str(error)) from None
 
     def tasks(self, limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0),
               user: TokenPayload = Depends(verify_token)) -> TaskList:
@@ -320,6 +377,9 @@ class SubscriBetter(_PluginBase):
 
     def get_api(self):
         definitions = [("/diagnostics", "GET", self.diagnostics, Diagnostics),
+                       ("/parse", "POST", self.parse_sample, dict),
+                       ("/parse/samples", "GET", self.parse_samples, dict),
+                       ("/parse/replay", "POST", self.replay_samples, dict),
                        ("/tasks", "GET", self.tasks, TaskList),
                        ("/intents", "POST", self.submit_intent, TaskView),
                        ("/tasks/{task_id}/state", "POST", self.change_state, TaskView),
@@ -335,6 +395,8 @@ class SubscriBetter(_PluginBase):
              "text": "当前完成订阅接管基础，下载、排序和交付尚未启用。关闭普通工作后，已有受管壳仍保持暂停与安全保护，宿主可显示插件运行；解除保护须显式返回原生控制。"},
             {"component": "VSwitch", "props": {"model": "enabled", "label": "启用普通订阅管理工作"}},
             {"component": "VSwitch", "props": {"model": "dry_run", "label": "只读 / dry-run（保留现有安全隔离）"}},
+            {"component": "VSwitch", "props": {"model": "enhance_host_meta", "label": "增强宿主公共解析（普通工作启用且非 dry-run 时生效，影响未受管解析）"}},
+            {"component": "VCombobox", "props": {"model": "meta_protected_names", "label": "明确保护的完整片名", "multiple": True, "chips": True}},
             {"component": "VSelect", "props": {"model": "auto_types", "label": "自动纳管启用后的新订阅", "multiple": True, "items": ["电影", "电视剧"]}},
         ]}], Config().model_dump()
 
