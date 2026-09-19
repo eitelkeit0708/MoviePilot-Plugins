@@ -14,6 +14,8 @@ from .repository import Repository
 from .ownership import Guard, Ownership, field
 from .meta import MetaCorrector, MetaService, _stored
 from .meta_compat import MetaPatch
+from .scheduler import Scheduler
+from .planner import Authority
 
 
 class Config(BaseModel):
@@ -139,6 +141,8 @@ class SubscriBetter(_PluginBase):
                 self.errors.append("INVALID_CONFIG")
             try:
                 self.repository = Repository(self.get_data_path() / "subscribetter.sqlite3")
+                self.scheduler = Scheduler(self.repository)
+                self.authority = Authority(self.repository)
                 self.meta_corrector = MetaCorrector(self.config.meta_protected_names)
                 self.meta_service = MetaService(self.repository, self.meta_corrector)
                 self.meta_patch = MetaPatch(self.meta_corrector)
@@ -224,6 +228,7 @@ class SubscriBetter(_PluginBase):
                 return
             try:
                 self.ownership.ensure_paused()
+                self.scheduler.tick()
                 if self._ordinary_work_active():
                     self.ownership.reconcile()
                     for native in self.adapter.list():

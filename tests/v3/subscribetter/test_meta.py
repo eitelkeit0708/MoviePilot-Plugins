@@ -314,6 +314,10 @@ class MetaTests(unittest.TestCase):
             repo = repo_module.Repository(path)
             task = repo.submit("before", repo_module.Target("电影", "themoviedb", "42"), {}, "tester")
             with repo.connection(write=True) as db:
+                # Reconstruct a real v1 database, including when newer packages add tables.
+                keep = {"tasks", "intents", "outbox", "audit", "settings", "parse_history", "parse_samples", "parse_revisions"}
+                for table in [r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'") if r[0] not in keep]:
+                    db.execute('DROP TABLE "' + table + '"')
                 db.execute("DROP TABLE parse_history")
                 db.execute("DROP TABLE parse_samples")
                 db.execute("DROP TABLE parse_revisions")

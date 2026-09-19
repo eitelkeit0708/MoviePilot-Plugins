@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 2:
+            if revision > 3:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -92,6 +92,27 @@ class Repository:
                 db.execute("CREATE TABLE parse_samples (sample_key TEXT PRIMARY KEY, task_id INTEGER REFERENCES tasks(id), inputs TEXT NOT NULL, native TEXT NOT NULL, result TEXT NOT NULL, revision TEXT NOT NULL REFERENCES parse_revisions(revision), replay_allowed INTEGER NOT NULL, updated_at TEXT NOT NULL)")
                 db.execute("CREATE TABLE parse_history (sample_key TEXT NOT NULL REFERENCES parse_samples(sample_key), digest TEXT NOT NULL, revision TEXT NOT NULL REFERENCES parse_revisions(revision), record TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(sample_key,digest))")
                 db.execute("PRAGMA user_version=2")
+            if revision < 3:
+                for statement in (
+                    "CREATE TABLE target_units (target_key TEXT PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), identity TEXT NOT NULL, owner_plan_id TEXT, generation INTEGER NOT NULL DEFAULT 0, publish_phase TEXT NOT NULL DEFAULT 'NOT_SENT', publish_action_id TEXT, current_revision INTEGER NOT NULL DEFAULT 0, current_facts TEXT, last_ingest_confirmed_at TEXT, cooldown_until TEXT)",
+                    "CREATE TABLE opportunities (id TEXT PRIMARY KEY, task_id INTEGER NOT NULL REFERENCES tasks(id), scope TEXT NOT NULL, mode TEXT NOT NULL, state TEXT NOT NULL, config TEXT NOT NULL, supersessions INTEGER NOT NULL DEFAULT 0, failures INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+                    "CREATE TABLE opportunity_targets (opportunity_id TEXT NOT NULL REFERENCES opportunities(id), target_key TEXT NOT NULL REFERENCES target_units(target_key), fulfilled INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(opportunity_id,target_key))",
+                    "CREATE TABLE observations (opportunity_id TEXT NOT NULL REFERENCES opportunities(id), target_key TEXT NOT NULL REFERENCES target_units(target_key), first_seen TEXT NOT NULL, last_better TEXT NOT NULL, best_key TEXT NOT NULL, best_quality TEXT NOT NULL, deadline TEXT NOT NULL, PRIMARY KEY(opportunity_id,target_key))",
+                    "CREATE TABLE plans (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL REFERENCES opportunities(id), task_id INTEGER NOT NULL REFERENCES tasks(id), snapshot TEXT NOT NULL, authorization TEXT NOT NULL, transfer_phase TEXT NOT NULL, created_at TEXT NOT NULL)",
+                    "CREATE TABLE plan_targets (plan_id TEXT NOT NULL REFERENCES plans(id), target_key TEXT NOT NULL REFERENCES target_units(target_key), generation INTEGER, state TEXT NOT NULL, action TEXT NOT NULL, superseded_by TEXT, reason TEXT, transfer_phase TEXT NOT NULL DEFAULT 'PENDING', PRIMARY KEY(plan_id,target_key))",
+                    "CREATE TABLE plan_actions (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES plans(id), kind TEXT NOT NULL, targets TEXT NOT NULL, files TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)",
+                    "CREATE TABLE action_receipts (id INTEGER PRIMARY KEY, action_id TEXT NOT NULL REFERENCES plan_actions(id), outcome TEXT NOT NULL, evidence TEXT NOT NULL, at TEXT NOT NULL, UNIQUE(action_id,outcome,evidence))",
+                    "CREATE TABLE ingest_receipts (id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES plans(id), target_key TEXT NOT NULL REFERENCES target_units(target_key), generation INTEGER NOT NULL, version_id TEXT NOT NULL, evidence TEXT NOT NULL, at TEXT NOT NULL)",
+                    "CREATE TABLE evidence_consumption (evidence_key TEXT PRIMARY KEY, receipt_id TEXT NOT NULL REFERENCES ingest_receipts(id))",
+                    "CREATE TABLE task_lifecycle (task_id INTEGER PRIMARY KEY REFERENCES tasks(id), config TEXT NOT NULL, scope TEXT NOT NULL, scope_closed INTEGER NOT NULL DEFAULT 0, complete_collected_at TEXT, last_ingest_at TEXT, expires_at TEXT, state TEXT NOT NULL DEFAULT 'ACTIVE')",
+                    "CREATE TABLE plan_progress (plan_id TEXT NOT NULL REFERENCES plans(id), files TEXT NOT NULL, sample TEXT NOT NULL, PRIMARY KEY(plan_id,files))",
+                    "CREATE TABLE opportunity_failures (id TEXT PRIMARY KEY, opportunity_id TEXT NOT NULL REFERENCES opportunities(id), reason TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0, at TEXT NOT NULL)",
+                    "CREATE INDEX active_plan_targets ON plan_targets(target_key,state)",
+                    "CREATE INDEX plan_actions_pending ON plan_actions(state,id)",
+                    "CREATE INDEX opportunity_task_state ON opportunities(task_id,state)",
+                    "PRAGMA user_version=3",
+                ):
+                    db.execute(statement)
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:
@@ -192,6 +213,8 @@ class Repository:
                 return self._task(row)
             if row["state"] == "STOPPED" and state != "STOPPED":
                 raise ValueError("explicit stopped task cannot be reactivated")
+            if state == "STOPPED":
+                self._cancel_plans(db, task_id, "USER_STOPPED")
             db.execute("UPDATE tasks SET state=?,generation=generation+1,updated_at=? WHERE id=?", (state, utcnow(), task_id))
             db.execute("UPDATE outbox SET state='CANCELLED',updated_at=? WHERE task_id=? AND state!='DONE'", (utcnow(), task_id))
             self._audit(db, task_id, state, actor)
@@ -277,12 +300,24 @@ class Repository:
                 db.execute("UPDATE outbox SET state='DONE',error_code=NULL,updated_at=? WHERE task_id=?", (utcnow(), task_id))
                 self._audit(db, task_id, "HANDOFF_VERIFIED", "host")
 
+    @staticmethod
+    def _cancel_plans(db, task_id, reason):
+        # Unresolved external publication remains a barrier even after user stop.
+        db.execute("UPDATE plan_targets SET state='CANCELLED',reason=? WHERE state='ACTIVE' AND plan_id IN (SELECT id FROM plans WHERE task_id=?)", (reason, task_id))
+        db.execute("UPDATE plans SET authorization='CANCELLED' WHERE task_id=? AND authorization IN ('PREPARED','ACTIVE')", (task_id,))
+        db.execute("UPDATE plan_actions SET state='CANCELLED' WHERE state='PENDING' AND plan_id IN (SELECT id FROM plans WHERE task_id=?)", (task_id,))
+        db.execute("UPDATE target_units SET owner_plan_id=NULL,generation=generation+1 WHERE task_id=? AND publish_phase NOT IN ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF') AND owner_plan_id IS NOT NULL", (task_id,))
+        db.execute("UPDATE opportunities SET state='CANCELLED' WHERE task_id=? AND state='ACTIVE'", (task_id,))
+
     def begin_release(self, task_id: int, generation: int, actor: str):
         with self.connection(write=True) as db:
+            if db.execute("SELECT 1 FROM target_units WHERE task_id=? AND publish_phase IN ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF') LIMIT 1", (task_id,)).fetchone():
+                raise ValueError("unresolved publication blocks native release")
             changed = db.execute("UPDATE tasks SET state='RELEASING',generation=generation+1,updated_at=? WHERE id=? AND generation=? AND native_id IS NOT NULL AND state NOT IN ('RELEASED_NATIVE','RELEASING')", (utcnow(), task_id, generation)).rowcount
             if not changed:
                 raise ValueError("release preview is stale")
             db.execute("INSERT INTO outbox(task_id,operation,state,updated_at) VALUES(?,'RELEASE','PENDING',?) ON CONFLICT(task_id) DO UPDATE SET operation='RELEASE',state='PENDING',error_code=NULL,updated_at=excluded.updated_at", (task_id, utcnow()))
+            self._cancel_plans(db, task_id, "NATIVE_RELEASE")
             self._audit(db, task_id, "RELEASE_REQUESTED", actor)
 
     def complete_release(self, task_id: int, generation: int):
