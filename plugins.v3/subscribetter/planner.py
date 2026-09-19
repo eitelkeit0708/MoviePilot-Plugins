@@ -617,6 +617,54 @@ class Authority:
                         indices.add(item['index'])
             return sorted(indices)
 
+    def confirm_evidence(self, opportunity_id, confirmations, *, expected, now=None, db=None):
+        """W06 joins verified no-transfer evidence to the same CAS/receipt ledger."""
+        if db is None:
+            with self.repository.connection(write=True) as connection:
+                return self.confirm_evidence(opportunity_id, confirmations, expected=expected, now=now, db=connection)
+        if not confirmations or set(confirmations) != set(expected['targets']):
+            raise ValueError('exact evidence target vector required')
+        duplicates = []
+        for key, proof in confirmations.items():
+            for name in ('association_verified', 'all_assets_verified', 'improvement_verified'):
+                if proof.get(name) is not True:
+                    raise ValueError('final evidence association incomplete')
+            if proof.get('opportunity_id') != opportunity_id or not proof.get('evidence_keys'):
+                raise ValueError('opportunity evidence required')
+            for name in ('receipt_id', 'version_id', 'evidence_ref'):
+                identifier(proof.get(name))
+            prior = db.execute('SELECT * FROM ingest_receipts WHERE id=?', (proof['receipt_id'],)).fetchone()
+            if prior and (prior['plan_id'] is not None or prior['target_key'] != key or prior['evidence'] != encoded(proof)):
+                raise ValueError('evidence receipt id reused')
+            duplicates.append(prior is not None)
+        if all(duplicates):
+            return {'accepted': False, 'duplicate': True, 'reason': 'ALREADY_CONFIRMED'}
+        if any(duplicates):
+            raise ValueError('partial evidence receipt batch')
+        opportunity = db.execute('SELECT * FROM opportunities WHERE id=?', (opportunity_id,)).fetchone()
+        if not opportunity or opportunity['state'] != 'ACTIVE' or not set(confirmations) <= set(json.loads(opportunity['scope'])):
+            raise ValueError('evidence outside active opportunity')
+        self._task_active(db, {'task_id': opportunity['task_id'], 'task_generation': expected['task_generation']})
+        self._revisions(db, expected)
+        actual = self._match(db, expected['targets'])
+        if any(actual[k]['owner_plan_id'] is not None or actual[k]['current_revision'] != expected['targets'][k]['current_revision'] for k in actual):
+            raise ValueError('stale or owned evidence target')
+        consumed = set()
+        for key, proof in confirmations.items():
+            if db.execute('SELECT fulfilled FROM opportunity_targets WHERE opportunity_id=? AND target_key=?', (opportunity_id, key)).fetchone()[0]:
+                raise ValueError('opportunity target already fulfilled')
+            db.execute('INSERT INTO ingest_receipts VALUES(?,NULL,?,?,?,?,?)', (proof['receipt_id'], key, actual[key]['generation'], proof['version_id'], encoded(proof), stamp(now)))
+            for evidence_key in proof['evidence_keys']:
+                identifier(evidence_key)
+                if evidence_key not in consumed:
+                    db.execute('INSERT INTO evidence_consumption VALUES(?,?)', (evidence_key, proof['receipt_id']))
+                    consumed.add(evidence_key)
+            db.execute('UPDATE opportunity_targets SET fulfilled=1 WHERE opportunity_id=? AND target_key=?', (opportunity_id, key))
+        if not db.execute('SELECT 1 FROM opportunity_targets WHERE opportunity_id=? AND fulfilled=0', (opportunity_id,)).fetchone():
+            db.execute('UPDATE opportunities SET state=?,updated_at=? WHERE id=?', ('ARCHIVED' if opportunity['mode'] == 'ONESHOT' else 'COMPLETED', stamp(now), opportunity_id))
+        self.repository._audit(db, opportunity['task_id'], 'EVIDENCE_CONFIRMED:' + opportunity_id, 'archive')
+        return {'accepted': True, 'duplicate': False}
+
     def confirm_ingest(self, action_id, confirmations, *, now=None, db=None):
         """Commit final facts/clocks/evidence with W06 archive writes in one transaction.
 

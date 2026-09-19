@@ -1,0 +1,441 @@
+"""W06 real SQLite/path/policy checks with offline SDK boundary doubles."""
+import copy
+from enum import Enum
+import json
+from pathlib import Path
+import tempfile
+import types
+import unittest
+from unittest.mock import patch
+import test_planner as tp
+
+
+class Sources:
+    def __init__(self):
+        self.items = []
+        self.cloud = {}
+        self.fail_at = None
+        self.calls = []
+
+    def emby_page(self, service, library, start, limit):
+        self.calls.append((service, library, start, limit))
+        if start == self.fail_at:
+            raise ValueError('EMBY_HTTP_401')
+        return {'Items': copy.deepcopy(self.items[start:start + limit]), 'TotalRecordCount': len(self.items)}
+
+    def cloud_stat(self, scope, path, *, refresh=False, timeout=20):
+        value = self.cloud.get((scope, path))
+        if value is None:
+            raise ValueError('CLOUD_NOT_FOUND')
+        return dict(value, cloud_scope_id=scope, path=path)
+
+    def emby_item(self, service, library, item_id):
+        return copy.deepcopy(next(i for i in self.items if i['Id'] == item_id))
+
+    def classify_target(self, key):
+        return {'state': 'complete', 'policy_revision': 1, 'effective': {'category_id': 'movie', 'category_path': [], 'rule_id': 'r', 'source': 'policy'}}
+
+
+class ArchiveTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.r = tp.load('repository')
+        cls.p = tp.load('policy')
+        cls.a = tp.load('planner')
+        cls.s = tp.load('scheduler')
+        if (tp.PLUGIN / 'archive.py').exists():
+            cls.m = tp.load('archive')
+
+    def setUp(self):
+        self.assertTrue((tp.PLUGIN / 'archive.py').exists(), 'W06 archive missing')
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.strms = self.root / 'strms'
+        self.strms.mkdir()
+        self.repo = self.r.Repository(self.root / 'state.db')
+        self.policy = self.p.Policy({'movie': '外语电影'}, 1)
+        self.sources = Sources()
+        self.mapping = dict(id='movies', revision='1', emby_service='test', library_id='10',
+                            emby_prefix='/Emby/Movies', local_strm_prefix=str(self.strms),
+                            cloud_scope_id='cloud', playback_prefix='/Cloud/115/media',
+                            cd2_prefix='/115/media', max_strm_bytes=1024)
+        self.archive = self.m.Archive(self.repo, self.policy, self.sources, mappings=[self.mapping])
+        self.key = self.a.TargetUnit(self.r.Target('电影', 'themoviedb', '42')).key
+        self.item = self.media('old', '中文 {电影}.strm', 'a' * 40)
+
+    def media(self, item_id, name, sha1, height=2160):
+        cloud = '/115/media/' + name.removesuffix('.strm') + '.mkv'
+        (self.strms / name).write_text('\ufeff/Cloud' + cloud + '\n', encoding='utf-8')
+        self.sources.cloud['cloud', cloud] = dict(sha1=sha1, size=100, cd2_id=item_id, p115_id='')
+        item = dict(Id=item_id, Type='Movie', Path='/Emby/Movies/' + name, ProviderIds={'Tmdb': '42'},
+                    Name='Fiction', MediaSources=[dict(Id='source-' + item_id, Path='/Emby/Movies/' + name,
+                    MediaStreams=[dict(Type='Video', Height=height, Width=3840 if height == 2160 else 1920, Codec='hevc', VideoRange='SDR'),
+                                  dict(Type='Audio', Codec='aac', Language='eng')])])
+        self.sources.items.append(item)
+        return item
+
+    def test_scoped_two_stage_unicode_and_changed_target_with_identical_strm(self):
+        first = self.archive.resolve_item('test', '10', self.item)[0]
+        self.assertEqual('/115/media/中文 {电影}.mkv', first['video']['path'])
+        self.assertEqual('a' * 40, first['video']['sha1'])
+        self.sources.cloud['cloud', first['video']['path']]['sha1'] = 'b' * 40
+        second = self.archive.resolve_item('test', '10', self.item)[0]
+        self.assertNotEqual(first['version_id'], second['version_id'])
+        self.assertEqual('b' * 40, second['video']['sha1'])
+        with self.assertRaisesRegex(ValueError, 'OUTSIDE_LIBRARY'):
+            self.archive.resolve_item('other', '10', self.item)
+
+    def test_prefix_boundary_multiline_oversize_and_symlink_escape(self):
+        bad = copy.deepcopy(self.item)
+        bad['Path'] = bad['MediaSources'][0]['Path'] = '/Emby/MoviesElse/file.strm'
+        with self.assertRaisesRegex(ValueError, 'NO_MAPPING'):
+            self.archive.resolve_item('test', '10', bad)
+        path = self.strms / '中文 {电影}.strm'
+        for text, reason in [('one\ntwo', 'STRM_MULTILINE'), ('x' * 1025, 'STRM_TOO_LARGE'),
+                             ('/Cloud/115/mediaElse/file.mkv', 'NO_MAPPING'), ('https://host/a', 'UNSUPPORTED_TARGET')]:
+            path.write_text(text, encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, reason):
+                self.archive.resolve_item('test', '10', self.item)
+        outside = self.root / 'outside.strm'
+        outside.write_text('/Cloud/115/media/file.mkv')
+        path.unlink()
+        try:
+            path.symlink_to(outside)
+        except OSError:
+            self.skipTest('Windows symlink privilege unavailable; Linux gate remains')
+        with self.assertRaisesRegex(ValueError, 'PATH_ESCAPE'):
+            self.archive.resolve_item('test', '10', self.item)
+
+    def test_current_old_library_independent_item_id_churn_multi_versions(self):
+        self.media('second', 'copy.strm', 'b' * 40, height=1080)
+        result = self.archive.reconcile('test', '10')
+        self.assertEqual('COMPLETE', result['status'])
+        before = self.archive.current([self.key])[self.key]
+        self.assertEqual('PRESENT', before['state'])
+        self.assertEqual({1080, 2160}, {v.facts.resolution for v in before['versions']})
+        self.assertIsNone(before['revision'])
+        self.sources.items[0]['Id'] = 'reindexed'
+        self.sources.items[0]['MediaSources'][0]['Id'] = 'reindexed-source'
+        self.archive.reconcile('test', '10')
+        after = self.archive.current([self.key])[self.key]
+        self.assertEqual({v.version_id for v in before['versions']}, {v.version_id for v in after['versions']})
+        self.assertEqual([], self.repo.list_tasks())
+
+    def test_incomplete_scan_keeps_versions_error_never_missing_then_confirmed_absence(self):
+        self.media('second', 'copy.strm', 'b' * 40)
+        self.archive.reconcile('test', '10')
+        self.sources.fail_at = 1
+        result = self.archive.reconcile('test', '10', limits={'page_size': 1, 'pages': 2})
+        self.assertEqual('ERROR', result['status'])
+        current = self.archive.current([self.key])[self.key]
+        self.assertEqual('ERROR', current['state'])
+        self.assertEqual(2, len(current['versions']))
+        self.sources.fail_at = None
+        self.sources.items = []
+        self.archive.reconcile('test', '10')
+        self.assertEqual('UNKNOWN', self.archive.current([self.key])[self.key]['state'])
+        self.archive.reconcile('test', '10')
+        self.assertEqual('MISSING', self.archive.current([self.key])[self.key]['state'])
+
+    def test_paginated_restart_resumes_and_mapping_change_invalidates(self):
+        self.media('second', 'copy.strm', 'b' * 40)
+        first = self.archive.reconcile('test', '10', limits={'page_size': 1, 'pages': 1, 'items': 1})
+        self.assertEqual('INCOMPLETE', first['status'])
+        restarted = self.m.Archive(self.repo, self.policy, self.sources, mappings=[self.mapping])
+        result = restarted.reconcile('test', '10', scan_id=first['scan_id'], limits={'page_size': 1, 'pages': 2, 'items': 10})
+        self.assertEqual('COMPLETE', result['status'])
+        changed = self.m.Archive(self.repo, self.policy, self.sources, mappings=[dict(self.mapping, revision='2')])
+        self.assertEqual('UNKNOWN', changed.current([self.key])[self.key]['state'])
+
+    def test_scan_requires_readable_mount_and_commit_snapshot(self):
+        observation = self.archive.resolve_item('test', '10', self.item)[0]
+        (self.strms / '中文 {电影}.strm').write_text('/Cloud/115/media/replaced.mkv')
+        with self.assertRaisesRegex(ValueError, 'STRM_CHANGED'):
+            self.archive.validate_observation(observation)
+        self.sources.items = []
+        (self.strms / '中文 {电影}.strm').unlink()
+        self.strms.rmdir()
+        result = self.archive.reconcile('test', '10')
+        self.assertEqual('ERROR', result['status'])
+
+    def publication(self, planned_picture=0):
+        task = self.repo.submit('task', self.r.Target('电影', 'themoviedb', '42'), {}, 'test', 42, True)
+        self.repo.complete_handoff(task['id'], task['generation'])
+        self.task = task
+        self.s.Scheduler(self.repo).open_opportunity('o', task['id'], [self.a.TargetUnit(self.r.Target.from_task(task))],
+            mode='ONESHOT', config=self.s.ScheduleConfig(observation_enabled=False, cooldown_enabled=True, cooldown_seconds=600))
+        saved = self.sources.items
+        self.sources.items = []
+        self.archive.reconcile('test', '10', target_keys=[self.key])
+        self.archive.reconcile('test', '10', target_keys=[self.key])
+        self.sources.items = saved
+        auth = self.archive.authority
+        auth.set_revisions(self.policy.semantic_hash, 'parse')
+        current = self.archive.current([self.key])[self.key]
+        files = [dict(index=0, path='movie.mkv', size=100, role='video', targets=[self.key], requires=[1]),
+                 dict(index=1, path='movie.srt', size=5, role='subtitle', targets=[self.key], requires=[])]
+        spec = dict(candidate_key='release', infohash='f'*40, downloader='test', save_path='/download',
+                    policy_revision=self.policy.semantic_hash, parse_revision='parse', current={self.key:dict(state='MISSING',revision=current['revision'])},
+                    targets={self.key:dict(action='ACQUIRE',reason='MISSING',evidence_keys=[],quality=[2160,planned_picture,False,1,False,0],evidence_source='none')},
+                    torrent_files=files, selected_indices=[0,1], verified=dict(identity=True,scope=True,admission=True,files=True,configuration=True))
+        auth.prepare('plan','o',spec)
+        vector = auth.claim('plan',auth.vector([self.key]))
+        auth.set_transfer_phase('plan',vector,'READY_TO_PUBLISH')
+        auth.begin_publish('pub','plan',vector,[0,1],validation=dict(policy_revision=self.policy.semantic_hash,parse_revision='parse',
+            current_revisions={self.key:current['revision']},checks={self.key:dict(identity=True,admission=True,scope=True,not_excluded=True,current_allows=True,assets_complete=True,remote_verified=True)}))
+        video_path='/115/media/中文 {电影}.mkv'
+        self.sources.cloud['cloud','/115/media/movie.srt']=dict(sha1='c'*40,size=5,cd2_id='sub',p115_id='')
+        self.item['MediaSources'][0]['MediaStreams'].append(dict(Type='Subtitle',Codec='srt',Language='zho',IsExternal=True,Path='/Emby/Movies/movie.srt'))
+        self.manifest=dict(plan_id='plan',manifest_ref='manifest',assets=[dict(file_index=i['index'],relative_path=i['path'],role=i['role'],targets=i['targets'],requires=i['requires'],content=dict(sha1=('a' if i['index']==0 else 'c')*40,size=i['size'])) for i in files],
+            publication={self.key:dict(raw=dict(title='2160p REMUX 中文字幕',description='',labels=[],group_known=True),classification=self.sources.classify_target(self.key))})
+        self.consumer=dict(action_id='pub',settled=True,evidence_ref='consumer',assets=[dict(file_index=0,cloud_scope_id='cloud',path=video_path),dict(file_index=1,cloud_scope_id='cloud',path='/115/media/movie.srt')],emby=[dict(service='test',library_id='10',item_id='old')])
+        auth.record_result('pub','HANDED_OFF',dict(asset_manifest=self.manifest,consumer_receipt=self.consumer))
+
+    def test_confirm_all_assets_atomically_then_duplicate_never_writes(self):
+        self.assertTrue(hasattr(self.archive, 'confirm_ingest'), 'W06 confirmation missing')
+        self.publication()
+        self.sources.cloud.pop(('cloud','/115/media/movie.srt'))
+        with self.assertRaisesRegex(ValueError,'CLOUD_NOT_FOUND'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertIsNone(self.s.Scheduler(self.repo).target(self.key)['last_ingest_confirmed_at'])
+        self.sources.cloud['cloud','/115/media/movie.srt']=dict(sha1='c'*40,size=5,cd2_id='sub',p115_id='')
+        result=self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertTrue(result['accepted'])
+        current=self.archive.current([self.key])[self.key]
+        self.assertEqual('PRESENT',current['state'])
+        self.assertEqual(1,len(current['versions']))
+        self.assertIsNotNone(self.s.Scheduler(self.repo).target(self.key)['cooldown_until'])
+        self.assertFalse(self.archive.confirm_ingest('pub',self.manifest,self.consumer)['accepted'])
+        self.assertEqual(current['revision'],self.archive.current([self.key])[self.key]['revision'])
+        with self.repo.connection() as db:
+            self.assertEqual('ARCHIVED',db.execute("SELECT state FROM opportunities WHERE id='o'").fetchone()[0])
+            self.assertEqual(2,db.execute('SELECT count(*) FROM archive_assets').fetchone()[0])
+
+    def test_confirm_rolls_back_receipts_and_clocks_on_archive_failure(self):
+        self.assertTrue(hasattr(self.archive, 'confirm_ingest'), 'W06 confirmation missing')
+        self.publication()
+        with patch.object(self.archive,'_store_version',side_effect=RuntimeError('injected archive failure')):
+            with self.assertRaisesRegex(RuntimeError,'injected'):
+                self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertIsNone(self.s.Scheduler(self.repo).target(self.key)['last_ingest_confirmed_at'])
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT count(*) FROM ingest_receipts').fetchone()[0])
+            self.assertEqual('HANDED_OFF',db.execute("SELECT state FROM plan_actions WHERE id='pub'").fetchone()[0])
+
+    def test_stale_ingest_receipt_cannot_promote_archive(self):
+        self.assertTrue(hasattr(self.archive, 'confirm_ingest'), 'W06 confirmation missing')
+        self.publication()
+        self.repo.set_state(self.task['id'],'PAUSED','test')
+        result=self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertFalse(result['accepted'])
+        self.assertTrue(result['receipt_only'])
+        self.assertEqual('MISSING',self.archive.current([self.key])[self.key]['state'])
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT count(*) FROM archive_versions').fetchone()[0])
+
+    def test_public_emby_response_falsey_error_and_explicit_parent(self):
+        self.assertTrue(hasattr(self.m,'HostArchiveSources'),'W06 SDK adapter missing')
+        class Response:
+            status_code=401
+            closed=False
+            def __bool__(self):return False
+            def json(self):return {'Items':[],'TotalRecordCount':0}
+            def close(self):self.closed=True
+        response=Response(); urls=[]
+        instance=types.SimpleNamespace(get_data=lambda url: (urls.append(url),response)[1])
+        helper=types.SimpleNamespace(get_service=lambda name,type_filter:types.SimpleNamespace(instance=instance))
+        with patch.dict('sys.modules',{'app.sdk.services':types.SimpleNamespace(MediaServerHelper=lambda:helper)}):
+            sources=self.m.HostArchiveSources(types.SimpleNamespace(),cloud_scopes={},libraries={'test':['10']})
+            with self.assertRaisesRegex(ValueError,'EMBY_HTTP_401'):
+                sources.emby_page('test','10',0,10)
+            self.assertTrue(response.closed)
+            self.assertIn('ParentId=10',urls[0])
+            with self.assertRaisesRegex(ValueError,'OUTSIDE_LIBRARY'):
+                sources.emby_page('test','11',0,10)
+            response.status_code=200
+            self.assertEqual([],sources.emby_page('test','10',0,10)['Items'])
+
+    def enrichment(self, proven=True):
+        task=self.repo.submit('task',self.r.Target('电影','themoviedb','42'),{},'test',42,True)
+        self.repo.complete_handoff(task['id'],task['generation'])
+        self.s.Scheduler(self.repo).open_opportunity('o',task['id'],[self.a.TargetUnit(self.r.Target.from_task(task))],mode='ONESHOT',config=self.s.ScheduleConfig(observation_enabled=False))
+        self.archive.authority.set_revisions(self.policy.semantic_hash,'parse')
+        observed=self.archive.resolve_item('test','10',self.item)[0]
+        observed['raw']=dict(title='2160p REMUX 中文字幕',description='',labels=[],chinese_pgs=True,technical=observed['raw']['technical'],group_known=True)
+        with self.repo.connection(write=True) as db:
+            self.archive._store_version(db,observed)
+            self.archive._sync(db,self.key,'PRESENT','initial')
+        before=self.archive.current([self.key])[self.key]
+        raw=dict(title='2160p REMUX 特效字幕 中文字幕',description='',labels=[],group_known=True)
+        files=[dict(index=0,path='movie.mkv',size=100,role='video',targets=[self.key],requires=[])]
+        candidate=dict(raw,infohash='f'*40,torrent_files=files,classification=self.sources.classify_target(self.key),recognition=dict(status='OK',identity=['themoviedb','42']))
+        with self.repo.connection(write=True) as db:
+            db.execute('INSERT INTO candidates VALUES(?,?,?,?)',('release',json.dumps(candidate),'now','now'))
+        self.enrich_manifest=dict(candidate_key='release',manifest_ref='enrich-source',selected_indices=[0],
+            assets=[dict(file_index=0,relative_path='movie.mkv',role='video',targets=[self.key],requires=[],content=dict(sha1='a'*40,size=100))],
+            publication={self.key:dict(raw=raw,classification=self.sources.classify_target(self.key))},
+            association=dict(assets=[dict(file_index=0,cloud_scope_id='cloud',path='/115/media/中文 {电影}.mkv')],emby=[dict(service='test',library_id='10',item_id='old')]))
+        decision=self.policy.compare(self.policy.normalize(raw),before['versions'],self.sources.classify_target(self.key),same_assets_verified={observed['version_id']},identity_ok=True,scope_ok=True)
+        self.assertEqual('ENRICH_EVIDENCE',decision.action)
+        self.enrichments=[dict(target_key=self.key,current_revision=before['revision'],evidence_keys=list(decision.evidence_keys),policy_revision=self.policy.semantic_hash)]
+        if proven:
+            auth=self.archive.authority
+            spec=dict(candidate_key='release',infohash='f'*40,downloader='test',save_path='/download',policy_revision=self.policy.semantic_hash,parse_revision='parse',current={self.key:dict(state='PRESENT',revision=before['revision'])},targets={self.key:dict(action='EVIDENCE_UPGRADE',reason='EVIDENCE_UPGRADE',evidence_keys=list(decision.evidence_keys),quality=list(decision.rank),evidence_source='explicit')},torrent_files=files,selected_indices=[0],verified=dict(identity=True,scope=True,admission=True,files=True,configuration=True))
+            auth.prepare('source-plan','o',spec)
+            vector=auth.claim('source-plan',auth.vector([self.key]))
+            auth.begin_attempt('source-rapid','source-plan',vector,'RAPID',[0],dict(source='synthetic-test'))
+            auth.record_result('source-rapid','SUCCEEDED',dict(asset_manifest=dict(assets=self.enrich_manifest['assets'])))
+            auth.cancel('source-plan',vector,reason='NO_TRANSFER_NEEDED')
+        return task
+
+    def test_enrichment_consumes_once_without_publish_plan_or_cooldown(self):
+        self.assertTrue(hasattr(self.archive,'enrich_evidence'),'W06 enrichment missing')
+        self.enrichment()
+        result=self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)
+        self.assertTrue(result['accepted'])
+        self.assertEqual('explicit',self.archive.current([self.key])[self.key]['versions'][0].facts.evidence)
+        self.assertIsNone(self.s.Scheduler(self.repo).target(self.key)['last_ingest_confirmed_at'])
+        self.assertFalse(self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)['accepted'])
+        with self.repo.connection() as db:
+            self.assertEqual(1,db.execute('SELECT count(*) FROM plans').fetchone()[0])
+            self.assertEqual(0,db.execute("SELECT count(*) FROM plan_actions WHERE kind='PUBLISH'").fetchone()[0])
+            self.assertEqual(1,db.execute('SELECT count(*) FROM evidence_consumption').fetchone()[0])
+            self.assertEqual('ARCHIVED',db.execute("SELECT state FROM opportunities WHERE id='o'").fetchone()[0])
+
+    def test_enrichment_rolls_back_on_archive_failure_and_rejects_stale_cas(self):
+        self.assertTrue(hasattr(self.archive,'enrich_evidence'),'W06 enrichment missing')
+        self.enrichment()
+        with patch.object(self.archive,'_store_version',side_effect=RuntimeError('archive write')):
+            with self.assertRaises(RuntimeError):
+                self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT count(*) FROM evidence_consumption').fetchone()[0])
+        self.archive.authority.update_current(self.key,dict(state='UNKNOWN',evidence_ref='changed'),expected_revision=self.enrichments[0]['current_revision'])
+        with self.assertRaisesRegex(ValueError,'STALE_CURRENT'):
+            self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)
+
+    def test_scans_do_not_resurrect_replaced_path_and_retained_publication_assets(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.sources.cloud['cloud','/115/media/中文 {电影}.mkv']['sha1']='b'*40
+        self.archive.reconcile('test','10')
+        current=self.archive.current([self.key])[self.key]
+        self.assertEqual(1,len(current['versions']))
+        self.assertNotEqual('explicit',current['versions'][0].facts.evidence)
+        with self.repo.connection() as db:
+            self.assertEqual(2,db.execute('SELECT count(*) FROM archive_versions').fetchone()[0])
+            self.assertEqual(1,db.execute("SELECT count(*) FROM archive_locations WHERE state='REPLACED'").fetchone()[0])
+
+    def test_subtitle_must_be_associated_in_current_emby_streams(self):
+        self.publication()
+        self.item['MediaSources'][0]['MediaStreams']=[s for s in self.item['MediaSources'][0]['MediaStreams'] if s['Type']!='Subtitle']
+        with self.assertRaisesRegex(ValueError,'SUBTITLE_ASSOCIATION_MISSING'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+
+    def test_sdk_harness_reads_without_repository_or_policy(self):
+        self.assertTrue((tp.PLUGIN/'host_archive_contract.py').exists(),'W06 host harness missing')
+        host=tp.load('host_archive_contract')
+        fixture=dict(emby_service='subscriBetter Emby test',library_ids=['533548','533550'],cloud_scopes={},cloud_objects=[],limits=dict(page_size=10,pages=2,items=10))
+        fake=types.SimpleNamespace(emby_page=lambda *a:{'Items':[],'TotalRecordCount':0},close=lambda:None)
+        with patch.object(host,'HostArchiveSources',return_value=fake):
+            result=host.run_host_contract(types.SimpleNamespace(),phase='sdk',fixture=fixture)
+        self.assertEqual('PASS',result['status'])
+        self.assertFalse(result['final_ingest_confirmed'])
+        self.assertEqual(2,len(result['libraries']))
+
+    def test_schema5_migration_preserves_receipts_and_all_old_rows(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        with self.repo.connection(write=True) as db:
+            for table in ('archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
+                db.execute('DROP TABLE '+table)
+            db.execute('PRAGMA user_version=5')
+            tables=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
+            before={t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables}
+        migrated=self.r.Repository(self.repo.path)
+        with migrated.connection() as db:
+            self.assertEqual(6,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(before,{t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables})
+            self.assertEqual([],list(db.execute('PRAGMA foreign_key_check')))
+
+    def test_stale_cached_facts_do_not_remain_present_forever(self):
+        self.archive.reconcile('test','10')
+        with self.repo.connection(write=True) as db:
+            db.execute("UPDATE archive_targets SET updated_at='2000-01-01T00:00:00+00:00'")
+        self.assertEqual('UNKNOWN',self.archive.current([self.key])[self.key]['state'])
+
+    def test_resumed_old_scan_cannot_overwrite_newer_current(self):
+        self.media('second','copy.strm','b'*40)
+        first=self.archive.reconcile('test','10',limits=dict(page_size=1,pages=1,items=1))
+        self.sources.items[0]['MediaSources'][0]['MediaStreams'][0].update(Height=1080,Width=1920)
+        self.archive.reconcile('test','10')
+        result=self.archive.reconcile('test','10',scan_id=first['scan_id'])
+        self.assertNotEqual('COMPLETE',result['status'])
+        self.assertEqual({1080,2160},{v.facts.resolution for v in self.archive.current([self.key])[self.key]['versions']})
+
+    def test_prior_required_assets_are_rechecked_on_subsequent_current_scan(self):
+        self.publication()
+        self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.sources.cloud.pop(('cloud','/115/media/movie.srt'))
+        result=self.archive.reconcile('test','10')
+        self.assertEqual('ERROR',result['status'])
+        self.assertNotEqual('PRESENT',self.archive.current([self.key])[self.key]['state'])
+
+    def test_stream_quality_conflicting_with_authorized_plan_cannot_confirm(self):
+        self.publication(planned_picture=2)
+        with self.assertRaisesRegex(ValueError,'PLANNED_QUALITY_CONFLICT'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+
+    def test_raw_cloud_sdk_account_scope_hash_and_deadlines(self):
+        calls=[]
+        raw=types.SimpleNamespace(fullPathName='/115/media/movie.mkv',isDirectory=False,fileHashes={2:'A'*40},size=100,id='CD2-ID')
+        root=types.SimpleNamespace(fullPathName='/115',isDirectory=True,CloudAPI=types.SimpleNamespace(userName='42'))
+        def find(request,**kwargs):
+            calls.append((request.path,kwargs['timeout']))
+            return root if request.path=='/115' else raw
+        channel=types.SimpleNamespace(close=lambda:None)
+        client=types.SimpleNamespace(channel=channel,stub=types.SimpleNamespace(GetToken=lambda req,timeout:types.SimpleNamespace(success=True,token='synthetic'),FindFileByPath=find))
+        pb=types.SimpleNamespace(GetTokenRequest=lambda **k:types.SimpleNamespace(**k),FindFileByPathRequest=lambda **k:types.SimpleNamespace(**k))
+        configs={'CloudDriveDisk':dict(enabled=True,host='test.invalid',port=19798,username='synthetic',password='synthetic'),'P115Disk':dict(cookie='UID=42_test')}
+        sources=self.m.HostArchiveSources(types.SimpleNamespace(get_config=configs.get),cloud_scopes={'cloud':dict(root='/115',allowed_prefixes=['/115/media'])},libraries={})
+        with patch.dict('sys.modules',{'clouddrive2_client':types.SimpleNamespace(CloudDriveClient=lambda address:client),'clouddrive2_client.proto':types.SimpleNamespace(clouddrive_pb2=pb)}):
+            result=sources.cloud_stat('cloud','/115/media/movie.mkv')
+            self.assertEqual('a'*40,result['sha1'])
+            self.assertEqual('CD2-ID',result['cd2_id'])
+            self.assertEqual('',result['p115_id'])
+            self.assertEqual([('/115',20),('/115/media/movie.mkv',20)],calls)
+            with self.assertRaisesRegex(ValueError,'CLOUD_PATH_UNAUTHORIZED'):
+                sources.cloud_stat('cloud','/115/mediaElse/movie.mkv')
+            root.CloudAPI.userName='99'
+            with self.assertRaisesRegex(ValueError,'ACCOUNT_MISMATCH'):
+                sources.cloud_stat('cloud','/115/media/movie.mkv')
+            sources.close()
+            with self.assertRaisesRegex(ValueError,'ACCOUNT_MISMATCH'):
+                sources.cloud_stat('cloud','/115/media/movie.mkv')
+
+    def test_enrichment_cannot_backfill_candidate_hash_from_current_cloud_file(self):
+        self.enrichment(proven=False)
+        with self.assertRaisesRegex(ValueError,'SOURCE_ASSETS_UNVERIFIED'):
+            self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)
+
+    def test_public_classification_passes_media_type_and_rejects_same_id_wrong_type(self):
+        class MediaType(Enum):
+            MOVIE='电影'
+            TV='电视剧'
+        calls=[]
+        media=types.SimpleNamespace(type=MediaType.MOVIE)
+        chain=types.SimpleNamespace(run_module=lambda name,**kw:(calls.append(kw),media)[1])
+        import importlib
+        adapter=importlib.import_module('w04_subscribetter.candidates').HostCandidateAdapter
+        sources=self.m.HostArchiveSources(types.SimpleNamespace(),cloud_scopes={},libraries={})
+        with patch.dict('sys.modules',{'app.chain.media':types.SimpleNamespace(MediaChain=lambda:chain),'app.sdk.media':types.SimpleNamespace(normalize_media_source=lambda value:value),'app.schemas.types':types.SimpleNamespace(MediaType=MediaType)}),patch.object(adapter,'identity',return_value=('themoviedb','42')),patch.object(adapter,'classify',return_value={'state':'complete'}):
+            self.assertEqual({'state':'complete'},sources.classify_target(self.key))
+            self.assertEqual(MediaType.MOVIE,calls[-1].get('mtype'))
+            media.type=MediaType.TV
+            with self.assertRaisesRegex(ValueError,'IDENTITY_CONFLICT'):
+                sources.classify_target(self.key)
+
+
+if __name__ == '__main__':
+    unittest.main()

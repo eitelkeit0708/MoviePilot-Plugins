@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 5:
+            if revision > 6:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -125,6 +125,32 @@ class Repository:
                 db.execute("CREATE TABLE exclusions (id TEXT PRIMARY KEY, criteria TEXT NOT NULL, reason TEXT NOT NULL, expires_at TEXT, active INTEGER NOT NULL DEFAULT 1)")
                 db.execute("CREATE TABLE organized_assets (plan_id TEXT NOT NULL REFERENCES plans(id), file_index INTEGER NOT NULL, source TEXT NOT NULL, destination TEXT, size INTEGER NOT NULL, sha256 TEXT, state TEXT NOT NULL, evidence TEXT NOT NULL, PRIMARY KEY(plan_id,file_index))")
                 db.execute("PRAGMA user_version=5")
+            if revision < 6:
+                # Evidence enrichment has no transfer plan. Keep the existing receipt
+                # and consumption domain; only the plan reference becomes optional.
+                db.execute('CREATE TEMP TABLE kept_evidence AS SELECT * FROM evidence_consumption')
+                db.execute('DROP TABLE evidence_consumption')
+                db.execute('CREATE TABLE ingest_receipts_v6 (id TEXT PRIMARY KEY, plan_id TEXT REFERENCES plans(id), target_key TEXT NOT NULL REFERENCES target_units(target_key), generation INTEGER NOT NULL, version_id TEXT NOT NULL, evidence TEXT NOT NULL, at TEXT NOT NULL)')
+                db.execute('INSERT INTO ingest_receipts_v6 SELECT * FROM ingest_receipts')
+                db.execute('DROP TABLE ingest_receipts')
+                db.execute('ALTER TABLE ingest_receipts_v6 RENAME TO ingest_receipts')
+                db.execute('CREATE TABLE evidence_consumption (evidence_key TEXT PRIMARY KEY, receipt_id TEXT NOT NULL REFERENCES ingest_receipts(id))')
+                db.execute('INSERT INTO evidence_consumption SELECT * FROM kept_evidence')
+                db.execute('DROP TABLE kept_evidence')
+                for statement in (
+                    "CREATE TABLE archive_targets (target_key TEXT PRIMARY KEY, state TEXT NOT NULL, revision TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL)",
+                    "CREATE TABLE archive_versions (id TEXT PRIMARY KEY, target_key TEXT NOT NULL REFERENCES archive_targets(target_key), service TEXT NOT NULL, library TEXT NOT NULL, active INTEGER NOT NULL, data TEXT NOT NULL)",
+                    "CREATE INDEX archive_version_target ON archive_versions(target_key,active)",
+                    "CREATE TABLE archive_contents (id TEXT PRIMARY KEY, sha1 TEXT NOT NULL, size INTEGER NOT NULL, UNIQUE(sha1,size))",
+                    "CREATE TABLE archive_locations (id TEXT PRIMARY KEY, content_id TEXT NOT NULL REFERENCES archive_contents(id), scope TEXT NOT NULL, path TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL)",
+                    "CREATE INDEX archive_location_path ON archive_locations(scope,path)",
+                    "CREATE TABLE archive_assets (version_id TEXT NOT NULL REFERENCES archive_versions(id), file_index INTEGER NOT NULL, location_id TEXT NOT NULL REFERENCES archive_locations(id), data TEXT NOT NULL, PRIMARY KEY(version_id,file_index,location_id))",
+                    "CREATE TABLE archive_sources (id TEXT PRIMARY KEY, version_id TEXT NOT NULL REFERENCES archive_versions(id), data TEXT NOT NULL, at TEXT NOT NULL)",
+                    "CREATE TABLE archive_scans (id TEXT PRIMARY KEY, service TEXT NOT NULL, library TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL)",
+                    "CREATE TABLE archive_scan_items (scan_id TEXT NOT NULL REFERENCES archive_scans(id), item_id TEXT NOT NULL, data TEXT NOT NULL, resolved TEXT, PRIMARY KEY(scan_id,item_id))",
+                    "PRAGMA user_version=6",
+                ):
+                    db.execute(statement)
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:
