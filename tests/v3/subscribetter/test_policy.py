@@ -330,6 +330,66 @@ class PolicyTests(unittest.TestCase):
             self.c["state"] = state
             self.assertEqual(status, self.admit(self.facts()).status)
 
+    def test_review_F1_incomplete_text_cannot_prove_negative_filters(self):
+        for category, subtitle in [("国产剧", "中文字幕"), ("欧美剧", "特效中文字幕")]:
+            self.p = self.m.Policy({"stable-id": category}, 7)
+            title = f"2160p WEB-DL -HHWEB {subtitle}"
+            for field in ["description", "labels", "subtitle_description"]:
+                with self.subTest(category=category, missing=field):
+                    partial = self.facts(title, missing_fields=[field])
+                    self.assertIsNone(partial.base)
+                    self.assertEqual("DEFER", self.admit(partial).status)
+                    complete = self.facts(title, **{field: ["ISO"] if field == "labels" else "ISO"})
+                    self.assertEqual("REJECT", self.admit(complete).status)
+        # A custom condition must see the same missing merged-text dependency even
+        # if all built-in fields are explicitly replaced by field-independent rules.
+        overrides = {name: {"literal": True} for name in ["GeneralFilter", "Resolution4K", "OfficialGroup",
+                     "WEBDL", "RemuxSource", "MovieSource", "HighBitrate", "DolbyVision", "LosslessAudio",
+                     "MandarinAudio", "ChineseSubtitles", "SpecialSubtitles", "HHWEBGroup", "VCBGroup",
+                     "BGlobal", "AnimePlatform"]}
+        self.p = self.m.Policy({"stable-id": "欧美剧"}, 7, overrides=overrides,
+                              admission={"not": {"regex": ["text", "ISO"]}})
+        self.assertEqual("DEFER", self.admit(self.facts(missing_fields=["description"])).status)
+
+    def test_review_F2_movie_source_override_is_independent_of_web_label(self):
+        override = {"MovieSource": {"regex": ["text", "-LocalOnly"]}}
+        for category in ["华语电影", "外语电影", "动画电影", "欧美剧", "日韩剧", "港台剧", "纪录片"]:
+            self.p = self.m.Policy({"stable-id": category}, 7, overrides=override)
+            with self.subTest(category=category):
+                f = self.facts()
+                self.assertEqual("web", f.source)
+                self.assertEqual("REJECT", self.admit(f).status)
+                self.assertEqual("ALLOW", self.admit(self.facts("2160p WEB-DL -HHWEB -LocalOnly 中文字幕")).status)
+                self.assertEqual("ALLOW", self.admit(self.facts("2160p REMUX -HHWEB 中文字幕")).status)
+        self.p = self.m.Policy({"stable-id": "国产剧"}, 7, overrides=override)
+        self.assertEqual("ALLOW", self.admit(self.facts()).status)
+        self.p = self.m.Policy({"stable-id": "欧美剧"}, 7, overrides={"MovieSource": {"ge": ["size", 100]}})
+        self.assertEqual("DEFER", self.admit(self.facts()).status)
+
+    def test_review_F3_unknown_admission_predicate_preserves_current_profile(self):
+        overrides = [self.m.import_legacy_overrides([{"id": "OfficialGroup", "include": "-HHWEB", "exclude": "",
+                                                     "tmdb": {"origin_country": "CN"}}]),
+                     {"OfficialGroup": {"ge": ["size", 100]}},
+                     {"GeneralFilter": {"ge": ["size", 100]}},
+                     {"MovieSource": {"ge": ["size", 100]}}]
+        for override in overrides:
+            self.p = self.m.Policy({"stable-id": "欧美剧"}, 7, overrides=override)
+            with self.subTest(override=override):
+                candidate = self.facts(size=200)
+                old = self.facts("1080p WEB-DL 中文字幕", current=True)
+                self.assertEqual((1080, 0, 0), (old.resolution, old.picture, old.audio))
+                self.assertEqual("QUALITY_UPGRADE", self.compare(candidate, old).reason)
+        self.p = self.m.Policy({"stable-id": "日番"}, 7, overrides=overrides[0])
+        old = self.facts("1080p 中文字幕", current=True)
+        self.assertEqual(1080, old.resolution)
+        self.assertEqual("DEFER", self.compare(self.facts("1080p -VCB-Studio 中文字幕"), old).status)
+
+    def test_review_cached_facts_require_new_normalization_contract(self):
+        # The previous release fingerprinted only predicate data, so a persisted
+        # partial-text ALLOW could otherwise survive this evaluator bug fix.
+        stale = replace(self.facts(), predicate_hash=self.m._hash(self.p.rules))
+        self.assertEqual("FACTS_REQUIRE_RENORMALIZATION", self.admit(stale).reason)
+
 
 if __name__ == "__main__":
     unittest.main()

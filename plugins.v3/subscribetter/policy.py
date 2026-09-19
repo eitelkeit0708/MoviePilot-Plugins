@@ -225,6 +225,9 @@ def import_legacy_overrides(records: list[dict]) -> dict:
 class _Evaluator:
     def __init__(self, rules, data):
         self.rules, self.data = rules, data
+        self.missing = set(data.get("missing_fields", ()))
+        if self.missing & {"title", "description", "labels", "subtitle_description"}:
+            self.missing.add("text")
         self.deadline = time.monotonic() + EVALUATION_TIMEOUT
         self.cache = {}
         self.nodes = 0
@@ -257,7 +260,7 @@ class _Evaluator:
             return args
         name, expected = args
         actual = self.data.get(name)
-        if actual is None:
+        if actual is None or name in self.missing:
             raise MissingEvidence("FIELD_MISSING:" + name)
         if op == "regex":
             if isinstance(actual, (list, tuple)):
@@ -298,6 +301,7 @@ class Facts:
     missing: tuple[str, ...] = ()
     raw: Mapping = field(default_factory=dict, repr=False, compare=False)
     predicate_hash: str = ""
+    source_admission: Mapping = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -347,6 +351,16 @@ def _lock_value(name, value):
     return value
 
 
+def _first_known(choices, default=None):
+    """Unknown higher-precedence evidence cannot silently become a lower tier."""
+    for matches, value in choices:
+        if matches is None:
+            return None
+        if matches:
+            return value
+    return default
+
+
 class Policy:
     def __init__(self, bindings: Mapping[str, str], classification_revision: int, *, overrides=None, admission=None):
         self.bindings = _bounded_copy(dict(bindings))
@@ -359,7 +373,7 @@ class Policy:
             import_predicates({**custom, "__admission__": admission})
         self.rules = {**_DEFAULT_RULES, **custom}
         self.admission = _bounded_copy(admission) if admission is not None else {"literal": True}
-        self.predicate_hash = _hash(self.rules)
+        self.predicate_hash = _hash({"normalization": 2, "rules": self.rules})
         self.semantic_hash = _hash({"semantics": 1, "categories": CATEGORIES, "bindings": self.bindings,
                                     "rules": self.rules, "admission": self.admission})
 
@@ -388,22 +402,38 @@ class Policy:
             if len(data["text"]) > MAX_TEXT:
                 raise ValueError("TEXT_LIMIT")
             evaluator = _Evaluator(self.rules, data)
-            p = lambda name: evaluator.evaluate({"registered": name})
-            resolution = 2160 if p("Resolution4K") else 1080 if p("Resolution1080") else None
-            if resolution is None and regex.search(
+
+            def evaluate(node):
+                try:
+                    return evaluator.evaluate(node)
+                except MissingEvidence:
+                    # Missing admission-only facts must not erase known quality.
+                    name = node.get("registered", "composite")
+                    marker = "predicate:" + name
+                    if marker not in missing:
+                        missing.append(marker)
+                    return None
+
+            p = lambda name: evaluate({"registered": name})
+            resolution4k, resolution1080 = p("Resolution4K"), p("Resolution1080")
+            resolution = _first_known(((resolution4k, 2160), (resolution1080, 1080)))
+            if resolution4k is False and resolution1080 is False and regex.search(
                     r"(?<![A-Za-z0-9])(?:720[pi]|480[pi]|576[pi]|4320p|8k|1280[x×]720|x720)(?![A-Za-z0-9])",
                     data["text"], regex.I, timeout=REGEX_TIMEOUT):
                 resolution = 0  # Explicit unsupported resolution, distinct from missing evidence.
-            picture = 2 if p("DolbyVision") else 1 if p("HDRVideo") else 0
-            audio = 3 if p("LosslessAudio") else 2 if p("ImmersiveAudio") else 1 if p("DolbyPlus") else 0
-            source = "remux" if p("RemuxSource") else "web" if p("WEBDL") else "bluray" if p("MovieSource") else None
+            picture = _first_known(((p("DolbyVision"), 2), (p("HDRVideo"), 1)), 0)
+            audio = _first_known(((p("LosslessAudio"), 3), (p("ImmersiveAudio"), 2), (p("DolbyPlus"), 1)), 0)
+            remux, web, movie = p("RemuxSource"), p("WEBDL"), p("MovieSource")
+            source = _first_known(((remux, "remux"), (web, "web"), (movie, "bluray")))
+            source_admission = {"web": web, "movie": evaluate({"any": [
+                {"registered": "RemuxSource"}, {"registered": "MovieSource"}]})}
             hq = p("HighBitrate")
-            chinese_subtitles = p("ChineseSubtitles")
-            special = chinese_subtitles and p("SpecialSubtitles")
-            evidence = "explicit" if special else "none"
+            special = evaluate({"all": [{"registered": "ChineseSubtitles"}, {"registered": "SpecialSubtitles"}]})
+            evidence = "explicit" if special else "unknown" if special is None else "none"
             if current and not special and data.get("chinese_pgs") is True:
                 special, evidence = True, "inferred_pgs"
-            language = p("MandarinAudio") or chinese_subtitles or (p("NativeLanguageGuard") and p("CNSUB"))
+            language = evaluate({"any": [{"registered": "MandarinAudio"}, {"registered": "ChineseSubtitles"},
+                                         {"all": [{"registered": "NativeLanguageGuard"}, {"registered": "CNSUB"}]}]})
             official, hhweb, vcb = p("OfficialGroup"), p("HHWEBGroup"), p("VCBGroup")
             bglobal, anime_platform = p("BGlobal"), p("AnimePlatform")
             # Do not turn an absent release group in an existing file into a low anime tier.
@@ -434,12 +464,8 @@ class Policy:
             audio = technical.get("audio", audio)
             result = Facts(resolution, picture, source, hq, audio, special, evidence, official, hhweb,
                            vcb, bglobal, anime_platform, group, platform, language, p("GeneralFilter"),
-                           bool(current), tuple(errors), tuple(missing), MappingProxyType(data), self.predicate_hash)
-            # Positive evidence remains positive; omitted RSS fields cannot prove absence.
-            if {"description", "labels", "subtitle_description"} & set(missing):
-                result = replace(result, special_zh_subtitles=True if special else None,
-                                 evidence=evidence if special else "unknown",
-                                 language=True if language else None)
+                           bool(current), tuple(errors), tuple(missing), MappingProxyType(data), self.predicate_hash,
+                           MappingProxyType(source_admission))
             dimensions = {"resolution", "picture", "source", "hq", "audio", "special_zh_subtitles",
                           "official", "hhweb", "vcb", "bglobal", "anime_platform", "group", "platform", "language", "base"}
             changes = {key: None for key in set(missing) & dimensions}
@@ -455,8 +481,6 @@ class Policy:
             return result
         except TimeoutError:
             return Facts(current=bool(current), errors=("PREDICATE_TIMEOUT",), predicate_hash=self.predicate_hash)
-        except MissingEvidence as exc:
-            return Facts(current=bool(current), missing=(str(exc),), predicate_hash=self.predicate_hash)
         except (ValueError, TypeError, KeyError, regex.error):
             return Facts(current=bool(current), errors=("INVALID_FACTS",), predicate_hash=self.predicate_hash)
 
@@ -555,6 +579,9 @@ class Policy:
             return self._decision("DEFER", "RESOLUTION_EVIDENCE_MISSING", category)
         if facts.resolution not in resolutions:
             return self._decision("REJECT", "RESOLUTION_NOT_ALLOWED", category)
+        if source != "any" and facts.source_admission.get(source) is not True:
+            allowed = facts.source_admission.get(source)
+            return self._decision("DEFER" if allowed is None else "REJECT", "SOURCE_PREDICATE", category)
         if source != "any" and (facts.source is None or source == "web" and facts.source != "web"):
             return self._decision("DEFER" if "source" in facts.missing else "REJECT", "SOURCE_NOT_ALLOWED", category)
         if group in {"official", "hhweb"} and getattr(facts, group) is not True:
