@@ -413,6 +413,121 @@ class ExecutionTests(unittest.TestCase):
             host.transfer(source/'shared.ttf',dest,files[2],dict(torrent_files=files,save_path=str(source)))
         self.assertEqual(2,len(calls))
 
+    def test_subtitle_languages_tracks_and_idx_sub_keep_exact_public_names(self):
+        from types import ModuleType,SimpleNamespace
+        from unittest.mock import patch
+        import sys,shutil
+        names=['Show.S01E02.en.srt','Show.S01E02.zh-Hans.srt','Show.S01E02.zh-Hant.idx','Show.S01E02.zh-Hant.sub','Show.S01E02.en.forced.srt','Show.S01E02.en.SDH.srt','Show.S01E02.en.commentary.srt']
+        files=load('candidates').bind_files([('Pack/Show.S01E02.1080p.mkv',1)]+[('Pack/'+name,1) for name in names],self.r.Target('电视剧','tmdb','42',1))
+        for group in ('group-a','group-b'):
+            start=len(files)
+            for ext in ('idx','sub'):
+                files.append(dict(index=len(files),path=f'Pack/{group}/Show.S01E02.zh.{ext}',size=1,role='subtitle',targets=files[1]['targets'],requires=[start+(1 if ext=='idx' else 0)]))
+        root=Path(self.tmp.name);source=root/'tracks';source.mkdir();dest=root/'sub-dest';dest.mkdir()
+        video=dest/'Organized.S01E02.1080p.mkv';video.write_bytes(b'v');calls=[]
+        class Chain:
+            def plan_transfer(inner,**kw):
+                name=video.stem+'.'+kw['fileitem'].extension if kw['target_directory'].renaming else kw['fileitem'].name
+                return SimpleNamespace(final_target_path=Path(kw['target_path'])/name)
+            def transfer(inner,**kw):
+                out=inner.plan_transfer(**kw).final_target_path
+                self.assertFalse(out.exists());shutil.copyfile(kw['fileitem'].path,out);calls.append(kw)
+                return SimpleNamespace(success=True,target_item=SimpleNamespace(path=str(out)))
+        modules={}
+        for name,values in {'app.chain.transfer':{'TransferChain':Chain},'app.sdk.media':{'MetaInfoPath':lambda p:SimpleNamespace()},'app.schemas.file':{'FileItem':SimpleNamespace},'app.schemas.system':{'TransferDirectoryConf':SimpleNamespace}}.items():
+            module=ModuleType(name);module.__dict__.update(values);modules[name]=module
+        host=self.e.HostOrganization(None);host.transfer_receipt=lambda *a:True;host.video_outputs={0:video};outputs=[]
+        with patch.dict(sys.modules,modules):
+            for n,item in enumerate(files[1:]):
+                src=source/item['path'];src.parent.mkdir(parents=True,exist_ok=True);src.write_bytes(bytes([n]))
+                output=host.transfer(src,dest,item,dict(torrent_files=files,save_path=str(source)))
+                self.assertEqual(src.read_bytes(),output.read_bytes());outputs.append(output)
+            long_item=dict(files[1],path='Pack/'+('long'*70)+'.en.srt')
+            with self.assertRaisesRegex(ValueError,'TRANSFER_NAME_TOO_LONG'):
+                host.prepare_transfer(source/files[1]['path'],dest,long_item,dict(torrent_files=[files[0],long_item],save_path=str(source)))
+        self.assertEqual(len(files)-1,len(set(outputs)))
+        self.assertEqual(outputs[2].stem,outputs[3].stem)
+        self.assertEqual(outputs[-4].stem,outputs[-3].stem);self.assertEqual(outputs[-2].stem,outputs[-1].stem)
+        self.assertNotEqual(outputs[-4].stem,outputs[-2].stem)
+        for item,output,call in zip(files[1:],outputs,calls):
+            original=Path(item['path']).name
+            self.assertIn(Path(original).stem,output.stem)
+            self.assertTrue(output.name.startswith(video.stem+'.'))
+            self.assertFalse(call['target_directory'].renaming)
+            self.assertEqual('never',call['target_directory'].overwrite_mode)
+            self.assertEqual(str(source/item['path']),call['fileitem'].path)
+
+    def test_legacy_subtitle_preflight_settles_only_proven_not_sent_and_preserves_completed(self):
+        from types import ModuleType,SimpleNamespace
+        from unittest.mock import patch
+        import sys,shutil,json
+        self.auth.cancel('plan',self.auth.vector([self.keys[1]]),reason='fixture')
+        self.files[2]['path']='E02.zh-Hans.srt'
+        self.files.append(dict(index=3,path='E02.en.srt',size=12,role='subtitle',targets=[self.keys[1]],requires=[]))
+        spec=deepcopy(self.spec);spec.update(torrent_files=self.files,selected_indices=[1,2,3])
+        self.auth.prepare('recovery','round',spec,now=NOW);self.auth.claim('recovery',self.auth.vector([self.keys[1]]),now=NOW)
+        self.client.files=lambda h:[dict(id=f['index'],path=f['path'],size=f['size'],wanted=f['index'] in self.client.wanted,completed=f['size']) for f in self.files]
+        self.assertEqual('PAUSED_VERIFIED',self.executor.execute('recovery',b'torrent')['state'])
+        source=Path(self.tmp.name)/'legacy-source';source.mkdir();dest=Path(self.tmp.name)/'legacy-target';dest.mkdir()
+        for f in self.files:(source/f['path']).write_bytes(bytes([f['index']])*f['size'])
+        video=dest/'Renamed.E02.mkv';shutil.copyfile(source/'E02.mkv',video)
+        english=dest/'Renamed.E02.srt';shutil.copyfile(source/'E02.en.srt',english)
+        vector=self.auth.vector([self.keys[1]])
+        with self.repo.connection(write=True) as db:
+            for i,out,state in ((1,video,'COMPLETE'),(2,None,'AUTHORIZED'),(3,english,'COMPLETE')):
+                src=source/self.files[i]['path'];ev=dict(vector=vector,target_root=str(dest),indices=[1,2,3],source_mtime_ns=src.stat().st_mtime_ns,exclusions_token=self.executor.exclusions.token())
+                db.execute('INSERT INTO organized_assets VALUES(?,?,?,?,?,?,?,?)',('recovery',i,str(src),str(out) if out else None,self.files[i]['size'],self.e.digest(src),state,json.dumps(ev)))
+        src=source/self.files[2]['path']
+        self.executor._mutation(self.auth.plan('recovery'),[1,2,3],vector,'history','ORGANIZE',lambda:True,dict(paths=[str(source/self.files[i]['path']) for i in [1,2,3]],content_sha1=[self.e.asset_hashes(source/self.files[i]['path'])[1] for i in [1,2,3]]))
+        old=self.auth.begin_attempt('legacy-subtitle','recovery',vector,'ORGANIZE',[1,2,3],dict(verb='organize:2',file_index=2,source=str(src),target_root=str(dest),sha256=self.e.digest(src)))
+        self.assertTrue(old['dispatch']);copies=[];history={}
+        class Chain:
+            def plan_transfer(inner,**kw):
+                name=video.stem+'.'+kw['fileitem'].extension if kw['target_directory'].renaming else kw['fileitem'].name
+                return SimpleNamespace(final_target_path=Path(kw['target_path'])/name)
+            def transfer(inner,**kw):
+                out=inner.plan_transfer(**kw).final_target_path;self.assertFalse(out.exists())
+                shutil.copyfile(kw['fileitem'].path,out);copies.append(kw['fileitem'].path)
+                history[kw['fileitem'].path]=SimpleNamespace(src=kw['fileitem'].path,dest=str(out),dest_storage='local',status=True,media_source='tmdb',media_id='42')
+                return SimpleNamespace(success=True,target_item=SimpleNamespace(path=str(out)))
+        class Hist:
+            def get_by_src(inner,src,storage=None):return history.get(src)
+            def get_success_by_src(inner,src,storage=None):return history.get(src)
+        modules={}
+        for name,values in {'app.chain.transfer':{'TransferChain':Chain},'app.sdk.media':{'MetaInfoPath':lambda p:SimpleNamespace()},'app.schemas.file':{'FileItem':SimpleNamespace},'app.schemas.system':{'TransferDirectoryConf':SimpleNamespace},'app.db.oper.transferhistory':{'TransferHistoryOper':Hist}}.items():
+            module=ModuleType(name);module.__dict__.update(values);modules[name]=module
+        host=self.e.HostOrganization(None,repository=self.repo);host.history=lambda *a:True;host.video_outputs={1:video}
+        org=self.e.Organizer(self.executor,host,source_root=lambda s:source)
+        with patch.dict(sys.modules,modules):
+            proposed=host.prepare_transfer(src,dest,self.files[2],spec)['planned'];proposed.write_bytes(b'unrelated')
+            with self.repo.connection() as db:before=db.execute('SELECT COUNT(*) FROM plan_actions').fetchone()[0]
+            preflight=org.organize('recovery',dest)
+            self.assertEqual('DESTINATION_ALREADY_EXISTS',preflight['reason'])
+            with self.repo.connection() as db:self.assertEqual(before,db.execute('SELECT COUNT(*) FROM plan_actions').fetchone()[0])
+            proposed.unlink()
+            self.assertEqual('BLOCKED',org.organize('recovery',dest)['state']);self.assertEqual([],copies)
+            self.auth.record_result('legacy-subtitle','UNKNOWN',{'code':'CLIENT_RESPONSE_UNKNOWN'})
+            with self.repo.connection(write=True) as db:db.execute("UPDATE organized_assets SET destination=? WHERE plan_id='recovery' AND file_index=2",(str(dest/'possibly-sent.srt'),))
+            self.assertEqual('BLOCKED',org.organize('recovery',dest)['state']);self.assertEqual([],copies)
+            # Restore the independent NOT_SENT fixture: production never clears this field.
+            with self.repo.connection(write=True) as db:db.execute("UPDATE organized_assets SET destination=NULL WHERE plan_id='recovery' AND file_index=2")
+            history[str(src)]=SimpleNamespace(src=str(src))
+            self.assertEqual('BLOCKED',org.organize('recovery',dest)['state']);self.assertEqual([],copies)
+            history.clear();settle=self.executor.authority.settle_legacy_preflight
+            def race(*args,**kw):
+                self.e.Exclusions(self.repo).add('preflight-race',{'targets':[self.keys[1]]},reason='race')
+                return settle(*args,**kw)
+            self.executor.authority.settle_legacy_preflight=race
+            self.assertEqual('BLOCKED',org.organize('recovery',dest)['state']);self.assertEqual([],copies)
+            self.assertEqual('UNKNOWN',self.auth.action('legacy-subtitle')['state'])
+            self.executor.authority.settle_legacy_preflight=settle;self.e.Exclusions(self.repo).revoke('preflight-race')
+            result=org.organize('recovery',dest);self.assertEqual('COMPLETE',result['state'],result)
+            self.assertEqual('COMPLETE',org.organize('recovery',dest)['state'])
+        self.assertEqual([str(src)],copies)
+        self.assertEqual('FAILED',self.auth.action('legacy-subtitle')['state'])
+        self.assertEqual(self.e.digest(source/'E02.en.srt'),self.e.digest(english))
+        self.assertEqual(self.e.digest(source/'E02.mkv'),self.e.digest(video))
+
     def test_partial_public_history_compensates_only_missing_rows_without_replay(self):
         from types import ModuleType,SimpleNamespace
         from unittest.mock import patch

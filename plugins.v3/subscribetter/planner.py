@@ -419,6 +419,31 @@ class Authority:
             action_id='history-repair:'+sha256(encoded(data).encode()).hexdigest()
             return self._begin(db,action_id,original['plan_id'],vector,'ORGANIZE',json.loads(original['files']),data,now,reconciles=reconciles)
 
+    def settle_legacy_preflight(self,action_id,vector,proof,*,exclusion_token,now=None):
+        """Settle the old destination-NULL, returned pre-copy collision only.
+
+        Legacy HostOrganization persisted destination before calling transfer.
+        No newer naming operation or possibly sent copy can use this settlement.
+        """
+        with self.repository.connection(write=True) as db:
+            action=db.execute("SELECT * FROM plan_actions WHERE id=? AND kind='ORGANIZE' AND state='UNKNOWN'",(action_id,)).fetchone()
+            if not action or action['targets']!=encoded(vector):raise ValueError('PREFLIGHT_SETTLEMENT_UNPROVEN')
+            payload=json.loads(action['payload'])
+            if payload.get('verb')!='organize:'+str(payload.get('file_index')) or 'naming_revision' in payload or proof.get('code')!='LEGACY_PREFLIGHT_COLLISION_V1' or proof.get('native_history_count')!=0 or proof.get('target_root')!=payload.get('target_root'):
+                raise ValueError('PREFLIGHT_SETTLEMENT_UNPROVEN')
+            asset=db.execute('SELECT * FROM organized_assets WHERE plan_id=? AND file_index=?',(action['plan_id'],payload['file_index'])).fetchone()
+            if not asset or asset['state']!='AUTHORIZED' or asset['destination'] is not None or asset['source']!=payload.get('source') or asset['sha256']!=payload.get('sha256') or asset['sha256']!=proof.get('source_sha256'):
+                raise ValueError('PREFLIGHT_SETTLEMENT_UNPROVEN')
+            collision=db.execute("SELECT * FROM organized_assets WHERE plan_id=? AND file_index!=? AND state='COMPLETE' AND destination=? AND sha256=?",(action['plan_id'],asset['file_index'],proof.get('collision_destination'),proof.get('collision_sha256'))).fetchone()
+            returned=any(json.loads(r[0]).get('code')=='CLIENT_RESPONSE_UNKNOWN' for r in db.execute("SELECT evidence FROM action_receipts WHERE action_id=? AND outcome='UNKNOWN'",(action_id,)))
+            if not collision or not returned:raise ValueError('PREFLIGHT_SETTLEMENT_UNPROVEN')
+            token=sha256(encoded([tuple(r) for r in db.execute('SELECT * FROM exclusions ORDER BY id')]).encode()).hexdigest()
+            if token!=exclusion_token:raise ValueError('EXCLUSIONS_CHANGED')
+            self._begin(db,action_id,action['plan_id'],vector,'ORGANIZE',json.loads(action['files']),payload,now)
+            db.execute('INSERT OR IGNORE INTO action_receipts(action_id,outcome,evidence,at) VALUES(?,?,?,?)',(action_id,'FAILED',encoded(proof),stamp(now)))
+            db.execute("UPDATE plan_actions SET state='FAILED',updated_at=? WHERE id=?",(stamp(now),action_id))
+            return {'state':'FAILED','not_sent':True}
+
     def _begin(self, db, action_id, plan_id, vector, kind, indices, payload, now, queued=False, reconciles=()):
         identifier(action_id)
         plan = self._plan(db.execute('SELECT * FROM plans WHERE id=?', (plan_id,)).fetchone())

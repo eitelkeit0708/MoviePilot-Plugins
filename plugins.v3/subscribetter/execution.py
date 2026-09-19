@@ -14,6 +14,10 @@ from .scheduler import parse, instant
 MUTATION_LOCK = RLock()
 
 
+class TransferNotSent(ValueError):
+    """A synchronous pre-copy refusal, before the native transfer entry."""
+
+
 class ConfiguredDownloader:
     """Only the instance already provided by the public DownloaderHelper service."""
     def __init__(self,service):
@@ -268,6 +272,9 @@ class StrictExecutor:
             return action['state']=='SUCCEEDED',action_id,None
         try:
             result=fn()
+        except TransferNotSent:
+            self._receipt(action,'FAILED',{'code':'TRANSFER_NOT_SENT','stage':'before native transfer'})
+            raise ValueError('DESTINATION_ALREADY_EXISTS')
         except Exception:
             self._receipt(action,'UNKNOWN',{'code':'CLIENT_RESPONSE_UNKNOWN'})
             return False,action_id,None
@@ -530,8 +537,26 @@ class Organizer:
                     with self.repository.connection(write=True) as db:
                         db.execute('INSERT INTO organized_assets VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(plan_id,file_index) DO UPDATE SET evidence=excluded.evidence',
                             (plan_id,index,str(src),None,item['size'],hashes[index],'AUTHORIZED',encoded(evidence)))
-                    ok,action,result=self.executor._mutation(plan,indices,vector,'organize:'+str(index),'ORGANIZE',lambda:self.host.transfer(src,target,item,s),{'file_index':index,'source':str(src),'target_root':str(target),'sha256':hashes[index],'content_sha1':content_sha1})
+                    payload={'file_index':index,'source':str(src),'target_root':str(target),'sha256':hashes[index],'content_sha1':content_sha1}
+                    transfer=lambda:self.host.transfer(src,target,item,s)
+                    if hasattr(self.host,'prepare_transfer'):
+                        # Native planning is pure. Reject predictable collisions before
+                        # creating a copy attempt, instead of mislabelling them UNKNOWN.
+                        prepared=self.host.prepare_transfer(src,target,item,s)
+                        if prepared['planned'].exists():raise ValueError('DESTINATION_ALREADY_EXISTS')
+                        token=self.executor.exclusions.token()
+                        self.executor._fresh_candidate(plan,vector,content_sha1)
+                        with self.repository.connection() as db:
+                            old=[dict(a) for a in db.execute("SELECT * FROM plan_actions WHERE plan_id=? AND kind='ORGANIZE' AND state='UNKNOWN'",(plan_id,)) if json.loads(a['payload']).get('file_index')==index and 'naming_revision' not in json.loads(a['payload'])]
+                        if len(old)==1 and item['role']=='subtitle':
+                            proof=self.host.legacy_preflight_proof(plan_id,src,target,item,s)
+                            if proof:self.executor.authority.settle_legacy_preflight(old[0]['id'],vector,proof,exclusion_token=token)
+                        payload.update(naming_revision=prepared['naming_revision'],planned_destination=str(prepared['planned']))
+                        transfer=lambda:self.host.transfer_prepared(prepared)
+                    ok,action,result=self.executor._mutation(plan,indices,vector,'organize:'+str(index),'ORGANIZE',transfer,payload)
                     if not ok or result is None:
+                        if self.executor.authority.action(action)['state']=='FAILED':
+                            return {'state':'BLOCKED','reason':'ORGANIZE_NOT_SENT_REPLAN_REQUIRED','action_id':action}
                         return {'state':'UNKNOWN','reason':'ORGANIZE_OUTCOME_UNKNOWN','action_id':action}
                     output=safe_local(target,result)
                     if output.stat().st_size!=item['size'] or digest(output)!=hashes[index]:
@@ -738,14 +763,34 @@ class HostOrganization:
         identity=json.loads(next(iter(snapshot['targets'])))
         return row is not None and row.src==source and row.dest==destination and row.dest_storage=='local' and row.status is True and (row.media_source,str(row.media_id))==(identity[1],identity[2])
 
-    def transfer(self,src,destination,item,snapshot):
+    def _video_output(self,video,snapshot,destination):
+        output=self.video_outputs.get(video['index'])
+        if output is None and self.repository is not None:
+            with self.repository.connection() as db:
+                row=db.execute("SELECT destination FROM organized_assets WHERE source=? AND state='COMPLETE'",(str(Path(snapshot['save_path'])/video['path']),)).fetchone()
+            output=Path(row[0]) if row else None
+        if output is None:raise ValueError('ORGANIZED_VIDEO_RECEIPT_REQUIRED')
+        return safe_local(destination,output)
+
+    @staticmethod
+    def _subtitle_name(item,video,files):
+        source=PurePosixPath(item['path']);stem=source.stem
+        # Preserve the complete track description, including unknown languages,
+        # forced/SDH and same-language editions. Do not guess which token matters.
+        if any(f['role']=='subtitle' and set(f['targets'])==set(item['targets']) and PurePosixPath(f['path']).stem.casefold()==stem.casefold() and PurePosixPath(f['path']).with_suffix('')!=source.with_suffix('') for f in files):
+            stem+='.'+sha256(str(source.with_suffix('')).encode()).hexdigest()[:12]
+        return video.stem+'.'+stem+source.suffix
+
+    def prepare_transfer(self,src,destination,item,snapshot,*,legacy=False):
+        """Public pure planning; no asset reservation or copy has happened yet."""
         from app.chain.transfer import TransferChain
         from app.sdk.media import MetaInfoPath
         from app.schemas.file import FileItem
         from app.schemas.system import TransferDirectoryConf
-        rename=item['role'] in ('video','subtitle')
-        videos=[f for f in snapshot['torrent_files'] if f['role']=='video' and (set(item['targets'])<=set(f['targets']) if rename else set(item['targets'])&set(f['targets']))]
-        if not videos or (rename and len(videos)!=1) or not set(item['targets'])<={k for video in videos for k in video['targets']}:
+        unique=item['role'] in ('video','subtitle')
+        rename=item['role']=='video' or (legacy and item['role']=='subtitle')
+        videos=[f for f in snapshot['torrent_files'] if f['role']=='video' and (set(item['targets'])<=set(f['targets']) if unique else set(item['targets'])&set(f['targets']))]
+        if not videos or (unique and len(videos)!=1) or not set(item['targets'])<={k for video in videos for k in video['targets']}:
             raise ValueError('UNIQUE_TRANSFER_VIDEO_REQUIRED')
         meta=(self.meta_factory or MetaInfoPath)(Path(videos[0]['path']))
         scopes=[json.loads(k) for k in item['targets']]
@@ -754,33 +799,55 @@ class HostOrganization:
             meta.begin_episode=min(k[5] for k in scopes);meta.end_episode=max(k[5] for k in scopes) if len(scopes)>1 else None
         # Non-video dependencies retain their real names and relative directories;
         # fonts must keep the names referenced by ASS and licenses remain readable.
-        target=destination
-        if not rename:
-            parents=set()
-            for consumer in videos:
-                video=self.video_outputs.get(consumer['index'])
-                if video is None and self.repository is not None:
-                    with self.repository.connection() as db:
-                        row=db.execute("SELECT destination FROM organized_assets WHERE source=? AND state='COMPLETE'",(str(Path(snapshot['save_path'])/consumer['path']),)).fetchone()
-                    video=Path(row[0]) if row else None
-                if video is None:raise ValueError('ORGANIZED_VIDEO_RECEIPT_REQUIRED')
-                parents.add(safe_local(destination,video).parent)
+        target=destination;name=src.name
+        if item['role']=='subtitle' and not legacy:
+            video=self._video_output(videos[0],snapshot,destination)
+            target=video.parent;name=self._subtitle_name(item,video,snapshot['torrent_files'])
+        elif not rename:
+            parents={self._video_output(consumer,snapshot,destination).parent for consumer in videos}
             # The configured host season layout puts these consumers together.
             # An arbitrary ancestor is not proof that subtitles can find a font.
             if len(parents)!=1:raise ValueError('SHARED_DEPENDENCY_DIRECTORY_CONFLICT')
             target=parents.pop()/('Fonts' if src.suffix.casefold() in ('.ttf','.otf','.woff','.woff2') else '')
         directory=TransferDirectoryConf(storage='local',download_path=snapshot['save_path'],library_storage='local',library_path=str(target),transfer_type='copy',overwrite_mode='never',renaming=rename,scraping=False,notify=False,library_type_folder=False,library_category_folder=False)
+        if len(name.encode('utf-8'))>255:raise ValueError('TRANSFER_NAME_TOO_LONG')
         chain=TransferChain()
-        kwargs=dict(fileitem=FileItem(storage='local',path=str(src),type='file',name=src.name,basename=src.stem,extension=src.suffix.lstrip('.'),size=item['size']),meta=meta,mediainfo=self.media,target_directory=directory,target_storage='local',target_path=target,transfer_type='copy',scrape=False,library_type_folder=False,library_category_folder=False)
+        kwargs=dict(fileitem=FileItem(storage='local',path=str(src),type='file',name=name,basename=Path(name).stem,extension=src.suffix.lstrip('.'),size=item['size']),meta=meta,mediainfo=self.media,target_directory=directory,target_storage='local',target_path=target,transfer_type='copy',scrape=False,library_type_folder=False,library_category_folder=False)
         checkpoint=chain.plan_transfer(**kwargs)
         expected=value(checkpoint,'final_target_path')
         if not expected:raise ValueError('TRANSFER_DESTINATION_UNCONFIRMED')
+        if len(Path(expected).name.encode('utf-8'))>255:raise ValueError('TRANSFER_NAME_TOO_LONG')
         planned=safe_local(destination,expected,exists=False)
-        if planned.exists():raise ValueError('DESTINATION_ALREADY_EXISTS')
+        if not rename and planned!=target/name:raise ValueError('EXACT_TRANSFER_NAME_REQUIRED')
+        return dict(source=src,planned=planned,kwargs=kwargs,item=item,snapshot=snapshot,naming_revision='subtitle-tracks-v1' if item['role']=='subtitle' and not legacy else 'exact-plan-v1')
+
+    def transfer(self,src,destination,item,snapshot):
+        return self.transfer_prepared(self.prepare_transfer(src,destination,item,snapshot))
+
+    def legacy_preflight_proof(self,plan_id,src,destination,item,snapshot):
+        """Public reads plus the persisted pre-transfer boundary, never absence alone."""
+        if self.repository is None:return None
+        with self.repository.connection() as db:
+            asset=db.execute('SELECT * FROM organized_assets WHERE plan_id=? AND file_index=?',(plan_id,item['index'])).fetchone()
+            if not asset or asset['destination'] is not None or asset['state']!='AUTHORIZED':return None
+        from app.db.oper.transferhistory import TransferHistoryOper
+        if TransferHistoryOper().get_by_src(str(src),storage='local') is not None:return None
+        legacy=self.prepare_transfer(src,destination,item,snapshot,legacy=True)['planned']
+        if not legacy.is_file():return None
+        collision_hash=digest(safe_local(destination,legacy))
+        with self.repository.connection() as db:
+            collision=db.execute("SELECT size FROM organized_assets WHERE plan_id=? AND file_index!=? AND state='COMPLETE' AND destination=? AND sha256=?",(plan_id,item['index'],str(legacy),collision_hash)).fetchone()
+        if not collision or legacy.stat().st_size!=collision['size']:return None
+        return dict(code='LEGACY_PREFLIGHT_COLLISION_V1',target_root=str(destination),source_sha256=digest(src),collision_destination=str(legacy),collision_sha256=collision_hash,native_history_count=0)
+
+    def transfer_prepared(self,prepared):
+        from app.chain.transfer import TransferChain
+        src,planned,item,snapshot=(prepared[k] for k in ('source','planned','item','snapshot'))
+        if planned.exists():raise TransferNotSent('DESTINATION_ALREADY_EXISTS')
         if self.repository is not None:
             with self.repository.connection(write=True) as db:
                 db.execute("UPDATE organized_assets SET destination=? WHERE source=? AND state='AUTHORIZED'",(str(planned),str(src)))
-        result=chain.transfer(**kwargs)
+        result=TransferChain().transfer(**prepared['kwargs'])
         if result is None or not value(result,'success'):
             return None
         output=value(value(result,'target_item'),'path')
