@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 import hashlib
 import json
+from pathlib import Path, PurePosixPath
 import re
 
 
@@ -20,7 +21,17 @@ CN_EPISODE = re.compile(r"第\s*(\d{1,4})(?:\s*-\s*(\d{1,4}))?\s*[集话話]")
 MOVIE = re.compile(r"剧场版|劇場版|电影版|電影版|(?<![A-Za-z])(?:The Movie|Movie Version)(?![A-Za-z])", re.I)
 BRACKET = re.compile(r"\[([^\[\]]{1,160})\]|【([^【】]{1,160})】")
 ROLE = re.compile(r"字幕|简体|繁体|音轨|中字|国粤|国英|特效|内封|外挂|制作组|发布组|字幕组|汉化|1080|2160|720|[xh][. ]?26[45]|HEVC|AVC|HDR|DV|DTS|AAC|WEB|Blu.?Ray|REMUX", re.I)
+RELEASE_LABEL = re.compile(r"(?:国语|粤语|台语|国粤|国英|双语|多语|配音)+|(?:已)?完结|全\d{1,4}集|更新至\d{1,4}集|[无未]删减|导演剪辑版")
 NUMERIC_WORD = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{2,}E\d{2,4})(?![A-Za-z0-9])", re.I)
+NAME_TAIL = re.compile(r"^(?:$|[. _-]+(?:(?:19|20)\d{2}|\d{3,4}[pi]|S\d{1,3}(?:E\d{1,4})?|WEB(?:-DL)?|BluRay|REMUX|mkv|mp4|flac|mka|aac|dts)(?=$|[. _-]))", re.I)
+NAMED_BRACKET = re.compile(r"(?:片名|中文名|译名|又名|别名)\s*[:：]\s*(.{1,140})")
+AUXILIARY_STEM = re.compile(r"(?:双语|字幕|特效|内封|外挂|官译|简体|繁体|繁中|简中|中英|简英|多语|国英|台粤|音轨|评论|国配|台配|粤语|韩语|日语|杜比|全景声|无损|中字|国语|原声)+")
+
+
+def _tag_locks(text):
+    return {group for tag in re.findall(r"\{\[([^\]\n]{1,512})\]\}", text)
+            for key, group in (("type", "type"), ("s", "season"), ("e", "episode"))
+            if re.search(r"(?:^|;)\s*" + key + r"\s*=", tag, re.I)}
 
 
 def snapshot(meta):
@@ -59,7 +70,7 @@ class MetaCorrector:
         if (not isinstance(protected_names, (list, tuple)) or len(protected_names) > 100
                 or any(not isinstance(n, str) or not 1 <= len(n.strip()) <= 160 for n in protected_names)):
             raise ValueError("invalid protected names")
-        self.rules = {"core": 1, "protected_names": sorted(set(n.strip() for n in protected_names))}
+        self.rules = {"core": 2, "protected_names": sorted(set(n.strip() for n in protected_names))}
         self.revision = _digest(self.rules)
 
     def correct(self, native, title, subtitle=None, custom_words=None, locks=(), *, context_known=True):
@@ -87,10 +98,7 @@ class MetaCorrector:
             if before["apply_words"]:
                 locked.update(LOCKS)
                 reasons.append("USER_WORDS_PRESERVED")
-            for tag in re.findall(r"\{\[([^\]\n]{1,512})\]\}", title):
-                for key, group in (("type", "type"), ("s", "season"), ("e", "episode")):
-                    if re.search(r"(?:^|;)\s*" + key + r"\s*=", tag, re.I):
-                        locked.add(group)
+            locked.update(_tag_locks(title))
             text = re.sub(r"\{\[[^\]\n]{1,512}\]\}", "", title)
             if re.search(r"(?<![A-Za-z0-9])(?:S\d{1,3})?EP?\d{1,4}(?:EP?\d{1,4})+", text, re.I) and "episode" not in locked:
                 return Correction(native, "DEFER", ("NON_RANGE_MULTI_EPISODE",), before, {}, self.revision)
@@ -131,11 +139,17 @@ class MetaCorrector:
                     protected = name
                     break
             for match in NUMERIC_WORD.finditer(text):
+                if protected is not None:
+                    break
                 word = match[1]
                 truncated = re.sub(r"E\d+$", "", word, flags=re.I)
                 current_name = before["en_name"] or before["cn_name"] or ""
-                if current_name.casefold() in (truncated.casefold(), word.casefold()):
+                complete_head = not text[:match.start()].strip(" ._") and NAME_TAIL.match(text[match.end():])
+                if current_name.casefold() in (truncated.casefold(), word.casefold()) or complete_head:
                     protected = word
+                    year = re.match(r"^[. _-]+((?:19|20)\d{2})(?=$|[. _-])", text[match.end():])
+                    if year and "year" not in locked:
+                        result.year = year[1]
                     break
             numeric = re.match(r"^\s*(\d{4})(?=$|[. _])(?:[. _]+((?:19|20)\d{2})(?=$|[. _]))?", text)
             if numeric and text[numeric.end():].strip(" ._") and not re.match(
@@ -151,21 +165,28 @@ class MetaCorrector:
                 reasons.append("NUMERIC_NAME_PROTECTED")
                 trailing = re.search(r"(\d+)$", protected)
                 false_episode = trailing and before["begin_episode"] == int(trailing[1])
-                if not season and not episode and "type" not in locked and false_episode:
+                if not season and not episode and false_episode:
                     clear_scope()
-                    if not ({"season", "episode"} & locked):
+                    if "type" not in locked and not ({"season", "episode"} & locked):
                         set_type("电影" if movie else "未知")
-            titles = []
+            titles, ambiguous_blocks = [], []
             for match in BRACKET.finditer(text):
                 block = (match[1] or match[2]).strip()
-                if (re.search(r"[\u3400-\u9fff]{2}", block) and not ROLE.search(block)
+                named = NAMED_BRACKET.fullmatch(block)
+                if named:
+                    titles.append(named[1].strip())
+                elif (re.search(r"[\u3400-\u9fff]{2}", block) and not ROLE.search(block)
+                        and not RELEASE_LABEL.fullmatch(block)
                         and not CN_SEASON.search(block) and not CN_EPISODE.search(block)
                         and block != before["resource_team"]):
-                    titles.append(block)
+                    if block in (before["cn_name"], before["en_name"], *self.rules["protected_names"]):
+                        titles.append(block)
+                    else:
+                        ambiguous_blocks.append(block)
             if len(set(titles)) == 1:
                 set_name(titles[0])
                 reasons.append("BRACKET_TITLE")
-            elif len(set(titles)) > 1 and "name" not in locked:
+            elif (len(set(titles)) > 1 or ambiguous_blocks) and "name" not in locked:
                 return Correction(native, "DEFER", ("BRACKET_NAME_AMBIGUOUS",), before, {}, self.revision)
             for group, values in (("season", season), ("episode", episode)):
                 if values and group not in locked:
@@ -207,12 +228,29 @@ class MetaCorrector:
         except Exception:
             return Correction(native, "ERROR", ("META_CORRECTION_UNAVAILABLE",), before, {}, self.revision)
 
+    def correct_path(self, native, path, custom_words=None, locks=()):
+        """Managed final-path correction; caller supplies the actual path and words.
+
+        No parent parser calls and no third hook. Filename evidence is primary;
+        parent explicit tags remain constraints, while an auxiliary-only filename
+        takes its title evidence from the immediate parent, like the host merge.
+        """
+        if not isinstance(path, (str, Path)) or not 1 <= len(str(path)) <= 8192:
+            return Correction(native, "ERROR", ("INVALID_PARSE_PATH",), {}, {}, self.revision)
+        item = PurePosixPath(str(path).replace("\\", "/"))
+        locked = set(locks)
+        for part in (item.name, item.parent.name, item.parent.parent.name):
+            locked.update(_tag_locks(part))
+        title = item.parent.name if len(item.stem) <= 16 and AUXILIARY_STEM.fullmatch(item.stem) else item.name
+        return self.correct(native, title, custom_words=custom_words, locks=sorted(locked))
+
 
 def _stored(value):
     """Keep source text except credentials/URLs, which are not replayable evidence."""
     if isinstance(value, str):
         value = re.sub(r"https?://[^\s<>]+", "[REDACTED_URL]", value, flags=re.I)
-        return re.sub(r"(?i)\b(passkey|cookie|token|password|authorization)\s*[:=]\s*[^\s;]+", r"\1=[REDACTED]", value)
+        value = re.sub(r"(?im)\b(cookie|authorization)\s*[:=][^\r\n]*(?:\r?\n[ \t]+[^\r\n]*)*", r"\1=[REDACTED]", value)
+        return re.sub(r"(?i)\b(passkey|token|password|UID|CID|SEID)\s*[:=]\s*[^\s;]+", r"\1=[REDACTED]", value)
     if isinstance(value, (list, tuple)):
         return [_stored(v) for v in value]
     if isinstance(value, dict):
@@ -225,26 +263,39 @@ class MetaService:
     def __init__(self, repository, corrector, parser=None):
         self.repository, self.corrector, self.parser = repository, corrector, parser
 
-    def parse(self, key, title, subtitle=None, custom_words=None, locks=(), *, native=None, task_id=None):
+    def parse(self, key, title, subtitle=None, custom_words=None, locks=(), *, native=None, task_id=None,
+              is_path=False, force_video=False):
         if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9:._-]{0,255}", key):
             raise ValueError("invalid sample key")
+        if type(is_path) is not bool or type(force_video) is not bool or (is_path and subtitle is not None):
+            raise ValueError("invalid parse path options")
         if native is None:
             parser = self.parser
             if parser is None:
-                from app.sdk.media import MetaInfo
-                parser = MetaInfo
+                from app.sdk.media import MetaInfo, MetaInfoPath
+                parser = MetaInfoPath if is_path else MetaInfo
             try:
-                native = parser(title, subtitle=subtitle, custom_words=custom_words)
+                native = (parser(Path(title), custom_words=custom_words, force_video=force_video) if is_path else
+                          parser(title, subtitle=subtitle, custom_words=custom_words, force_video=force_video))
             except Exception:
                 native = None
-        correction = (self.corrector.correct(native, title, subtitle, custom_words, locks) if native is not None else
-                      Correction(None, "ERROR", ("NATIVE_PARSE_FAILED",), {}, {}, self.corrector.revision))
-        inputs = dict(title=title, subtitle=subtitle, custom_words=custom_words, locks=list(locks))
+        if native is None:
+            correction = Correction(None, "ERROR", ("NATIVE_PARSE_FAILED",), {}, {}, self.corrector.revision)
+        elif is_path:
+            correction = self.corrector.correct_path(native, title, custom_words, locks)
+        else:
+            correction = self.corrector.correct(native, title, subtitle, custom_words, locks)
+        inputs = dict(title=title, subtitle=subtitle, custom_words=custom_words, locks=list(locks),
+                      is_path=is_path, force_video=force_video)
         record = correction.record()
         sanitized = _stored(dict(inputs=inputs, native=correction.native, result=record))
         self.repository.save_parse_sample(key, sanitized, self.corrector.rules, task_id,
                                           replay_allowed=sanitized["inputs"] == inputs)
         return correction
+
+    def parse_path(self, key, path, custom_words=None, locks=(), *, native=None, task_id=None, force_video=False):
+        return self.parse(key, str(path), custom_words=custom_words, locks=locks, native=native,
+                          task_id=task_id, is_path=True, force_video=force_video)
 
     def replay(self, keys):
         if not isinstance(keys, (list, tuple)) or not 1 <= len(keys) <= 100:

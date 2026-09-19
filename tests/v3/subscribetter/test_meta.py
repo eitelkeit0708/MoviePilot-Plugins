@@ -56,6 +56,29 @@ class MetaTests(unittest.TestCase):
                 self.assertEqual(getattr(original, key), getattr(result.meta, key))
             self.assertEqual(self.m.snapshot(result.meta), self.m.snapshot(self.c.correct(result.meta, word + ".2024.2160p").meta))
 
+    def test_actual_V3_missing_numeric_name_and_false_year_range(self):
+        for word, episode, total in (("GATE24", 24, 2001), ("CODE46", 46, 1979)):
+            # Exact observed V3.0.4 Python/Rust shape, not the old GAT/COD double.
+            values = dict.fromkeys(self.m.FIELDS)
+            values.update(title=f"{word}.2024.2160p", org_string=f"{word}.2024.2160p",
+                          isfile=False, type="电视剧", begin_season=1, total_season=0,
+                          begin_episode=episode, end_episode=2024, total_episode=total, apply_words=[])
+            original = types.SimpleNamespace(**values)
+            result = self.c.correct(original, values["title"], custom_words=["#"])
+            self.assertEqual("OK", result.status)
+            self.assertEqual(word, result.meta.en_name)
+            self.assertEqual("2024", result.meta.year)
+            self.assertEqual((None, None, 0, None, None, 0), tuple(getattr(result.meta, name) for name in
+                             ("begin_season", "end_season", "total_season", "begin_episode", "end_episode", "total_episode")))
+            self.assertEqual(values, self.m.snapshot(original))
+            self.assertIsNone(result.meta.resource_pix)  # no second video-spec parser
+            unknown = self.c.correct(original, values["title"], context_known=False)
+            self.assertEqual("DEFER", unknown.status)
+            self.assertIn("RUST_LOCK_CONTEXT_UNKNOWN", unknown.reasons)
+            self.assertEqual(values, self.m.snapshot(unknown.meta))
+        for title in ("GATE24 Other Story", "[GATE24] Other Story.2024", "Unrelated GATE24.2024"):
+            self.assertEqual("DEFER", self.c.correct(native(None), title).status)
+
     def test_numeric_title_year_and_ambiguous_episode(self):
         for title, year in (("1917.2019.1080p", "2019"), ("1917", None)):
             result = self.c.correct(native("", year="1917", begin_episode=None), title)
@@ -69,15 +92,47 @@ class MetaTests(unittest.TestCase):
         self.assertEqual(7, result.meta.begin_episode)
 
     def test_bracket_roles_and_independent_alias(self):
-        result = self.c.correct(native("Wrong", begin_episode=None), "[HHWEB][虚构故事][2160p][中文字幕] Fictional.2024")
+        result = self.c.correct(native("Wrong", begin_episode=None), "[HHWEB][片名：虚构故事][2160p][中文字幕] Fictional.2024")
         self.assertEqual("虚构故事", result.meta.cn_name)
         self.assertNotEqual("HHWEB", result.meta.en_name)
         for bracket in ("HHWEB", "1080p", "简体字幕", "某某字幕组"):
             result = self.c.correct(native("Fictional", begin_episode=None), f"[{bracket}] Fictional.2024")
             self.assertEqual("Fictional", result.meta.en_name)
-        result = self.c.correct(native("Wrong", begin_episode=None), "【虚构别名】 / Tainted The Movie 2024")
+        result = self.c.correct(native("Wrong", begin_episode=None), "【又名：虚构别名】 / Tainted The Movie 2024")
         self.assertEqual("虚构别名", result.meta.cn_name)
         self.assertNotIn("The Movie", result.meta.cn_name)
+        for text in ("[HHWEB][虚构故事][2160p][中文字幕] Fictional.2024", "【虚构别名】 / Tainted The Movie 2024", "[仅供交流] Fictional.2024"):
+            result = self.c.correct(native("Fictional", begin_episode=None), text)
+            self.assertEqual("DEFER", result.status)
+            self.assertEqual("Fictional", result.meta.en_name)
+        result = self.m.MetaCorrector(["虚构故事"]).correct(native("Wrong", begin_episode=None), "[虚构故事] Fictional.2024")
+        self.assertEqual("虚构故事", result.meta.cn_name)
+
+    def test_managed_final_path_repairs_real_rust_range_and_preserves_parent_locks(self):
+        # Actual Rust final path preserves S00 but drops E04 and gives total 1.
+        original = native("Fictional", title="Fictional.S00E02-E04.mkv", org_string="Fictional.S00E02-E04",
+                          begin_season=0, total_season=1, begin_episode=2, end_episode=None, total_episode=1)
+        path = "/Fictional.2024/Season 0/Fictional.S00E02-E04.mkv"
+        result = self.c.correct_path(original, path, custom_words=["#"])
+        self.assertEqual("OK", result.status)
+        self.assertEqual((0, 2, 4, 3), (result.meta.begin_season, result.meta.begin_episode, result.meta.end_episode, result.meta.total_episode))
+        original.begin_episode = 8
+        result = self.c.correct_path(original, "/Fictional {[e=8]}/Season 0/Fictional.S00E02-E04.mkv", custom_words=["#"])
+        self.assertEqual(8, result.meta.begin_episode)
+        self.assertIsNone(result.meta.end_episode)
+        repo_module = load("repository")
+        with tempfile.TemporaryDirectory() as directory:
+            repo = repo_module.Repository(Path(directory) / "state.sqlite3")
+            parser = Mock(return_value=original)
+            service = self.m.MetaService(repo, self.c, parser)
+            service.parse_path("path:1", path, custom_words=["#"])
+            self.assertEqual(1, parser.call_count)
+            self.assertEqual(Path(path), parser.call_args.args[0])
+            row = repo.parse_samples(["path:1"])[0]
+            self.assertTrue(row["inputs"]["is_path"])
+            self.assertEqual(path, row["inputs"]["title"])
+            service.replay(["path:1"])
+            self.assertEqual(2, parser.call_count)
 
     def test_explicit_ranges_s00_and_subtitle_conflict(self):
         result = self.c.correct(native(begin_season=1), "Fictional.S00E02-E04.1080p")
@@ -160,6 +215,35 @@ class MetaTests(unittest.TestCase):
             self.assertFalse(row["replay_allowed"])
             self.assertEqual([], service.replay(["private"]))
 
+    def test_type_only_lock_does_not_lock_false_episode(self):
+        for title, locks in (("GATE24 {[type=movie]}", ()), ("GATE24", ("type",))):
+            original = native("GAT", type="电影", begin_season=1, total_season=1)
+            result = self.c.correct(original, title, locks=locks)
+            self.assertEqual("OK", result.status)
+            self.assertEqual("电影", result.meta.type)
+            self.assertEqual("GATE24", result.meta.en_name)
+            self.assertEqual((None, None, 0, None, None, 0), tuple(getattr(result.meta, name) for name in
+                             ("begin_season", "end_season", "total_season", "begin_episode", "end_episode", "total_episode")))
+
+    def test_release_status_and_audio_brackets_are_not_names(self):
+        for label in ("国语", "粤语", "国粤双语", "已完结", "全24集", "更新至12集", "无删减", "未删减", "导演剪辑版"):
+            result = self.c.correct(native("Fictional", begin_episode=None), f"[{label}] Fictional.2024.1080p")
+            self.assertEqual("Fictional", result.meta.en_name, label)
+            self.assertIsNone(result.meta.cn_name, label)
+
+    def test_entire_credential_headers_are_redacted_in_samples_and_history(self):
+        repo_module = load("repository")
+        with tempfile.TemporaryDirectory() as directory:
+            repo = repo_module.Repository(Path(directory) / "state.sqlite3")
+            service = self.m.MetaService(repo, self.c, Mock(return_value=native("GAT")))
+            description = "Cookie: UID=secret-one; CID=secret-two; SEID=secret-three\nAuthorization: Bearer secret-four\nUseful context"
+            service.parse("credential-test", "GATE24", description)
+            persisted = str(repo.parse_samples()) + str(repo.parse_history("credential-test"))
+            for secret in ("secret-one", "secret-two", "secret-three", "secret-four"):
+                self.assertNotIn(secret, persisted)
+            self.assertIn("Useful context", persisted)
+            self.assertEqual([], service.replay(["credential-test"]))
+
     def test_plugin_managed_api_is_wired_and_default_global_off(self):
         from test_ownership import PluginTests
         from fastapi import FastAPI
@@ -182,6 +266,20 @@ class MetaTests(unittest.TestCase):
             self.assertEqual("GATE24", response.json()["corrected"]["en_name"])
             self.assertFalse(plugin.meta_patch.active)
             self.assertEqual(1, len(plugin.repository.parse_samples()))
+            plugin.meta_service.parser = Mock(return_value=native("Fictional", subtitle="Cookie: UID=fixture-secret-one; CID=fixture-secret-two"))
+            response = client.post("/parse", json={"sample_key": "private", "title": "Fictional"}, headers={"Authorization": "Bearer unit-admin"})
+            self.assertNotIn("fixture-secret", response.text)
+            response = client.get("/parse/samples", headers={"Authorization": "Bearer unit-admin"})
+            self.assertNotIn("fixture-secret", response.text)
+            response = client.post("/parse/replay", json={"sample_keys": ["private"]}, headers={"Authorization": "Bearer unit-admin"})
+            self.assertEqual(200, response.status_code)
+            self.assertNotIn("fixture-secret", response.text)
+            path = "/Fictional.2024/Season 0/Fictional.S00E02-E04.mkv"
+            plugin.meta_service.parser = Mock(return_value=native("Fictional", begin_season=0, begin_episode=2, total_season=1))
+            response = client.post("/parse", json={"sample_key": "path:1", "title": path, "is_path": True}, headers={"Authorization": "Bearer unit-admin"})
+            self.assertEqual(200, response.status_code)
+            self.assertEqual(4, response.json()["corrected"]["end_episode"])
+            self.assertEqual(1, plugin.meta_service.parser.call_count)
             plugin.stop_service()
 
     def test_schema_migration_and_backup_keep_old_rows(self):
@@ -353,7 +451,9 @@ def run_host_contract():
         def correct(self, *args, **kwargs):
             result = super().correct(*args, **kwargs)
             calls.append({"path": "rust" if kwargs.get("context_known") is False else "python",
-                          "status": result.status, "reasons": list(result.reasons)})
+                          "status": result.status, "reasons": list(result.reasons),
+                          "native_before": {k: core.snapshot(args[0])[k] for k in
+                                            ("title", "cn_name", "en_name", "year", "type", "begin_season", "begin_episode", "end_episode", "total_episode", "apply_words")}})
             return result
     corrector = Capture()
     bridge = compat.MetaPatch(corrector)
@@ -374,6 +474,7 @@ def run_host_contract():
             checks["python_name:" + title] = result.name == key
             if key in ("GATE24", "CODE46"):
                 checks["python_scope:" + title] = result.begin_episode is None and result.total_episode == 0
+                checks["python_independent_year:" + title] = result.year == "2024"
         checks["python_year"] = outputs["1917.2019.1080p"]["year"] == "2019" and outputs["1917"]["year"] is None
         corrected = MetaInfo("Fictional.S00E02-E04.2024.2160p.WEB-DL.HDR.HEVC-HHWEB", custom_words=python_words)
         checks["python_s00_range"] = (corrected.begin_season, corrected.begin_episode, corrected.end_episode, corrected.total_episode) == (0, 2, 4, 3)
@@ -410,8 +511,13 @@ def run_host_contract():
             managed = core.MetaCorrector().correct(result, title, custom_words=["#"])
             if title.startswith(("GATE24", "CODE46")):
                 checks["managed_after_rust:" + title] = managed.status == "OK" and managed.meta.name == title.split(".")[0] and managed.meta.begin_episode is None
-        result = MetaInfoPath(Path("/Fictional.2024/Season 0/Fictional.S00E02-E04.mkv"), custom_words=["#"])
+        path = "/Fictional.2024/Season 0/Fictional.S00E02-E04.mkv"
+        result = MetaInfoPath(Path(path), custom_words=["#"])
+        outputs["rust_path:" + path] = core.snapshot(result)
         checks["rust_final_s00_path"] = (result.begin_season, result.begin_episode, result.end_episode, result.total_episode) == (0, 2, 4, 3)
+        managed = core.MetaCorrector().correct_path(result, path, custom_words=["#"])
+        outputs["managed_rust_path:" + path] = managed.record()
+        checks["managed_rust_final_s00_path"] = managed.status == "OK" and (managed.meta.begin_season, managed.meta.begin_episode, managed.meta.end_episode, managed.meta.total_episode) == (0, 2, 4, 3)
         checks["actual_rust_bridge_called"] = any(c["path"] == "rust" for c in calls[before:])
         checks["actual_python_bridge_called"] = any(c["path"] == "python" for c in calls)
         preserved = originals[names[0]]("GATE24", custom_words=python_words)
@@ -441,6 +547,8 @@ def run_host_contract():
     checks["reload_restored"] = all(getattr(host, n) is f for n, f in originals.items())
     return {"checks": checks, "outputs": outputs, "bridge_calls": calls,
             "status": "PASS" if all(checks.values()) else "FAIL",
+            "expected_limitations": {} if checks["rust_final_s00_path"] else {
+                "rust_final_s00_path": "Global Rust bridge lacks call-specific locks and full path; it cannot safely expand E02 to E02-E04. Managed full-path correction is checked independently; the original failed coverage check is retained."},
             "coverage": "Actual SDK functions and final MetaInfoPath; no recognition/search/download or historical host cache invalidation"}
 
 

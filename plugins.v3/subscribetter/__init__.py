@@ -12,7 +12,7 @@ from app.schemas.types import ChainEventType, EventType
 from .mp_adapter import NativeAdapter, make_target, target_from_native
 from .repository import Repository
 from .ownership import Guard, Ownership, field
-from .meta import MetaCorrector, MetaService
+from .meta import MetaCorrector, MetaService, _stored
 from .meta_compat import MetaPatch
 
 
@@ -78,6 +78,8 @@ class ParseRequest(BaseModel):
     custom_words: list[Annotated[str, Field(max_length=2048)]] | None = Field(default=None, max_length=100)
     locks: list[Literal["name", "year", "type", "season", "episode", "identity"]] = Field(default_factory=list, max_length=6)
     task_id: int | None = Field(default=None, gt=0)
+    is_path: bool = False
+    force_video: bool = False
 
 
 class ReplayRequest(BaseModel):
@@ -301,7 +303,7 @@ class SubscriBetter(_PluginBase):
             try:
                 fields = request.model_dump()
                 key = fields.pop("sample_key")
-                return self.meta_service.parse(key, **fields).record()
+                return _stored(self.meta_service.parse(key, **fields).record())
             except ValueError as error:
                 raise HTTPException(409, str(error)) from None
 
@@ -314,7 +316,7 @@ class SubscriBetter(_PluginBase):
         self._authorize(user)
         with self.runtime_lock:
             try:
-                return {"results": self.meta_service.replay(request.sample_keys)}
+                return _stored({"results": self.meta_service.replay(request.sample_keys)})
             except ValueError as error:
                 raise HTTPException(409, str(error)) from None
 
