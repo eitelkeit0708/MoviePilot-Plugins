@@ -1,0 +1,13 @@
+{
+  "SubscriBetter": {
+    "name": "subscriBetter",
+    "description": "V3 订阅接管、持久化回执与安全隔离；完整调度和交付正在实现。",
+    "version": "1.0.0",
+    "icon": "mdi-shield-check",
+    "author": "eitelkeit0708",
+    "level": 1,
+    "release": false,
+    "system_version": ">=3.0.4,<4",
+    "history": {"v1.0.0": "新增 V3 订阅接管持久化基础，默认禁用且 dry-run。"}
+  }
+}
