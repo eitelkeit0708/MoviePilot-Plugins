@@ -3,7 +3,7 @@ from hashlib import md5, sha256
 from pathlib import PurePosixPath
 import time
 
-from .delivery import cloud_path, beneath
+from .delivery import cloud_path, beneath, reader_error
 from .planner import encoded
 
 
@@ -113,17 +113,27 @@ class HostDeliveryCloud:
     def start(self,scope,path,source,*,device_id,budget=10):
         self._checkpoint(ordinary=True)
         if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
+        deadline=time.monotonic()+budget
         self._scope(scope,path);client,pb,meta=self._raw(scope);source.check()
+        def remaining():
+            self._checkpoint(ordinary=True)
+            value=deadline-time.monotonic()
+            if value<=0:raise ValueError('READER_BUDGET')
+            return value
         # Subscribe before Start: even an immediate terminal event must have a
         # receiver. The caller persists the returned ID before consuming bytes.
-        self._checkpoint(ordinary=True);call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=self.timeout+budget)
+        self._checkpoint(ordinary=True);call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
         try:
-            self._checkpoint(ordinary=True);response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=self.timeout)
+            self._checkpoint(ordinary=True);response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=min(self.timeout,remaining()))
             if not response.upload_id:raise ValueError('UPLOAD_START_UNKNOWN')
             self.pending_channels[scope,response.upload_id]=(device_id,call)
             return response.upload_id
         except Exception:
             call.cancel();raise
+
+    def discard_pending(self,scope,upload_id):
+        pending=self.pending_channels.pop((scope,upload_id),None)
+        if pending:pending[1].cancel()
 
     def pump(self,scope,upload_id,device_id,source,*,cancel=False,budget=10,observe_only=False,resume=False):
         """One synchronous reader, <=1MiB resident bytes, finite RPC/session work.
@@ -131,11 +141,7 @@ class HostDeliveryCloud:
         No detached tasks exist. Returning closes the stream and proves only this
         local reader stopped; a terminal server receipt is an independent fact.
         """
-        if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
-        if not cancel and not observe_only:self._checkpoint(ordinary=True)
-        client,pb,meta=self._raw(scope);deadline=time.monotonic()+budget
-        work_deadline=deadline-min(2,budget/2)
-        state='UNKNOWN';sent=0;requests=0;call=None;pause_requested=False
+        state='UNKNOWN';sent=0;requests=0;call=None;pause_requested=False;stage='checkpoint';failure=None
         def remaining(*,ordinary=False):
             self._checkpoint(ordinary=ordinary,safety=not ordinary)
             value=min(self.timeout,deadline-time.monotonic())
@@ -152,7 +158,13 @@ class HostDeliveryCloud:
             if pending:
                 previous_device,call=pending
                 if previous_device!=device_id:raise ValueError('DEVICE_ID_CHANGED')
-            else:call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
+            if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
+            deadline=time.monotonic()+budget
+            if not cancel and not observe_only:self._checkpoint(ordinary=True)
+            client,pb,meta=self._raw(scope)
+            work_deadline=deadline-min(2,budget/2)
+            stage='channel'
+            if call is None:call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
             if resume and not cancel and not observe_only:
                 client.stub.RemoteUploadControl(pb.RemoteUploadControlRequest(upload_id=upload_id,resume=pb.ResumeRemoteUpload()),metadata=meta,timeout=remaining(ordinary=True))
             if cancel:
@@ -163,6 +175,7 @@ class HostDeliveryCloud:
                 if requests>2048:break
                 if message.upload_id!=upload_id:continue
                 kind=message.WhichOneof('request')
+                stage=kind if kind in ('status_changed','read_data','hash_data') else 'request'
                 if kind=='status_changed':
                     state=STATES.get(message.status_changed.status,'UNKNOWN')
                     if state in TERMINAL or state=='PAUSE':break
@@ -209,13 +222,16 @@ class HostDeliveryCloud:
                     client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=cached,block_hashes=blocks),metadata=meta,timeout=remaining(ordinary=True))
                 else:raise ValueError('REMOTE_REQUEST_UNKNOWN')
         except Exception as error:
-            if isinstance(error,ValueError):raise
+            # Retain measured work on protocol rejection, without provider text.
+            state='UNKNOWN';failure=reader_error(error,stage)
+            if isinstance(error,ValueError):
+                error.reader_progress=dict(state=state,reader_stopped=True,bytes_sent=sent,requests=requests,pause_requested=pause_requested,error=failure)
+                raise
             # Stream deadline/disconnect is never equivalent to Finish/Cancelled.
-            state='UNKNOWN'
         finally:
             if call is not None:call.cancel()
         if state not in TERMINAL and state!='PAUSE':state='UNKNOWN'
-        return dict(state=state,reader_stopped=True,bytes_sent=sent,requests=requests,pause_requested=pause_requested)
+        return dict(state=state,reader_stopped=True,bytes_sent=sent,requests=requests,pause_requested=pause_requested,**({'error':failure} if failure else {}))
 
     def refresh(self,scope,path):
         self._scope(scope,path);client,pb,meta=self._raw(scope);count=0

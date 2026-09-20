@@ -873,6 +873,7 @@ class Runtime:
         return worker.confirm(bundle_id,receipt)
 
     def safety(self,deadline):
+        deadline=min(deadline,getattr(self,'deadline',None) or deadline)
         results=[];cursor=self.repository.setting('runtime-bundle-cursor') or ''
         plan_cursor=self.repository.setting('runtime-safety-plan-cursor') or ''
         with self.repository.connection() as db:
@@ -884,15 +885,20 @@ class Runtime:
             if time.monotonic()>=deadline:break
             try:
                 worker=self.scope_worker(row['id'])
-                with self.safety_reads():result=worker.safety_reconcile(row['id'],limits=dict(seconds=self.config.recovery.seconds))
                 bundle=worker.bundle(row['id'])
-                if bundle.get('publication_action'):result=self.consumer(row['id'])
+                try:self.check();ordinary=worker is self.delivery and worker._rule(bundle)['enabled']
+                except ValueError:ordinary=False
+                self.checkpoint(deadline)
+                limits=dict(seconds=min(self.config.recovery.seconds,deadline-time.monotonic()))
+                # An authorized reconcile already observes the original ID and
+                # serves its requests. A preceding observe-only stream can use
+                # the entire tick while the provider waits for those bytes.
+                if ordinary and not bundle.get('publication_action'):
+                    result=worker.reconcile(row['id'],limits=limits)
+                    if result['state']=='REMOTE_VERIFIED':result=worker.publish(row['id'])
                 else:
-                    try:self.check();ordinary=worker is self.delivery and worker._rule(bundle)['enabled']
-                    except ValueError:ordinary=False
-                    if ordinary:
-                        result=worker.reconcile(row['id'],limits=dict(seconds=self.config.recovery.seconds))
-                        if result['state']=='REMOTE_VERIFIED':result=worker.publish(row['id'])
+                    with self.safety_reads():result=worker.safety_reconcile(row['id'],limits=limits)
+                if bundle.get('publication_action'):result=self.consumer(row['id'])
             except Exception as error:result=dict(state='DEFER',reason=self.reason(error),bundle_id=row['id'])
             results.append(result);self.repository.setting('runtime-bundle-result:'+row['id'],dict(result,at=utcnow()))
             self.repository.setting('runtime-bundle-cursor',row['id'])
