@@ -198,11 +198,12 @@ class SchedulerTests(unittest.TestCase):
             plugin = plugin_test.plugin
             self.assertTrue(hasattr(plugin, 'scheduler'), 'W04 bounded lifecycle service not wired')
             plugin.scheduler.tick = Mock(return_value={'checked': 0})
-            plugin.reconcile(generation=plugin.generation)
-            plugin.scheduler.tick.assert_called_once_with()
+            import asyncio
+            asyncio.run(plugin.reconcile(generation=plugin.generation))
+            plugin.scheduler.tick.assert_called_once_with(limit=plugin.config.recovery.entries)
             plugin.stop_service()
             plugin.scheduler.tick.reset_mock()
-            plugin.reconcile(generation=plugin.generation - 1)
+            asyncio.run(plugin.reconcile(generation=plugin.generation - 1))
             plugin.scheduler.tick.assert_not_called()
         finally:
             plugin_test.doCleanups()

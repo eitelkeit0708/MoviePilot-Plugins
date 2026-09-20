@@ -693,6 +693,8 @@ class Authority:
             db.execute('UPDATE opportunity_targets SET fulfilled=1 WHERE opportunity_id=? AND target_key=?', (opportunity_id, key))
         if not db.execute('SELECT 1 FROM opportunity_targets WHERE opportunity_id=? AND fulfilled=0', (opportunity_id,)).fetchone():
             db.execute('UPDATE opportunities SET state=?,updated_at=? WHERE id=?', ('ARCHIVED' if opportunity['mode'] == 'ONESHOT' else 'COMPLETED', stamp(now), opportunity_id))
+            if opportunity['mode']=='ONESHOT':
+                db.execute("UPDATE tasks SET state='PASSIVE',updated_at=? WHERE id=? AND state='ACTIVE' AND NOT EXISTS(SELECT 1 FROM opportunities WHERE task_id=? AND state='ACTIVE')",(stamp(now),opportunity['task_id'],opportunity['task_id']))
         self.repository._audit(db, opportunity['task_id'], 'EVIDENCE_CONFIRMED:' + opportunity_id, 'archive')
         return {'accepted': True, 'duplicate': False}
 
@@ -770,6 +772,8 @@ class Authority:
             db.execute("UPDATE plans SET authorization='COMPLETED' WHERE id=?", (plan['id'],))
         if not db.execute('SELECT 1 FROM opportunity_targets WHERE opportunity_id=? AND fulfilled=0', (opportunity['id'],)).fetchone():
             db.execute('UPDATE opportunities SET state=?,updated_at=? WHERE id=?', ('ARCHIVED' if opportunity['mode'] == 'ONESHOT' else 'COMPLETED', at, opportunity['id']))
+            if opportunity['mode']=='ONESHOT':
+                db.execute("UPDATE tasks SET state='PASSIVE',updated_at=? WHERE id=? AND state='ACTIVE' AND NOT EXISTS(SELECT 1 FROM opportunities WHERE task_id=? AND state='ACTIVE')",(at,plan['task_id'],plan['task_id']))
         Scheduler._refresh_lifecycle(db, plan['task_id'], now)
         self.repository._audit(db, plan['task_id'], 'INGEST_CONFIRMED:' + action_id, 'archive')
         return {'accepted': True, 'duplicate': False}

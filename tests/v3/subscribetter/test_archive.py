@@ -413,14 +413,14 @@ class ArchiveTests(unittest.TestCase):
         self.publication()
         self.archive.confirm_ingest('pub',self.manifest,self.consumer)
         with self.repo.connection(write=True) as db:
-            for table in ('migration_history','migration_receipts','discovery_targets','discovery_records','discovery_sources','ai_usage','ai_requests','ai_runtime','delivery_bundles','local_observations','reconcile_checkpoints','archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
+            for table in ('archive_scan_baselines','migration_history','migration_receipts','discovery_targets','discovery_records','discovery_sources','ai_usage','ai_requests','ai_runtime','delivery_bundles','local_observations','reconcile_checkpoints','archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
                 db.execute('DROP TABLE '+table)
             db.execute('PRAGMA user_version=5')
             tables=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
             before={t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables}
         migrated=self.r.Repository(self.repo.path)
         with migrated.connection() as db:
-            self.assertEqual(10,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(11,db.execute('PRAGMA user_version').fetchone()[0])
             self.assertEqual(before,{t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables})
             self.assertEqual([],list(db.execute('PRAGMA foreign_key_check')))
 
@@ -627,7 +627,15 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual('UNKNOWN',self.archive.current([self.key])[self.key]['state'])
             with self.assertRaisesRegex(ValueError,'BASELINE_REFRESH_INCOMPLETE'):
                 self.archive.confirm_ingest('pub',self.manifest,self.consumer)
-            self.assertTrue(self.archive.confirm_ingest('pub',self.manifest,self.consumer)['accepted'])
+            for _ in range(12):
+                try:
+                    confirmation=self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+                    break
+                except ValueError as error:
+                    self.assertEqual('BASELINE_REFRESH_INCOMPLETE',str(error))
+                    self.assertEqual('HANDED_OFF',self.s.Scheduler(self.repo).target(self.key)['publish_phase'])
+            else:self.fail('bounded persisted baseline did not finish')
+            self.assertTrue(confirmation['accepted'])
 
     def test_review_I1_one_empty_library_snapshot_cannot_retire_a_surviving_copy(self):
         self.publication()

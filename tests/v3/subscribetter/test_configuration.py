@@ -341,14 +341,14 @@ class ConfigurationTests(unittest.TestCase):
         task=self.repo.submit('old-stopped',self.r.Target('电影','themoviedb','42'),{'name':'Old'},'admin')
         self.repo.set_state(task['id'],'STOPPED','admin')
         with self.repo.connection(write=True) as db:
-            db.execute('DROP TABLE migration_history');db.execute('DROP TABLE migration_receipts')
+            db.execute('DROP TABLE archive_scan_baselines');db.execute('DROP TABLE migration_history');db.execute('DROP TABLE migration_receipts')
             db.execute('PRAGMA user_version=9')
             tables=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
             before={t:([tuple(r) for r in db.execute('PRAGMA table_info('+t+')')],
                        [tuple(r) for r in db.execute('SELECT * FROM '+t)]) for t in tables}
         migrated=self.r.Repository(self.repo.path)
         with migrated.connection() as db:
-            self.assertEqual(10,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(11,db.execute('PRAGMA user_version').fetchone()[0])
             self.assertEqual(before,{t:([tuple(r) for r in db.execute('PRAGMA table_info('+t+')')],
                        [tuple(r) for r in db.execute('SELECT * FROM '+t)]) for t in tables})
             self.assertEqual([],list(db.execute('PRAGMA foreign_key_check')))

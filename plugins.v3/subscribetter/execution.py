@@ -199,7 +199,7 @@ class Exclusions:
 
 
 class StrictExecutor:
-    def __init__(self, repository, client_factory, *, revalidate, verify_torrent=torrent_table):
+    def __init__(self, repository, client_factory, *, revalidate, verify_torrent=torrent_table,dispatch_gate=None):
         if not callable(revalidate):
             raise ValueError('CURRENT_CANDIDATE_REVALIDATOR_REQUIRED')
         self.repository=repository
@@ -208,6 +208,7 @@ class StrictExecutor:
         self.verify_torrent=verify_torrent
         self.revalidate=revalidate
         self.exclusions=Exclusions(repository)
+        self.dispatch_gate=dispatch_gate
 
     def _plan(self, plan_id):
         plan=self.authority.plan(plan_id)
@@ -297,6 +298,11 @@ class StrictExecutor:
             action=self.authority.begin_attempt(action_id,plan['id'],vector,kind,indices,dict(verb=verb,**payload))
         if not action['dispatch']:
             return action['state']=='SUCCEEDED',action_id,None
+        if self.dispatch_gate:
+            try:self.dispatch_gate()
+            except ValueError:
+                self._receipt(action,'FAILED',{'code':'RUNTIME_DISPATCH_BLOCKED','not_sent':True})
+                return False,action_id,None
         try:
             result=fn()
         except TransferNotSent:
@@ -452,9 +458,17 @@ class StrictExecutor:
             raise ValueError('CLIENT_TASK_ID_CHANGED')
         mapping=self._table(s,client.files(s['infohash']))
         stats={i:{'downloaded_bytes':mapping[i].get('completed'),'speed':None} for i in s['selected_indices']}
+        previous=self.authority.progress(plan_id,s['selected_indices'])
+        now=instant()
+        if previous and task['state']=='DOWNLOADING' and previous['status']=='DOWNLOADING':
+            elapsed=(now-parse(previous['sampled_at'])).total_seconds()
+            if elapsed>0:
+                for i,row in stats.items():
+                    before=previous['files'].get(str(i),{}).get('downloaded_bytes');after=row['downloaded_bytes']
+                    if type(before)is int and type(after)is int and after>=before:row['speed']=(after-before)/elapsed
         complete=all(stats[i]['downloaded_bytes']==s['torrent_files'][i]['size'] for i in stats)
         status='COMPLETED' if complete and task['state'] not in ('CHECKING','DISCONNECTED','FAILED') else task['state']
-        return self.authority.record_progress(plan_id,s['selected_indices'],stats,torrent=task,status=status)
+        return self.authority.record_progress(plan_id,s['selected_indices'],stats,torrent=task,status=status,now=now)
 
     def reconcile(self,plan_id):
         """Read only at the client: settle known intents, never guess or retransmit."""

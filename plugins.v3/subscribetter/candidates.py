@@ -25,6 +25,21 @@ class HostCandidateAdapter:
         return SitesHelper().get_indexers()
 
     @staticmethod
+    def rss(site,timeout):
+        from app.sdk.network import RssHelper
+        url=site.get('rss')
+        if not isinstance(url,str) or urlsplit(url).scheme not in ('http','https'):
+            raise ValueError('SITE_RSS_UNCONFIGURED')
+        rows=RssHelper().parse(url,bool(site.get('proxy')),timeout=timeout,ua=site.get('ua') or None)
+        if rows is None:raise ValueError('SITE_RSS_EXPIRED')
+        if rows is False:raise ValueError('SITE_RSS_FAILED')
+        if not isinstance(rows,list) or len(rows)>1000:raise ValueError('SITE_RSS_INVALID')
+        # Raw URLs remain only in CandidateService.runtime. Missing RSS fields
+        # stay missing; authenticated exact search supplies richer TorrentInfo.
+        return [dict(row,site=site['id'],page_url=row.get('link'),
+            pubdate=row['pubdate'].isoformat() if hasattr(row.get('pubdate'),'isoformat') else row.get('pubdate')) for row in rows]
+
+    @staticmethod
     def search(site,word,page):
         from app.chain.search import SearchChain
         return SearchChain().search_site_torrents(site=site,keyword=word,mtype=None,page=page)
@@ -135,6 +150,7 @@ class CandidateService:
     def __init__(self, repository, adapter, ai=None):
         self.repository, self.adapter, self.ai = repository, adapter, ai
         self.runtime = {}  # Host credential-bearing objects never enter SQLite.
+        self.search_errors=[]
 
     def observe(self, raw, *, source='search'):
         key = candidate_key(raw)
@@ -160,6 +176,7 @@ class CandidateService:
             return [dict(json.loads(r['data']),first_seen=r['first_seen']) for r in db.execute('SELECT * FROM candidates ORDER BY first_seen,candidate_key LIMIT ? OFFSET ?', (limit,offset))]
 
     def search(self, selected_sites, keywords, budget):
+        self.search_errors=[]
         if not isinstance(selected_sites,(list,tuple)) or len(selected_sites)>32 or any(type(i) is not int or i<1 for i in selected_sites):
             raise ValueError('explicit bounded site IDs required')
         if not selected_sites:
@@ -187,7 +204,8 @@ class CandidateService:
                     try:
                         rows = self.adapter.search(site,word,page)
                     except Exception:
-                        rows = []  # Empty is NO_CANDIDATES, never a claim of service health.
+                        with lock:self.search_errors.append('SITE_SEARCH_FAILED:'+str(site['id']))
+                        rows = []
                     for raw in (rows or [])[:budget.results]:
                         if value(raw,'site') != site['id']:
                             continue
@@ -207,6 +225,17 @@ class CandidateService:
         with ThreadPoolExecutor(max_workers=budget.concurrency) as pool:
             list(pool.map(run,sites))
         return output
+
+    def refresh(self,key,budget):
+        """Cold recovery uses only saved site/resource identity, never old cookies."""
+        with self.repository.connection() as db:
+            row=db.execute('SELECT data FROM candidates WHERE candidate_key=?',(key,)).fetchone()
+        if not row:raise ValueError('CANDIDATE_REFRESH_REQUIRED')
+        saved=json.loads(row[0]);site=saved.get('site');title=saved.get('title')
+        if type(site)is not int or not isinstance(title,str) or not title:raise ValueError('CANDIDATE_REFRESH_REQUIRED')
+        found=self.search([site],[title],budget)
+        if not any(r['candidate_key']==key for r in found):raise ValueError('EXACT_CANDIDATE_UNAVAILABLE')
+        return self.runtime[key]
 
     def supplement(self,key,budget):
         """Bounded exact-resource refresh using its configured authenticated site."""
@@ -363,13 +392,15 @@ class CandidatePipeline:
     become MISSING. Credential-bearing acquisition and media objects live only
     for this bounded round, and must be refreshed after process restart/expiry.
     """
-    def __init__(self,service,meta_service,policy,current_provider,client_factory):
+    def __init__(self,service,meta_service,policy,current_provider,client_factory,*,current=None,locked=None):
         self.service,self.meta,self.policy=service,meta_service,policy
         self.current,self.clients=current_provider,client_factory
         self.rounds={}
+        self.active=current;self.locked=locked
 
     def evaluate(self,key,target,scope,*,downloader,save_path,dependencies=None,custom_words=None,task_id=None,mode='episode'):
         from .planner import Planner
+        if self.active:self.active()
         result=self.service.recognize(key,target,self.meta,custom_words=custom_words,task_id=task_id)
         if result['status']!='OK':
             return dict(plans=[],reason=result['reason'])
@@ -430,16 +461,17 @@ class CandidatePipeline:
         from .planner import Planner
         exclusions=Exclusions(self.service.repository)
         excluded={k for k in scope if exclusions.matches(dict(candidate,targets=[k]),facts=dict(candidate['facts'][k].raw) if k in candidate['facts'] else {})}
-        return Planner(self.policy).evaluate(candidate,self.current(scope),scope,mode=mode,excluded=excluded)
+        return Planner(self.policy).evaluate(candidate,self.current(scope),scope,mode=mode,excluded=excluded,locked=self.locked)
 
     def revalidate(self,plan):
+        if self.active:self.active()
         s=plan['snapshot'];round=self.rounds.get(s['candidate_key'])
         if round is None or time.monotonic()-round['acquired']>300:
             raise ValueError('CANDIDATE_REFRESH_REQUIRED')
         if self.meta.corrector.revision!=s['parse_revision'] or self.policy.semantic_hash!=s['policy_revision']:
             raise ValueError('POLICY_PARSE_CHANGED')
         candidate=dict(round['candidate'],classification=self.service.adapter.classify(round['media']))
-        active={t['target_key'] for t in plan['targets'] if t['state']=='ACTIVE'} if 'targets' in plan else set(s['targets'])
+        active={t['target_key'] for t in plan['targets'] if t['state']=='ACTIVE'} if 'targets' in plan and plan.get('authorization')!='PREPARED' else set(s['targets'])
         indices=[i for i in s['selected_indices'] if set(s['torrent_files'][i]['targets'])<=active]
         active={k for i in indices for k in s['torrent_files'][i]['targets']}
         expected=dict(s,selected_indices=indices,targets={k:s['targets'][k] for k in active},current={k:s['current'][k] for k in active})
@@ -451,7 +483,7 @@ class CandidatePipeline:
 
     def executor(self):
         from .execution import StrictExecutor
-        return StrictExecutor(self.service.repository,self.clients,revalidate=self.revalidate)
+        return StrictExecutor(self.service.repository,self.clients,revalidate=self.revalidate,dispatch_gate=self.active)
 
     def execute(self,plan_id,*,resume=False):
         executor=self.executor();plan=executor.authority.plan(plan_id)

@@ -491,13 +491,32 @@ class PluginTests(unittest.TestCase):
             return original(preview['config'] if preview['valid'] else config)
         self.plugin.init_plugin=validated_save
 
+    def bind_runtime(self):
+        """Fictional provider/destination; real common admission and ownership."""
+        import importlib
+        runtime=self.plugin.runtime
+        runtime.policy=importlib.import_module('w01_plugin.policy').Policy({'movie':'外语电影'},1)
+        Destination=importlib.import_module('w01_plugin.configuration').Destination
+        runtime.config.destination_templates=[Destination(id='fixture',category_id='movie',downloader='qb',save_path='/downloads',organized_rule='rule',sites=[1])]
+        runtime.clients=lambda name:object()
+        runtime.delivery=types.SimpleNamespace(rules={'rule':{'enabled':True}},cloud=types.SimpleNamespace(close=lambda:None),archive=types.SimpleNamespace(sources=types.SimpleNamespace(close=lambda:None)))
+        planner=importlib.import_module('w01_plugin.planner')
+        def resolve(target):
+            episodes=[1,3] if target.media_type=='电视剧' else []
+            units=[planner.TargetUnit(target,n).key for n in episodes] if episodes else [planner.TargetUnit(target).key]
+            return dict(target_key=target.key,provider_identity=[target.media_source,target.media_id],episode_group=target.episode_group,
+                season=target.season,episodes=episodes,provider_rows=[],scope_closed=True,units=units,keywords=['Fictional'],
+                classification=dict(state='complete',policy_revision=1,effective=dict(category_id='movie')))
+        runtime.provider=types.SimpleNamespace(resolve=resolve)
+        return runtime
+
     def test_T150_reload_single_listener_default_safe_and_stale_job(self):
         self.assertFalse(self.plugin.get_state())
         generation = self.plugin.generation
         self.plugin.init_plugin({"enabled": True, "dry_run": True})
         self.assertEqual(6, len(self.listeners))
         self.plugin.ownership.reconcile = Mock()
-        self.plugin.reconcile(generation=generation)
+        asyncio.run(self.plugin.reconcile(generation=generation))
         self.plugin.ownership.reconcile.assert_not_called()
         self.plugin.stop_service()
         self.assertFalse(self.plugin.get_state())
@@ -511,6 +530,7 @@ class PluginTests(unittest.TestCase):
 
     def create_owned_fixture(self):
         self.plugin.init_plugin({"enabled": True, "dry_run": False})
+        self.bind_runtime()
         request = self.mod.IntentRequest(intent_key="safety-duty", media_type="电视剧", media_source="themoviedb", media_id="123", season=0, name="Fictional")
         task = self.plugin.submit_intent(request, user=self.TokenPayload())
         return task, self.plugin.adapter
@@ -589,15 +609,16 @@ class PluginTests(unittest.TestCase):
         # Mirror scheduler/reconcile.py:442-448, including its own kwargs.
         scheduler.add_job(Mock(), service["trigger"], **(service.get("kwargs") or {}),
                           kwargs={"job_id": "SubscriBetter_ownership"}, replace_existing=True)
-        self.assertEqual(60, scheduler.add_job.call_args.kwargs["seconds"])
+        self.assertEqual(self.plugin.config.recovery.active_poll_seconds, scheduler.add_job.call_args.kwargs["seconds"])
         callback_kwargs = service.get("func_kwargs") or {}
         self.assertEqual({"generation": self.plugin.generation}, callback_kwargs)
         self.plugin.ownership.reconcile = Mock()
-        service["func"](**callback_kwargs)
+        self.plugin.repository.setting('runtime-lane',1)
+        asyncio.run(service["func"](**callback_kwargs))
         self.plugin.ownership.reconcile.assert_called_once_with()
         self.plugin.init_plugin({"enabled": True, "dry_run": False})
         self.plugin.ownership.reconcile = Mock()
-        service["func"](**callback_kwargs)
+        asyncio.run(service["func"](**callback_kwargs))
         self.plugin.ownership.reconcile.assert_not_called()
 
     def test_authenticated_api_rejects_anonymous_invalid_and_dryrun_mutations(self):
@@ -658,50 +679,45 @@ class PluginTests(unittest.TestCase):
         self.assertEqual("OWNER_UNBOUND", result["sources"]["weekly"]["reason"])
 
     def test_W09_discovery_scope_and_inventory_refresh_contract_are_explicit(self):
-        archive=types.SimpleNamespace(
-            sources=types.SimpleNamespace(libraries={'emby':{'10'}}),
-            mappings=types.SimpleNamespace(rules=[{'emby_service':'emby','library_id':'10',
-                                                   'media_source':'themoviedb'}]))
-        self.plugin.delivery_worker=types.SimpleNamespace(archive=archive,rules={'rule':{'enabled':True}})
+        self.plugin.init_plugin({'enabled':True,'dry_run':False})
+        runtime=self.bind_runtime()
         target=sys.modules['w01_plugin.repository'].Target('电视剧','themoviedb','1396',1)
         source=self.mod.SourceConfig(id='tv',kind='custom',url='https://feed.invalid/rss',
-                                     destination_templates={'tv':'/downloads/tv'})
+                                     destination_templates={'tv':'fixture'})
         self.assertTrue(self.plugin._discovery_authorized(target,source,'tv'))
         self.assertFalse(self.plugin._discovery_authorized(target,source,'anime'))
-        anime=source.model_copy(update={'destination_templates':{'anime':'/downloads/anime'}})
+        anime=source.model_copy(update={'destination_templates':{'anime':'fixture'}})
         self.assertTrue(self.plugin._discovery_authorized(target,anime,'anime'))
         self.assertFalse(self.plugin._discovery_authorized(target,anime,'tv'))
         self.assertFalse(self.plugin._discovery_authorized(target,source.model_copy(update={'destination_templates':{}}),'tv'))
-        requests=[]
-        self.plugin.migration=types.SimpleNamespace(inventory_refresh=lambda request:
-            (requests.append(request),{'state':'MISSING','evidence_ref':'archive-probe:test'})[1])
+        runtime.inventory=Mock(return_value={'state':'MISSING','evidence_ref':'archive-probe:test'})
         result=self.plugin._discovery_inventory_refresh(target,source)
         self.assertEqual('MISSING',result['state'])
-        self.assertEqual([['emby','10']],requests[0]['library_scopes'])
-        self.assertEqual(target.key,requests[0]['target_key'])
+        runtime.inventory.assert_called_once_with(target)
         with self.assertRaises(Exception):
             self.mod.DiscoveryReprocessRequest(record_ids=list(range(1,102)))
 
     def test_W09_discovery_accept_opens_shared_scheduler_scope(self):
         self.plugin.init_plugin({'enabled':True,'dry_run':False})
+        runtime=self.bind_runtime()
         movie=sys.modules['w01_plugin.repository'].Target('电影','themoviedb','253774')
-        row=self.plugin.ownership.submit('fixture-movie',movie,{'name':'Caminandes'},'fixture')
+        row=runtime.submit('fixture-movie',movie,{'name':'Caminandes'},'fixture')
         source=self.mod.SourceConfig(id='controlled',kind='custom',url='https://feed.invalid/rss',
-                                     destination_templates={'movie':'/test-data/downloads/open-film'})
+                                     destination_templates={'movie':'fixture'})
         receipt=self.plugin._discovery_accept(row,movie,source,row['snapshot'])
         self.assertEqual('CONTINUOUS',self.plugin.scheduler.opportunity(receipt['opportunity_id'])['mode'])
-        tvplugin=self.mod.SubscriBetter();tvplugin.data_path=Path(self.tmp.name)/'tv'
-        tvplugin.init_plugin({'enabled':True,'dry_run':False});self.addCleanup(tvplugin.stop_service)
         tv=sys.modules['w01_plugin.repository'].Target('电视剧','themoviedb','1396',1)
-        tvrow=tvplugin.ownership.submit('fixture-tv',tv,{'name':'Fixture TV'},'fixture')
-        with self.assertRaisesRegex(ValueError,'TV_SCOPE_UNBOUND'):
-            tvplugin._discovery_accept(tvrow,tv,source.model_copy(update={'destination_templates':{'tv':'/tv'}}),tvrow['snapshot'])
-        tvplugin.migration=types.SimpleNamespace(discovery_scope=lambda request:{'episodes':[1,3]})
-        receipt=tvplugin._discovery_accept(tvrow,tv,source.model_copy(update={'destination_templates':{'tv':'/tv'}}),tvrow['snapshot'])
+        self.plugin.adapter.rows[43]=dict(id=43,type='电视剧',media_source='themoviedb',media_id='1396',season=1,episode_group='',state='R')
+        tvrow=self.plugin.ownership.submit('fixture-tv',tv,{'name':'Fixture TV'},'fixture',43,True)
+        with self.assertRaisesRegex(ValueError,'RUNTIME_ADMISSION_REQUIRED'):
+            self.plugin._discovery_accept(tvrow,tv,source,tvrow['snapshot'])
+        tvrow=runtime.submit('fixture-tv-common',tv,{'name':'Fixture TV'},'fixture')
+        receipt=self.plugin._discovery_accept(tvrow,tv,source,tvrow['snapshot'])
         self.assertEqual(2,len(receipt['target_units']))
 
     def test_enabled_authenticated_submission_and_disabled_guard(self):
         self.plugin.init_plugin({"enabled": True, "dry_run": False})
+        self.bind_runtime()
         request = self.mod.IntentRequest(intent_key="working", media_type="电视剧", media_source="themoviedb", media_id="123", season=0, name="Fictional")
         result = self.plugin.submit_intent(request, user=self.TokenPayload())
         self.assertEqual("ACTIVE", result.state)
@@ -718,6 +734,7 @@ class PluginTests(unittest.TestCase):
 
     def test_T150_auto_enable_excludes_existing_and_reenable_disabled_arrivals(self):
         self.plugin.init_plugin({"enabled": True, "dry_run": False, "auto_types": ["电视剧"]})
+        self.bind_runtime()
         native = {"id": 99, "type": "电视剧", "media_source": "themoviedb", "media_id": "777", "season": 0, "episode_group": "", "state": "R"}
         self.plugin.adapter.rows[99] = native
         self.assertTrue(self.plugin._auto_scope(native))

@@ -209,10 +209,11 @@ class HostDeliveryCloud:
                 if count>10000:raise ValueError('REFRESH_LIMIT')
         finally:call.cancel()
 
-    def inventory(self,scope,path):
+    def inventory(self,scope,path,*,limit=10000,seconds=30):
         """Only the exact owned batch subtree, never the library/cloudfs root."""
         self._scope(scope,path);client,pb,meta=self._raw(scope)
-        pending=[path];rows=[];seen=set();deadline=time.monotonic()+30
+        if type(limit)is not int or not 1<=limit<=10000 or not 0<seconds<=30:raise ValueError('BUNDLE_LIST_LIMIT')
+        pending=[path];rows=[];seen=set();deadline=time.monotonic()+seconds
         while pending:
             current=pending.pop()
             remaining=min(self.timeout,deadline-time.monotonic())
@@ -224,7 +225,7 @@ class HostDeliveryCloud:
                         name=cloud_path(raw.fullPathName)
                         if str(PurePosixPath(name).parent)!=current or name in seen or not raw.id:raise ValueError('BUNDLE_LIST_AMBIGUOUS')
                         seen.add(name);rows.append({'path':name,'id':str(raw.id),'directory':raw.isDirectory})
-                        if len(rows)>10000:raise ValueError('BUNDLE_LIST_LIMIT')
+                        if len(rows)>limit:raise ValueError('BUNDLE_LIST_LIMIT')
                         if raw.isDirectory:pending.append(name)
             finally:call.cancel()
         return rows

@@ -191,7 +191,7 @@ def provider_id(ids, source):
     return values.pop()
 
 
-def units(item, rules, series):
+def units(item, rules, series, *, scope=None):
     source = rules[0].get('media_source', 'themoviedb')
     group = rules[0].get('episode_group', '')
     if item.get('Type') == 'Movie':
@@ -201,6 +201,20 @@ def units(item, rules, series):
     parent = series.get(str(item.get('SeriesId')))
     if not parent:
         raise ValueError('SERIES_IDENTITY_UNKNOWN')
+    if group:
+        if not scope:raise ValueError('GROUP_SCOPE_REQUIRED')
+        target=Target(*json.loads(scope['target_key']))
+        if (target.media_source,target.media_id,target.episode_group)!=(source,provider_id(parent.get('ProviderIds'),source),group):
+            raise ValueError('GROUP_SCOPE_CONFLICT')
+        episode_id=provider_id(item.get('ProviderIds'),source)
+        if not episode_id.isascii() or not episode_id.isdecimal():raise ValueError('GROUP_EPISODE_UNVERIFIED')
+        matches=[r for r in scope['provider_rows'] if str(r.get('id'))==episode_id]
+        if not matches:return []
+        if len(matches)!=1 or matches[0].get('season_number')!=item.get('ParentIndexNumber'):
+            raise ValueError('GROUP_EPISODE_UNVERIFIED')
+        if item.get('IndexNumberEnd',item.get('IndexNumber'))!=item.get('IndexNumber'):
+            raise ValueError('GROUP_EPISODE_RANGE_UNVERIFIED')
+        return [TargetUnit(target,matches[0]['episode_number']).key]
     season, episode = item.get('ParentIndexNumber'), item.get('IndexNumber')
     end = item.get('IndexNumberEnd', episode)
     if any(type(x) is not int or x < 0 for x in (season, episode, end)) or not episode <= end <= episode + 100:
@@ -257,7 +271,8 @@ class HostArchiveSources:
         if not wrapper or not wrapper.instance:
             raise ValueError('EMBY_SERVICE_UNAVAILABLE')
         params = dict(ParentId=str(library), Recursive='true', IncludeItemTypes='Movie,Episode,Series',
-                      Fields='Path,ProviderIds,MediaSources,MediaStreams,ParentId', **query)
+                      Fields='Path,ProviderIds,MediaSources,MediaStreams,ParentId')
+        params.update(query)
         response = wrapper.instance.get_data('[HOST]emby/Users/[USER]/Items?' + urlencode(params) + '&api_key=[APIKEY]')
         if response is None:
             raise ValueError('EMBY_UNAVAILABLE')
@@ -286,6 +301,33 @@ class HostArchiveSources:
         if page['TotalRecordCount'] != 1 or len(page['Items']) != 1 or str(page['Items'][0].get('Id')) != item_id:
             raise ValueError('EMBY_ITEM_NOT_CONFIRMED')
         return page['Items'][0]
+
+    def emby_target_page(self,service,library,target,start,limit):
+        """Library → verified Series → children; never a whole-library RSS scan."""
+        if not isinstance(target,Target) or type(start)is not int or start<0 or type(limit)is not int or not 1<=limit<=1000:
+            raise ValueError('INVALID_SCAN_LIMITS')
+        provider={'themoviedb':'tmdb','tvdb':'tvdb','imdb':'imdb'}.get(target.media_source)
+        if not provider:raise ValueError('EMBY_PROVIDER_QUERY_UNSUPPORTED')
+        kind='Movie' if target.media_type=='电影' else 'Series'
+        query=dict(IncludeItemTypes=kind,AnyProviderIdEquals=provider+'.'+target.media_id,
+            StartIndex=start if kind=='Movie' else 0,Limit=limit if kind=='Movie' else 2,SortBy='SortName',SortOrder='Ascending')
+        page=self._emby(service,library,query)
+        if not isinstance(page.get('Items'),list) or type(page.get('TotalRecordCount'))is not int:
+            raise ValueError('EMBY_INVALID_PAGE')
+        for item in page['Items']:
+            if item.get('Type')!=kind or provider_id(item.get('ProviderIds'),target.media_source)!=target.media_id:
+                raise ValueError('IDENTITY_CONFLICT')
+        if kind=='Movie':return page
+        if page['TotalRecordCount']==0 and not page['Items']:return dict(Items=[],TotalRecordCount=0)
+        if page['TotalRecordCount']!=1 or len(page['Items'])!=1:raise ValueError('SERIES_IDENTITY_AMBIGUOUS')
+        series=page['Items'][0]
+        if not isinstance(series.get('Id'),str) or not series['Id']:raise ValueError('SERIES_IDENTITY_UNKNOWN')
+        page=self._emby(service,library,dict(ParentId=series['Id'],IncludeItemTypes='Episode',
+            StartIndex=start,Limit=limit,SortBy='SortName',SortOrder='Ascending'))
+        if start==0 and not page['Items']:raise ValueError('SERIES_EPISODES_UNVERIFIED')
+        if any(i.get('Type')!='Episode' or i.get('SeriesId')!=series['Id'] for i in page['Items']):
+            raise ValueError('SERIES_IDENTITY_CONFLICT')
+        return dict(page,Series=item_projection(series))
 
     def classify_target(self, key):
         from .candidates import HostCandidateAdapter
@@ -427,15 +469,16 @@ class HostArchiveSources:
 
 
 class Archive:
-    def __init__(self, repository, policy, sources, *, mappings):
+    def __init__(self, repository, policy, sources, *, mappings,scope_provider=None):
         self.repository, self.policy, self.sources = repository, policy, sources
         self.mappings = Mappings(mappings)
         self.authority = Authority(repository)
+        self.scope_provider=scope_provider
 
-    def resolve_item(self, service, library, item, *, series=None, replacements=(), ignored=()):
+    def resolve_item(self, service, library, item, *, series=None, replacements=(), ignored=(), scope=None):
         item = item_projection(item)
         rules = self.mappings.scoped(service, library)
-        keys = units(item, rules, series or {})
+        keys = units(item, rules, series or {},scope=scope)
         sources = item.get('MediaSources')
         if not isinstance(sources, list) or not sources:
             raise ValueError('MEDIA_SOURCES_INCOMPLETE')
@@ -613,18 +656,7 @@ class Archive:
     def _store_version(self, db, observed):
         key, version = observed['target_key'], observed['version_id']
         db.execute("INSERT OR IGNORE INTO archive_targets VALUES(?,'UNKNOWN','',?,?)", (key, '{}', utcnow()))
-        prior = db.execute('SELECT data FROM archive_versions WHERE id=?', (version,)).fetchone()
-        if prior:
-            prior = json.loads(prior[0])
-            # Claims belong to this exact associated version, never just its hash.
-            observed = dict(observed, source_evidence=list(dict.fromkeys(prior.get('source_evidence', []) + observed.get('source_evidence', []))),
-                            assets=self._required_assets(prior.get('assets', []), observed['assets'], version))
-            if 'source_assets' not in observed:
-                observed['source_assets'] = prior.get('source_assets', prior.get('assets', []))
-            if prior.get('publication_raw') and not observed.get('publication_raw'):
-                observed['publication_raw'] = prior['publication_raw']
-                observed['raw'] = dict(prior['publication_raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'])
-        observed = dict(observed, assets=self._required_assets([dict(file_index=-1, role='video', location=observed['video'])], observed['assets'], version))
+        observed = self._prepared_version(db, observed)
         db.execute('INSERT INTO archive_versions VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET active=1,data=excluded.data',
                    (version, key, observed['service'], observed['library'], encoded(observed)))
         # These are the current required links; immutable archive_sources retains
@@ -652,6 +684,22 @@ class Archive:
             remaining = bool(self._live_versions(db, other).fetchone())
             self._sync(db, other, 'PRESENT' if remaining else 'UNKNOWN', 'replaced:' + version,
                        diagnostics=() if remaining else ('REPLACED_REQUIRED_ASSET',))
+
+    def _prepared_version(self, db, observed):
+        """Same merge for direct ingest and a scan's private finalization stage."""
+        version = observed['version_id']
+        prior = db.execute('SELECT data FROM archive_versions WHERE id=?', (version,)).fetchone()
+        if prior:
+            prior = json.loads(prior[0])
+            # Claims belong to this exact associated version, never just its hash.
+            observed = dict(observed, source_evidence=list(dict.fromkeys(prior.get('source_evidence', []) + observed.get('source_evidence', []))),
+                            assets=self._required_assets(prior.get('assets', []), observed['assets'], version))
+            if 'source_assets' not in observed:
+                observed['source_assets'] = prior.get('source_assets', prior.get('assets', []))
+            if prior.get('publication_raw') and not observed.get('publication_raw'):
+                observed['publication_raw'] = prior['publication_raw']
+                observed['raw'] = dict(prior['publication_raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'])
+        return dict(observed, assets=self._required_assets([dict(file_index=-1, role='video', location=observed['video'])], observed['assets'], version))
 
     def _sync(self, db, key, state, evidence_ref, diagnostics=(), **extra):
         versions = [json.loads(r['data']) for r in self._live_versions(db, key)]
@@ -717,7 +765,13 @@ class Archive:
             if item.get('Type') == 'Episode':
                 sid = str(item.get('SeriesId', ''))
                 series[sid] = self.sources.emby_item(service, library, sid)
-            observations.extend(self.resolve_item(service, library, item, series=series, replacements=verified.values()))
+            grouped={encoded(json.loads(k)[:5]) for k in target_keys if json.loads(k)[4]}
+            if grouped:
+                if not callable(self.scope_provider):raise ValueError('GROUP_SCOPE_REQUIRED')
+                for target in grouped:
+                    scope=self.scope_provider(Target(*json.loads(target)))
+                    observations.extend(self.resolve_item(service,library,item,series=series,replacements=verified.values(),scope=scope))
+            else:observations.extend(self.resolve_item(service, library, item, series=series, replacements=verified.values()))
         result = []
         for key in target_keys:
             videos = [a for a in verified.values() if a['role'] == 'video' and key in a['targets']]
@@ -776,7 +830,15 @@ class Archive:
                     if old['id'] not in published and any((loc['cloud_scope_id'], loc.get('account_ref'), loc['path']) in replacement_paths and replacement_paths[loc['cloud_scope_id'], loc.get('account_ref'), loc['path']] != content(loc) for loc in locations):
                         ignored.append(old['id'])
         fresh = []
-        scopes = sorted({(r['emby_service'], r['library_id']) for r in self.mappings.rules})
+        identities={tuple(json.loads(key)[:5]) for key in keys}
+        scope=None
+        if self.scope_provider:
+            if len(identities)!=1:raise ValueError('PUBLICATION_SCOPE_AMBIGUOUS')
+            target=Target(*next(iter(identities)));scope=self.scope_provider(target)
+            if not set(keys)<=set(scope['units']):raise ValueError('PUBLICATION_SCOPE_CHANGED')
+            scopes=sorted({(r['emby_service'],r['library_id']) for r in self.mappings.rules
+                if r.get('media_source','themoviedb')==target.media_source and r.get('episode_group','')==target.episode_group})
+        else:scopes = sorted({(r['emby_service'], r['library_id']) for r in self.mappings.rules})
         # Keep a positive association seen in either pass. Only two complete
         # independent snapshots may retire an absent old independent copy.
         for service, library, absence_pass in [(s, l, p) for s, l in scopes for p in (1, 2)]:
@@ -789,7 +851,7 @@ class Archive:
                         scan_id = scan['id']
                         break
             result = self.reconcile(service, library, target_keys=keys, scan_id=scan_id,
-                                    limits=dict(page_size=100, pages=10, items=1000), _publication=publication)
+                                    limits=dict(page_size=100, pages=2, items=1000), _publication=publication,scope=scope)
             if result['status'] != 'COMPLETE':
                 raise ValueError('BASELINE_REFRESH_' + (result['diagnostics'][0] if result['diagnostics'] else result['status']))
             with self.repository.connection() as db:
@@ -1023,20 +1085,22 @@ class Archive:
                 result['current_revisions'] = {k: self.authority._vector(db, [k])[k]['current_revision'] for k in keys}
             return result
 
-    def reconcile(self, service, library, *, target_keys=None, limits=None, scan_id=None, _publication=None):
+    def reconcile(self, service, library, *, target_keys=None, limits=None, scan_id=None, _publication=None, scope=None,deadline=None):
         limits = {**dict(page_size=100, pages=10, items=100), **(limits or {})}
         if any(type(v) is not int or v < 1 or v > 1000 for v in limits.values()) or set(limits) != {'page_size', 'pages', 'items'}:
             raise ValueError('INVALID_SCAN_LIMITS')
         library = str(library)
         self.mappings.scoped(service, library)
         keys = sorted(set(target_keys)) if target_keys is not None else None
+        target=Target(*json.loads(scope['target_key'])) if scope else None
+        if scope and (keys is None or not set(keys)<=set(scope['units']) or len(keys)>1000):raise ValueError('INVALID_SCAN_SCOPE')
         with self.repository.connection(write=True) as db:
             row = db.execute('SELECT * FROM archive_scans WHERE id=?', (scan_id,)).fetchone() if scan_id else None
             if scan_id and not row:
                 raise ValueError('SCAN_UNKNOWN')
             if row:
                 scan = json.loads(row['data'])
-                if (row['service'], row['library'], scan['targets'], scan['mapping'], scan.get('publication')) != (service, library, keys, self.mappings.revision, _publication):
+                if (row['service'], row['library'], scan['targets'], scan['mapping'], scan.get('publication'),scan.get('scope')) != (service, library, keys, self.mappings.revision, _publication,scope):
                     raise ValueError('STALE_SCAN')
                 if row['state'] in ('COMPLETE', 'ERROR'):
                     return dict(status=row['state'], scan_id=scan_id, **scan)
@@ -1045,15 +1109,19 @@ class Archive:
                 scan = dict(targets=keys, mapping=self.mappings.revision, start=0, total=None, phase='COLLECT', started_at=utcnow(), diagnostics=[])
                 if _publication is not None:
                     scan['publication'] = _publication
+                if scope is not None:scan['scope']=scope
                 db.execute("INSERT INTO archive_scans VALUES(?,?,?,'INCOMPLETE',?)", (scan_id, service, library, encoded(scan)))
+                db.execute('INSERT INTO archive_scan_baselines SELECT ?,u.target_key,u.current_revision,u.generation,t.generation FROM target_units u JOIN tasks t ON t.id=u.task_id WHERE ? IS NULL OR u.target_key IN (SELECT value FROM json_each(?))',
+                    (scan_id,encoded(keys) if keys is not None else None,encoded(keys or [])))
         try:
             self.mappings.mounts(service, library)
             if (instant() - parse(scan['started_at'])).total_seconds() > 86400:
                 raise ValueError('SCAN_EXPIRED')
             for _ in range(limits['pages']):
+                if deadline is not None and time.monotonic()>=deadline:break
                 if scan['phase'] != 'COLLECT':
                     break
-                page = self.sources.emby_page(service, library, scan['start'], limits['page_size'])
+                page = self.sources.emby_target_page(service,library,target,scan['start'],limits['page_size']) if target else self.sources.emby_page(service, library, scan['start'], limits['page_size'])
                 items, total = page.get('Items'), page.get('TotalRecordCount')
                 if not isinstance(items, list) or type(total) is not int or total < 0 or len(items) > limits['page_size']:
                     raise ValueError('EMBY_INVALID_PAGE')
@@ -1063,6 +1131,11 @@ class Archive:
                     raise ValueError('SCAN_INCOMPLETE')
                 scan['total'] = total
                 with self.repository.connection(write=True) as db:
+                    if page.get('Series'):
+                        parent=item_projection(page['Series'])
+                        prior=db.execute('SELECT data FROM archive_scan_items WHERE scan_id=? AND item_id=?',(scan_id,parent['Id'])).fetchone()
+                        if prior and json.loads(prior[0])!=parent:raise ValueError('SERIES_IDENTITY_CHANGED')
+                        db.execute('INSERT OR IGNORE INTO archive_scan_items VALUES(?,?,?,?)',(scan_id,parent['Id'],encoded(parent),'[]'))
                     for item in items:
                         if not isinstance(item.get('Id'), str) or item.get('Type') not in ('Movie', 'Episode', 'Series'):
                             raise ValueError('EMBY_INVALID_ITEM')
@@ -1075,78 +1148,70 @@ class Archive:
                     db.execute('UPDATE archive_scans SET data=? WHERE id=?', (encoded(scan), scan_id))
             if scan['phase'] == 'RESOLVE':
                 with self.repository.connection() as db:
-                    series = {r['item_id']: json.loads(r['data']) for r in db.execute("SELECT * FROM archive_scan_items WHERE scan_id=? AND json_extract(data,'$.Type')='Series'", (scan_id,))}
                     rows = [dict(r) for r in db.execute('SELECT * FROM archive_scan_items WHERE scan_id=? AND resolved IS NULL ORDER BY item_id LIMIT ?', (scan_id, limits['items']))]
+                    parents={json.loads(r['data']).get('SeriesId') for r in rows}-{None}
+                    series={r['item_id']:json.loads(r['data']) for parent in parents for r in db.execute('SELECT item_id,data FROM archive_scan_items WHERE scan_id=? AND item_id=?',(scan_id,parent))}
+                resolved=[]
                 for row in rows:
+                    if deadline is not None and time.monotonic()>=deadline:break
                     item = json.loads(row['data'])
                     observed = []
                     if item['Type'] != 'Series':
-                        identity = units(item, self.mappings.scoped(service, library), series)
+                        identity = units(item, self.mappings.scoped(service, library), series,scope=scope)
                         if keys is None or set(identity) & set(keys):
                             observed = self.resolve_item(service, library, item, series=series,
                                                          replacements=(_publication or {}).get('replacements', ()),
-                                                         ignored=(_publication or {}).get('ignored', ()))
+                                                         ignored=(_publication or {}).get('ignored', ()),scope=scope)
                             observed = [o for o in observed if keys is None or o['target_key'] in keys]
-                    with self.repository.connection(write=True) as db:
-                        db.execute('UPDATE archive_scan_items SET resolved=? WHERE scan_id=? AND item_id=?', (encoded(observed), scan_id, row['item_id']))
+                    resolved.append((encoded(observed),scan_id,row['item_id']))
+                with self.repository.connection(write=True) as db:
+                    db.executemany('UPDATE archive_scan_items SET resolved=? WHERE scan_id=? AND item_id=?',resolved)
                 with self.repository.connection() as db:
                     pending = db.execute('SELECT 1 FROM archive_scan_items WHERE scan_id=? AND resolved IS NULL', (scan_id,)).fetchone()
                 if not pending:
-                    return self._finish_scan(service, library, scan_id, scan)
+                    scan.update(phase='FINALIZE',finalize_after='')
+                    with self.repository.connection(write=True) as db:
+                        db.execute('UPDATE archive_scans SET data=? WHERE id=?',(encoded(scan),scan_id))
+            if scan['phase']=='FINALIZE':
+                return self._finish_scan(service, library, scan_id, scan, limits['items'],deadline=deadline)
             return dict(status='INCOMPLETE', scan_id=scan_id, **scan)
         except (ValueError, OSError) as error:
             code = str(error) if re.fullmatch('[A-Z_0-9]{1,80}', str(error)) else 'SCAN_FAILED'
             scan['diagnostics'] = [code]
             with self.repository.connection(write=True) as db:
                 db.execute("UPDATE archive_scans SET state='ERROR',data=? WHERE id=?", (encoded(scan), scan_id))
-                affected = keys or [r[0] for r in db.execute('SELECT DISTINCT target_key FROM archive_versions WHERE service=? AND library=?', (service, library))]
-                for key in affected:
-                    managed = db.execute('SELECT publish_phase FROM target_units WHERE target_key=?', (key,)).fetchone()
-                    newer = db.execute('SELECT updated_at FROM archive_targets WHERE target_key=?', (key,)).fetchone()
-                    if newer and parse(newer[0]) > parse(scan['started_at']):
-                        continue
-                    if _publication is None and (not managed or managed[0] not in BARRIERS):
-                        self._sync(db, key, 'ERROR', scan_id, [code])
+                # Keep all old versions. A failed watermark cannot replace facts;
+                # expose its uncertainty without materializing the whole library.
+                if _publication is None and code not in ('STALE_SCAN','SCAN_SUPERSEDED','SCAN_AUTHORITY_CHANGED','SHARED_ASSET_PUBLISH_BARRIER'):
+                    db.create_function('error_revision',1,lambda previous:digest(['ERROR',previous,code,scan_id]))
+                    db.execute("UPDATE archive_targets SET state='ERROR',revision=error_revision(revision),data=json_set(data,'$.diagnostics',json(?),'$.evidence_ref',?),updated_at=? WHERE updated_at<=? AND target_key IN (SELECT value FROM json_each(?) UNION SELECT target_key FROM archive_versions WHERE ? IS NULL AND service=? AND library=?) AND NOT EXISTS(SELECT 1 FROM target_units u WHERE u.target_key=archive_targets.target_key AND u.publish_phase IN (SELECT value FROM json_each(?))) AND NOT EXISTS(SELECT 1 FROM target_units u JOIN tasks t ON t.id=u.task_id LEFT JOIN archive_scan_baselines b ON b.scan_id=? AND b.target_key=u.target_key WHERE u.target_key=archive_targets.target_key AND (b.target_key IS NULL OR b.current_revision!=u.current_revision OR b.unit_generation!=u.generation OR b.task_generation!=t.generation))",
+                        (encoded([code]),scan_id,utcnow(),scan['started_at'],encoded(keys or []),encoded(keys) if keys is not None else None,service,library,encoded(sorted(BARRIERS)),scan_id))
+                    db.execute("UPDATE target_units SET current_facts=json_set(COALESCE(current_facts,'{}'),'$.state','ERROR','$.archive_revision',a.revision,'$.evidence_ref',?),current_revision=current_revision+1 FROM archive_targets a WHERE target_units.target_key=a.target_key AND json_extract(a.data,'$.evidence_ref')=? AND a.state='ERROR'",('archive-scan:'+scan_id,scan_id))
             return dict(status='ERROR', scan_id=scan_id, **scan)
 
-    def _finish_scan(self, service, library, scan_id, scan):
+    def _finish_scan(self, service, library, scan_id, scan, limit,*,deadline=None):
         with self.repository.connection() as db:
-            observed = [o for row in db.execute('SELECT resolved FROM archive_scan_items WHERE scan_id=?', (scan_id,)) for o in json.loads(row[0])]
-        by_target = {}
-        for item in observed:
-            # A large first scan may retain old observations, but current() will
-            # expose them as stale until a directed recheck refreshes that target.
-            if item.get('strm'):
-                _, check = read_strm(item['strm']['path'], item['strm']['root'], item['strm']['maximum'])
-                if check != item['strm']:
-                    raise ValueError('STRM_CHANGED')
-            by_target.setdefault(item['target_key'], []).append(item)
+            rows=[dict(r) for r in db.execute('SELECT item_id,resolved FROM archive_scan_items WHERE scan_id=? AND item_id>? ORDER BY item_id LIMIT ?', (scan_id,scan['finalize_after'],limit))]
+        prepared=[]
+        for row in rows:
+            if deadline is not None and time.monotonic()>=deadline:break
+            observed=json.loads(row['resolved'])
+            for item in observed:
+                if item.get('strm'):
+                    _,check=read_strm(item['strm']['path'],item['strm']['root'],item['strm']['maximum'])
+                    if check!=item['strm']:raise ValueError('STRM_CHANGED')
+            with self.repository.connection() as db:
+                prepared.append((encoded([self._prepared_version(db,item) for item in observed]),scan_id,row['item_id']))
+        if prepared:
+            with self.repository.connection(write=True) as db:
+                scan['finalize_after']=prepared[-1][2]
+                db.executemany('UPDATE archive_scan_items SET resolved=? WHERE scan_id=? AND item_id=?',prepared)
+                db.execute('UPDATE archive_scans SET data=? WHERE id=?',(encoded(scan),scan_id))
+        with self.repository.connection() as db:
+            pending=db.execute('SELECT 1 FROM archive_scan_items WHERE scan_id=? AND item_id>? LIMIT 1',(scan_id,scan['finalize_after'])).fetchone()
+        if pending:return dict(status='INCOMPLETE',scan_id=scan_id,finalize_processed=len(prepared),**scan)
         self.mappings.mounts(service, library)
-        with self.repository.connection(write=True) as db:
-            old = {r[0] for r in db.execute('SELECT DISTINCT target_key FROM archive_versions WHERE service=? AND library=?', (service, library))}
-            keys = set(scan['targets']) if scan['targets'] is not None else old | {o['target_key'] for o in observed}
-            if any(parse(r[0]) > parse(scan['started_at']) for key in keys for r in db.execute('SELECT updated_at FROM archive_targets WHERE target_key=?', (key,))):
-                raise ValueError('SCAN_SUPERSEDED')
-            for key in keys:
-                if scan.get('publication') is not None:
-                    continue
-                managed = db.execute('SELECT publish_phase FROM target_units WHERE target_key=?', (key,)).fetchone()
-                if managed and managed[0] in BARRIERS:
-                    continue
-                if not by_target.get(key):
-                    previous = db.execute('SELECT data FROM archive_targets WHERE target_key=?', (key,)).fetchone()
-                    if not previous or json.loads(previous[0]).get('absence_scope') != [service, library]:
-                        self._sync(db, key, 'UNKNOWN', scan_id, ['ABSENCE_PENDING'], absence_scope=[service, library])
-                        continue
-                db.execute('UPDATE archive_versions SET active=0 WHERE target_key=? AND service=? AND library=?', (key, service, library))
-                for item in by_target.get(key, []):
-                    if item.get('strm'):
-                        _, check = read_strm(item['strm']['path'], item['strm']['root'], item['strm']['maximum'])
-                        if check != item['strm']:
-                            raise ValueError('STRM_CHANGED')
-                    self._store_version(db, item)
-                active = db.execute('SELECT 1 FROM archive_versions WHERE target_key=? AND active=1', (key,)).fetchone()
-                self._sync(db, key, 'PRESENT' if active else 'MISSING', scan_id, **({'absence_scope': [service, library]} if not by_target.get(key) else {}))
-            scan['completed_at'] = utcnow()
-            db.execute("UPDATE archive_scans SET state='COMPLETE',data=? WHERE id=?", (encoded(scan), scan_id))
-        return dict(status='COMPLETE', scan_id=scan_id, **scan)
+        from .archive_scan import publish
+        before=time.monotonic()
+        publish(self,service,library,scan_id,scan)
+        return dict(status='COMPLETE', scan_id=scan_id,finalize_processed=len(prepared),final_sql_seconds=time.monotonic()-before, **scan)

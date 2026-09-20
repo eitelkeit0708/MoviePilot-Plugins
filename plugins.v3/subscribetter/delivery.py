@@ -171,10 +171,11 @@ class LocalSource:
 
 
 class Delivery:
-    def __init__(self,repository,authority,archive,cloud,*,rules,revalidate=None,publication_validator=None):
+    def __init__(self,repository,authority,archive,cloud,*,rules,revalidate=None,publication_validator=None,dispatch_gate=None):
         if not callable(revalidate) and not callable(publication_validator):raise ValueError('CURRENT_CANDIDATE_REVALIDATOR_REQUIRED')
         self.repository,self.authority,self.archive,self.cloud=repository,authority,archive,cloud
         self.rules=validate_rules(rules);self.revalidate=revalidate;self.publication_validator=publication_validator;self.exclusions=Exclusions(repository)
+        self.dispatch_gate=dispatch_gate
 
     def validate_publication(self,plan,publication):
         fresh=self.publication_validator(plan,publication) if self.publication_validator else self.revalidate(plan)
@@ -200,6 +201,7 @@ class Delivery:
         return r
 
     def _valid(self,b,*,publication=False):
+        if self.dispatch_gate:self.dispatch_gate()
         plan=self.authority.plan(b['plan_id']);s=plan['snapshot']
         with self.repository.connection() as db:
             self.authority._task_active(db,plan);self.authority._revisions(db,s)
@@ -318,6 +320,7 @@ class Delivery:
                 from types import SimpleNamespace
                 source_context=nullcontext(SimpleNamespace(stop=threading.Event())) if cancel or observe_only else self._source(f,r)
                 with source_context as source:
+                    if not cancel and not observe_only and self.dispatch_gate:self.dispatch_gate()
                     options=dict(cancel=cancel,budget=budget)
                     if observe_only:options['observe_only']=True
                     elif not cancel and status.get('state')=='PAUSE' and status.get('reader_stopped') is True:options['resume']=True
@@ -507,7 +510,9 @@ class Delivery:
                 action=self.authority.begin_publish(aid,b['plan_id'],b['vector'],b['indices'],validation=validation,now=now,exclusion_token=token,db=db)
                 b.update(publication_action=aid,state='PUBLISHING');self._save(b,db)
             if not action['dispatch']:return self._publication_status(b,r,now)
-            try:self.cloud.move(r['cloud_scope_id'],b['staging'],b['incoming'])
+            try:
+                if self.dispatch_gate:self.dispatch_gate()
+                self.cloud.move(r['cloud_scope_id'],b['staging'],b['incoming'])
             except Exception:
                 b.update(state='PUBLISH_OUTCOME_UNKNOWN',reason='MOVE_RESPONSE_UNKNOWN')
                 with self.repository.connection(write=True) as db:
@@ -528,7 +533,7 @@ class Delivery:
     def confirm(self,bundle_id,consumer_receipt,*,now=None):
         """Caller supplies an actual settled consumer receipt; Archive verifies it."""
         with LOCK:
-            b=self.bundle(bundle_id);r=self._rule(b)
+            b=self.bundle(bundle_id);r=self._rule(b,safety=True)
             if not b.get('publication_action'):raise ValueError('PUBLICATION_REQUIRED')
             if consumer_receipt.get('settled') is not True:
                 return dict(state='WAIT_CONSUMER',reason='CONSUMER_SETTLEMENT_REQUIRED',bundle_id=bundle_id)
@@ -544,6 +549,22 @@ class Delivery:
             if result.get('accepted') is True or (result.get('duplicate') is True and result.get('reason')=='ALREADY_CONFIRMED'):b.update(state='CONFIRMED',reason='',consumer_pending=False)
             else:b.update(reason='FINAL_ASSOCIATION_UNVERIFIED')
             self._save(b);return dict(self._result(b),confirmation=result)
+
+    @exclusive
+    def safety_reconcile(self,bundle_id,*,now=None,limits=None):
+        """Only already-issued IDs/receipts; no new upload, body, move or cleanup."""
+        with LOCK:
+            b=self.bundle(bundle_id);r=self._rule(b,safety=True)
+            if b.get('cancel_intent'):return self._cancel_readers(b,r,now)
+            if b.get('publication_action'):return self._publication_status(b,r,now)
+            for f in b['files']:
+                if f.get('upload_id') and f.get('state')!='VERIFIED':
+                    self._pump(b,f,r,now,observe_only=True,budget=(limits or {}).get('seconds',10));return self._result(b)
+                if f.get('action_id') and f.get('state')=='UNKNOWN':
+                    remote=self._remote(b,f)
+                    if remote:self._verified(b,f,remote,now)
+                    return self._result(b)
+            return self._result(b)
 
     @exclusive
     def cancel(self,bundle_id,*,reason,exclusion_id,criteria,now=None):

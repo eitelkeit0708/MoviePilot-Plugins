@@ -13,6 +13,7 @@ class Ownership:
         self.adapter = adapter
         # ponytail: serialize shell mutations; per-task locks if management throughput matters.
         self.lock = RLock()
+        self.dispatch_gate = None
 
     @staticmethod
     def matches(target: Target, native: dict) -> bool:
@@ -57,8 +58,14 @@ class Ownership:
                 if any(self.matches(target, row) for row in self.adapter.find(target)):
                     self.repository.action_state(task_id, "PENDING", "NATIVE_CONFLICT", expected_state="PENDING")
                     return
+                if self.dispatch_gate:self.dispatch_gate()
                 if not self.repository.start_create(task_id):
                     return
+                if self.dispatch_gate:
+                    try:self.dispatch_gate()
+                    except ValueError:
+                        self.repository.action_state(task_id,'PENDING','RUNTIME_DISPATCH_BLOCKED',expected_state='UNKNOWN')
+                        return
                 sid = self.adapter.create(target, task["snapshot"])
                 self.repository.bind_native(task_id, sid)
                 task = self.repository.get_task(task_id)
@@ -117,12 +124,12 @@ class Ownership:
             self._handoff(self.repository.get_task(task_id))
             return self.repository.get_task(task_id)
 
-    def ensure_paused(self) -> list[int]:
+    def ensure_paused(self,limit=None) -> list[int]:
         """Existing ownership is independent of the ordinary-work enable switch."""
         failed = []
         with self.lock:
-            offset = 0
-            while tasks := self.repository.list_tasks(100, offset):
+            offset = (self.repository.setting('ownership-safety-cursor') or 0) if limit else 0
+            while tasks := self.repository.list_tasks(limit or 100, offset):
                 offset += len(tasks)
                 for task in tasks:
                     if task["state"] == "RELEASED_NATIVE" or task["native_id"] is None:
@@ -140,6 +147,11 @@ class Ownership:
                                 failed.append(task["id"])
                     except Exception:
                         failed.append(task["id"])
+                if limit:
+                    self.repository.setting('ownership-safety-cursor',offset if len(tasks)==limit else 0)
+                    break
+            else:
+                if limit:self.repository.setting('ownership-safety-cursor',0)
         return failed
 
     def release_preview(self, task_id: int) -> dict:

@@ -23,6 +23,7 @@ from .discovery import DiscoveryConfig, DiscoveryService, HostRSSFetcher, Source
 from .configuration import Config, Configuration, host_references
 from .migration import Migration, collect_host
 from .management import Management
+from .runtime import Runtime
 
 
 class IntentRequest(BaseModel):
@@ -37,6 +38,8 @@ class IntentRequest(BaseModel):
     year: str = Field(default="", max_length=4, pattern=r"^(\d{4})?$")
     native_id: int | None = Field(default=None, gt=0)
     adopt: bool = False
+    destination_template: str | None = Field(default=None,min_length=1,max_length=256)
+    mode: Literal['CONTINUOUS','ONESHOT'] = 'CONTINUOUS'
 
 
 class TaskView(BaseModel):
@@ -159,13 +162,16 @@ class SubscriBetter(_PluginBase):
         if not hasattr(self, "runtime_lock"):
             self.runtime_lock = RLock()
         with self.runtime_lock:
-            if getattr(self,'ai',None):self.ai.close()
+            old_runtime=getattr(self,'runtime',None)
+            if old_runtime:old_runtime.stages.retire()
+            elif getattr(self,'ai',None):self.ai.close()
+            self.runtime=None
             self.ai=None;self.ai_errors=[]
             self.discovery=None;self.discovery_errors=[]
             for event,callback in getattr(self,'ai_listeners',[]):
                 eventmanager.remove_event_listener(event,callback)
             self.ai_listeners=[]
-            if getattr(self,'delivery_worker',None):
+            if not old_runtime and getattr(self,'delivery_worker',None):
                 from .host_delivery_contract import close_delivery
                 try:close_delivery(self.delivery_worker)
                 except Exception:pass  # Readers are synchronous and already stopped.
@@ -255,6 +261,8 @@ class SubscriBetter(_PluginBase):
                 if self.discovery:
                     self.discovery.authorized = self._discovery_authorized
                     self.discovery.ai = self.ai
+                self.runtime=Runtime(self)
+                if self.discovery:self.discovery.owner=self.runtime
                 self.errors.extend(self.adapter.capabilities())
                 self.auto_baseline = set(self.repository.setting("auto_baseline") or [])
                 auto_types = sorted(self.config.auto_types) if self.config.enabled and not self.config.dry_run else []
@@ -312,10 +320,12 @@ class SubscriBetter(_PluginBase):
             self.lifecycle_active = False
             self.running = False
             self.generation += 1
-            if self.ai:self.ai.close()
+            runtime=getattr(self,'runtime',None)
+            if runtime:runtime.stages.retire()
+            elif self.ai:self.ai.close()
             for event,callback in self.ai_listeners:eventmanager.remove_event_listener(event,callback)
             self.ai_listeners=[]
-            if getattr(self,'delivery_worker',None):
+            if not runtime and getattr(self,'delivery_worker',None):
                 from .host_delivery_contract import close_delivery
                 try:close_delivery(self.delivery_worker)
                 except Exception:self.errors.append('DELIVERY_CLOSE_FAILED')
@@ -337,7 +347,7 @@ class SubscriBetter(_PluginBase):
     def get_service(self):
         # The host owns scheduling; old clients close only after real I/O drains.
         services = [{"id": "SubscriBetter_ownership", "name": "subscriBetter 订阅状态核对", "trigger": "interval",
-                 "func": self.reconcile, "kwargs": {"seconds": 60}, "func_kwargs": {"generation": self.generation}},
+                 "func": self.reconcile, "kwargs": {"seconds": self.config.recovery.active_poll_seconds,"max_instances":1}, "func_kwargs": {"generation": self.generation}},
                 {"id":"SubscriBetter_ai","name":"subscriBetter AI 有界队列","trigger":"interval",
                  "func":self.ai_tick,"kwargs":{"seconds":1,"max_instances":1},"func_kwargs":{"generation":self.generation}}]
         if self.discovery and self.discovery.config.enabled and self.discovery.config.sources:
@@ -361,59 +371,28 @@ class SubscriBetter(_PluginBase):
         return {"fingerprint":"","overlaps":[],"unclassified":["owner_snapshot_unbound"]}
 
     def _discovery_inventory(self,target):
-        worker=getattr(self,'delivery_worker',None)
-        if worker is None:
+        runtime=getattr(self,'runtime',None)
+        if runtime is None:
             return {"state":"UNKNOWN","evidence_ref":None,"diagnostics":["ARCHIVE_UNAVAILABLE"]}
-        return worker.archive.discovery_inventory(target)
+        return runtime.inventory_view(target)
 
     def _discovery_inventory_refresh(self,target,source):
-        worker=getattr(self,'delivery_worker',None)
-        provider=getattr(getattr(self,'migration',None),'inventory_refresh',None)
-        if worker is None or not callable(provider):
-            return {"state":"UNKNOWN","evidence_ref":None,"diagnostics":["INVENTORY_REFRESH_UNBOUND"]}
-        archive=worker.archive
-        request={"schema":1,"source_id":source.id,"target_key":target.key,
-                 "target":{"media_type":target.media_type,"media_source":target.media_source,
-                           "media_id":target.media_id,"season":target.season,
-                           "episode_group":target.episode_group},
-                 "library_scopes":sorted([rule['emby_service'],str(rule['library_id'])]
-                                          for rule in archive.mappings.rules),
-                 "limits":{"pages":2,"items":100}}
-        result=provider(request)
-        return result if isinstance(result,dict) else {"state":"UNKNOWN","evidence_ref":None,
-                                                       "diagnostics":["INVENTORY_REFRESH_INVALID"]}
+        runtime=getattr(self,'runtime',None)
+        if not runtime:return {"state":"UNKNOWN","evidence_ref":None,"diagnostics":["ARCHIVE_UNAVAILABLE"]}
+        return runtime.inventory(target)
 
     def _discovery_authorized(self,target,source,destination):
-        worker=getattr(self,'delivery_worker',None)
-        if worker is None or not any(rule.get('enabled') for rule in worker.rules.values()):return False
-        if destination not in {'movie','tv','anime'} or not source.destination_templates.get(destination):return False
-        archive=worker.archive
-        libraries=getattr(archive.sources,'libraries',{})
-        return any(rule.get('media_source','themoviedb').casefold()==target.media_source
-                   and str(rule.get('library_id')) in libraries.get(rule.get('emby_service'),set())
-                   for rule in archive.mappings.rules)
+        runtime=getattr(self,'runtime',None);template=source.destination_templates.get(destination)
+        if not runtime or not template:return False
+        try:runtime.check();runtime.destination(runtime.scope(target),template);return True
+        except ValueError:return False
 
     def _discovery_accept(self,row,target,source,snapshot):
-        from .planner import TargetUnit
-        from .scheduler import ScheduleConfig
-        if target.media_type=='电影':
-            units=[TargetUnit(target)]
-        else:
-            provider=getattr(getattr(self,'migration',None),'discovery_scope',None)
-            if not callable(provider):raise ValueError('TV_SCOPE_UNBOUND')
-            result=provider({"schema":1,"source_id":source.id,"target_key":target.key,
-                             "provider_identity":[target.media_source,target.media_id],
-                             "season":target.season,"episode_group":target.episode_group})
-            episodes=result.get('episodes') if isinstance(result,dict) else None
-            if (not isinstance(episodes,list) or not episodes or len(episodes)>1000
-                    or any(type(value)is not int or value<=0 for value in episodes)
-                    or len(set(episodes))!=len(episodes)):
-                raise ValueError('TV_SCOPE_INVALID')
-            units=[TargetUnit(target,value) for value in sorted(episodes)]
-        opportunity='discovery-task:'+str(row['id'])
-        self.scheduler.open_opportunity(opportunity,row['id'],units,mode='CONTINUOUS',
-                                        config=ScheduleConfig(observation_enabled=False,failure_limit=3))
-        return {"opportunity_id":opportunity,"target_units":[unit.key for unit in units]}
+        with self.repository.connection() as db:
+            opportunity=db.execute("SELECT id FROM opportunities WHERE task_id=? AND state='ACTIVE' ORDER BY created_at LIMIT 1",(row['id'],)).fetchone()
+        saved=self.repository.setting('runtime-input:'+opportunity['id']) if opportunity else None
+        if not saved:raise ValueError('RUNTIME_ADMISSION_REQUIRED')
+        return dict(opportunity_id=opportunity['id'],target_units=saved['scope']['units'])
 
     def _discovery_excluded(self,target):
         from .execution import Exclusions
@@ -424,49 +403,44 @@ class SubscriBetter(_PluginBase):
         self.post_message(mtype=MessageType.Plugin,title=self.plugin_name,text=message)
 
     def ai_name(self,event):
-        runtime=self.ai
-        if runtime:runtime.name_event(event,self.meta_service)
+        with self.runtime_lock:runtime,meta,owner=self.ai,self.meta_service,self.runtime
+        if runtime and owner:
+            with owner.stages.lease():runtime.name_event(event,meta)
 
     def ai_message(self,event):
-        runtime=self.ai
-        if runtime:runtime.enqueue_chat(event,self.post_message)
+        with self.runtime_lock:runtime,owner=self.ai,self.runtime
+        if runtime and owner:
+            with owner.stages.lease():runtime.enqueue_chat(event,self.post_message)
 
     def ai_tick(self,generation=None):
         # HTTP and message sends never hold the plugin ownership/lifecycle lock.
         with self.runtime_lock:
             if generation is not None and generation!=self.generation:return
-            runtime,meta=self.ai,self.meta_service
-        if runtime:runtime.drain(meta)
+            runtime,meta,owner=self.ai,self.meta_service,self.runtime
+        if runtime and owner:
+            with owner.stages.lease():runtime.drain(meta)
 
     async def discovery_tick(self,generation=None,source_ids=None):
         with self.runtime_lock:
             runtime=self.discovery
             if generation is not None and generation!=self.generation:return {"sources":{},"reason":"STALE_GENERATION"}
             if not runtime or not runtime.config.enabled or not self._ordinary_work_active():return {"sources":{},"reason":"DISCOVERY_DISABLED"}
-        return await runtime.run(source_ids)
+            owner=self.runtime
+        with owner.stages.lease():return await runtime.run(source_ids)
 
-    def reconcile(self, generation: int | None = None):
+    async def reconcile(self, generation: int | None = None):
         with self.runtime_lock:
             if generation is not None and generation != self.generation:
                 return
-            if not self.running:
+            runtime=getattr(self,'runtime',None)
+            if not runtime:
                 return
-            try:
-                self.ownership.ensure_paused()
-                self.scheduler.tick()
-                if self._ordinary_work_active():
-                    self.ownership.reconcile()
-                    if self.delivery_worker:
-                        self.delivery_last=self.delivery_worker.tick()
-                    for native in self.adapter.list():
-                        if self._auto_scope(native) and not self.repository.by_native_id(native["id"]):
-                            self._adopt_new(native)
-                self.guard.refresh_cache()
-            except Exception:
-                self.errors = list(dict.fromkeys(self.errors + ["RECONCILE_FAILED"]))
+        result=await runtime.tick()
+        self.guard.refresh_cache()
+        return result
 
     def _adopt_new(self, native):
-        self.ownership.submit(f"native:{native['id']}", target_from_native(native), native,
+        self.runtime.submit(f"native:{native['id']}", target_from_native(native), native,
                               "automatic", native_id=native["id"], adopt=True)
         self.guard.refresh_cache()
 
@@ -474,13 +448,16 @@ class SubscriBetter(_PluginBase):
         with self.runtime_lock:
             if not self._ordinary_work_active():
                 return
-            try:
+            runtime=self.runtime;adapter=self.adapter
+        try:
+            with runtime.stages.lease():
                 sid = field(event.event_data, "subscribe_id")
-                native = self.adapter.get(sid)
+                native = adapter.get(sid)
                 if native and self._auto_scope(native):
-                    self._adopt_new(native)
-            except Exception:
-                self.errors = list(dict.fromkeys(self.errors + ["AUTOMATIC_HANDOFF_FAILED"]))
+                    runtime.submit(f"native:{native['id']}",target_from_native(native),native,'automatic',native_id=native['id'],adopt=True)
+                    self.guard.refresh_cache()
+        except Exception:
+            self.errors = list(dict.fromkeys(self.errors + ["AUTOMATIC_HANDOFF_FAILED"]))
 
     def subscribe_deleted(self, event):
         with self.runtime_lock:
@@ -562,14 +539,16 @@ class SubscriBetter(_PluginBase):
         self._authorize(user)
         with self.runtime_lock:
             self._writes_enabled()
-            try:
+            runtime=self.runtime;guard=self.guard
+        try:
+            with runtime.stages.lease():
                 target = make_target(request.media_type, request.media_source, request.media_id, request.season, request.episode_group)
-                row = self.ownership.submit(request.intent_key, target, {"name": request.name, "year": request.year, "username": user.username},
-                                            str(user.username), request.native_id, request.adopt)
-                self.guard.refresh_cache()
+                row = runtime.submit(request.intent_key, target, {"name": request.name, "year": request.year, "username": user.username},
+                                            str(user.username), request.native_id, request.adopt,template_id=request.destination_template,mode=request.mode)
+                guard.refresh_cache()
                 return TaskView.model_validate(row)
-            except ValueError as error:
-                raise HTTPException(409, str(error)) from None
+        except ValueError as error:
+            raise HTTPException(409,Runtime.reason(error)) from None
 
     def change_state(self, task_id: int, request: StateRequest, user: TokenPayload = Depends(verify_token)) -> TaskView:
         self._authorize(user)

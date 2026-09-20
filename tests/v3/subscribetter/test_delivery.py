@@ -102,6 +102,24 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises((ValueError,FileNotFoundError)): self.prepared()
         with self.repo.connection() as db: self.assertEqual(0,db.execute('SELECT count(*) FROM delivery_bundles').fetchone()[0])
 
+    def test_disabled_rule_safety_observes_issued_upload_without_new_dispatch(self):
+        self.rule.update(fallback=True,fallback_gb='0.001',rapid_misses=1)
+        self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
+        bid=self.prepared();self.worker.reconcile(bid,now=tp.NOW)
+        self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=61))
+        self.worker.rules['r']['enabled']=False
+        self.worker.dispatch_gate=lambda:(_ for _ in ()).throw(ValueError('ORDINARY_DISABLED'))
+        before=list(self.cloud.calls)
+        def observe(scope,uid,device,source,**kwargs):
+            self.assertEqual('upload-owned',uid);self.assertTrue(kwargs['observe_only'])
+            self.assertFalse(hasattr(source,'read'))
+            return dict(state='UNKNOWN',reader_stopped=True,requests=0,bytes_sent=0)
+        with patch.object(self.worker,'_source',side_effect=AssertionError('must not open body')),patch.object(self.cloud,'pump',side_effect=observe):
+            self.worker.safety_reconcile(bid,now=tp.NOW+timedelta(seconds=122))
+        self.assertEqual(before,self.cloud.calls)
+        self.assertEqual('upload-owned',self.worker.bundle(bid)['files'][0]['upload_id'])
+        with self.assertRaisesRegex(ValueError,'RULE_CHANGED'):self.worker.reconcile(bid,now=tp.NOW)
+
     def test_changed_inode_invalidates_cached_hash(self):
         bid=self.prepared(); path=self.local/'movie.mkv'; old=path.stat(); path.unlink(); path.write_bytes(b'y'*100)
         os.utime(path,ns=(old.st_atime_ns,old.st_mtime_ns))
@@ -536,14 +554,14 @@ class DeliveryTests(unittest.TestCase):
 
     def test_schema6_migration_preserves_every_old_row(self):
         with self.repo.connection(write=True) as db:
-            for table in ('migration_history','migration_receipts','discovery_targets','discovery_records','discovery_sources','ai_usage','ai_requests','ai_runtime','delivery_bundles','reconcile_checkpoints','local_observations'):db.execute('DROP TABLE '+table)
+            for table in ('archive_scan_baselines','migration_history','migration_receipts','discovery_targets','discovery_records','discovery_sources','ai_usage','ai_requests','ai_runtime','delivery_bundles','reconcile_checkpoints','local_observations'):db.execute('DROP TABLE '+table)
             db.execute('DROP INDEX archive_target_identity')
             db.execute('PRAGMA user_version=6')
             names=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
             before={n:sorted([tuple(r) for r in db.execute('SELECT * FROM "'+n+'"')],key=repr) for n in names}
         self.r.Repository(self.repo.path)
         with self.repo.connection() as db:
-            self.assertEqual(10,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(11,db.execute('PRAGMA user_version').fetchone()[0])
             self.assertEqual(before,{n:sorted([tuple(r) for r in db.execute('SELECT * FROM "'+n+'"')],key=repr) for n in names})
 
     def test_tick_with_no_events_scans_and_advances_only_durable_bundle(self):

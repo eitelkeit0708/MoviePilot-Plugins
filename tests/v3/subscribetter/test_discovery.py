@@ -796,7 +796,7 @@ class DiscoveryTests(unittest.TestCase):
         target = self.repo_mod.Target("电影", "themoviedb", "schema-fixture")
         task = self.repo.submit("schema-fixture", target, {"name": "Fixture"}, "admin")
         with self.repo.connection(write=True) as db:
-            for table in ("migration_history", "migration_receipts", "discovery_targets", "discovery_records", "discovery_sources"):
+            for table in ("archive_scan_baselines", "migration_history", "migration_receipts", "discovery_targets", "discovery_records", "discovery_sources"):
                 db.execute("DROP TABLE " + table)
             db.execute("DROP INDEX archive_target_identity")
             db.execute("PRAGMA user_version=8")
@@ -804,7 +804,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(task["id"], migrated.get_task(task["id"])["id"])
         db = sqlite3.connect(self.repo.path)
         try:
-            self.assertEqual(10, db.execute("PRAGMA user_version").fetchone()[0])
+            self.assertEqual(11, db.execute("PRAGMA user_version").fetchone()[0])
             self.assertEqual(0, db.execute("SELECT count(*) FROM discovery_records").fetchone()[0])
             self.assertTrue(db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='archive_target_identity'").fetchone())
         finally:
