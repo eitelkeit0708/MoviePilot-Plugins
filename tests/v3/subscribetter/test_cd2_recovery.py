@@ -152,5 +152,92 @@ class RecoveryTests(unittest.TestCase):
         stub.RemoteReadData.assert_not_called();stub.StartRemoteUpload.assert_called_once()
 
 
+    def protocol(self,f,events=()):
+        stub=Mock();stub.StartRemoteUpload.return_value=NS(upload_id='original-id')
+        stub.RemoteUploadChannel.side_effect=lambda *a,**k:tc.Call(events)
+        cloud=tp.load('delivery_cloud').HostDeliveryCloud(NS(scopes={'cloud':{'allowed_prefixes':['/115/staging']}},_client=lambda *a:(NS(stub=stub),tc.PB(),[])))
+        self.addCleanup(cloud.close);f.worker.cloud=cloud
+        return cloud,stub
+
+    def test_proven_pre_start_budget_exhaustion_remains_retryable(self):
+        for phase in ('directories','channel','checkpoint','directories_checkpoint'):
+            with self.subTest(phase=phase):
+                f,bid=self.fixture();cloud,stub=self.protocol(f);clock=[0.0];calls=[]
+                def directories(*a):
+                    if phase in ('directories','directories_checkpoint'):clock[0]=31
+                def channel(*a,**kw):
+                    call=tc.Call([]);calls.append(call)
+                    if phase=='channel':clock[0]=31
+                    return call
+                stub.RemoteUploadChannel.side_effect=channel
+                if phase=='directories_checkpoint':
+                    def checkpoint():
+                        if clock[0]>=30:raise ValueError('TICK_DEADLINE')
+                    f.worker.dispatch_gate=checkpoint
+                if phase=='checkpoint':cloud.sources.ordinary_checkpoint=Mock(side_effect=ValueError('TICK_DEADLINE'))
+                with patch.object(f.worker,'_directories',side_effect=directories),patch.object(td.time,'monotonic',side_effect=lambda:clock[0]):
+                    f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122),limits={'seconds':30})
+                file=f.worker.bundle(bid)['files'][0]
+                self.assertEqual('PENDING',file['state']);self.assertIsNone(file.get('upload_id'))
+                self.assertEqual('UPLOAD_NOT_SENT_BUDGET',f.worker.bundle(bid)['reason'])
+                stub.StartRemoteUpload.assert_not_called();self.assertTrue(all(c.cancelled for c in calls));self.assertFalse(cloud.pending_channels)
+                f.worker.dispatch_gate=None
+                cloud.sources.ordinary_checkpoint=lambda:None;stub.RemoteUploadChannel.side_effect=lambda *a,**kw:tc.Call([])
+                with patch.object(f.worker,'_directories'),patch.object(f.worker,'_remote',return_value=None):
+                    for seconds in (300,500):f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=seconds),limits={'seconds':30})
+                self.assertEqual('original-id',f.worker.bundle(bid)['files'][0]['upload_id']);stub.StartRemoteUpload.assert_called_once()
+
+    def test_sent_start_timeout_without_id_stays_unknown_and_never_restarts(self):
+        for error in (TimeoutError('READER_BUDGET'),ValueError('TICK_DEADLINE')):
+            with self.subTest(error=type(error).__name__):
+                f,bid=self.fixture();cloud,stub=self.protocol(f);stub.StartRemoteUpload.side_effect=error
+                with patch.object(f.worker,'_directories'),patch.object(f.worker,'_remote',return_value=None):
+                    for seconds in (122,300,500):f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=seconds),limits={'seconds':30})
+                file=f.worker.bundle(bid)['files'][0]
+                self.assertEqual('UNKNOWN',file['state']);self.assertIsNone(file.get('upload_id'));stub.StartRemoteUpload.assert_called_once()
+
+    def test_original_id_terminal_observation_survives_unavailable_sources_in_runtime_and_direct(self):
+        for caller in ('runtime','direct'):
+            for source_failure in ('changed','missing','other'):
+                with self.subTest(caller=caller,source_failure=source_failure):
+                    f,bid=self.fixture();cloud,stub=self.protocol(f)
+                    with patch.object(f.worker,'_directories'):f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122),limits={'seconds':30})
+                    files=f.worker.bundle(bid)['files'];path=td.Path(files[-1 if source_failure=='other' else 0]['snapshot']['path'])
+                    if source_failure=='missing':path.unlink()
+                    else:path.write_bytes(b'changed-source')
+                    events=[tc.message('original-id','read_data',offset=0,length=1,lazy_read=False),tc.message('original-id','hash_data',hash_type=1),tc.message('original-id','status_changed',status=10)]
+                    stub.RemoteUploadChannel.side_effect=lambda *a,**kw:tc.Call(events)
+                    module,runtime,clock,_=self.runtime();runtime.repository=f.repo;runtime.delivery=f.worker;runtime.scope_worker=lambda _:f.worker
+                    original=f.worker._source
+                    def source(*a):clock[0]+=7;return original(*a)
+                    with patch.object(f.worker,'_source',side_effect=source),patch.object(module.time,'monotonic',side_effect=lambda:clock[0]),patch.object(cloud,'pump',wraps=cloud.pump) as pump:
+                        if caller=='runtime':runtime.deadline=30;runtime.safety(30)
+                        else:f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=300),limits={'seconds':30})
+                    file=f.worker.bundle(bid)['files'][0]
+                    self.assertEqual('FAILED',file['state']);self.assertTrue(file['reader_stopped']);self.assertEqual('FATALERROR',file['progress']['state'])
+                    self.assertEqual('original-id',file['upload_id']);self.assertTrue(pump.call_args.kwargs['observe_only'])
+                    self.assertFalse(hasattr(pump.call_args.args[3],'read'));self.assertEqual(16 if source_failure=='other' else 23,pump.call_args.kwargs['budget'])
+                    stub.StartRemoteUpload.assert_called_once();stub.RemoteReadData.assert_not_called();stub.RemoteHashProgress.assert_not_called()
+
+
+    def test_generic_no_id_timeout_before_start_is_not_a_local_budget_receipt(self):
+        f,bid=self.fixture();cloud,stub=self.protocol(f)
+        cloud.sources._client=Mock(side_effect=TimeoutError('private connection timeout'))
+        with patch.object(f.worker,'_directories'),patch.object(f.worker,'_remote',return_value=None):
+            for seconds in (122,300,500):f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=seconds),limits={'seconds':30})
+        file=f.worker.bundle(bid)['files'][0]
+        self.assertEqual('UNKNOWN',file['state']);self.assertIsNone(file.get('upload_id'))
+        cloud.sources._client.assert_called_once();stub.StartRemoteUpload.assert_not_called()
+
+
+    def test_invalid_start_budget_cannot_open_a_channel(self):
+        tc.CloudTests.setUp(self);self.addCleanup(self.cloud.close)
+        for budget in (float('nan'),float('inf'),float('-inf'),True,31):
+            with self.subTest(budget=budget):
+                with self.assertRaisesRegex(ValueError,'INVALID_READER_BUDGET'):
+                    self.cloud.start('s','/115/test/x',self.source,device_id='device',budget=budget)
+        self.stub.RemoteUploadChannel.assert_not_called();self.stub.StartRemoteUpload.assert_not_called()
+
+
 
 if __name__=='__main__':unittest.main()

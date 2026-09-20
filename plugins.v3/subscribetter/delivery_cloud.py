@@ -1,9 +1,10 @@
 """Owned public clients only. No host storage upload or OSS fallback exists here."""
 from hashlib import md5, sha256
+from math import isfinite
 from pathlib import PurePosixPath
 import time
 
-from .delivery import cloud_path, beneath, reader_error
+from .delivery import cloud_path, beneath, reader_error, UploadNotSent
 from .planner import encoded
 
 
@@ -111,25 +112,32 @@ class HostDeliveryCloud:
         return {'state':'UNKNOWN'}
 
     def start(self,scope,path,source,*,device_id,budget=10):
-        self._checkpoint(ordinary=True)
-        if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
-        deadline=time.monotonic()+budget
-        self._scope(scope,path);client,pb,meta=self._raw(scope);source.check()
-        def remaining():
-            self._checkpoint(ordinary=True)
-            value=deadline-time.monotonic()
-            if value<=0:raise ValueError('READER_BUDGET')
-            return value
-        # Subscribe before Start: even an immediate terminal event must have a
-        # receiver. The caller persists the returned ID before consuming bytes.
-        self._checkpoint(ordinary=True);call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
+        call=None;sent=False
         try:
-            self._checkpoint(ordinary=True);response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=min(self.timeout,remaining()))
+            self._checkpoint(ordinary=True)
+            if type(budget) not in (int,float) or not isfinite(budget) or budget>30:raise ValueError('INVALID_READER_BUDGET')
+            if budget<=0:raise ValueError('READER_BUDGET')
+            deadline=time.monotonic()+budget
+            self._scope(scope,path);client,pb,meta=self._raw(scope);source.check()
+            def remaining():
+                self._checkpoint(ordinary=True)
+                value=deadline-time.monotonic()
+                if value<=0:raise ValueError('READER_BUDGET')
+                return value
+            # Subscribe before Start; no body is served until the ID is durable.
+            call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
+            timeout=min(self.timeout,remaining())
+            request=pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True)
+            sent=True
+            response=client.stub.StartRemoteUpload(request,metadata=meta,timeout=timeout)
             if not response.upload_id:raise ValueError('UPLOAD_START_UNKNOWN')
             self.pending_channels[scope,response.upload_id]=(device_id,call)
             return response.upload_id
-        except Exception:
-            call.cancel();raise
+        except Exception as error:
+            if call is not None:call.cancel()
+            if not sent and isinstance(error,ValueError) and str(error) in ('TICK_DEADLINE','READER_BUDGET'):
+                raise UploadNotSent(str(error)) from None
+            raise
 
     def discard_pending(self,scope,upload_id):
         pending=self.pending_channels.pop((scope,upload_id),None)

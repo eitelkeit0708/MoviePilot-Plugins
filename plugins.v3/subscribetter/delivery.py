@@ -22,6 +22,10 @@ PERMISSIONS = ('cleanup_success', 'cleanup_abandoned', 'cleanup_staging',
                'remove_downloader_task_enabled', 'delete_downloader_data_enabled')
 
 
+class UploadNotSent(ValueError):
+    """Local budget/checkpoint rejected CD2 before invoking StartRemoteUpload."""
+
+
 def reader_error(error,stage):
     # Only our finite reason vocabulary is durable; never provider text/types.
     reason=str(error) if isinstance(error,(ValueError,TimeoutError)) else ''
@@ -447,16 +451,17 @@ class Delivery:
             if b.get('cancel_intent'):return self._cancel_readers(b,r,now,deadline=deadline)
             if b.get('publication_action'):return self._publication_status(b,r,now)
             if parse(b['due'])>instant(now):return self._result(b)
-            try:self._valid(b)
-            except ValueError:
-                # Lost authority blocks body/hash serving, not observation of an
-                # old exact upload ID. No source file is opened in this path.
+            try:
+                self._valid(b)
+                for f in b['files']:
+                    with self._source(f,r):pass
+            except (ValueError,OSError):
+                # Lost authority or unavailable local input blocks body/hash
+                # serving, not bounded observation of an old exact upload ID.
                 for f in b['files']:
                     if f.get('upload_id') and f['state']!='VERIFIED':
                         self._pump(b,f,r,now,observe_only=True,budget=(limits or {}).get('seconds',10),deadline=deadline);return self._result(b)
                 raise
-            for f in b['files']:
-                with self._source(f,r):pass
             for f in b['files']:
                 if not self._refresh(b,f,r):return self._result(b)
                 if f['state']=='VERIFIED':continue
@@ -472,12 +477,13 @@ class Delivery:
                 if fallback and not fallback_allowed(r,f['size']):
                     b.update(state='WAITING',reason='RAPID_EXHAUSTED' if not r['fallback'] else 'FALLBACK_LIMIT');self._save(b);return self._result(b)
                 if not self._begin(b,f,'CD2_UPLOAD' if fallback else 'RAPID',now):return self._result(b)
-                outcome=None;evidence=None;failure=None;stage='start'
+                outcome=None;evidence=None;failure=None;stage='start';start_invoked=False
                 try:
                     self._directories(b,f,r);self._valid(b)
                     with self._source(f,r) as source:
                         if fallback:
                             f['reader_stopped']=False;self._save(b)
+                            start_invoked=True
                             upload_id=self.cloud.start(r['cloud_scope_id'],b['staging']+'/'+f['relative_path'],source,device_id=self.device_id(),budget=deadline-time.monotonic())
                             if not isinstance(upload_id,str) or not upload_id:raise TimeoutError()
                             stage='receipt';f.update(upload_id=upload_id,state='CD2_UPLOADING');self._receipt(b,f,'UNKNOWN',{'upload_id':upload_id,'state':'CD2_UPLOADING'},now)
@@ -495,7 +501,9 @@ class Delivery:
                     # Only an explicit pre-send/provider rejection is retryable. An
                     # arbitrary exception could follow a successful remote write.
                     failure=reader_error(error,stage);reason=str(error)
-                    if reason in ('AUTH_FAILED','RATE_LIMITED','PROVIDER_REJECTED','SOURCE_CHANGED','ACCOUNT_MISMATCH'):
+                    if fallback and not f.get('upload_id') and (isinstance(error,UploadNotSent) or not start_invoked and reason=='TICK_DEADLINE'):
+                        f.update(state='PENDING',reader_stopped=True);b.update(state='WAITING',reason='UPLOAD_NOT_SENT_BUDGET');outcome='FAILED';evidence={'reason':b['reason']}
+                    elif reason in ('AUTH_FAILED','RATE_LIMITED','PROVIDER_REJECTED','SOURCE_CHANGED','ACCOUNT_MISMATCH'):
                         f.update(state='PENDING');b['reason']=reason;outcome='FAILED';evidence={'reason':reason}
                     else:
                         b['reason']='UPLOAD_OUTCOME_UNKNOWN';outcome='UNKNOWN';evidence={'reason':b['reason']}
@@ -513,7 +521,7 @@ class Delivery:
                     return self._result(b)
                 f['due']=stamp(instant(now)+timedelta(seconds=max(1,r['rapid_interval'])))
                 b['due']=f['due']
-                if f['misses']>=r['rapid_misses']:b.update(state='WAITING',reason='RAPID_EXHAUSTED')
+                if f['misses']>=r['rapid_misses'] and b['reason']!='UPLOAD_NOT_SENT_BUDGET':b.update(state='WAITING',reason='RAPID_EXHAUSTED')
                 if outcome:self._receipt(b,f,outcome,evidence,now)
                 else:self._save(b)
                 return self._result(b)
