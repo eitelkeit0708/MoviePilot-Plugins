@@ -27,6 +27,7 @@ class Config(BaseModel):
     auto_types: list[Literal["电影", "电视剧"]] = Field(default_factory=list, max_length=2)
     enhance_host_meta: bool = False
     meta_protected_names: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=100)
+    delivery: dict = Field(default_factory=dict)
 
 
 class IntentRequest(BaseModel):
@@ -130,6 +131,11 @@ class SubscriBetter(_PluginBase):
         if not hasattr(self, "runtime_lock"):
             self.runtime_lock = RLock()
         with self.runtime_lock:
+            if getattr(self,'delivery_worker',None):
+                from .host_delivery_contract import close_delivery
+                try:close_delivery(self.delivery_worker)
+                except Exception:pass  # Readers are synchronous and already stopped.
+            self.delivery_worker=None
             if hasattr(self, "meta_patch"):
                 self.meta_patch.uninstall()
             self.generation = getattr(self, "generation", 0) + 1
@@ -159,6 +165,11 @@ class SubscriBetter(_PluginBase):
                 self.adapter = NativeAdapter()
                 self.ownership = Ownership(self.repository, self.adapter)
                 self.guard = Guard(self.repository, self.adapter, self._auto_scope)
+                if self.config.delivery:
+                    try:
+                        from .host_delivery_contract import build_delivery
+                        self.delivery_worker=build_delivery(self,self.config.delivery)
+                    except Exception:self.errors.append('DELIVERY_CONFIGURATION_FAILED')
                 self.errors.extend(self.adapter.capabilities())
                 self.auto_baseline = set(self.repository.setting("auto_baseline") or [])
                 auto_types = sorted(self.config.auto_types) if self.config.enabled and not self.config.dry_run else []
@@ -211,6 +222,11 @@ class SubscriBetter(_PluginBase):
             self.lifecycle_active = False
             self.running = False
             self.generation += 1
+            if getattr(self,'delivery_worker',None):
+                from .host_delivery_contract import close_delivery
+                try:close_delivery(self.delivery_worker)
+                except Exception:self.errors.append('DELIVERY_CLOSE_FAILED')
+                self.delivery_worker=None
             if hasattr(self, "meta_patch"):
                 self.meta_patch.uninstall()
             if hasattr(self, "ownership"):
@@ -241,6 +257,8 @@ class SubscriBetter(_PluginBase):
                 self.scheduler.tick()
                 if self._ordinary_work_active():
                     self.ownership.reconcile()
+                    if self.delivery_worker:
+                        self.delivery_last=self.delivery_worker.tick()
                     for native in self.adapter.list():
                         if self._auto_scope(native) and not self.repository.by_native_id(native["id"]):
                             self._adopt_new(native)

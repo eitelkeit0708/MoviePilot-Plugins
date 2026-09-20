@@ -109,6 +109,10 @@ class ConfiguredDownloader:
     def resume(self,task_id):
         return self.instance.start_torrents(ids=self._rpc_id(task_id))
 
+    def remove(self,task_id):
+        # Physical source-data cleanup has a separate permission and nofollow gate.
+        return self.instance.delete_torrents(delete_file=False,ids=self._rpc_id(task_id))
+
     def select_files(self,task_id,indices,wanted):
         if not indices or type(wanted)is not bool:
             raise ValueError('EXACT_SELECTION_REQUIRED')
@@ -122,7 +126,7 @@ class Exclusions:
     def __init__(self, repository):
         self.repository=repository
 
-    def add(self, exclusion_id, criteria, *, reason, expires_at=None):
+    def add(self, exclusion_id, criteria, *, reason, expires_at=None, db=None):
         if not exclusion_id or not reason or not isinstance(criteria,dict) or not criteria or set(criteria)-{'candidate_key','infohash','targets','content_sha1','condition'}:
             raise ValueError('explicit exclusion identity/scope required')
         if expires_at is not None:
@@ -131,7 +135,8 @@ class Exclusions:
             from .policy import import_predicates
             import_predicates({'exclusion':criteria['condition']})
         encoded(criteria)
-        with MUTATION_LOCK, self.repository.connection(write=True) as db:
+        from contextlib import nullcontext
+        with MUTATION_LOCK, (self.repository.connection(write=True) if db is None else nullcontext(db)) as db:
             db.execute('INSERT INTO exclusions VALUES(?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET criteria=excluded.criteria,reason=excluded.reason,expires_at=excluded.expires_at,active=1',(exclusion_id,encoded(criteria),reason,expires_at))
 
     def revoke(self, exclusion_id):

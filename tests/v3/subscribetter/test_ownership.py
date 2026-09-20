@@ -491,6 +491,12 @@ class PluginTests(unittest.TestCase):
         self.assertFalse(self.plugin.get_state())
         self.assertEqual(4, len(self.listeners))
 
+    def test_delivery_configuration_failure_keeps_ownership_guard_initialized(self):
+        self.plugin.init_plugin({'enabled':True,'dry_run':False,'delivery':{'rules':[]}})
+        self.assertIn('DELIVERY_CONFIGURATION_FAILED',self.plugin.errors)
+        self.assertTrue(hasattr(self.plugin,'guard'))
+        self.assertEqual(6,len(self.listeners))
+
     def create_owned_fixture(self):
         self.plugin.init_plugin({"enabled": True, "dry_run": False})
         request = self.mod.IntentRequest(intent_key="safety-duty", media_type="电视剧", media_source="themoviedb", media_id="123", season=0, name="Fictional")

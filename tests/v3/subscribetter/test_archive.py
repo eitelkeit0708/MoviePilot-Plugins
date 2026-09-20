@@ -348,14 +348,14 @@ class ArchiveTests(unittest.TestCase):
         self.publication()
         self.archive.confirm_ingest('pub',self.manifest,self.consumer)
         with self.repo.connection(write=True) as db:
-            for table in ('archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
+            for table in ('delivery_bundles','local_observations','reconcile_checkpoints','archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
                 db.execute('DROP TABLE '+table)
             db.execute('PRAGMA user_version=5')
             tables=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
             before={t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables}
         migrated=self.r.Repository(self.repo.path)
         with migrated.connection() as db:
-            self.assertEqual(6,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(7,db.execute('PRAGMA user_version').fetchone()[0])
             self.assertEqual(before,{t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables})
             self.assertEqual([],list(db.execute('PRAGMA foreign_key_check')))
 

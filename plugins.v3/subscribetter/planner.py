@@ -7,6 +7,7 @@ repeat an already authorized external call merely because a worker lease died.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 from hashlib import sha256
 import json
 import math
@@ -209,6 +210,7 @@ class Authority:
 
     def _acquire(self, db, plan_id, expected, *, replacement, reason, safe_isolation, now, immediate, progress, failure_id=None):
         plan = self._plan(db.execute('SELECT * FROM plans WHERE id=?', (plan_id,)).fetchone())
+        self._download_not_cleaning(db,plan['snapshot'])
         if plan['authorization'] != 'PREPARED' or set(expected) != set(plan['snapshot']['targets']):
             raise ValueError('new frozen plan and complete expected vector required')
         self._task_active(db, plan)
@@ -328,10 +330,16 @@ class Authority:
             for key in vector:
                 db.execute('UPDATE plan_targets SET transfer_phase=? WHERE plan_id=? AND target_key=?', (phase, plan_id, key))
 
-    def begin_attempt(self, action_id, plan_id, vector, kind, indices, payload, *, now=None):
+    @staticmethod
+    def _exclusion_revision(db, token):
+        if token is not None and sha256(encoded([tuple(r) for r in db.execute('SELECT * FROM exclusions ORDER BY id')]).encode()).hexdigest() != token:
+            raise ValueError('EXCLUSIONS_CHANGED')
+
+    def begin_attempt(self, action_id, plan_id, vector, kind, indices, payload, *, now=None, exclusion_token=None, db=None):
         if kind not in ATTEMPT_KINDS - {'PUBLISH'}:
             raise ValueError('use begin_publish for publication')
-        with self.repository.connection(write=True) as db:
+        with (self.repository.connection(write=True) if db is None else nullcontext(db)) as db:
+            self._exclusion_revision(db, exclusion_token)
             return self._begin(db, action_id, plan_id, vector, kind, indices, payload, now)
 
     def download_references(self, downloader, infohash, save_path, *, db=None):
@@ -447,6 +455,7 @@ class Authority:
     def _begin(self, db, action_id, plan_id, vector, kind, indices, payload, now, queued=False, reconciles=()):
         identifier(action_id)
         plan = self._plan(db.execute('SELECT * FROM plans WHERE id=?', (plan_id,)).fetchone())
+        if kind in ('ADD','SET_WANTED','RESUME','ORGANIZE'):self._download_not_cleaning(db,plan['snapshot'])
         self._task_active(db, plan)
         self._revisions(db, plan['snapshot'])
         self._batch(plan, vector, indices)
@@ -472,6 +481,11 @@ class Authority:
         self.repository._audit(db, plan['task_id'], 'ATTEMPT_AUTHORIZED:' + action_id, 'executor')
         return {**dict(db.execute('SELECT * FROM plan_actions WHERE id=?', (action_id,)).fetchone()), 'dispatch': not queued}
 
+    @staticmethod
+    def _download_not_cleaning(db,snapshot):
+        row=db.execute('SELECT state FROM managed_downloads WHERE downloader=? AND infohash=?',(snapshot['downloader'],snapshot['infohash'])).fetchone()
+        if row and row[0]=='DELIVERY_CLEANUP':raise ValueError('DOWNLOAD_CLEANUP_UNSETTLED')
+
     def queue_attempt(self, action_id, plan_id, vector, kind, indices, payload, *, now=None):
         if kind not in ATTEMPT_KINDS - {'PUBLISH'}:
             raise ValueError('invalid queued operation')
@@ -489,14 +503,15 @@ class Authority:
         with self.repository.connection() as db:
             return [dict(row) for row in db.execute("SELECT * FROM plan_actions WHERE state='PENDING' AND id>? ORDER BY id LIMIT ?", (after_id, limit))]
 
-    def begin_publish(self, action_id, plan_id, vector, indices, *, validation, now=None):
+    def begin_publish(self, action_id, plan_id, vector, indices, *, validation, now=None, exclusion_token=None, db=None):
         required_checks = {'identity', 'admission', 'scope', 'not_excluded', 'current_allows', 'assets_complete', 'remote_verified'}
         if set(validation) != {'policy_revision', 'parse_revision', 'current_revisions', 'checks'} or set(validation['checks']) != set(vector) or set(validation['current_revisions']) != set(vector):
             raise ValueError('complete fresh publication re-evaluation required')
         for check in validation['checks'].values():
             if set(check) != required_checks or any(v is not True for v in check.values()):
                 raise ValueError('publication re-evaluation denied or incomplete')
-        with self.repository.connection(write=True) as db:
+        with (self.repository.connection(write=True) if db is None else nullcontext(db)) as db:
+            self._exclusion_revision(db, exclusion_token)
             old = db.execute("SELECT * FROM plan_actions WHERE id=? AND kind='PUBLISH'", (action_id,)).fetchone()
             if old:
                 if old['plan_id'] != plan_id or old['targets'] != encoded(vector) or old['files'] != encoded(sorted(indices)) or old['payload'] != encoded(validation):
@@ -514,10 +529,10 @@ class Authority:
                 db.execute("UPDATE target_units SET publish_phase='PUBLISHING',publish_action_id=? WHERE target_key=?", (action_id, key))
             return action
 
-    def record_result(self, action_id, outcome, evidence, *, now=None):
+    def record_result(self, action_id, outcome, evidence, *, now=None, db=None):
         if outcome not in ('SUCCEEDED', 'FAILED', 'UNKNOWN', 'HANDED_OFF'):
             raise ValueError('invalid external outcome')
-        with self.repository.connection(write=True) as db:
+        with (self.repository.connection(write=True) if db is None else nullcontext(db)) as db:
             row = db.execute('SELECT * FROM plan_actions WHERE id=?', (action_id,)).fetchone()
             if not row:
                 raise ValueError('unknown attempt')
@@ -533,9 +548,9 @@ class Authority:
                         db.execute('UPDATE target_units SET publish_phase=? WHERE publish_action_id=?', (state, action_id))
             return {'state': state, 'receipt_only': True}
 
-    def cancel(self, plan_id, vector, *, reason):
+    def cancel(self, plan_id, vector, *, reason, db=None):
         identifier(reason)
-        with self.repository.connection(write=True) as db:
+        with (self.repository.connection(write=True) if db is None else nullcontext(db)) as db:
             current = self._match(db, vector, owner=plan_id, allow_barrier=True)
             plan = self._plan(db.execute('SELECT * FROM plans WHERE id=?', (plan_id,)).fetchone())
             for key, row in current.items():

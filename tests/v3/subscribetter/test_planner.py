@@ -359,7 +359,7 @@ class AuthorityTests(unittest.TestCase):
                     db.execute('ALTER TABLE ' + table + ' DROP COLUMN task_generation')
             for table in ('organized_assets','managed_downloads','exclusions','candidates'):
                 db.execute('DROP TABLE '+table)
-            for table in ('archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
+            for table in ('delivery_bundles','local_observations','reconcile_checkpoints','archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
                 db.execute('DROP TABLE '+table)
             db.execute('PRAGMA user_version=3')
         migrated = self.r.Repository(self.path)
