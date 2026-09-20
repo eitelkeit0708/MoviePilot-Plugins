@@ -36,7 +36,7 @@ class Cloud:
 
     def refresh(self, scope, path): self.calls.append(('refresh', path))
 
-    def start(self, scope, path, source):
+    def start(self, scope, path, source, *, device_id, budget=10):
         self.calls.append(('start', path)); self.running = True
         return 'upload-owned'
 
@@ -142,6 +142,67 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(1,sum(c[0]=='start' for c in self.cloud.calls))
         self.assertEqual('upload-owned',self.worker.bundle(bid)['files'][0]['upload_id'])
         self.assertNotEqual('VERIFIED',self.worker.bundle(bid)['files'][0]['state'])
+
+    def test_live_cd2_start_pumps_immediately_and_reconnect_never_restarts(self):
+        self.rule.update(fallback=True,fallback_gb='0.001',rapid_misses=1)
+        self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
+        bid=self.prepared();self.worker.reconcile(bid,now=tp.NOW)
+        with patch.object(self.cloud,'pump',return_value=dict(state='UNKNOWN',reader_stopped=True,requests=0,bytes_sent=0)) as pump:
+            self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=61))
+            self.assertEqual(1,pump.call_count)
+            f=self.worker.bundle(bid)['files'][0]
+            self.assertEqual('UNKNOWN',f['state']);self.assertTrue(f['local_reader_stopped']);self.assertFalse(f['reader_stopped'])
+            self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122))
+        self.assertEqual(1,sum(c[0]=='start' for c in self.cloud.calls))
+        self.assertEqual('upload-owned',self.worker.bundle(bid)['files'][0]['upload_id'])
+
+    def test_live_cd2_expired_authority_observes_without_opening_source(self):
+        self.rule.update(fallback=True,fallback_gb='0.001',rapid_misses=1)
+        self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
+        bid=self.prepared();self.worker.reconcile(bid,now=tp.NOW);self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=61))
+        def observe(*args,**kwargs):
+            self.assertTrue(kwargs['observe_only']);self.assertFalse(hasattr(args[3],'read'))
+            return dict(state='UNKNOWN',reader_stopped=True,requests=0,bytes_sent=0)
+        with patch.object(self.worker,'_valid',side_effect=ValueError('CURRENT_UNVERIFIED')),patch.object(self.worker,'_source',side_effect=AssertionError('lost authority read')),patch.object(self.cloud,'pump',side_effect=observe):
+            result=self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122))
+        self.assertEqual('UNKNOWN',result['state']);self.assertEqual(1,sum(c[0]=='start' for c in self.cloud.calls))
+
+    def test_live_cd2_exact_terminal_failure_is_durable_without_retry(self):
+        self.rule.update(fallback=True,fallback_gb='0.001',rapid_misses=1)
+        self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
+        bid=self.prepared();self.worker.reconcile(bid,now=tp.NOW)
+        with patch.object(self.cloud,'pump',return_value=dict(state='FATALERROR',reader_stopped=True,requests=1,bytes_sent=0)):
+            self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=61))
+            self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122))
+        f=self.worker.bundle(bid)['files'][0]
+        self.assertEqual('FAILED',f['state']);self.assertTrue(f['reader_stopped'])
+        with patch.object(self.cloud,'pump',side_effect=AssertionError('terminal already known')):
+            result=self.worker.cancel(bid,reason='USER_ABANDON',exclusion_id='deny',criteria={'candidate_key':'candidate'},now=tp.NOW)
+        self.assertEqual('ABANDONED',result['state']);self.assertEqual(1,sum(c[0]=='start' for c in self.cloud.calls))
+
+    def test_live_cd2_durable_pause_resumes_same_id_after_worker_restart(self):
+        self.rule.update(fallback=True,fallback_gb='0.001',rapid_misses=1)
+        self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
+        bid=self.prepared();self.worker.reconcile(bid,now=tp.NOW)
+        with patch.object(self.cloud,'pump',return_value=dict(state='PAUSE',reader_stopped=True,requests=2,bytes_sent=3)):
+            self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=61))
+        restarted=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
+        def resumed(scope,uid,device,source,**kw):
+            self.assertEqual('upload-owned',uid);self.assertTrue(kw['resume'])
+            return dict(state='UNKNOWN',reader_stopped=True,requests=0,bytes_sent=0)
+        with patch.object(self.cloud,'pump',side_effect=resumed):restarted.reconcile(bid,now=tp.NOW+timedelta(seconds=122))
+        self.assertEqual(1,sum(c[0]=='start' for c in self.cloud.calls))
+
+    def test_live_cd2_finish_proof_survives_remote_readback_failure(self):
+        self.rule.update(fallback=True,fallback_gb='0.001',rapid_misses=1)
+        self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
+        bid=self.prepared();self.worker.reconcile(bid,now=tp.NOW)
+        with patch.object(self.cloud,'pump',return_value=dict(state='FINISH',reader_stopped=True)),patch.object(self.worker,'_remote',side_effect=ValueError('P115_OBJECT_AMBIGUOUS')):
+            self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=61))
+        f=self.worker.bundle(bid)['files'][0];self.assertEqual('UNKNOWN',f['state']);self.assertEqual('FINISH',f['progress']['state'])
+        with patch.object(self.cloud,'pump',side_effect=AssertionError('no terminal replay required')),patch.object(self.worker,'_remote',return_value=dict(sha1=f['sha1'],size=f['size'],p115_id='8')):
+            self.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122))
+        self.assertEqual('VERIFIED',self.worker.bundle(bid)['files'][0]['state'])
 
     def test_refresh_failure_does_not_repeat_rapid(self):
         bid=self.prepared();self.cloud.results=['HIT']

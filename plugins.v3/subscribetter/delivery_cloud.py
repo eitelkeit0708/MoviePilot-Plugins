@@ -1,7 +1,6 @@
 """Owned public clients only. No host storage upload or OSS fallback exists here."""
-from hashlib import md5, sha1, sha256
+from hashlib import md5, sha256
 from pathlib import PurePosixPath
-import re
 import time
 
 from .delivery import cloud_path, beneath
@@ -16,7 +15,7 @@ TERMINAL={'CANCELLED','FINISH','SKIPPED','IGNORED','ERROR','FATALERROR'}
 class HostDeliveryCloud:
     def __init__(self,sources,*,timeout=15):
         if type(timeout) not in (int,float) or not 0<timeout<=30:raise ValueError('INVALID_TIMEOUT')
-        self.sources=sources;self.timeout=timeout;self.p115={}
+        self.sources=sources;self.timeout=timeout;self.p115={};self.pending_channels={}
 
     def _scope(self,scope,path=None):
         config=self.sources.scopes.get(scope)
@@ -40,13 +39,9 @@ class HostDeliveryCloud:
         if raw.fullPathName!=path or not raw.id:raise ValueError('CLOUD_PATH_CONFLICT')
         account=sha256(encoded([scope,self.sources.accounts[scope]]).encode()).hexdigest()
         if raw.isDirectory:return dict(path=path,id=str(raw.id),directory=True,account_ref=account)
-        digest=raw.fileHashes.get(2,'').lower()
-        if not re.fullmatch('[a-f0-9]{40}',digest):
-            # Populate only from an actual account/path-verified 115 directory.
-            parent=str(PurePosixPath(path).parent)
-            self.sources.scopes[scope].setdefault('p115_parents',{})[parent]=self._parent(scope,parent)
-            value=self.sources.cloud_stat(scope,path,timeout=self.timeout);digest=value['sha1']
-        return dict(path=path,id=str(raw.id),directory=False,sha1=digest,size=int(raw.size),account_ref=account)
+        value=self.sources.cloud_stat(scope,path,timeout=self.timeout)
+        if value['cd2_id']!=str(raw.id) or value['size']!=int(raw.size):raise ValueError('REMOTE_IDENTITY_CHANGED')
+        return dict(path=path,id=str(raw.id),directory=False,sha1=value['sha1'],size=value['size'],p115_id=value['p115_id'],account_ref=account)
 
     def ensure_directory(self,scope,path):
         self._scope(scope,path);old=self.stat(scope,path)
@@ -101,13 +96,21 @@ class HostDeliveryCloud:
         # Do not persist a provider body: callback/bucket/object can be credentials.
         return {'state':'UNKNOWN'}
 
-    def start(self,scope,path,source):
+    def start(self,scope,path,source,*,device_id,budget=10):
+        if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
         self._scope(scope,path);client,pb,meta=self._raw(scope);source.check()
-        response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=self.timeout)
-        if not response.upload_id:raise ValueError('UPLOAD_START_UNKNOWN')
-        return response.upload_id
+        # Subscribe before Start: even an immediate terminal event must have a
+        # receiver. The caller persists the returned ID before consuming bytes.
+        call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=self.timeout+budget)
+        try:
+            response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=self.timeout)
+            if not response.upload_id:raise ValueError('UPLOAD_START_UNKNOWN')
+            self.pending_channels[scope,response.upload_id]=(device_id,call)
+            return response.upload_id
+        except Exception:
+            call.cancel();raise
 
-    def pump(self,scope,upload_id,device_id,source,*,cancel=False,budget=10):
+    def pump(self,scope,upload_id,device_id,source,*,cancel=False,budget=10,observe_only=False,resume=False):
         """One synchronous reader, <=1MiB resident bytes, finite RPC/session work.
 
         No detached tasks exist. Returning closes the stream and proves only this
@@ -115,31 +118,47 @@ class HostDeliveryCloud:
         """
         if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
         client,pb,meta=self._raw(scope);deadline=time.monotonic()+budget
-        state='UNKNOWN';sent=0;requests=0;call=None
+        work_deadline=deadline-min(2,budget/2)
+        state='UNKNOWN';sent=0;requests=0;call=None;pause_requested=False
         def remaining():
             value=min(self.timeout,deadline-time.monotonic())
             if value<=0:raise TimeoutError('READER_BUDGET')
             return value
+        def pause():
+            nonlocal pause_requested
+            if pause_requested:return
+            pause_requested=True
+            client.stub.RemoteUploadControl(pb.RemoteUploadControlRequest(upload_id=upload_id,pause=pb.PauseRemoteUpload()),metadata=meta,timeout=remaining())
+        def budget_used():return time.monotonic()>=work_deadline or sent>=64*CHUNK or requests>1024
         try:
+            pending=self.pending_channels.pop((scope,upload_id),None)
+            if pending:
+                previous_device,call=pending
+                if previous_device!=device_id:raise ValueError('DEVICE_ID_CHANGED')
+            else:call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
+            if resume and not cancel and not observe_only:
+                client.stub.RemoteUploadControl(pb.RemoteUploadControlRequest(upload_id=upload_id,resume=pb.ResumeRemoteUpload()),metadata=meta,timeout=remaining())
             if cancel:
                 source.stop.set()
                 client.stub.RemoteUploadControl(pb.RemoteUploadControlRequest(upload_id=upload_id,cancel=pb.CancelRemoteUpload()),metadata=meta,timeout=remaining())
-            call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
             for message in call:
                 remaining();requests+=1
-                if requests>1024:break
+                if requests>2048:break
                 if message.upload_id!=upload_id:continue
                 kind=message.WhichOneof('request')
                 if kind=='status_changed':
                     state=STATES.get(message.status_changed.status,'UNKNOWN')
-                    if state in TERMINAL:break
-                elif cancel:continue
+                    if state in TERMINAL or state=='PAUSE':break
+                    if not cancel and not observe_only and budget_used():pause()
+                    continue
+                if not cancel and not observe_only and budget_used():pause()
+                if cancel or observe_only or pause_requested:continue
                 elif kind=='read_data':
                     req=message.read_data
                     if req.length<=0 or req.offset<0 or req.offset+req.length>source.size or req.length>16*CHUNK:raise ValueError('READ_RANGE_INVALID')
                     for offset in range(req.offset,req.offset+req.length,CHUNK):
                         remaining();size=min(CHUNK,req.offset+req.length-offset)
-                        if sent+size>64*CHUNK:raise TimeoutError('READER_BYTE_BUDGET')
+                        if budget_used():pause();break
                         data=source.read(offset,size);last=offset+size==source.size
                         answer=client.stub.RemoteReadData(pb.RemoteReadDataUpload(upload_id=upload_id,offset=offset,length=size,lazy_read=req.lazy_read,data=data,is_last_chunk=last),metadata=meta,timeout=remaining())
                         if not answer.success or answer.bytes_received!=size or answer.is_last_chunk!=last:raise ValueError('READ_REPLY_UNVERIFIED')
@@ -154,16 +173,23 @@ class HostDeliveryCloud:
                         source.check()
                         client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=cached),metadata=meta,timeout=remaining())
                         continue
-                    whole=md5() if req.hash_type==1 else sha1();blocks=[];block=md5();block_bytes=0
-                    for offset in range(0,source.size,CHUNK):
-                        remaining();data=source.read(offset,min(CHUNK,source.size-offset));whole.update(data)
-                        if block_size:
-                            position=0
-                            while position<len(data):
-                                end=min(len(data),position+block_size-block_bytes);block.update(data[position:end]);block_bytes+=end-position;position=end
-                                if block_bytes==block_size:blocks.append(block.hexdigest());block=md5();block_bytes=0
-                    if block_bytes:blocks.append(block.hexdigest())
-                    client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=whole.hexdigest(),block_hashes=blocks),metadata=meta,timeout=remaining())
+                    if not cached or not block_size:raise ValueError('PRECOMPUTED_HASH_REQUIRED')
+                    # Completed blocks survive bounded pauses; never persist or
+                    # report an incomplete hash as a final provider response.
+                    cache=getattr(source,'hash_blocks',{})
+                    if cache.get('block_size')!=block_size:cache.clear();cache.update(block_size=block_size,hashes=[])
+                    blocks=cache['hashes']
+                    for start in range(len(blocks)*block_size,source.size,block_size):
+                        block=md5();end=min(start+block_size,source.size)
+                        for offset in range(start,end,CHUNK):
+                            remaining()
+                            if budget_used():pause();break
+                            block.update(source.read(offset,min(CHUNK,end-offset)))
+                        if pause_requested:break
+                        blocks.append(block.hexdigest())
+                    if pause_requested:continue
+                    source.check()
+                    client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=cached,block_hashes=blocks),metadata=meta,timeout=remaining())
                 else:raise ValueError('REMOTE_REQUEST_UNKNOWN')
         except Exception as error:
             if isinstance(error,ValueError):raise
@@ -171,7 +197,8 @@ class HostDeliveryCloud:
             state='UNKNOWN'
         finally:
             if call is not None:call.cancel()
-        return dict(state=state,reader_stopped=True,bytes_sent=sent,requests=requests)
+        if state not in TERMINAL and state!='PAUSE':state='UNKNOWN'
+        return dict(state=state,reader_stopped=True,bytes_sent=sent,requests=requests,pause_requested=pause_requested)
 
     def refresh(self,scope,path):
         self._scope(scope,path);client,pb,meta=self._raw(scope);count=0
@@ -217,6 +244,8 @@ class HostDeliveryCloud:
         if self.stat(scope,path) is not None:raise ValueError('DELETE_OUTCOME_UNKNOWN')
 
     def close(self):
+        for _,call in self.pending_channels.values():call.cancel()
+        self.pending_channels.clear()
         for client in self.p115.values():
             if hasattr(client,'close'):client.close()
         self.p115.clear()

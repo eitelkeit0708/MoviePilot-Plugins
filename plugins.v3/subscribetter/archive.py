@@ -11,6 +11,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import stat
+import time
 from uuid import uuid4
 from urllib.parse import urlencode
 from http.cookies import SimpleCookie
@@ -368,8 +369,9 @@ class HostArchiveSources:
             if raw.fullPathName != path or raw.isDirectory:
                 raise ValueError('CLOUD_PATH_CONFLICT')
             result = dict(cloud_scope_id=scope_id, account_ref=digest([scope_id, self.accounts[scope_id]]), path=path, sha1=raw.fileHashes.get(2, ''), size=int(raw.size), cd2_id=str(raw.id), p115_id='')
-            if not re.fullmatch('[0-9a-fA-F]{40}', result['sha1']):
-                result.update(self._fallback(scope, path, result['size'], timeout))
+            # CD2 placeholders expose client-declared hashes before any upload.
+            # Every file needs independent account/path-bound provider proof.
+            result.update(self._fallback(scope_id, path, result['size'], timeout))
             result.update(content(result))
             return result
         except ValueError:
@@ -377,26 +379,36 @@ class HostArchiveSources:
         except Exception:
             raise ValueError('CLOUD_STAT_FAILED') from None
 
-    def _fallback(self, scope, path, size, timeout):
-        """No inferred CD2-ID==115-ID rule; only an explicitly bound parent."""
-        parent = str(PurePosixPath(path).parent)
-        cid = scope.get('p115_parents', {}).get(parent)
-        if not isinstance(cid, str) or not cid.isdecimal():
-            raise ValueError('HASH_UNAVAILABLE')
+    def _fallback(self, scope_id, path, size, timeout):
+        """Independent 115 object proof; CD2 IDs never imply provider IDs."""
+        scope=self.scopes[scope_id];parent=str(PurePosixPath(path).parent)
+        relative='/' + str(PurePosixPath(parent).relative_to(PurePosixPath(scope['root'])))
+        if relative=='/.':relative='/'
         from p115client import P115Client
-        client = P115Client((self.plugin.get_config(scope.get('p115_plugin', 'P115Disk')) or {})['cookie'])
-        matches, offset, total = [], 0, None
+        client=P115Client((self.plugin.get_config(scope.get('p115_plugin','P115Disk')) or {})['cookie'])
+        matches,offset,total=[],0,None;deadline=time.monotonic()+min(30,timeout)
+        def remaining():
+            value=deadline-time.monotonic()
+            if value<=0:raise ValueError('P115_LIST_TIMEOUT')
+            return min(timeout,value)
         try:
+            if str(client.user_id)!=self.accounts[scope_id]:raise ValueError('ACCOUNT_MISMATCH')
+            response=client.fs_dir_getid(relative,timeout=remaining());cid=str(response.get('id',''))
+            if response.get('state') is not True or not cid.isdecimal() or (cid=='0' and relative!='/'):raise ValueError('P115_PARENT_UNKNOWN')
+            configured=scope.get('p115_parents',{}).get(parent)
+            if configured is not None and configured!=cid:raise ValueError('P115_PARENT_UNKNOWN')
             for _ in range(100):
-                page = client.fs_files({'cid': cid, 'offset': offset, 'limit': 1000, 'cur': 1, 'record_open_time': 0}, timeout=timeout)
+                page = client.fs_files({'cid': cid, 'offset': offset, 'limit': 1000, 'cur': 1, 'record_open_time': 0}, timeout=remaining())
                 rows, count = page.get('data'), page.get('count')
                 chain = page.get('path') or []
                 actual = str(page.get('cid') if page.get('cid') is not None else chain[-1].get('cid') if chain else '')
                 if page.get('state') is not True or actual != cid or not isinstance(rows, list) or type(count) is not int or count < 0 or (total is not None and count != total):
                     raise ValueError('P115_LIST_INCOMPLETE')
+                names=[str(x.get('name',x.get('n',''))) for x in chain if str(x.get('cid'))!='0']
+                if '/'+ '/'.join(names)!=relative:raise ValueError('P115_PARENT_UNKNOWN')
                 total = count
                 for row in rows:
-                    if 'fid' in row and str(row.get('cid')) == cid and row.get('n') == PurePosixPath(path).name and row.get('s') == size:
+                    if 'fid' in row and str(row.get('cid')) == cid and row.get('n') == PurePosixPath(path).name:
                         matches.append(row)
                 offset += len(rows)
                 if offset == total:
@@ -405,7 +417,7 @@ class HostArchiveSources:
                     raise ValueError('P115_LIST_INCOMPLETE')
             else:
                 raise ValueError('P115_LIST_LIMIT')
-            if len(matches) != 1 or not isinstance(matches[0].get('fid'), str):
+            if len(matches) != 1 or matches[0].get('s') != size or not isinstance(matches[0].get('fid'), str) or not matches[0]['fid'].isdecimal():
                 raise ValueError('P115_OBJECT_AMBIGUOUS')
             result = dict(sha1=matches[0].get('sha'), size=size)
             return dict(content(result), p115_id=matches[0]['fid'])

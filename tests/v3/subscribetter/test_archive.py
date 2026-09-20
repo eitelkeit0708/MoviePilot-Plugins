@@ -443,11 +443,12 @@ class ArchiveTests(unittest.TestCase):
         pb=types.SimpleNamespace(GetTokenRequest=lambda **k:types.SimpleNamespace(**k),FindFileByPathRequest=lambda **k:types.SimpleNamespace(**k))
         configs={'CloudDriveDisk':dict(enabled=True,host='test.invalid',port=19798,username='synthetic',password='synthetic'),'P115Disk':dict(cookie='UID=42_test')}
         sources=self.m.HostArchiveSources(types.SimpleNamespace(get_config=configs.get),cloud_scopes={'cloud':dict(root='/115',allowed_prefixes=['/115/media'])},libraries={})
-        with patch.dict('sys.modules',{'clouddrive2_client':types.SimpleNamespace(CloudDriveClient=lambda address:client),'clouddrive2_client.proto':types.SimpleNamespace(clouddrive_pb2=pb)}):
+        provider=types.SimpleNamespace(user_id=42,fs_dir_getid=lambda *a,**k:dict(state=True,id='7'),fs_files=lambda *a,**k:dict(state=True,cid='7',path=[dict(cid='7',name='media')],count=1,data=[dict(fid='8',cid='7',n='movie.mkv',s=100,sha='a'*40)]))
+        with patch.dict('sys.modules',{'p115client':types.SimpleNamespace(P115Client=lambda cookie:provider),'clouddrive2_client':types.SimpleNamespace(CloudDriveClient=lambda address:client),'clouddrive2_client.proto':types.SimpleNamespace(clouddrive_pb2=pb)}):
             result=sources.cloud_stat('cloud','/115/media/movie.mkv')
             self.assertEqual('a'*40,result['sha1'])
             self.assertEqual('CD2-ID',result['cd2_id'])
-            self.assertEqual('',result['p115_id'])
+            self.assertEqual('8',result['p115_id'])
             self.assertEqual([('/115',20),('/115/media/movie.mkv',20)],calls)
             with self.assertRaisesRegex(ValueError,'CLOUD_PATH_UNAUTHORIZED'):
                 sources.cloud_stat('cloud','/115/mediaElse/movie.mkv')
@@ -455,6 +456,33 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'ACCOUNT_MISMATCH'):
                 sources.cloud_stat('cloud','/115/media/movie.mkv')
             sources.close()
+            with self.assertRaisesRegex(ValueError,'ACCOUNT_MISMATCH'):
+                sources.cloud_stat('cloud','/115/media/movie.mkv')
+
+    def test_live_host_cloud_hash_requires_independent_115_object(self):
+        from unittest.mock import Mock
+        scope=dict(root='/115',allowed_prefixes=['/115/media'])
+        sources=self.m.HostArchiveSources(types.SimpleNamespace(get_config=lambda name:{'cookie':'synthetic'}),cloud_scopes={'cloud':scope},libraries={})
+        raw=types.SimpleNamespace(fullPathName='/115/media/movie.mkv',isDirectory=False,fileHashes={2:'a'*40},size=100,id='placeholder')
+        sources._client=lambda *a:(types.SimpleNamespace(stub=types.SimpleNamespace(FindFileByPath=lambda *a,**k:raw)),types.SimpleNamespace(FindFileByPathRequest=lambda **k:types.SimpleNamespace(**k)),[])
+        sources.accounts['cloud']='42'
+        provider=Mock(user_id=42)
+        provider.fs_dir_getid.return_value={'state':True,'id':'7'}
+        page=dict(state=True,cid='7',path=[dict(cid='0',name=''),dict(cid='7',name='media')],count=0,data=[])
+        provider.fs_files.side_effect=lambda *a,**k:page
+        with patch.dict('sys.modules',{'p115client':types.SimpleNamespace(P115Client=lambda cookie:provider)}):
+            with self.assertRaisesRegex(ValueError,'P115_OBJECT_AMBIGUOUS'):
+                sources.cloud_stat('cloud','/115/media/movie.mkv')
+            page.update(count=1,data=[dict(fid='8',cid='7',n='movie.mkv',s=100,sha='a'*40)])
+            self.assertEqual('8',sources.cloud_stat('cloud','/115/media/movie.mkv')['p115_id'])
+            page['count']=2;page['data'].append(dict(fid='9',cid='7',n='movie.mkv',s=101,sha='b'*40))
+            with self.assertRaisesRegex(ValueError,'P115_OBJECT_AMBIGUOUS'):
+                sources.cloud_stat('cloud','/115/media/movie.mkv')
+            page['count']=1;page['data'].pop()
+            page['path'][-1]['name']='other'
+            with self.assertRaisesRegex(ValueError,'P115_PARENT_UNKNOWN'):
+                sources.cloud_stat('cloud','/115/media/movie.mkv')
+            page['path'][-1]['name']='media';provider.user_id=99
             with self.assertRaisesRegex(ValueError,'ACCOUNT_MISMATCH'):
                 sources.cloud_stat('cloud','/115/media/movie.mkv')
 

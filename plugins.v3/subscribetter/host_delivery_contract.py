@@ -54,7 +54,7 @@ def run_host_contract(plugin,*,phase,fixture):
             bid=fixture['bundle_id'];bundle=worker.bundle(bid)
             if bundle['plan_id']!=plan['id'] or bundle['rule_id']!=rule['id']:raise ValueError('BUNDLE_SCOPE_MISMATCH')
             if phase=='status':
-                result=dict(worker._result(bundle),publish_action_id=bundle['publication_action'],manifest=bundle['manifest'],files=[{k:f.get(k) for k in ('file_index','relative_path','size','sha1','state','misses','due','upload_id','reader_stopped','refresh_pending')} for f in bundle['files']])
+                result=dict(worker._result(bundle),publish_action_id=bundle['publication_action'],manifest=bundle['manifest'],files=[{k:f.get(k) for k in ('file_index','relative_path','size','sha1','state','misses','due','upload_id','reader_stopped','local_reader_stopped','progress','refresh_pending')} for f in bundle['files']])
             elif phase=='reconcile':result=worker.reconcile(bid,limits=fixture.get('limits'))
             elif phase=='publish':result=worker.publish(bid)
             elif phase=='consumer':result=worker.confirm(bid,fixture['consumer_receipt'])

@@ -264,7 +264,7 @@ class Delivery:
             return dict(state=b['state'],bundle_id=bid)
 
     def _source(self,f,r):
-        source=LocalSource(f['snapshot']['path'],r['read_roots'],f['snapshot']);source.sha1=f['sha1'];source.md5=f['md5'];return source
+        source=LocalSource(f['snapshot']['path'],r['read_roots'],f['snapshot']);source.sha1=f['sha1'];source.md5=f['md5'];source.hash_blocks=f.setdefault('hash_blocks',{});return source
 
     def _remote(self,b,f):
         path=b['staging']+'/'+f['relative_path'];scope=self.rules[b['rule_id']]['cloud_scope_id']
@@ -310,25 +310,39 @@ class Delivery:
         for part in parts:
             self._valid(b);path+='/'+part;self.cloud.ensure_directory(r['cloud_scope_id'],path)
 
-    def _pump(self,b,f,r,now,*,cancel=False,budget=10):
+    def _pump(self,b,f,r,now,*,cancel=False,budget=10,observe_only=False):
+        terminal_states=('FINISH','CANCELLED','ERROR','FATALERROR','SKIPPED','IGNORED')
         try:
-            from types import SimpleNamespace
-            source_context=nullcontext(SimpleNamespace(stop=threading.Event())) if cancel else self._source(f,r)
-            with source_context as source:
-                status=self.cloud.pump(r['cloud_scope_id'],f['upload_id'],self.device_id(),source,cancel=cancel,budget=budget)
+            status=f.get('progress',{})
+            if status.get('state') not in terminal_states or status.get('reader_stopped') is not True:
+                from types import SimpleNamespace
+                source_context=nullcontext(SimpleNamespace(stop=threading.Event())) if cancel or observe_only else self._source(f,r)
+                with source_context as source:
+                    options=dict(cancel=cancel,budget=budget)
+                    if observe_only:options['observe_only']=True
+                    elif not cancel and status.get('state')=='PAUSE' and status.get('reader_stopped') is True:options['resume']=True
+                    status=self.cloud.pump(r['cloud_scope_id'],f['upload_id'],self.device_id(),source,**options)
             f['progress']=status
-            terminal=status['state'] in ('FINISH','CANCELLED','ERROR','FATALERROR','SKIPPED','IGNORED')
-            f['reader_stopped']=terminal and status.get('reader_stopped') is True
+            terminal=status['state'] in terminal_states
+            f['local_reader_stopped']=status.get('reader_stopped') is True
+            f['reader_stopped']=terminal and f['local_reader_stopped']
             if status['state']=='FINISH':
-                remote=self._remote(b,f)
+                # Persist the original-ID terminal event before remote readback;
+                # a failed lookup must not require the server to replay FINISH.
+                self._save(b)
+                try:remote=self._remote(b,f)
+                except Exception:remote=None
                 if remote and f['reader_stopped']:self._verified(b,f,remote,now);return
-            if status['state']=='CANCELLED' and f['reader_stopped']:
-                f['state']='CANCELLED';self._receipt(b,f,'FAILED',{'reason':'CANCELLED','reader_stopped':True},now);return
-            f['state']='CD2_UPLOADING' if not terminal else 'UNKNOWN'
-            b['reason']='CD2_PENDING' if not terminal else 'CD2_OUTCOME_UNVERIFIED'
+            elif terminal and f['reader_stopped']:
+                f['state']='CANCELLED' if status['state']=='CANCELLED' else 'FAILED'
+                b.update(state='BLOCKED',reason='CD2_'+status['state'])
+                self._receipt(b,f,'FAILED',{'reason':b['reason'],'upload_id':f['upload_id'],'progress':status},now);return
+            unknown=terminal or status['state']=='UNKNOWN'
+            f['state']='UNKNOWN' if unknown else 'CD2_PAUSED' if status['state']=='PAUSE' else 'CD2_UPLOADING'
+            b.update(state='UNKNOWN' if unknown else 'UPLOADING',reason='CD2_REMOTE_UNSETTLED' if unknown else 'CD2_PAUSED' if status['state']=='PAUSE' else 'CD2_PENDING')
             self._save(b)
         except Exception:
-            f.update(state='UNKNOWN',reader_stopped=False);b['reason']='CD2_OUTCOME_UNKNOWN'
+            f.update(state='UNKNOWN',reader_stopped=False,local_reader_stopped=True);b.update(state='UNKNOWN',reason='CD2_OUTCOME_UNKNOWN')
             self._receipt(b,f,'UNKNOWN',{'reason':b['reason'],'upload_id':f['upload_id']},now)
 
     def device_id(self):
@@ -380,7 +394,14 @@ class Delivery:
             if b.get('cancel_intent'):return self._cancel_readers(b,r,now)
             if b.get('publication_action'):return self._publication_status(b,r,now)
             if parse(b['due'])>instant(now):return self._result(b)
-            self._valid(b)
+            try:self._valid(b)
+            except ValueError:
+                # Lost authority blocks body/hash serving, not observation of an
+                # old exact upload ID. No source file is opened in this path.
+                for f in b['files']:
+                    if f.get('upload_id') and f['state']!='VERIFIED':
+                        self._pump(b,f,r,now,observe_only=True,budget=(limits or {}).get('seconds',10));return self._result(b)
+                raise
             for f in b['files']:
                 with self._source(f,r):pass
             for f in b['files']:
@@ -404,11 +425,12 @@ class Delivery:
                     with self._source(f,r) as source:
                         if fallback:
                             f['reader_stopped']=False;self._save(b)
-                            upload_id=self.cloud.start(r['cloud_scope_id'],b['staging']+'/'+f['relative_path'],source)
+                            upload_id=self.cloud.start(r['cloud_scope_id'],b['staging']+'/'+f['relative_path'],source,device_id=self.device_id(),budget=(limits or {}).get('seconds',10))
                             if not isinstance(upload_id,str) or not upload_id:raise TimeoutError()
                             f.update(upload_id=upload_id,state='CD2_UPLOADING');self._receipt(b,f,'UNKNOWN',{'upload_id':upload_id,'state':'CD2_UPLOADING'},now)
-                            return self._result(b)
-                        result=self.cloud.rapid(r['cloud_scope_id'],b['staging']+'/'+f['relative_path'],source)
+                        else:result=self.cloud.rapid(r['cloud_scope_id'],b['staging']+'/'+f['relative_path'],source)
+                    if fallback:
+                        self._pump(b,f,r,now,budget=(limits or {}).get('seconds',10));return self._result(b)
                     if result['state']=='MISS':
                         f.update(state='PENDING',misses=f['misses']+1);outcome='FAILED';evidence={'reason':'EFFECTIVE_RAPID_MISS'}
                     elif result['state']=='HIT':
@@ -540,7 +562,7 @@ class Delivery:
 
     def _cancel_readers(self,b,r,now):
         for f in b['files']:
-            if f.get('upload_id') and not (f.get('reader_stopped') and f['state'] in ('VERIFIED','CANCELLED')):
+            if f.get('upload_id') and not (f.get('reader_stopped') and f['state'] in ('VERIFIED','CANCELLED','FAILED')):
                 self._pump(b,f,r,now,cancel=True)
             elif f['state']=='UNKNOWN' and f.get('action_id'):
                 action=self.authority.action(f['action_id'])
