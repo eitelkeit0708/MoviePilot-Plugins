@@ -30,8 +30,12 @@ async def _drainable_to_thread(function, *args):
                 await asyncio.shield(task)
             except asyncio.CancelledError:
                 continue
-        if not task.cancelled():
-            task.exception()
+            except BaseException:
+                break
+        try:
+            task.result()
+        except BaseException:
+            pass
         raise
 
 

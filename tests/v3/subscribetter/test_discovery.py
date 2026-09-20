@@ -478,6 +478,51 @@ class DiscoveryTests(unittest.TestCase):
         target = service.records()[0]["targets"][0]
         self.assertEqual(("DEFERRED", "STALE_GENERATION"), (target["state"], target["reason"]))
 
+    def test_fix4_failed_drain_preserves_repeated_cancellation_and_stops_later_sources(self):
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        fetches, later_effects = [], []
+        config = self.config(sources=[
+            {"id": "a", "kind": "custom", "url": "https://a.invalid/rss"},
+            {"id": "b", "kind": "custom", "url": "https://b.invalid/rss"}],
+            request_budget=ONE_BUDGET)
+        async def fetch(_url, source, _budget):
+            fetches.append(source.id)
+            return self.d.FetchResult(SYNTHETIC_RSS)
+        service = self.service(config, fetch=fetch)
+        def observe(source, _item):
+            if source.id == "a":
+                entered.set()
+                try:
+                    if not release.wait(1):
+                        raise RuntimeError("fixture release timeout")
+                    raise RuntimeError("failed while draining")
+                finally:
+                    finished.set()
+            later_effects.append(source.id)
+            return "REJECTED"
+        service._observe = observe
+        async def scenario():
+            task = asyncio.create_task(service.run())
+            self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            asyncio.get_running_loop().call_later(0.05, release.set)
+            try:
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+            finally:
+                release.set()
+            self.assertTrue(task.cancelled())
+        self.wait(scenario())
+        self.assertTrue(finished.is_set())
+        self.assertEqual(["a"], fetches)
+        self.assertEqual([], later_effects)
+        def ordinary_failure():
+            raise RuntimeError("ordinary stage failure")
+        with self.assertRaisesRegex(RuntimeError, "ordinary stage failure"):
+            self.wait(self.d._drainable_to_thread(ordinary_failure))
+
     def test_source_failures_are_isolated_and_retry_after_persists_by_origin(self):
         config = self.config(sources=[
             {"id": "a", "kind": "rsshub", "route_key": "movie_weekly_best"},
