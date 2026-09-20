@@ -502,18 +502,29 @@ class DiscoveryTests(unittest.TestCase):
             return "REJECTED"
         service._observe = observe
         async def scenario():
+            loop = asyncio.get_running_loop()
+            prior_handler = loop.get_exception_handler()
+            unexpected = []
+            loop.set_exception_handler(lambda _loop, context: unexpected.append(context))
             task = asyncio.create_task(service.run())
-            self.assertTrue(await asyncio.to_thread(entered.wait, 1))
-            task.cancel()
-            await asyncio.sleep(0)
-            task.cancel()
-            asyncio.get_running_loop().call_later(0.05, release.set)
             try:
-                with self.assertRaises(asyncio.CancelledError):
-                    await task
+                self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+                task.cancel()
+                await asyncio.sleep(0)
+                task.cancel()
+                loop.call_later(0.05, release.set)
+                try:
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                finally:
+                    release.set()
+                self.assertTrue(task.cancelled())
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+                self.assertEqual([], unexpected)
             finally:
                 release.set()
-            self.assertTrue(task.cancelled())
+                loop.set_exception_handler(prior_handler)
         self.wait(scenario())
         self.assertTrue(finished.is_set())
         self.assertEqual(["a"], fetches)

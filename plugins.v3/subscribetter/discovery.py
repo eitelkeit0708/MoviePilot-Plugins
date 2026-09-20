@@ -23,20 +23,19 @@ async def _drainable_to_thread(function, *args):
     """Do not leave provider or ownership work running after scheduler cancellation."""
     task = asyncio.create_task(asyncio.to_thread(function, *args))
     try:
-        return await asyncio.shield(task)
+        await asyncio.wait({task})
     except asyncio.CancelledError:
         while not task.done():
             try:
-                await asyncio.shield(task)
+                await asyncio.wait({task})
             except asyncio.CancelledError:
                 continue
-            except BaseException:
-                break
         try:
             task.result()
         except BaseException:
             pass
         raise
+    return task.result()
 
 
 ROUTES = {
