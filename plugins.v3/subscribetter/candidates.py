@@ -152,6 +152,7 @@ class CandidateService:
         self.runtime = {}  # Host credential-bearing objects never enter SQLite.
         self.search_errors=[]
         self.deadline=None
+        self.checkpoint=lambda:None
 
     def observe(self, raw, *, source='search'):
         key = candidate_key(raw)
@@ -188,6 +189,7 @@ class CandidateService:
         if not isinstance(keywords,(list,tuple)) or any(not isinstance(w,str) or not 1<=len(w)<=256 for w in keywords):
             raise ValueError('trusted bounded keywords required')
         words = list(dict.fromkeys(keywords))[:budget.keywords]
+        self.checkpoint()
         sites = [s for s in self.adapter.sites() if s.get('id') in set(selected_sites)]
         lock, output, seen = Lock(), [], set()
         remaining = [budget.requests]
@@ -196,6 +198,7 @@ class CandidateService:
                 with lock:
                     if expired() or remaining[0]<2 or len(output)>=budget.results:return
                     remaining[0]-=1
+                self.checkpoint()
                 try:
                     size = self.adapter.page_size(site,word)
                 except Exception:
@@ -205,6 +208,7 @@ class CandidateService:
                         if expired() or remaining[0] <= 0 or len(output)>=budget.results:
                             return
                         remaining[0] -= 1
+                    self.checkpoint()
                     try:
                         rows = self.adapter.search(site,word,page)
                     except Exception:
@@ -250,6 +254,7 @@ class CandidateService:
 
     def recognize(self, key, target, meta_service, *, custom_words=None, task_id=None, checkpoint=None):
         def check():
+            self.checkpoint()
             if checkpoint:checkpoint()
             if self.deadline is not None and time.monotonic()>=self.deadline:raise ValueError('TICK_DEADLINE')
         raw = self.runtime.get(key)
@@ -503,12 +508,8 @@ class CandidatePipeline:
             if not candidate.get('local_assets'):
                 s={k:v for k,v in s.items() if k not in ('local_assets','source_plan')}
                 s['selected_indices']=[i for i in s['selected_indices'] if i<len(s['torrent_files'])]
-        active={t['target_key'] for t in plan['targets'] if t['state']=='ACTIVE'} if 'targets' in plan and plan.get('authorization')!='PREPARED' else set(s['targets'])
-        from .planner import asset_table
-        indices=[i for i in s['selected_indices'] if set(asset_table(s)[i]['targets'])<=active]
-        active={k for i in indices for k in asset_table(s)[i]['targets']}
-        expected=dict(s,selected_indices=indices,targets={k:s['targets'][k] for k in active},current={k:s['current'][k] for k in active})
-        if not active:raise ValueError('NO_ACTIVE_SAFE_FILES')
+        from .planner import active_snapshot
+        expected=active_snapshot(dict(plan,snapshot=s));active=set(expected['targets'])
         fresh=self._evaluate(candidate,sorted(active),round['mode'] if active==set(s['targets']) else 'episode')
         if expected not in fresh['plans']:
             raise ValueError('CANDIDATE_POLICY_OR_CURRENT_CHANGED')

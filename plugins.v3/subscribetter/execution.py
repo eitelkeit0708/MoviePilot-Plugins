@@ -479,8 +479,13 @@ class StrictExecutor:
             except Exception:
                 return {'state':'BLOCKED','reason':'RESUME_CHECK_FAILED'}
 
-    def sample(self,plan_id):
-        plan=self.authority.plan(plan_id);s=plan['snapshot']
+    def sample(self,plan_id,*,targets=None):
+        plan,s,indices,_=self._plan(plan_id)
+        if targets is not None:
+            requested=set(targets);table=asset_table(s)
+            indices=[i for i in indices if requested.intersection(table[i]['targets'])]
+            if not requested or any(not set(table[i]['targets'])<=requested for i in indices) or {k for i in indices for k in table[i]['targets']}!=requested:
+                raise ValueError('EXACT_SAFE_PROGRESS_SCOPE_REQUIRED')
         owned=self._owned(s)
         if not owned or not owned['client_id']:
             raise ValueError('DOWNLOAD_OWNERSHIP_UNCONFIRMED')
@@ -489,8 +494,8 @@ class StrictExecutor:
         if str(task['id'])!=owned['client_id']:
             raise ValueError('CLIENT_TASK_ID_CHANGED')
         mapping=self._table(s,self._read(client.files,s['infohash']))
-        stats={i:{'downloaded_bytes':mapping[i].get('completed'),'speed':None} for i in s['selected_indices']}
-        previous=self.authority.progress(plan_id,s['selected_indices'])
+        stats={i:{'downloaded_bytes':mapping[i].get('completed'),'speed':None} for i in indices}
+        previous=self.authority.progress(plan_id,indices)
         now=instant()
         if previous and task['state']=='DOWNLOADING' and previous['status']=='DOWNLOADING':
             elapsed=(now-parse(previous['sampled_at'])).total_seconds()
@@ -500,7 +505,7 @@ class StrictExecutor:
                     if type(before)is int and type(after)is int and after>=before:row['speed']=(after-before)/elapsed
         complete=all(stats[i]['downloaded_bytes']==asset_table(s)[i]['size'] for i in stats)
         status='COMPLETED' if complete and task['state'] not in ('CHECKING','DISCONNECTED','FAILED') else task['state']
-        return self.authority.record_progress(plan_id,s['selected_indices'],stats,torrent=task,status=status,now=now)
+        return self.authority.record_progress(plan_id,indices,stats,torrent=task,status=status,now=now)
 
     def reconcile(self,plan_id):
         """Read only at the client: settle known intents, never guess or retransmit."""

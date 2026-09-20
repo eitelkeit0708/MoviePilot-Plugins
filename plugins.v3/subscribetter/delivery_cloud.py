@@ -27,8 +27,9 @@ class HostDeliveryCloud:
 
     def _raw(self,scope):return self.sources._client(scope,self.timeout)
 
-    def _checkpoint(self):
-        check=getattr(self.sources,'checkpoint',None)
+    def _checkpoint(self,*,ordinary=False,safety=False):
+        name='ordinary_checkpoint' if ordinary else 'safety_checkpoint' if safety else 'checkpoint'
+        check=getattr(self.sources,name,getattr(self.sources,'checkpoint',None))
         if check:check()
 
     def stat(self,scope,path):
@@ -49,12 +50,13 @@ class HostDeliveryCloud:
         return dict(path=path,id=str(raw.id),directory=False,sha1=value['sha1'],size=value['size'],p115_id=value['p115_id'],account_ref=account)
 
     def ensure_directory(self,scope,path):
+        self._checkpoint(ordinary=True)
         self._scope(scope,path);old=self.stat(scope,path)
         if old:
             if not old.get('directory'):raise ValueError('DIRECTORY_CONFLICT')
             return old
         client,pb,meta=self._raw(scope)
-        self._checkpoint()
+        self._checkpoint(ordinary=True)
         response=client.stub.CreateFolder(pb.CreateFolderRequest(parentPath=str(PurePosixPath(path).parent),folderName=PurePosixPath(path).name),metadata=meta,timeout=self.timeout)
         if not response.result.success or not response.folderCreated.isDirectory or response.folderCreated.fullPathName!=path or not response.folderCreated.id:raise ValueError('DIRECTORY_CREATE_UNKNOWN')
         value=self.stat(scope,path)
@@ -66,6 +68,7 @@ class HostDeliveryCloud:
         if scope not in self.p115:
             from p115client import P115Client
             public=self.sources.plugin.get_config(config.get('p115_plugin','P115Disk')) or {}
+            self._checkpoint()
             self.p115[scope]=P115Client(public['cookie'])
             if str(self.p115[scope].user_id)!=self.sources.accounts[scope]:raise ValueError('ACCOUNT_MISMATCH')
         return self.p115[scope]
@@ -84,33 +87,38 @@ class HostDeliveryCloud:
         return cid
 
     def rapid(self,scope,path,source):
+        self._checkpoint(ordinary=True)
         self._scope(scope,path);client=self._p115(scope);cid=self._parent(scope,str(PurePosixPath(path).parent))
         deadline=time.monotonic()+self.timeout*3
         def ranges(value):
             if time.monotonic()>deadline:raise TimeoutError('RAPID_DEADLINE')
-            return source.range_hash(value,deadline=deadline)
+            self._checkpoint(ordinary=True)
+            result=source.range_hash(value,deadline=deadline)
+            self._checkpoint(ordinary=True)
+            return result
         source.check()
-        self._checkpoint()
+        self._checkpoint(ordinary=True)
         try:result=client.upload_file_init(filename=PurePosixPath(path).name,filesha1=source.sha1.upper(),filesize=source.size,pid=cid,read_range_bytes_or_hash=ranges,timeout=self.timeout)
         except Exception as error:
             status=getattr(getattr(error,'response',None),'status_code',None)
             if status in (401,403):raise ValueError('AUTH_FAILED') from None
             if status==429:raise ValueError('RATE_LIMITED') from None
             raise
-        source.check()
+        source.check();self._checkpoint(ordinary=True)
         if result.get('state') is True and result.get('status')==1 and result.get('reuse') is False:return {'state':'MISS'}
         if result.get('state') is True and result.get('status')==2 and result.get('reuse') is True:return {'state':'HIT'}
         # Do not persist a provider body: callback/bucket/object can be credentials.
         return {'state':'UNKNOWN'}
 
     def start(self,scope,path,source,*,device_id,budget=10):
+        self._checkpoint(ordinary=True)
         if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
         self._scope(scope,path);client,pb,meta=self._raw(scope);source.check()
         # Subscribe before Start: even an immediate terminal event must have a
         # receiver. The caller persists the returned ID before consuming bytes.
-        self._checkpoint();call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=self.timeout+budget)
+        self._checkpoint(ordinary=True);call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=self.timeout+budget)
         try:
-            self._checkpoint();response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=self.timeout)
+            self._checkpoint(ordinary=True);response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=self.timeout)
             if not response.upload_id:raise ValueError('UPLOAD_START_UNKNOWN')
             self.pending_channels[scope,response.upload_id]=(device_id,call)
             return response.upload_id
@@ -124,11 +132,12 @@ class HostDeliveryCloud:
         local reader stopped; a terminal server receipt is an independent fact.
         """
         if type(budget) not in (int,float) or not 0<budget<=30:raise ValueError('INVALID_READER_BUDGET')
+        if not cancel and not observe_only:self._checkpoint(ordinary=True)
         client,pb,meta=self._raw(scope);deadline=time.monotonic()+budget
         work_deadline=deadline-min(2,budget/2)
         state='UNKNOWN';sent=0;requests=0;call=None;pause_requested=False
-        def remaining():
-            self._checkpoint()
+        def remaining(*,ordinary=False):
+            self._checkpoint(ordinary=ordinary,safety=not ordinary)
             value=min(self.timeout,deadline-time.monotonic())
             if value<=0:raise TimeoutError('READER_BUDGET')
             return value
@@ -145,7 +154,7 @@ class HostDeliveryCloud:
                 if previous_device!=device_id:raise ValueError('DEVICE_ID_CHANGED')
             else:call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=remaining())
             if resume and not cancel and not observe_only:
-                client.stub.RemoteUploadControl(pb.RemoteUploadControlRequest(upload_id=upload_id,resume=pb.ResumeRemoteUpload()),metadata=meta,timeout=remaining())
+                client.stub.RemoteUploadControl(pb.RemoteUploadControlRequest(upload_id=upload_id,resume=pb.ResumeRemoteUpload()),metadata=meta,timeout=remaining(ordinary=True))
             if cancel:
                 source.stop.set()
                 client.stub.RemoteUploadControl(pb.RemoteUploadControlRequest(upload_id=upload_id,cancel=pb.CancelRemoteUpload()),metadata=meta,timeout=remaining())
@@ -165,10 +174,10 @@ class HostDeliveryCloud:
                     req=message.read_data
                     if req.length<=0 or req.offset<0 or req.offset+req.length>source.size or req.length>16*CHUNK:raise ValueError('READ_RANGE_INVALID')
                     for offset in range(req.offset,req.offset+req.length,CHUNK):
-                        remaining();size=min(CHUNK,req.offset+req.length-offset)
+                        remaining(ordinary=True);size=min(CHUNK,req.offset+req.length-offset)
                         if budget_used():pause();break
                         data=source.read(offset,size);last=offset+size==source.size
-                        answer=client.stub.RemoteReadData(pb.RemoteReadDataUpload(upload_id=upload_id,offset=offset,length=size,lazy_read=req.lazy_read,data=data,is_last_chunk=last),metadata=meta,timeout=remaining())
+                        answer=client.stub.RemoteReadData(pb.RemoteReadDataUpload(upload_id=upload_id,offset=offset,length=size,lazy_read=req.lazy_read,data=data,is_last_chunk=last),metadata=meta,timeout=remaining(ordinary=True))
                         if not answer.success or answer.bytes_received!=size or answer.is_last_chunk!=last:raise ValueError('READ_REPLY_UNVERIFIED')
                         sent+=size
                 elif kind=='hash_data':
@@ -179,7 +188,7 @@ class HostDeliveryCloud:
                     cached=source.md5 if req.hash_type==1 else source.sha1
                     if not block_size and cached:
                         source.check()
-                        client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=cached),metadata=meta,timeout=remaining())
+                        client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=cached),metadata=meta,timeout=remaining(ordinary=True))
                         continue
                     if not cached or not block_size:raise ValueError('PRECOMPUTED_HASH_REQUIRED')
                     # Completed blocks survive bounded pauses; never persist or
@@ -190,14 +199,14 @@ class HostDeliveryCloud:
                     for start in range(len(blocks)*block_size,source.size,block_size):
                         block=md5();end=min(start+block_size,source.size)
                         for offset in range(start,end,CHUNK):
-                            remaining()
+                            remaining(ordinary=True)
                             if budget_used():pause();break
                             block.update(source.read(offset,min(CHUNK,end-offset)))
                         if pause_requested:break
                         blocks.append(block.hexdigest())
                     if pause_requested:continue
                     source.check()
-                    client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=cached,block_hashes=blocks),metadata=meta,timeout=remaining())
+                    client.stub.RemoteHashProgress(pb.RemoteHashProgressUpload(upload_id=upload_id,bytes_hashed=source.size,total_bytes=source.size,hash_type=req.hash_type,hash_value=cached,block_hashes=blocks),metadata=meta,timeout=remaining(ordinary=True))
                 else:raise ValueError('REMOTE_REQUEST_UNKNOWN')
         except Exception as error:
             if isinstance(error,ValueError):raise
@@ -241,18 +250,20 @@ class HostDeliveryCloud:
         return rows
 
     def move(self,scope,source,destination):
+        self._checkpoint(ordinary=True)
         self._scope(scope,source);self._scope(scope,destination)
         if PurePosixPath(source).name!=PurePosixPath(destination).name:raise ValueError('BUNDLE_RENAME_FORBIDDEN')
         client,pb,meta=self._raw(scope)
-        self._checkpoint()
+        self._checkpoint(ordinary=True)
         response=client.stub.MoveFile(pb.MoveFileRequest(theFilePaths=[source],destPath=str(PurePosixPath(destination).parent),conflictPolicy=2,moveAcrossClouds=False,handleConflictRecursively=False),metadata=meta,timeout=self.timeout)
         return {'success':response.success}  # Never used as location proof.
 
     def delete_file(self,scope,path,expected):
+        self._checkpoint(ordinary=True)
         if self.stat(scope,path)!=expected:raise ValueError('REMOTE_IDENTITY_CHANGED')
         if expected.get('directory'):raise ValueError('RECURSIVE_DELETE_FORBIDDEN')
         client,pb,meta=self._raw(scope)
-        self._checkpoint()
+        self._checkpoint(ordinary=True)
         client.stub.DeleteFile(pb.FileRequest(path=path),metadata=meta,timeout=self.timeout)
         if self.stat(scope,path) is not None:raise ValueError('DELETE_OUTCOME_UNKNOWN')
 

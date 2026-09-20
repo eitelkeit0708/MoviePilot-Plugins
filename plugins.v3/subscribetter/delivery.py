@@ -801,7 +801,8 @@ class PublicationGate:
     def __init__(self,archive,publication):self.archive=archive;self.publication=json.loads(encoded(publication))
 
     def __call__(self,plan):
-        s=plan['snapshot'];keys=list(s['targets']);policy=self.archive.policy
+        from .planner import active_snapshot
+        s=active_snapshot(plan,self.publication);keys=list(s['targets']);policy=self.archive.policy
         if s['policy_revision']!=policy.semantic_hash:raise ValueError('POLICY_CHANGED')
         if set(self.publication)!=set(keys):raise ValueError('PUBLICATION_SCOPE_REQUIRED')
         current=self.archive.current(keys)

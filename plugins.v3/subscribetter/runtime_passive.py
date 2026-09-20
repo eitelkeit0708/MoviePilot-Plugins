@@ -45,6 +45,7 @@ class Passive:
             if state.get('next_at') and instant()<parse(state['next_at']):return dict(state='RSS_NOT_DUE',site_id=site['id'])
             state['attempt_at']=utcnow();state['next_at']=(instant()+timedelta(seconds=self.config.candidates.refresh_seconds)).isoformat()
             try:
+                r.check()
                 rows=r.candidates.adapter.rss(site,self.config.safety.network_timeout)
                 r.check();pending=[];seen={}
                 for raw in rows:

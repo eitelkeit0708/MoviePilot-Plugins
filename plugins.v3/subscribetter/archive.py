@@ -275,6 +275,7 @@ class HostArchiveSources:
         params = dict(ParentId=str(library), Recursive='true', IncludeItemTypes='Movie,Episode,Series',
                       Fields='Path,ProviderIds,MediaSources,MediaStreams,ParentId')
         params.update(query)
+        self.checkpoint()
         response = wrapper.instance.get_data('[HOST]emby/Users/[USER]/Items?' + urlencode(params) + '&api_key=[APIKEY]')
         if response is None:
             raise ValueError('EMBY_UNAVAILABLE')
@@ -342,6 +343,7 @@ class HostArchiveSources:
         actual_type = getattr(media, 'type', None)
         if media is None or HostCandidateAdapter.identity(media) != (source, media_id) or getattr(actual_type, 'value', actual_type) != media_type:
             raise ValueError('IDENTITY_CONFLICT')
+        self.checkpoint()
         return HostCandidateAdapter.classify(media)
 
     def _client(self, scope_id, timeout):
@@ -374,6 +376,7 @@ class HostArchiveSources:
             raise ValueError('ACCOUNT_BINDING_MISSING')
         client = CloudDriveClient(str(config['host']) + ':' + str(config['port']))
         try:
+            self.checkpoint()
             token = client.stub.GetToken(pb.GetTokenRequest(userName=config['username'], password=config['password']), timeout=timeout)
             if not token.success or not token.token:
                 raise ValueError('CLOUD_AUTH_FAILED')
@@ -434,6 +437,7 @@ class HostArchiveSources:
         relative='/' + str(PurePosixPath(parent).relative_to(PurePosixPath(scope['root'])))
         if relative=='/.':relative='/'
         from p115client import P115Client
+        self.checkpoint()
         client=P115Client((self.plugin.get_config(scope.get('p115_plugin','P115Disk')) or {})['cookie'])
         matches,offset,total=[],0,None;deadline=time.monotonic()+min(30,timeout)
         def remaining():

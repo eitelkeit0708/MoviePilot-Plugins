@@ -1,14 +1,14 @@
 """Shared bounded production composition over the existing durable state machines."""
 from datetime import date
 from contextlib import contextmanager
-from threading import RLock
+from threading import RLock, local
 import asyncio
 import json
 import time
 from uuid import uuid4
 
 from .candidates import HostCandidateAdapter, CandidatePipeline, SearchBudget, value
-from .planner import TargetUnit, encoded
+from .planner import TargetUnit, encoded, active_snapshot
 from .archive import digest
 from .repository import Target, utcnow, snapshot_config
 from .scheduler import ScheduleConfig, instant, parse
@@ -43,6 +43,7 @@ class ScopeProvider:
         return media
 
     def resolve(self,target,*,today=None):
+        if getattr(self,'checkpoint',None):self.checkpoint()
         media=self._verified(self.recognize(target,''),target)
         if getattr(self,'checkpoint',None):self.checkpoint()
         result=dict(target_key=target.key,provider_identity=[target.media_source,target.media_id],
@@ -57,6 +58,7 @@ class ScopeProvider:
             listed=groups.get('results') if isinstance(groups,dict) else None
             if not isinstance(listed,list) or len(listed)>1000 or sum(isinstance(g,dict) and g.get('id')==target.episode_group for g in listed)!=1:
                 raise ValueError('GROUP_MEMBERSHIP_UNVERIFIED')
+            if getattr(self,'checkpoint',None):self.checkpoint()
             grouped=self._verified(self.recognize(target,target.episode_group),target)
             seasons=value(grouped,'season_info')
             if value(grouped,'episode_group')!=target.episode_group or not isinstance(seasons,list) or len(seasons)>1000:
@@ -65,6 +67,7 @@ class ScopeProvider:
             if len(selected)!=1:raise ValueError('GROUP_SCOPE_UNVERIFIED')
             detail=selected[0]
         else:
+            if getattr(self,'checkpoint',None):self.checkpoint()
             detail=self.season_detail(target)
             if not isinstance(detail,dict) or detail.get('season_number',target.season)!=target.season:
                 raise ValueError('PROVIDER_SEASON_UNVERIFIED')
@@ -144,8 +147,9 @@ class Runtime:
         self.authority=plugin.authority;self.candidates=plugin.candidates;self.meta=plugin.meta_service
         self.delivery=plugin.delivery_worker;self.provider=provider or ScopeProvider();self.clients=clients or ConfiguredDownloader.named
         self.scopes={};self.scope_workers={};self.busy=False;self.lock=RLock();self.ai=plugin.ai
-        self.stages=OwnedStages(self.close)
-        if isinstance(self.provider,ScopeProvider):self.provider.checkpoint=lambda:self.checkpoint(getattr(self,'deadline',None))
+        self.stages=OwnedStages(self.close);self._io=local()
+        if isinstance(self.provider,ScopeProvider):self.provider.checkpoint=self.read_check
+        self.candidates.checkpoint=self.check
         self.owner.dispatch_gate=self.check
         config=self.config.policy
         self.policy=Policy(config.bindings or self.config.delivery.get('policy_bindings',{}),
@@ -157,7 +161,10 @@ class Runtime:
         if self.delivery:
             self.delivery.archive.scope_provider=lambda target:self.scope(target,fresh=True)
             self.delivery.dispatch_gate=self.check
-            if hasattr(self.delivery.archive,'sources'):self.delivery.archive.sources.checkpoint=lambda:self.checkpoint(getattr(self,'deadline',None))
+            if hasattr(self.delivery.archive,'sources'):
+                self.delivery.archive.sources.checkpoint=self.read_check
+                self.delivery.archive.sources.ordinary_checkpoint=self.check
+                self.delivery.archive.sources.safety_checkpoint=lambda:self.checkpoint(getattr(self,'deadline',None))
         if self.policy:self.authority.set_revisions(self.policy.semantic_hash,self.meta.corrector.revision)
 
     def close(self):
@@ -178,11 +185,22 @@ class Runtime:
         self.checkpoint(getattr(self,'deadline',None))
 
     def scope(self,target,*,fresh=False):
+        self.read_check()
         old=self.scopes.get(target.key)
         if fresh or old is None or time.monotonic()-old[0]>60:
             old=(time.monotonic(),self.provider.resolve(target));self.scopes[target.key]=old
             while len(self.scopes)>1000:self.scopes.pop(next(iter(self.scopes)))
         return json.loads(encoded(old[1]))
+
+    def read_check(self):
+        if getattr(self._io,'safety',False):self.checkpoint(getattr(self,'deadline',None))
+        else:self.check()
+
+    @contextmanager
+    def safety_reads(self):
+        previous=getattr(self._io,'safety',False);self._io.safety=True
+        try:yield
+        finally:self._io.safety=previous
 
     def destination(self,scope,template_id=None):
         classification=scope['classification']
@@ -330,12 +348,8 @@ class Runtime:
         key=plan['snapshot']['candidate_key']
         self.candidates.refresh(key,self.budget(saved))
         output=self.evaluate(saved,key)
-        snapshot=plan['snapshot']
-        if snapshot.get('local_assets') and snapshot not in output['plans']:
-            snapshot={k:v for k,v in snapshot.items() if k not in ('local_assets','source_plan')}
-            snapshot['selected_indices']=[i for i in snapshot['selected_indices'] if i<len(snapshot['torrent_files'])]
-        if snapshot not in output['plans']:raise ValueError('COLD_PLAN_CHANGED')
-        self.pipeline.revalidate(plan)
+        try:self.pipeline.revalidate(plan)
+        except ValueError as error:raise ValueError('COLD_PLAN_CHANGED') from error
         return output
 
     def search(self,saved,words):
@@ -390,11 +404,12 @@ class Runtime:
         self.checkpoint(deadline)
         self.verify_input(saved)
         self.checkpoint(deadline)
-        candidate=self.pipeline.revalidate(self.authority.plan(plan['id']))
-        publication={k:dict(raw=dict(candidate['facts'][k].raw),classification=candidate['classification']) for k in plan['snapshot']['targets']}
+        plan=self.authority.plan(plan['id']);candidate=self.pipeline.revalidate(plan)
+        selected=active_snapshot(plan)
+        publication={k:dict(raw=dict(candidate['facts'][k].raw),classification=candidate['classification']) for k in selected['targets']}
         self.delivery.validate_publication(plan,publication)
         self.checkpoint(deadline)
-        result=self.delivery.prepare(plan['id'],rule_id,publication=publication)
+        result=self.delivery.prepare(plan['id'],rule_id,publication=publication,indices=selected['selected_indices'])
         self.persist_scope(result['bundle_id'])
         return result
 
@@ -465,10 +480,10 @@ class Runtime:
                         if before['torrent_files']!=snapshot['torrent_files']:raise ValueError('SHARED_TABLE_CHANGED')
                     elif {f['path'] for f in before['torrent_files']}&{f['path'] for f in snapshot['torrent_files']}:
                         raise ValueError('REPLACEMENT_LAYOUT_COLLISION')
-                with self.repository.connection() as db:
-                    downloading=db.execute("SELECT 1 FROM plan_targets WHERE plan_id=? AND state='ACTIVE' AND transfer_phase='DOWNLOADING'",(old_id,)).fetchone()
+                affected=sorted(k for k,v in vector.items() if v['owner_plan_id']==old_id)
+                downloading=any(t['target_key'] in affected and t['state']=='ACTIVE' and t['transfer_phase']=='DOWNLOADING' for t in old['targets'])
                 if downloading:
-                    measured=self.pipeline.executor().sample(old_id)
+                    measured=self.pipeline.executor().sample(old_id,targets=affected)
                     now=parse(measured['sampled_at']);progress[old_id]=measured
             self.verify_input(saved)
             if failure_id:self.authority.recover(pid,vector,failure_id=failure_id,safe_isolation=True,now=now)
@@ -776,11 +791,16 @@ class Runtime:
             worker=build_delivery(self.plugin,saved['config'])
             worker.archive.scope_provider=lambda target:self.scope(target,fresh=True)
             worker.archive.sources.checkpoint=lambda:self.checkpoint(getattr(self,'deadline',None))
+            worker.archive.sources.safety_checkpoint=worker.archive.sources.checkpoint
             def safety_only():raise ValueError('ORIGINAL_SCOPE_SAFETY_ONLY')
+            worker.archive.sources.ordinary_checkpoint=safety_only
             worker.dispatch_gate=safety_only;self.scope_workers[saved['digest']]=worker
         return self.scope_workers[saved['digest']]
 
     def consumer(self,bundle_id):
+        with self.safety_reads():return self._consumer(bundle_id)
+
+    def _consumer(self,bundle_id):
         from .runtime_delivery import observe_consumer
         worker=self.scope_worker(bundle_id);bundle=worker.bundle(bundle_id)
         if not bundle.get('publication_action'):raise ValueError('PUBLICATION_REQUIRED')
@@ -801,7 +821,8 @@ class Runtime:
         for row in bundles:
             if time.monotonic()>=deadline:break
             try:
-                worker=self.scope_worker(row['id']);result=worker.safety_reconcile(row['id'],limits=dict(seconds=self.config.recovery.seconds))
+                worker=self.scope_worker(row['id'])
+                with self.safety_reads():result=worker.safety_reconcile(row['id'],limits=dict(seconds=self.config.recovery.seconds))
                 bundle=worker.bundle(row['id'])
                 if bundle.get('publication_action'):result=self.consumer(row['id'])
                 else:

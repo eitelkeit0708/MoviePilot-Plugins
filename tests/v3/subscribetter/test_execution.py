@@ -102,7 +102,15 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(210, sample['total_bytes'])
         self.auth.cancel('plan',self.auth.vector([self.keys[1]]),reason='cancel')
         self.client.stats[3] = 200
-        self.executor.sample('plan')
+        from unittest.mock import patch
+        before=self.auth.progress('plan',[1,2]);calls=list(self.client.calls)
+        with patch.object(self.client,'task',wraps=self.client.task) as task,patch.object(self.client,'files',wraps=self.client.files) as files:
+            with self.assertRaisesRegex(ValueError,'NO_ACTIVE_SAFE_FILES'):
+                self.executor.sample('plan')
+            task.assert_not_called();files.assert_not_called()
+        self.assertEqual(before,self.auth.progress('plan',[1,2]))
+        self.assertEqual(calls,self.client.calls)
+        self.assertEqual('RECONCILED',self.executor.reconcile('plan')['state'])
         self.assertEqual('CANCELLED',self.auth.plan('plan')['authorization'])
 
     def test_host_qb_adapter_paused_add_and_whole_files(self):

@@ -106,6 +106,20 @@ def asset_table(snapshot):
     return snapshot['torrent_files']+[a['file'] for a in snapshot.get('local_assets',[])]
 
 
+def active_snapshot(plan,targets=None):
+    """Project owned dependency-safe assets without rewriting frozen lineage."""
+    s=plan['snapshot'];files=asset_table(s)
+    active={t['target_key'] for t in plan['targets'] if t['state']=='ACTIVE'} if 'targets' in plan and plan.get('authorization')!='PREPARED' else set(s['targets'])
+    if targets is not None:
+        if not set(targets) or not set(targets)<=active:raise ValueError('ACTIVE_SCOPE_REQUIRED')
+        active=set(targets)
+    indices=[i for i in s['selected_indices'] if set(files[i]['targets'])<=active]
+    keys={k for i in indices for k in files[i]['targets']}
+    if not keys or (targets is not None and keys!=set(targets)):raise ValueError('NO_ACTIVE_SAFE_FILES')
+    validate_files(files,indices)
+    return dict(s,selected_indices=indices,targets={k:s['targets'][k] for k in keys},current={k:s['current'][k] for k in keys})
+
+
 class Authority:
     def __init__(self, repository):
         self.repository = repository
