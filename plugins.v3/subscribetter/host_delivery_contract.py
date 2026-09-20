@@ -14,18 +14,9 @@ def build_delivery(plugin,config):
     policy=Policy(config['policy_bindings'],config['classification_revision'])
     archive=Archive(plugin.repository,policy,sources,mappings=config['mappings'])
     cloud=HostDeliveryCloud(sources)
-    def gate(plan):
-        # The upstream planner/organizer supplies publication facts to prepare.
-        # Once prepared, periodic work reuses the exact original claim evidence.
-        publication=config.get('publication')
-        if publication is None:
-            with plugin.repository.connection() as db:
-                rows=db.execute('SELECT data FROM delivery_bundles WHERE plan_id=?',(plan['id'],)).fetchall()
-            publications=[json.loads(r[0])['manifest']['publication'] for r in rows]
-            if not publications or any(p!=publications[0] for p in publications):raise ValueError('PUBLICATION_SOURCE_REQUIRED')
-            publication=publications[0]
+    def gate(plan,publication):
         return PublicationGate(archive,publication)(plan)
-    return Delivery(plugin.repository,Authority(plugin.repository),archive,cloud,rules=config['rules'],revalidate=gate)
+    return Delivery(plugin.repository,Authority(plugin.repository),archive,cloud,rules=config['rules'],publication_validator=gate)
 
 
 def close_delivery(worker):
@@ -53,11 +44,11 @@ def run_host_contract(plugin,*,phase,fixture):
     worker=build_delivery(plugin,config)
     try:
         if phase=='preflight':
-            publication=worker.revalidate(plan)
+            publication=worker.validate_publication(plan,config['publication'])
             current=worker.archive.current(list(s['targets']))
             stale=any(v['revision']!=s['current'][k]['revision'] for k,v in current.items())
             result={'state':'CURRENT_REAUTHORIZE_REQUIRED' if stale else 'READY','current':{k:{x:v[x] for x in ('state','revision','diagnostics')} for k,v in current.items()},'publication':publication}
-        elif phase=='prepare':result=worker.prepare(plan['id'],rule['id'],publication=worker.revalidate(plan),source_plan_id=fixture.get('source_plan_id'))
+        elif phase=='prepare':result=worker.prepare(plan['id'],rule['id'],publication=worker.validate_publication(plan,config['publication']),source_plan_id=fixture.get('source_plan_id'))
         elif phase=='scan':result=LocalReconciler(plugin.repository,rules).scan(rule['id'],limits=fixture.get('limits'))
         else:
             bid=fixture['bundle_id'];bundle=worker.bundle(bid)

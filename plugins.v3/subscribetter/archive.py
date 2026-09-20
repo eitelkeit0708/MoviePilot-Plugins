@@ -756,8 +756,15 @@ class Archive:
             if not action or manifest.get('plan_id') != action['plan_id']:
                 raise ValueError('PUBLICATION_MISSING')
             action = dict(action)
-            # W07 persists the actual manifest and settlement evidence as a receipt.
-            receipts = [json.loads(r[0]) for r in db.execute("SELECT evidence FROM action_receipts WHERE action_id=? AND outcome='HANDED_OFF'", (action_id,))]
+            unknown = action['state'] == 'PUBLISH_OUTCOME_UNKNOWN'
+            if unknown:
+                row = db.execute('SELECT data FROM delivery_bundles WHERE id=? AND plan_id=?', (manifest.get('manifest_ref'), action['plan_id'])).fetchone()
+                bound = json.loads(row[0]) if row else {}
+                if bound.get('publication_action') != action_id or bound.get('manifest') != manifest:
+                    raise ValueError('PUBLICATION_MANIFEST_UNBOUND')
+            # UNKNOWN evidence is only a claim until the full independent verifier
+            # and authority fence succeed in the final write transaction.
+            receipts = [json.loads(r[0]) for r in db.execute("SELECT evidence FROM action_receipts WHERE action_id=? AND outcome=?", (action_id, 'UNKNOWN' if unknown else 'HANDED_OFF'))]
             if not any(r.get('asset_manifest') == manifest and r.get('consumer_receipt') == consumer for r in receipts):
                 raise ValueError('DURABLE_CONSUMER_RECEIPT_REQUIRED')
             if consumer.get('action_id') != action_id or consumer.get('settled') is not True or not consumer.get('evidence_ref') or not manifest.get('manifest_ref'):
@@ -765,7 +772,7 @@ class Archive:
             if action['state'] == 'INGEST_CONFIRMED':
                 confirmations = {r['target_key']: json.loads(r['evidence']) for r in db.execute('SELECT * FROM ingest_receipts WHERE plan_id=?', (action['plan_id'],)) if r['target_key'] in json.loads(action['targets'])}
                 return self.authority.confirm_ingest(action_id, confirmations, now=now)
-        if action['state'] != 'HANDED_OFF':
+        if action['state'] != 'HANDED_OFF' and not unknown:
             raise ValueError('PUBLICATION_NOT_HANDED_OFF')
         plan = self.authority.plan(action['plan_id'])
         vector = json.loads(action['targets'])
@@ -792,6 +799,8 @@ class Archive:
             except ValueError:
                 stale = True
         if stale:
+            if unknown:
+                return dict(accepted=False, reason='STALE_AUTHORITY')
             # Shared Authority rechecks the fence in its write transaction. If
             # authority changed again, the missing improvement proof fails closed.
             return self.authority.confirm_ingest(action_id, confirmations, now=now)
@@ -828,6 +837,10 @@ class Archive:
                 raise ValueError('EXCLUSIONS_CHANGED')
             for o in (refreshed or []) + observed:
                 self.validate_observation(o)
+            if unknown:
+                self.authority._match(db, vector, owner=plan['id'], allow_barrier=True)
+                self.authority._task_active(db, plan)
+                self.authority.record_result(action_id, 'HANDED_OFF', dict(asset_manifest=manifest, consumer_receipt=consumer), now=now, db=db)
             result = self.authority.confirm_ingest(action_id, confirmations, now=now, db=db)
             if result['accepted']:
                 if refreshed is not None:

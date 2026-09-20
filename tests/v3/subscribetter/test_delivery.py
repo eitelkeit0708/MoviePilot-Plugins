@@ -199,6 +199,40 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.worker.publish(bid,now=tp.NOW+timedelta(minutes=1))
         self.assertFalse(any(c[0]=='move' for c in self.cloud.calls))
 
+    def test_review_i1_cancelled_rapid_unknown_reconciles_only_original_result(self):
+        bid=self.prepared();self.cloud.results=[TimeoutError()];self.worker.reconcile(bid,now=tp.NOW)
+        b=self.worker.bundle(bid);f=b['files'][0];path=b['staging']+'/'+f['relative_path']
+        self.worker.cancel(bid,reason='USER_ABANDON',exclusion_id='deny',criteria={'candidate_key':'candidate'},now=tp.NOW)
+        self.assertEqual('CANCEL_PENDING',self.worker.bundle(bid)['state'])
+        self.cloud.objects[path]=dict(path=path,id='old-object',sha1=f['sha1'],size=f['size'],account_ref='own')
+        before=[c for c in self.cloud.calls if c[0] in ('rapid','start','move')]
+        self.assertEqual('ABANDONED',self.worker.reconcile(bid,now=tp.NOW)['state'])
+        self.worker.reconcile(bid,now=tp.NOW)
+        self.assertEqual(before,[c for c in self.cloud.calls if c[0] in ('rapid','start','move')])
+        with self.repo.connection() as db:
+            rows=db.execute("SELECT evidence FROM action_receipts WHERE action_id=? AND outcome='SUCCEEDED'",(f['action_id'],)).fetchall()
+        self.assertEqual(1,len(rows));self.assertEqual('old-object',json.loads(rows[0][0])['remote']['id'])
+
+    def test_review_i1_superseded_rapid_keeps_successor_authority(self):
+        bid=self.prepared();self.cloud.results=[TimeoutError()];self.worker.reconcile(bid,now=tp.NOW)
+        snap=copy.deepcopy(self.auth.plan('A')['snapshot']);snap['candidate_key']='B';snap['targets'][self.key]['quality']=[2]
+        self.auth.prepare('B','round',snap,now=tp.NOW);self.auth.supersede('B',self.auth.vector([self.key]),reason='QUALITY_UPGRADE',safe_isolation=True,now=tp.NOW)
+        b=self.worker.bundle(bid);f=b['files'][0];path=b['staging']+'/'+f['relative_path']
+        self.cloud.objects[path]=dict(path=path,id='old-object',sha1=f['sha1'],size=f['size'],account_ref='own')
+        self.assertEqual('ABANDONED',self.worker.reconcile(bid,now=tp.NOW)['state'])
+        self.assertEqual('B',self.auth.vector([self.key])[self.key]['owner_plan_id'])
+
+    def test_review_i1_absent_conflicting_or_unreadable_rapid_stays_unknown(self):
+        bid=self.prepared();self.cloud.results=[TimeoutError()];self.worker.reconcile(bid,now=tp.NOW)
+        b=self.worker.bundle(bid);f=b['files'][0];path=b['staging']+'/'+f['relative_path']
+        self.worker.cancel(bid,reason='USER_ABANDON',exclusion_id='deny',criteria={'candidate_key':'candidate'},now=tp.NOW)
+        for remote in (None,dict(path=path,id='wrong',sha1='f'*40,size=f['size'])):
+            if remote:self.cloud.objects[path]=remote
+            self.assertEqual('CANCEL_PENDING',self.worker.reconcile(bid,now=tp.NOW)['state'])
+        with patch.object(self.cloud,'stat',side_effect=TimeoutError()):
+            self.assertEqual('CANCEL_PENDING',self.worker.reconcile(bid,now=tp.NOW)['state'])
+        self.assertEqual('UNKNOWN',self.worker.bundle(bid)['files'][0]['state'])
+
     def test_receipt_and_bundle_miss_are_one_transaction(self):
         bid=self.prepared();original=self.worker._save
         def fail(b,db=None):
@@ -233,6 +267,38 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual('CLEANUP_PERMISSION_DISABLED',self.worker.cleanup(bid)['reason'])
         self.assertTrue((self.local/'movie.mkv').exists())
 
+    def test_review_i2_consumed_entry_reaches_validator_without_premature_handoff(self):
+        from unittest.mock import Mock
+        bid=self.all_remote();original=self.cloud.move
+        def consumed(*args):
+            original(*args)
+            self.cloud.objects.clear()
+        with patch.object(self.cloud,'move',side_effect=consumed):
+            self.worker.publish(bid,now=tp.NOW+timedelta(minutes=5))
+        b=self.worker.bundle(bid);aid=b['publication_action']
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',b['state'])
+        receipt=dict(action_id=aid,settled=True,evidence_ref='actual-final')
+        def verify(action,manifest,consumer,**kw):
+            self.assertEqual(aid,action);self.assertEqual(b['manifest'],manifest)
+            self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.auth.action(aid)['state'])
+            raise ValueError('FINAL_PROOF_REJECTED')
+        self.worker.archive=Mock();self.worker.archive.confirm_ingest.side_effect=verify
+        with self.assertRaisesRegex(ValueError,'FINAL_PROOF_REJECTED'):
+            self.worker.confirm(bid,receipt)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.worker.bundle(bid)['state'])
+        self.worker.reconcile(bid,now=tp.NOW+timedelta(minutes=6))
+        self.assertEqual(1,sum(c[0]=='move' for c in self.cloud.calls))
+
+    def test_review_i2_confirmed_receipt_recovers_bundle_after_commit_restart(self):
+        from unittest.mock import Mock
+        bid=self.all_remote();self.worker.publish(bid,now=tp.NOW+timedelta(minutes=5))
+        aid=self.worker.bundle(bid)['publication_action']
+        # Archive's idempotent result is based on its durable verified ingest.
+        self.worker.archive=Mock()
+        self.worker.archive.confirm_ingest.return_value=dict(accepted=False,duplicate=True,reason='ALREADY_CONFIRMED')
+        result=self.worker.confirm(bid,dict(action_id=aid,settled=True,evidence_ref='same-final'))
+        self.assertEqual('CONFIRMED',result['state'])
+
     def test_consumer_unsettled_does_not_append_handoff_or_confirm(self):
         bid=self.all_remote();self.worker.publish(bid,now=tp.NOW+timedelta(minutes=5))
         from unittest.mock import Mock
@@ -255,6 +321,32 @@ class DeliveryTests(unittest.TestCase):
             if report['state']=='COMPLETE':break
         with self.repo.connection() as db:self.assertIsNotNone(db.execute("SELECT 1 FROM local_observations WHERE path LIKE '%late.srt'").fetchone())
 
+    def test_review_i4_replaced_empty_root_preserves_observations_and_recovers(self):
+        scan=self.m.LocalReconciler(self.repo,[self.rule])
+        self.assertEqual('COMPLETE',scan.scan('r',force=True)['state'])
+        original=self.root/'original';self.local.rename(original)
+        self.assertEqual('INCOMPLETE',scan.scan('r',force=True)['state'])
+        self.local.mkdir();changed=dict(self.rule,rapid_interval=61)
+        scan=self.m.LocalReconciler(self.repo,[changed])
+        for _ in range(2):
+            self.assertEqual('SOURCE_UNVERIFIED',scan.scan('r',force=True)['state'])
+            with self.repo.connection() as db:
+                self.assertTrue(all(json.loads(r[0])['state']=='PRESENT' for r in db.execute('SELECT data FROM local_observations')))
+        self.local.rmdir();original.rename(self.local);(self.local/'movie.zh.srt').unlink()
+        self.assertEqual('COMPLETE',scan.scan('r',force=True)['state'])
+        with self.repo.connection() as db:
+            values={Path(r[0]).name:json.loads(r[1])['state'] for r in db.execute('SELECT path,data FROM local_observations')}
+        self.assertEqual({'movie.mkv':'PRESENT','movie.zh.srt':'MISSING'},values)
+
+    def test_review_i4_mount_identity_change_preserves_confirmed_source(self):
+        scan=self.m.LocalReconciler(self.repo,[self.rule])
+        with patch.object(self.m,'local_source_identity',create=True,return_value={'root':[1,2,3],'mount':'original'}):
+            self.assertEqual('COMPLETE',scan.scan('r',force=True)['state'])
+        with patch.object(self.m,'local_source_identity',create=True,return_value={'root':[1,2,3],'mount':'underlying'}):
+            self.assertEqual('SOURCE_UNVERIFIED',scan.scan('r',force=True)['state'])
+        with patch.object(self.m,'local_source_identity',return_value={'root':[1,2,3],'mount':'original'}):
+            self.assertEqual('COMPLETE',scan.scan('r',force=True)['state'])
+
     def test_reauthorized_plan_adopts_exact_old_receipt_without_copying_rows(self):
         snap=copy.deepcopy(self.auth.plan('A')['snapshot']);self.auth.prepare('B','round',snap,now=tp.NOW)
         self.auth.cancel('A',self.auth.vector([self.key]),reason='EXPLICIT_REAUTHORIZE');self.auth.claim('B',self.auth.vector([self.key]),now=tp.NOW)
@@ -265,6 +357,27 @@ class DeliveryTests(unittest.TestCase):
     def test_missing_organizer_success_receipt_blocks_adoption(self):
         with self.repo.connection(write=True) as db:db.execute('DELETE FROM action_receipts')
         with self.assertRaisesRegex(ValueError,'ORGANIZE_RECEIPT_REQUIRED'):self.prepared()
+
+    def test_review_i3_host_prepare_validates_explicit_claim_then_bound_claim(self):
+        from types import SimpleNamespace as NS
+        host=tp.load('host_delivery_contract');seen=[]
+        def gate(archive,publication):
+            def validate(plan):
+                seen.append(copy.deepcopy(publication))
+                if publication!=self.publication:raise ValueError('BAD_PUBLICATION')
+                return publication
+            return validate
+        config=dict(cloud_scopes={},libraries={},policy_bindings={},classification_revision=1,mappings=[],rules=[self.rule])
+        with patch.object(host,'HostArchiveSources'),patch.object(host,'Policy'),patch.object(host,'Archive'),patch.object(host,'HostDeliveryCloud',return_value=self.cloud),patch.object(host,'PublicationGate',side_effect=gate):
+            worker=host.build_delivery(NS(repository=self.repo),config)
+            with self.assertRaisesRegex(ValueError,'BAD_PUBLICATION'):
+                worker.prepare('A','r',publication={self.key:{'raw':{},'classification':{}}},now=tp.NOW)
+            with self.repo.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM delivery_bundles').fetchone()[0])
+            bid=worker.prepare('A','r',publication=self.publication,now=tp.NOW)['bundle_id']
+            config['publication']={'unrelated':'global claim'}
+            worker.reconcile(bid,now=tp.NOW)
+        self.assertEqual(self.publication,seen[-1])
+        self.assertGreaterEqual(len(seen),3)
 
     def test_actual_publication_gate_rejects_stale_or_better_current(self):
         from types import SimpleNamespace as NS

@@ -159,7 +159,7 @@ class ArchiveTests(unittest.TestCase):
         result = self.archive.reconcile('test', '10')
         self.assertEqual('ERROR', result['status'])
 
-    def publication(self, planned_picture=0):
+    def publication(self, planned_picture=0, *, unknown=False):
         task = self.repo.submit('task', self.r.Target('电影', 'themoviedb', '42'), {}, 'test', 42, True)
         self.repo.complete_handoff(task['id'], task['generation'])
         self.task = task
@@ -190,7 +190,51 @@ class ArchiveTests(unittest.TestCase):
         self.manifest=dict(plan_id='plan',manifest_ref='manifest',assets=[dict(file_index=i['index'],relative_path=i['path'],role=i['role'],targets=i['targets'],requires=i['requires'],content=dict(sha1=('a' if i['index']==0 else 'c')*40,size=i['size'])) for i in files],
             publication={self.key:dict(raw=dict(title='2160p REMUX 中文字幕',description='',labels=[],group_known=True),classification=self.sources.classify_target(self.key))})
         self.consumer=dict(action_id='pub',settled=True,evidence_ref='consumer',assets=[dict(file_index=0,cloud_scope_id='cloud',path=video_path),dict(file_index=1,cloud_scope_id='cloud',path='/115/media/movie.srt')],emby=[dict(service='test',library_id='10',item_id='old')])
-        auth.record_result('pub','HANDED_OFF',dict(asset_manifest=self.manifest,consumer_receipt=self.consumer))
+        auth.record_result('pub','UNKNOWN' if unknown else 'HANDED_OFF',dict(asset_manifest=self.manifest,consumer_receipt=self.consumer))
+        if unknown:
+            with self.repo.connection(write=True) as db:
+                db.execute('INSERT INTO delivery_bundles VALUES(?,?,?,?,?,?,?)',('manifest','plan','rule','PUBLISH_OUTCOME_UNKNOWN','',0,json.dumps(dict(manifest=self.manifest,publication_action='pub'))))
+
+    def test_review_i2_unknown_final_proof_confirms_atomically(self):
+        self.publication(unknown=True)
+        with patch.object(self.archive,'_store_version',side_effect=RuntimeError('rollback')):
+            with self.assertRaisesRegex(RuntimeError,'rollback'):
+                self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.archive.authority.action('pub')['state'])
+        self.assertTrue(self.archive.confirm_ingest('pub',self.manifest,self.consumer)['accepted'])
+        self.assertEqual('INGEST_CONFIRMED',self.archive.authority.action('pub')['state'])
+
+    def test_review_i2_missing_final_asset_preserves_unknown(self):
+        self.publication(unknown=True)
+        self.sources.cloud.pop(('cloud','/115/media/movie.srt'))
+        with self.assertRaisesRegex(ValueError,'CLOUD_NOT_FOUND'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.archive.authority.action('pub')['state'])
+
+    def test_review_i2_unknown_requires_original_bound_manifest(self):
+        self.publication(unknown=True)
+        with self.repo.connection(write=True) as db:db.execute('DELETE FROM delivery_bundles')
+        with self.assertRaisesRegex(ValueError,'PUBLICATION_MANIFEST_UNBOUND'):
+            self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.archive.authority.action('pub')['state'])
+
+    def test_review_i2_altered_manifest_or_missing_durable_receipt_rejected(self):
+        self.publication(unknown=True)
+        changed=json.loads(json.dumps(self.manifest));changed['assets'][0]['content']['sha1']='f'*40
+        self.archive.authority.record_result('pub','UNKNOWN',dict(asset_manifest=changed,consumer_receipt=self.consumer))
+        with self.assertRaisesRegex(ValueError,'PUBLICATION_MANIFEST_UNBOUND'):
+            self.archive.confirm_ingest('pub',changed,self.consumer)
+        changed_consumer=dict(self.consumer,evidence_ref='unrecorded')
+        with self.assertRaisesRegex(ValueError,'DURABLE_CONSUMER_RECEIPT_REQUIRED'):
+            self.archive.confirm_ingest('pub',self.manifest,changed_consumer)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.archive.authority.action('pub')['state'])
+
+    def test_review_i2_stale_owner_preserves_unknown(self):
+        self.publication(unknown=True)
+        self.repo.set_state(self.task['id'],'PAUSED','test')
+        result=self.archive.confirm_ingest('pub',self.manifest,self.consumer)
+        self.assertFalse(result['accepted'])
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.archive.authority.action('pub')['state'])
 
     def test_confirm_all_assets_atomically_then_duplicate_never_writes(self):
         self.assertTrue(hasattr(self.archive, 'confirm_ingest'), 'W06 confirmation missing')

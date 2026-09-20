@@ -171,10 +171,15 @@ class LocalSource:
 
 
 class Delivery:
-    def __init__(self,repository,authority,archive,cloud,*,rules,revalidate):
-        if not callable(revalidate):raise ValueError('CURRENT_CANDIDATE_REVALIDATOR_REQUIRED')
+    def __init__(self,repository,authority,archive,cloud,*,rules,revalidate=None,publication_validator=None):
+        if not callable(revalidate) and not callable(publication_validator):raise ValueError('CURRENT_CANDIDATE_REVALIDATOR_REQUIRED')
         self.repository,self.authority,self.archive,self.cloud=repository,authority,archive,cloud
-        self.rules=validate_rules(rules);self.revalidate=revalidate;self.exclusions=Exclusions(repository)
+        self.rules=validate_rules(rules);self.revalidate=revalidate;self.publication_validator=publication_validator;self.exclusions=Exclusions(repository)
+
+    def validate_publication(self,plan,publication):
+        fresh=self.publication_validator(plan,publication) if self.publication_validator else self.revalidate(plan)
+        if fresh!=publication:raise ValueError('PUBLICATION_CHANGED')
+        return fresh
 
     def bundle(self,bundle_id):
         with self.repository.connection() as db:r=db.execute('SELECT * FROM delivery_bundles WHERE id=?',(bundle_id,)).fetchone()
@@ -200,8 +205,7 @@ class Delivery:
             self.authority._task_active(db,plan);self.authority._revisions(db,s)
             actual=self.authority._match(db,b['vector'],owner=b['plan_id'])
             if not publication and any(actual[k]['current_revision']!=b['vector'][k]['current_revision'] or actual[k]['current_revision']!=s['current'][k]['revision'] for k in actual):raise ValueError('CURRENT_REAUTHORIZE_REQUIRED')
-        fresh=self.revalidate(plan)
-        if fresh!=b['manifest']['publication']:raise ValueError('PUBLICATION_CHANGED')
+        fresh=self.validate_publication(plan,b['manifest']['publication'])
         for key in b['vector']:
             if self.exclusions.matches(dict(s,targets=[key],content_sha1=[a['content']['sha1'] for a in b['manifest']['assets']]),facts=fresh[key]['raw']):raise ValueError('EXCLUDED')
         if publication:
@@ -508,12 +512,14 @@ class Delivery:
                 return dict(state='WAIT_CONSUMER',reason='CONSUMER_SETTLEMENT_REQUIRED',bundle_id=bundle_id)
             if consumer_receipt.get('action_id')!=b['publication_action'] or not consumer_receipt.get('evidence_ref'):
                 raise ValueError('EXACT_CONSUMER_RECEIPT_REQUIRED')
-            if b['state'] not in ('WAIT_CONSUMER','CONFIRMED'):raise ValueError('HANDOFF_UNVERIFIED')
+            if b['state'] not in ('WAIT_CONSUMER','CONFIRMED','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN'):raise ValueError('HANDOFF_UNVERIFIED')
+            unknown=b['state'] in ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN')
+            if unknown:b.update(state='PUBLISH_OUTCOME_UNKNOWN')
             with self.repository.connection(write=True) as db:
-                self.authority.record_result(b['publication_action'],'HANDED_OFF',{'asset_manifest':b['manifest'],'consumer_receipt':consumer_receipt},now=now,db=db)
+                self.authority.record_result(b['publication_action'],'UNKNOWN' if unknown else 'HANDED_OFF',{'asset_manifest':b['manifest'],'consumer_receipt':consumer_receipt},now=now,db=db)
                 b['consumer_receipt']=consumer_receipt;self._save(b,db)
             result=self.archive.confirm_ingest(b['publication_action'],b['manifest'],consumer_receipt,now=now)
-            if result.get('accepted') is True:b.update(state='CONFIRMED',reason='',consumer_pending=False)
+            if result.get('accepted') is True or (result.get('duplicate') is True and result.get('reason')=='ALREADY_CONFIRMED'):b.update(state='CONFIRMED',reason='',consumer_pending=False)
             else:b.update(reason='FINAL_ASSOCIATION_UNVERIFIED')
             self._save(b);return dict(self._result(b),confirmation=result)
 
@@ -536,6 +542,15 @@ class Delivery:
         for f in b['files']:
             if f.get('upload_id') and not (f.get('reader_stopped') and f['state'] in ('VERIFIED','CANCELLED')):
                 self._pump(b,f,r,now,cancel=True)
+            elif f['state']=='UNKNOWN' and f.get('action_id'):
+                action=self.authority.action(f['action_id'])
+                expected=dict(bundle_id=b['id'],file_index=f['file_index'],path=b['staging']+'/'+f['relative_path'])
+                if action and action['kind']=='RAPID' and action['plan_id']==b['plan_id'] and json.loads(action['payload'])==expected:
+                    try:
+                        if not b.get('directory') or self.cloud.stat(r['cloud_scope_id'],b['staging'])!=b['directory']:continue
+                        remote=self._remote(b,f)
+                    except Exception:continue  # Absence/error never proves a lost send failed.
+                    if remote:self._verified(b,f,remote,now)
         if b.get('publication_action'):
             b.update(state='PUBLISH_OUTCOME_UNKNOWN',reason='PUBLISHED_BARRIER_REQUIRES_SETTLEMENT')
         elif any(not f.get('reader_stopped') or f['state']=='UNKNOWN' for f in b['files']):
@@ -726,6 +741,26 @@ class PublicationGate:
         return self.publication
 
 
+def local_source_identity(root):
+    """Stable source anchor; a remount of the same source can recover naturally."""
+    value=dict(root=identity(root.lstat())[:3],mount=None)
+    if not root.is_dir() or root.is_symlink():raise ValueError('ROOT_UNAVAILABLE')
+    if os.name=='posix':
+        import re
+        resolved=root.resolve();matches=[]
+        # Linux mount IDs change on remount. Bind the filesystem, source and
+        # mount root instead, together with the actual directory inode/device.
+        for line in Path('/proc/self/mountinfo').read_text().splitlines():
+            left,right=line.split(' - ',1);fields=left.split();fs=right.split()
+            decode=lambda x:re.sub(r'\\([0-7]{3})',lambda m:chr(int(m[1],8)),x)
+            mount=Path(decode(fields[4]))
+            if resolved.is_relative_to(mount):
+                matches.append((len(mount.parts),[fields[2],decode(fields[3]),str(mount),fs[0],decode(fs[1])]))
+        if not matches:raise ValueError('MOUNT_SOURCE_UNAVAILABLE')
+        value['mount']=max(matches,key=lambda x:x[0])[1]
+    return value
+
+
 class LocalReconciler:
     """Durable full-range scans; notifications merely shorten the next due time."""
     def __init__(self,repository,rules):self.repository=repository;self.rules=validate_rules(rules)
@@ -747,14 +782,23 @@ class LocalReconciler:
             data=json.loads(row[0]) if row else {}
             if data.get('state')=='COMPLETE' and not force and not data.get('hint') and parse(data['due'])>instant(now):return data
             try:
-                root_id=identity(root.lstat())[:3]
-                if not root.is_dir() or root.is_symlink():raise ValueError('ROOT_UNAVAILABLE')
+                source=local_source_identity(root);root_id=source['root']
             except (OSError,ValueError):
                 data.update(state='INCOMPLETE',failed_paths=[str(root)])
                 db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',(scope,encoded(data)));return data
-            if data.get('state')=='COMPLETE' or data.get('root_identity')!=root_id or data.get('revision')!=r['revision'] or data.get('failed_paths'):
+            anchor=data.get('source_identity')
+            # Existing schema-7 checkpoints already carry a root anchor. Do not
+            # silently adopt a different root while upgrading its mount proof.
+            if anchor is None and data.get('root_identity') is not None:
+                anchor=dict(source,root=data['root_identity'])
+            if anchor is not None and anchor!=source:
+                data.update(state='SOURCE_UNVERIFIED',reason='ROOT_SOURCE_CHANGED',source_identity=anchor,observed_source=source)
+                db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',(scope,encoded(data)));return data
+            anchor=anchor or source
+            if data.get('state') in ('COMPLETE','SOURCE_UNVERIFIED') or data.get('revision')!=r['revision'] or data.get('failed_paths'):
                 data={}
-            if not data:data=dict(state='INCOMPLETE',epoch=uuid.uuid4().hex,revision=r['revision'],root_identity=root_id,stack=[{'path':str(root),'offset':0}],directories=[],failed_paths=[],count=0,verify_offset=0)
+            if not data:data=dict(state='INCOMPLETE',epoch=uuid.uuid4().hex,revision=r['revision'],root_identity=root_id,source_identity=anchor,stack=[{'path':str(root),'offset':0}],directories=[],failed_paths=[],count=0,verify_offset=0)
+            data['source_identity']=anchor
             deadline=time.monotonic()+limits['seconds'];used=0
             while data['stack'] and used<limits['entries'] and time.monotonic()<deadline:
                 frame=data['stack'][-1];directory=Path(frame['path'])
@@ -789,6 +833,11 @@ class LocalReconciler:
                 data['verify_offset']+=1
             if len(data['stack'])+len(data['directories'])>50000:data['failed_paths'].append('SCAN_DIRECTORY_LIMIT')
             if not data['stack'] and not data['failed_paths'] and data['verify_offset']==len(data['directories']):
+                try:
+                    if local_source_identity(root)!=anchor:raise ValueError('ROOT_SOURCE_CHANGED')
+                except (OSError,ValueError):
+                    data.update(state='SOURCE_UNVERIFIED',reason='ROOT_SOURCE_CHANGED')
+                    db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',(scope,encoded(data)));return data
                 # Missing is written only after an entire unchanged accessible range.
                 db.execute("UPDATE local_observations SET data=json_set(data,'$.state','MISSING') WHERE rule_id=? AND epoch!=?",(rule_id,data['epoch']))
                 data.update(state='COMPLETE',watermark=stamp(now),due=stamp(instant(now)+timedelta(seconds=r['scan_interval'])),hint=False)
