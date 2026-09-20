@@ -9,6 +9,16 @@ import test_runtime as fixtures
 
 
 class RuntimeFixTests(unittest.TestCase):
+    def test_cold_fixture_does_not_bootstrap_available_host_sdk(self):
+        import sys
+        from unittest.mock import Mock
+        host=Mock(side_effect=RuntimeError('host runtime is not bootstrapped'))
+        public=SimpleNamespace(ModuleManager=host,PluginManager=host)
+        f=fixtures.ColdExecutionTests('test_cold_exact_resource_rebuild_executes_strict_selection_and_changed_hash_defers')
+        f.setUp();self.addCleanup(f.doCleanups)
+        with patch.dict(sys.modules,{'app.sdk.plugin':public}):f.test_cold_exact_resource_rebuild_executes_strict_selection_and_changed_hash_defers()
+        host.assert_not_called()
+
     def test_expired_warm_round_refreshes_exact_plan_without_duplicate_add(self):
         f=fixtures.ColdExecutionTests('test_cold_exact_resource_rebuild_executes_strict_selection_and_changed_hash_defers')
         f.setUp();self.addCleanup(f.doCleanups);m=f.m;advance=m.Runtime.advance;seen=[]
@@ -208,16 +218,15 @@ class RuntimeFixTests(unittest.TestCase):
         self.assertEqual([],calls)
 
     def test_public_nested_plugin_callbacks_are_not_mistaken_for_disabled(self):
-        import sys
         from types import MappingProxyType
         for projection,expected in (({('p','name'):MappingProxyType({'download_added':lambda:None})},'DISPATCHED'),
                                     ({('p','name'):{}},'NOOP'),({('p','name'):object()},'DISPATCHED')):
             with self.subTest(expected=expected):
                 f=fixtures.ColdExecutionTests('test_cold_exact_resource_rebuild_executes_strict_selection_and_changed_hash_defers')
                 f.setUp();self.addCleanup(f.doCleanups)
-                public=SimpleNamespace(ModuleManager=lambda:SimpleNamespace(get_running_modules=lambda method:iter(())),
+                f.public_plugin_callbacks=SimpleNamespace(ModuleManager=lambda:SimpleNamespace(get_running_modules=lambda method:iter(())),
                     PluginManager=lambda:SimpleNamespace(get_plugin_modules=lambda:projection))
-                with patch.dict(sys.modules,{'app.sdk.plugin':public}):f.test_cold_exact_resource_rebuild_executes_strict_selection_and_changed_hash_defers()
+                f.test_cold_exact_resource_rebuild_executes_strict_selection_and_changed_hash_defers()
                 state=f.repo.setting('subtitle:cold')
                 if expected=='NOOP':self.assertIn('download_added',state['noops'])
                 else:self.assertEqual('DISPATCHED',next(w['state'] for w in state['workflows'] if w['workflow']=='download_added'))

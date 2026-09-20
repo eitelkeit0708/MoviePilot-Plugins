@@ -334,7 +334,10 @@ class ColdExecutionTests(unittest.TestCase):
         class Download:
             def download_added(s,**kwargs):calls.append('download_added')
             def download_site_subtitles(s,**kwargs):calls.append('download_site_subtitles')
-        with patch.dict(sys.modules,{'app.chain.download':SimpleNamespace(DownloadChain=Download),'app.sdk.media':SimpleNamespace(Context=lambda **kw:kw)}):
+        public=getattr(self,'public_plugin_callbacks',SimpleNamespace(
+            ModuleManager=lambda:SimpleNamespace(get_running_modules=lambda method:iter(())),
+            PluginManager=lambda:SimpleNamespace(get_plugin_modules=lambda:{})))
+        with patch.dict(sys.modules,{'app.chain.download':SimpleNamespace(DownloadChain=Download),'app.sdk.media':SimpleNamespace(Context=lambda **kw:kw),'app.sdk.plugin':public}):
             result=runtime.advance(runtime.authority.plan('cold'),saved)
         self.assertEqual('DOWNLOADING',result['state'],result);self.assertEqual({0,1},client.wanted)
         self.assertEqual(1,calls.count('add'));self.assertEqual(1,calls.count('resume'))
