@@ -440,7 +440,16 @@ class Authority:
                 old, previous = json.loads(row['snapshot']), json.loads(row['payload'])
                 if [old['downloader'], old['infohash'], old['save_path']] == list(family) and previous.get('shared', {}).get('action_id') != action_id:
                     raise ValueError('SHARED_OUTCOME_UNRESOLVED')
-            actions = [self._begin(db, action_id + ':' + ref['plan_id'], ref['plan_id'], ref['vector'], kind, ref['indices'], data, now) for ref in references]
+            execution=payload.get('execution',references)
+            if [r['plan_id'] for r in execution]!=[r['plan_id'] for r in references]:raise ValueError('SHARED_AUTHORITY_CHANGED')
+            for complete,physical in zip(execution,references):
+                plan=self._plan(db.execute('SELECT * FROM plans WHERE id=?',(complete['plan_id'],)).fetchone())
+                files=plan['snapshot']['torrent_files'];indices=[i for i in complete['indices'] if i<len(files)]
+                keys={k for i in indices for k in files[i]['targets']}
+                if indices!=physical['indices'] or {k:complete['vector'][k] for k in keys}!=physical['vector']:raise ValueError('SHARED_AUTHORITY_CHANGED')
+            # A physical RPC belongs to the full execution decision, including
+            # local-only subtitle targets. Validate that vector atomically too.
+            actions = [self._begin(db, action_id + ':' + ref['plan_id'], ref['plan_id'], ref['vector'], kind, ref['indices'], data, now) for ref in execution]
             if len({a['dispatch'] for a in actions}) != 1:
                 raise ValueError('SHARED_DISPATCH_CONFLICT')
             return actions

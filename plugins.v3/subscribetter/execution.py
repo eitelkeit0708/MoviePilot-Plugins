@@ -257,11 +257,15 @@ class StrictExecutor:
     def _cohort(self,s):
         token=self.exclusions.token()
         refs=self.authority.download_references(s['downloader'],s['infohash'],s['save_path'])
+        execution=[]
         for ref in refs:
             plan,_,indices,vector=self._plan(ref['plan_id'])
-            if [i for i in indices if i<len(plan['snapshot']['torrent_files'])]!=ref['indices'] or vector!=ref['vector']:
+            files=plan['snapshot']['torrent_files'];physical=[i for i in indices if i<len(files)]
+            keys={key for i in physical for key in files[i]['targets']}
+            if physical!=ref['indices'] or {k:vector[k] for k in keys}!=ref['vector']:
                 raise ValueError('SHARED_AUTHORITY_CHANGED')
-        return refs,token
+            execution.append(dict(plan_id=plan['id'],indices=indices,vector=vector))
+        return refs,token,execution
 
     def _new_cycle(self,s):
         owned=self._owned(s)
@@ -284,14 +288,15 @@ class StrictExecutor:
         if self.dispatch_gate:self.dispatch_gate()
         s=plan['snapshot']
         if kind in ('ADD','SET_WANTED','RESUME'):
-            refs,token=self._cohort(s)
-            if not any(ref==dict(plan_id=plan['id'],indices=indices,vector=vector) for ref in refs):
+            refs,token,execution=self._cohort(s)
+            if not any(ref==dict(plan_id=plan['id'],indices=indices,vector=vector) for ref in execution):
                 raise ValueError('SHARED_AUTHORITY_CHANGED')
             union=sorted({i for ref in refs for i in ref['indices']})
             if 'wanted_indices' in payload and payload['wanted_indices']!=union:
                 raise ValueError('SHARED_SELECTION_CHANGED')
             owned=self._owned(s)
             payload=dict(payload,verb=verb,cycle=json.loads(owned['evidence']).get('cycle',0),wanted_indices=union)
+            if execution!=refs:payload=dict(payload,execution=execution)
             family=[s['downloader'],s['infohash'],s['save_path']]
             action_id='exec:'+sha256(encoded([family,refs,payload]).encode()).hexdigest()
             actions=self.authority.begin_shared_attempt(action_id,family,refs,kind,payload,exclusion_token=token)
@@ -369,7 +374,7 @@ class StrictExecutor:
                 raise ValueError('PAUSE_NOT_CONFIRMED')
         mapping=self._table(s,self._read(client.files,s['infohash']))
         union=set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))
-        if not set(indices)<=union:
+        if not {i for i in indices if i<len(s['torrent_files'])}<=union:
             raise ValueError('SELECTION_AUTHORITY_CHANGED')
         wanted=sorted(mapping[i]['id'] for i in union)
         unwanted=sorted(mapping[i]['id'] for i in range(len(s['torrent_files'])) if i not in union)
@@ -407,7 +412,7 @@ class StrictExecutor:
                     physical=[i for i in indices if i<len(s['torrent_files'])]
                     union=set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))
                     if physical and {i for i,row in mapping.items() if row['wanted']}!=union:
-                        self._prepare_selection(plan,s,physical,vector,client,owned,task,selection_changed=True)
+                        self._prepare_selection(plan,s,indices,vector,client,owned,task,selection_changed=True)
                     self._selection(s,client)
                     return dict(state='RUNNING')
                 if owned is None:
@@ -433,7 +438,7 @@ class StrictExecutor:
                 if str(task['id'])!=owned['client_id']:
                     raise ValueError('CLIENT_TASK_ID_CHANGED')
                 mapping=self._table(s,self._read(client.files,s['infohash']))
-                refs,_=self._cohort(s)
+                refs,_,_=self._cohort(s)
                 union={i for ref in refs for i in ref['indices']}
                 unchanged={i for i,r in mapping.items() if r['wanted']}==union
                 if resume and unchanged and task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
