@@ -10,12 +10,12 @@ import time
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
 from .meta import _stored
-from .planner import TargetUnit, encoded, validate_files
+from .planner import (TEXT_SUBTITLE_SUFFIXES, VIDEO_SUFFIXES, TargetUnit, encoded,
+                      validate_files, validate_new_asset_scope)
 from .repository import Target, utcnow
 
-VIDEO = {'.mkv', '.mp4', '.avi', '.ts', '.m2ts', '.mov', '.wmv'}
-SUBTITLE = {'.srt', '.ass', '.ssa', '.vtt', '.sup', '.idx', '.sub'}
-FONT = {'.ttf', '.otf', '.woff', '.woff2'}
+VIDEO = VIDEO_SUFFIXES
+SUBTITLE = TEXT_SUBTITLE_SUFFIXES
 
 
 class HostCandidateAdapter:
@@ -274,13 +274,13 @@ def torrent_table(content):
 def bind_files(table, target, *, dependencies=None, video_scopes=None):
     """Whole physical video scopes plus uniquely bound multi-language sidecars.
 
-    Dependencies are reviewed evidence (e.g. ASS font and its licence), not a
-    filename guess. Unknown video scope or ambiguous subtitles defer the torrent.
+    Dependencies are reviewed evidence between managed assets, not a filename
+    guess. Unknown video scope or ambiguous text subtitles defer the torrent.
     """
     files=[]
     for index,(path,size) in enumerate(table):
         suffix=PurePosixPath(path).suffix.casefold()
-        role='video' if suffix in VIDEO else 'subtitle' if suffix in SUBTITLE else 'attachment' if suffix in FONT else 'other'
+        role='video' if suffix in VIDEO else 'subtitle' if suffix in SUBTITLE else 'other'
         targets=[]
         if role=='video':
             if video_scopes is not None:
@@ -323,7 +323,8 @@ def bind_files(table, target, *, dependencies=None, video_scopes=None):
     for source,required in dependencies.items():
         if type(source) is not int or not 0<=source<len(files) or not isinstance(required,list) or any(type(i)is not int or not 0<=i<len(files) or i==source or files[i]['role']=='video' for i in required):
             raise ValueError('invalid explicit dependency')
-        files[source]['requires']=sorted(set(files[source]['requires']+required))
+        if files[source]['role'] != 'other':
+            files[source]['requires']=sorted(set(files[source]['requires']+[i for i in required if files[i]['role'] != 'other']))
     for _ in range(len(files)):
         changed=False
         for item in files:
@@ -334,6 +335,7 @@ def bind_files(table, target, *, dependencies=None, video_scopes=None):
         if not changed:
             break
     validate_files(files,[f['index'] for f in files if f['targets']])
+    validate_new_asset_scope(files)
     return files
 
 

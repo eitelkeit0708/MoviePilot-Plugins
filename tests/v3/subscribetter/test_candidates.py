@@ -53,27 +53,39 @@ class CandidateTests(unittest.TestCase):
         self.assertNotIn('SECRET', str(service.records()))
         self.assertEqual('DEFER', row['status'])
 
-    def test_full_table_cross_season_and_unique_no_episode_sidecars(self):
-        r = self.r
-        target = r.Target('电视剧', 'tmdb', '42', 1)
-        table = [('Pack/S01/E01/Show.S01E01.mkv', 100), ('Pack/S01/E01/中文.srt', 7),
-                 ('Pack/S01/E02/Show.S01E02.mkv', 200), ('Pack/S01/E02/Show.S01E02.en.ass', 8),
-                 ('Pack/S01/E02/Show.S01E02.zh.idx', 9), ('Pack/S01/E02/Show.S01E02.zh.sub', 10),
-                 ('Pack/S01/E02/Fonts/font.ttf', 11), ('Pack/LICENSE.txt', 12),
-                 ('Pack/S02/Show.S02E02.mkv', 300), ('Pack/README.txt', 13)]
-        files = self.m.bind_files(table, target, dependencies={3: [6], 6: [7]})
-        self.assertEqual(10, len(files))
-        self.assertEqual(files[0]['targets'], files[1]['targets'])
-        self.assertNotEqual(files[2]['targets'], files[8]['targets'])
-        self.assertEqual([5], files[4]['requires'])
-        self.assertEqual(files[2]['targets'], files[7]['targets'])
-        self.assertEqual([], files[9]['targets'])
+    def test_full_table_retains_indices_but_only_video_and_text_subtitles_are_managed(self):
+        target = self.r.Target('电影', 'tmdb', '42')
+        table = [('Pack/Movie.ass', 7), ('Pack/font.ttf', 11), ('Pack/Movie.en.srt', 8),
+                 ('Pack/Movie.zh.idx', 9), ('Pack/Movie.zh-Hans.srt', 10),
+                 ('Pack/Movie.zh-Hant.srt', 10), ('Pack/Movie.mkv', 100),
+                 ('Pack/orphan.sub', 10), ('Pack/LICENSE.txt', 12), ('Pack/poster.jpg', 13)]
+        files = self.m.bind_files(table, target, dependencies={0: [1], 1: [8]})
+        self.assertEqual(list(range(10)), [item['index'] for item in files])
+        self.assertEqual([0, 2, 4, 5, 6], [item['index'] for item in files if item['targets']])
+        self.assertTrue(all(files[i]['role'] == 'other' and files[i]['targets'] == [] and files[i]['requires'] == []
+                            for i in (1, 3, 7, 8, 9)))
+        self.assertTrue(all(files[i]['targets'] == files[6]['targets'] for i in (0, 2, 4, 5)))
+        self.assertEqual([], files[0]['requires'])
+
+        for dependencies in ({1: [1]}, {0: [99]}, {'0': [1]}, {0: '1'}):
+            with self.subTest(dependencies=dependencies), self.assertRaises(ValueError):
+                self.m.bind_files(table, target, dependencies=dependencies)
+        for suffix in ('.ssa', '.vtt', '.sup'):
+            with self.subTest(suffix=suffix):
+                ignored = self.m.bind_files([('Pack/Movie.mkv', 100), ('Pack/Movie' + suffix, 1)], target)[1]
+                self.assertEqual(('other', [], []), (ignored['role'], ignored['targets'], ignored['requires']))
 
     def test_unsafe_paths_and_ambiguous_subtitle_refused(self):
         target = self.r.Target('电视剧', 'tmdb', '42', 1)
         for path in ('../x.mkv', '/x.mkv', 'C:/x.mkv', 'x\\y.mkv', 'x//y.mkv'):
             with self.subTest(path=path), self.assertRaises(ValueError):
                 self.m.bind_files([(path, 1)], target)
+        with self.assertRaises(ValueError):
+            self.m.bind_files([('Show.S01E01.mkv', 1), ('../ignored.ttf', 1)], target)
+        for table in ([('Show.S01E01.mkv', 1), ('ignored.ttf', -1)],
+                      [('Show.S01E01.mkv', 1), ('ignored.ttf', 1), ('ignored.ttf', 2)]):
+            with self.subTest(table=table), self.assertRaises(ValueError):
+                self.m.bind_files(table, target)
         with self.assertRaises(ValueError):
             self.m.bind_files([('Show.S01E01.mkv', 1), ('Show.S01E02.mkv', 2), ('中文.srt', 3)], target)
         files = self.m.bind_files([('Show.S01E01-E02.mkv', 3)], target)

@@ -111,6 +111,36 @@ class AuthorityTests(unittest.TestCase):
         self.assertTrue(all(v['owner_plan_id'] is None for v in self.auth.vector(self.keys).values()))
         self.assertNotIn('MUTATED', str(self.auth.plan('A')))
 
+    def test_new_plan_rejects_old_selected_attachment_scope(self):
+        spec = self.spec()
+        spec['torrent_files'].append({'index': 2, 'path': 'font.ttf', 'size': 20, 'role': 'attachment',
+                                      'targets': [self.keys[0]], 'requires': []})
+        spec['torrent_files'][0]['requires'] = [2]
+        spec['selected_indices'].append(2)
+        with self.assertRaisesRegex(ValueError, 'ASSET_SCOPE_REBIND_REQUIRED'):
+            self.auth.prepare('old-style', 'round', spec, now=NOW)
+
+    def test_frozen_legacy_ten_asset_plan_remains_idempotent_and_immutable(self):
+        spec = self.spec()
+        historical = [('subtitle.ass', 'subtitle'), ('subtitle.idx', 'subtitle'), ('subtitle.sub', 'subtitle'),
+                      ('font.ttf', 'attachment'), ('font.otf', 'attachment'), ('LICENSE.txt', 'other'),
+                      ('poster.jpg', 'other'), ('notes.nfo', 'other')]
+        spec['torrent_files'].extend(dict(index=index, path=path, size=10, role=role,
+                                          targets=[self.keys[0]], requires=[])
+                                             for index, (path, role) in enumerate(historical, 2))
+        spec['selected_indices'] = list(range(10))
+        text = self.m.encoded(spec)
+        with self.repo.connection(write=True) as db:
+            generation = db.execute('SELECT generation FROM tasks WHERE id=?', (self.task_id,)).fetchone()[0]
+            db.execute("INSERT INTO plans(id,opportunity_id,task_id,snapshot,authorization,transfer_phase,created_at,task_generation) VALUES(?,?,?,?,'PREPARED','PENDING',?,?)",
+                       ('legacy', 'round', self.task_id, text, self.s.stamp(NOW), generation))
+            for key in self.keys:
+                db.execute("INSERT INTO plan_targets(plan_id,target_key,state,action) VALUES('legacy',?,'PREPARED','ACQUIRE')", (key,))
+        self.assertEqual(list(range(10)), self.auth.prepare('legacy', 'round', spec, now=NOW)['snapshot']['selected_indices'])
+        changed = self.spec()
+        with self.assertRaisesRegex(ValueError, 'immutable plan id reused'):
+            self.auth.prepare('legacy', 'round', changed, now=NOW)
+
     def test_superseded_rapid_receipt_never_revives_or_dispatches(self):
         a = self.claim()
         attempt = self.auth.begin_attempt('rapid-A', 'A', a, 'RAPID', [0, 1], {'isolated': True}, now=NOW)
@@ -428,16 +458,25 @@ class PlanSelectionTests(unittest.TestCase):
         candidate['candidate_key'] = 'Complete'
         self.assertEqual([], self.planner.evaluate(candidate, self.current, self.keys, mode='season')['plans'])
 
-    def test_unchanged_sibling_allowed_only_with_improvement_and_no_missing_dependency(self):
+    def test_unchanged_sibling_keeps_text_subtitle_and_rejects_invalid_dependency(self):
         self.current[self.keys[0]] = {'state': 'PRESENT', 'revision': 0, 'versions': [self.p.Version('same', self.facts('2160p', True))]}
         candidate = self.candidate()
-        candidate['torrent_files'].append({'index': 2, 'path': 'subtitle.ass', 'size': 10, 'role': 'subtitle', 'targets': [self.keys[1]], 'requires': [3]})
-        candidate['torrent_files'].append({'index': 3, 'path': 'font.ttf', 'size': 20, 'role': 'attachment', 'targets': [self.keys[1]], 'requires': []})
+        candidate['torrent_files'].append({'index': 2, 'path': 'subtitle.ass', 'size': 10, 'role': 'subtitle', 'targets': [self.keys[1]], 'requires': []})
         plan = self.planner.evaluate(candidate, self.current, self.keys, mode='season')['plans'][0]
-        self.assertEqual([0, 1, 2, 3], plan['selected_indices'])
+        self.assertEqual([0, 1, 2], plan['selected_indices'])
         self.assertEqual('UNCHANGED', plan['targets'][self.keys[0]]['action'])
-        candidate['torrent_files'][-2]['requires'] = [999]
+        candidate['torrent_files'][-1]['requires'] = [999]
         self.assertEqual([], self.planner.evaluate(candidate, self.current, self.keys)['plans'])
+
+    def test_direct_old_scope_candidate_requires_rebinding(self):
+        candidate = self.candidate()
+        candidate['torrent_files'].append({'index': 2, 'path': 'subtitle.ass', 'size': 10,
+                                           'role': 'subtitle', 'targets': [self.keys[1]], 'requires': [3]})
+        candidate['torrent_files'].append({'index': 3, 'path': 'font.ttf', 'size': 20,
+                                           'role': 'attachment', 'targets': [self.keys[1]], 'requires': []})
+        result = self.planner.evaluate(candidate, self.current, self.keys, mode='season')
+        self.assertEqual([], result['plans'])
+        self.assertEqual('ASSET_SCOPE_REBIND_REQUIRED', result['reason'])
 
     def test_deterministic_priority_current_multi_version_and_bounded_cover(self):
         self.current[self.keys[0]] = {'state': 'PRESENT', 'revision': 1, 'versions': [self.p.Version('low', self.facts('1080p', True)), self.p.Version('best', self.facts('2160p HDR', True))]}

@@ -22,6 +22,8 @@ HISTORY_REPAIR_LIMIT = 3
 TRANSFER_PHASES = {'PENDING', 'QUEUED', 'DOWNLOADING', 'WAITING_ASSETS', 'RAPID_WAIT',
                    'RAPID_IN_FLIGHT', 'CD2_UPLOADING', 'REMOTE_VERIFIED', 'READY_TO_PUBLISH', 'FAILED'}
 ATTEMPT_KINDS = {'ADD', 'SET_WANTED', 'RESUME', 'RAPID', 'CD2_UPLOAD', 'ORGANIZE', 'REFRESH', 'PUBLISH'}
+VIDEO_SUFFIXES = frozenset({'.mkv', '.mp4', '.avi', '.ts', '.m2ts', '.mov', '.wmv'})
+TEXT_SUBTITLE_SUFFIXES = frozenset({'.ass', '.srt'})
 
 
 def encoded(value):
@@ -86,6 +88,19 @@ def validate_files(files, selected):
     return by_index
 
 
+def validate_new_asset_scope(files):
+    """Require canonical video/ASS/SRT bindings before creating a new plan."""
+    by_index = {item['index']: item for item in files}
+    for item in files:
+        suffix = PurePosixPath(item['path']).suffix.casefold()
+        expected = 'video' if suffix in VIDEO_SUFFIXES else 'subtitle' if suffix in TEXT_SUBTITLE_SUFFIXES else 'other'
+        if item['role'] != expected or (expected == 'other' and (item['targets'] or item['requires'])):
+            raise ValueError('ASSET_SCOPE_REBIND_REQUIRED')
+        if item['index'] in item['requires'] or any(by_index[index]['role'] == 'other' for index in item['requires']):
+            raise ValueError('ASSET_SCOPE_REBIND_REQUIRED')
+    return by_index
+
+
 class Authority:
     def __init__(self, repository):
         self.repository = repository
@@ -146,6 +161,7 @@ class Authority:
                 if old['snapshot'] != text or old['opportunity_id'] != opportunity_id:
                     raise ValueError('immutable plan id reused')
                 return self._plan(old)
+            validate_new_asset_scope(snapshot['torrent_files'])
             task_generation = db.execute('SELECT generation FROM tasks WHERE id=?', (opportunity['task_id'],)).fetchone()[0]
             db.execute("INSERT INTO plans(id,opportunity_id,task_id,snapshot,authorization,transfer_phase,created_at,task_generation) VALUES(?,?,?,?,'PREPARED','PENDING',?,?)", (plan_id, opportunity_id, opportunity['task_id'], text, stamp(now), task_generation))
             for key, action in targets.items():
@@ -779,6 +795,11 @@ class Planner:
         except (ValueError, KeyError, TypeError):
             result['reason'] = 'INVALID_COMPLETE_FILE_TABLE'
             return result
+        try:
+            validate_new_asset_scope(table)
+        except ValueError:
+            result['reason'] = 'ASSET_SCOPE_REBIND_REQUIRED'
+            return result
         for key in scope:
             baseline = current.get(key, {})
             facts = candidate.get('facts', {}).get(key)
@@ -843,8 +864,8 @@ class Planner:
                 if index not in selected:
                     selected.add(index)
                     pending.append(index)
-        # Dependencies, including shared subtitles/attachments, cannot quietly
-        # bring a forbidden episode or another season into the selected batch.
+        # Dependencies in a frozen table cannot quietly bring a forbidden
+        # episode or another season into the selected batch.
         if any(not set(files[i]['targets']) <= covered for i in selected):
             result['reason'] = 'DEPENDENCY_OUTSIDE_AUTHORIZED_SCOPE'
             return result

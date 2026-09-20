@@ -380,11 +380,15 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual('COMPLETE',org.organize('plan',target)['state'])
         self.assertEqual([1,2],calls)
 
-    def test_shared_font_and_license_keep_all_consumers_in_common_video_directory(self):
+    def test_historical_shared_font_and_license_keep_all_consumers_in_common_video_directory(self):
         from types import ModuleType,SimpleNamespace
         from unittest.mock import patch
         import sys,shutil
-        files=load('candidates').bind_files([('Pack/Show.S01E01.mkv',1),('Pack/Show.S01E02.mkv',1),('Pack/Fonts/shared.ttf',1),('Pack/LICENSE.txt',1)],self.r.Target('电视剧','tmdb','42',1),dependencies={0:[2],1:[2],2:[3]})
+        # Frozen pre-D07 plans remain readable by downstream organization.
+        files=[dict(index=0,path='Pack/Show.S01E01.mkv',size=1,role='video',targets=[self.keys[0]],requires=[2]),
+               dict(index=1,path='Pack/Show.S01E02.mkv',size=1,role='video',targets=[self.keys[1]],requires=[2]),
+               dict(index=2,path='Pack/Fonts/shared.ttf',size=1,role='attachment',targets=self.keys,requires=[3]),
+               dict(index=3,path='Pack/LICENSE.txt',size=1,role='other',targets=self.keys,requires=[])]
         self.assertEqual(set(self.keys),set(files[2]['targets']))
         root=Path(self.tmp.name);source=root/'font-source';source.mkdir();dest=root/'font-dest';dest.mkdir()
         calls=[]
@@ -413,16 +417,13 @@ class ExecutionTests(unittest.TestCase):
             host.transfer(source/'shared.ttf',dest,files[2],dict(torrent_files=files,save_path=str(source)))
         self.assertEqual(2,len(calls))
 
-    def test_subtitle_languages_tracks_and_idx_sub_keep_exact_public_names(self):
+    def test_text_subtitle_languages_and_tracks_keep_exact_public_names(self):
         from types import ModuleType,SimpleNamespace
         from unittest.mock import patch
         import sys,shutil
-        names=['Show.S01E02.en.srt','Show.S01E02.zh-Hans.srt','Show.S01E02.zh-Hant.idx','Show.S01E02.zh-Hant.sub','Show.S01E02.en.forced.srt','Show.S01E02.en.SDH.srt','Show.S01E02.en.commentary.srt']
+        names=['Show.S01E02.en.srt','Show.S01E02.zh-Hans.srt','Show.S01E02.zh-Hant.srt',
+               'Show.S01E02.en.forced.srt','Show.S01E02.en.SDH.srt','Show.S01E02.en.commentary.srt']
         files=load('candidates').bind_files([('Pack/Show.S01E02.1080p.mkv',1)]+[('Pack/'+name,1) for name in names],self.r.Target('电视剧','tmdb','42',1))
-        for group in ('group-a','group-b'):
-            start=len(files)
-            for ext in ('idx','sub'):
-                files.append(dict(index=len(files),path=f'Pack/{group}/Show.S01E02.zh.{ext}',size=1,role='subtitle',targets=files[1]['targets'],requires=[start+(1 if ext=='idx' else 0)]))
         root=Path(self.tmp.name);source=root/'tracks';source.mkdir();dest=root/'sub-dest';dest.mkdir()
         video=dest/'Organized.S01E02.1080p.mkv';video.write_bytes(b'v');calls=[]
         class Chain:
@@ -446,9 +447,6 @@ class ExecutionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'TRANSFER_NAME_TOO_LONG'):
                 host.prepare_transfer(source/files[1]['path'],dest,long_item,dict(torrent_files=[files[0],long_item],save_path=str(source)))
         self.assertEqual(len(files)-1,len(set(outputs)))
-        self.assertEqual(outputs[2].stem,outputs[3].stem)
-        self.assertEqual(outputs[-4].stem,outputs[-3].stem);self.assertEqual(outputs[-2].stem,outputs[-1].stem)
-        self.assertNotEqual(outputs[-4].stem,outputs[-2].stem)
         for item,output,call in zip(files[1:],outputs,calls):
             original=Path(item['path']).name
             self.assertIn(Path(original).stem,output.stem)
