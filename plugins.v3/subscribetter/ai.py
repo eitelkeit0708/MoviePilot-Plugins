@@ -925,7 +925,8 @@ class AIService:
     def clear_sessions(self,actor):
         """Administrative local clearing; deliberately has no message callback."""
         with self.lock:
-            keys=set(self.sessions)|set(self.session_epochs)|set(self.chat_busy)
+            # Dequeued first messages have no session/busy entry yet.
+            keys=set(self.sessions)|set(self.session_epochs)|set(self.chat_busy)|{digest(r.model_dump()) for r in self.config.chat_routes}
             for key in keys:self.session_epochs[key]=self.session_epochs.get(key,0)+1
             self.sessions.clear();self.chat_queue.clear()
         with self.repository.connection(write=True) as db:

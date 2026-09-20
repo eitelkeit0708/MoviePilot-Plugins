@@ -12,7 +12,9 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import Field, JsonValue
 from app.sdk.security import verify_token
 from app.schemas.token import TokenPayload
-from .configuration import Strict, PolicyConfig
+from .configuration import Strict, PolicyConfig, Text
+from .discovery import SourceConfig
+from .policy import MAX_TEXT
 from .management import PrivateRoute, Id, Digest, ConfigPreview
 from .evidence import public, append
 from .ai import digest, DEFAULT_PROMPT
@@ -22,6 +24,9 @@ from .scheduler import instant, parse
 from .execution import Exclusions, MUTATION_LOCK
 
 Key=Annotated[str,Field(min_length=1,max_length=2048)]
+CategoryRef=Annotated[str,Field(min_length=1,max_length=MAX_TEXT)]
+SourceId=Annotated[str,SourceConfig.model_fields['id']]
+SampleKey=Annotated[str,Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$')]
 Limit=Annotated[int,Query(ge=1,le=100)]
 Offset=Annotated[int,Query(ge=0,le=10000000)]
 T=TypeVar('T')
@@ -313,7 +318,7 @@ class SettingsPreview(Fence):
     generation:int=Field(gt=0)
     opportunity_id:Id
     target_keys:list[Key]=Field(min_length=1,max_length=100)
-    destination_template:Id
+    destination_template:Text
     locks:dict[str,JsonValue]=Field(default_factory=dict)
 
 
@@ -364,16 +369,16 @@ class Reconcile(Fence):
 
 
 class ArchiveRefresh(Fence):
-    service:Id
-    library:Id
+    service:Text
+    library:Text
     target_keys:list[Key]=Field(min_length=1,max_length=100)
     scan_id:Id|None=None
 
 
 class MappingTest(Fence):
     scan_id:Id
-    item_id:Id
-    mapping_id:Id
+    item_id:Text
+    mapping_id:Text
 
 
 class PlanAction(Fence):
@@ -402,10 +407,10 @@ class CurrentSample(Strict):
 
 
 class Simulation(Fence):
-    category_id:Id
+    category_id:CategoryRef
     candidate:PolicySample
     current:list[CurrentSample]=Field(default_factory=list,max_length=100)
-    sample_key:Id|None=None
+    sample_key:SampleKey|None=None
 
 
 class DownloadObservation(Fence):
@@ -541,7 +546,7 @@ class Views:
             receipts=self.rows('action_receipts',source='action_receipts r JOIN plan_actions a ON a.id=r.action_id',select='r.*',where='a.plan_id=?',args=(r['plan_id'],),order='r.id',limit=limit,offset=offset),
             shared_references=self.rows('plans',where="id!=? AND json_extract(snapshot,'$.downloader')=? AND json_extract(snapshot,'$.infohash')=?",args=(p['id'],s['downloader'],s['infohash']),order='id',limit=limit,offset=offset),cleanup=public({k:v for k,v in d.items() if 'clean' in k or k in ('cancel_intent','downloader_removed','downloader_remove_intent')}))
 
-    def policies(self,limit:Limit=25,offset:Offset=0,category_id:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[PolicyView]:
+    def policies(self,limit:Limit=25,offset:Offset=0,category_id:CategoryRef|None=None,user:TokenPayload=Depends(verify_token))->Page[PolicyView]:
         self._auth(user)
         from .policy import CATEGORIES
         config=self.plugin.configuration.view()['config'];p=config['policy'];runtime=self.plugin.runtime
@@ -554,7 +559,7 @@ class Views:
         path={'vector':'$.vector','assets':'$.manifest.assets','publication':'$.manifest.publication'}[section]
         return self._page('delivery_bundles',Row,lambda r:dict(id=str(r['key']),state='FROZEN',revision='',data=public(json.loads(r['value']))),source='delivery_bundles b,json_each(b.data,?) f',select='f.key,f.value',where='b.id=?',args=(path,bundle_id),order='f.key',limit=limit,offset=offset)
 
-    def policy(self,category_id:Id,user:TokenPayload=Depends(verify_token))->PolicyView:
+    def policy(self,category_id:CategoryRef,user:TokenPayload=Depends(verify_token))->PolicyView:
         self._auth(user)
         page=self.policies(limit=1,offset=0,category_id=category_id,user=user)
         item=next((x for x in page.items if x.category_id==category_id),None)
@@ -575,7 +580,7 @@ class Views:
     @staticmethod
     def _record(r):return public(dict(**{k:r[k] for k in DiscoveryRecord.model_fields if k not in ('evidence','raw','visible')},visible=bool(r['visible']),raw=json.loads(r['raw']),evidence=json.loads(r['data'])))
 
-    def records(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,source_id:Id|None=None,view:Literal['all','latest12','recognized','unrecognized']='all',user:TokenPayload=Depends(verify_token))->Page[DiscoveryRecord]:
+    def records(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,source_id:SourceId|None=None,view:Literal['all','latest12','recognized','unrecognized']='all',user:TokenPayload=Depends(verify_token))->Page[DiscoveryRecord]:
         self._auth(user);where="visible=1 AND (? IS NULL OR state=?) AND (? IS NULL OR source_id=?)"
         if view=='recognized':where+=" AND json_type(data,'$.identity')='object'"
         if view=='unrecognized':where+=" AND json_type(data,'$.identity') IS NULL"
@@ -585,7 +590,7 @@ class Views:
         self._auth(user);self._one('discovery_records','id',record_id)
         return self.rows('discovery_targets',where='record_id=?',args=(record_id,),order='target_key',limit=limit,offset=offset)
 
-    def statistics(self,source_id:Id|None=None,user:TokenPayload=Depends(verify_token))->ActionResult:
+    def statistics(self,source_id:SourceId|None=None,user:TokenPayload=Depends(verify_token))->ActionResult:
         self._auth(user)
         from .discovery import DiscoveryService
         return ActionResult(state='AVAILABLE',result=DiscoveryService.statistics(self,source_id=source_id))
@@ -593,7 +598,7 @@ class Views:
     def samples(self,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);return self.rows('parse_samples',order='sample_key',limit=limit,offset=offset)
 
-    def sample(self,sample_key:Key,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
+    def sample(self,sample_key:SampleKey,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);self._one('parse_samples','sample_key',sample_key)
         return self.rows('parse_history',where='sample_key=?',args=(sample_key,),order='created_at,digest',limit=limit,offset=offset)
 
@@ -628,7 +633,7 @@ class Views:
         from .policy import CATEGORIES
         return ActionResult(state='AVAILABLE',result=dict(policies=[dict(binding=k,resolutions=list(v[0]),admission=v[1],source_order=v[2],dimensions=list(v[3])) for k,v in CATEGORIES.items()]))
 
-    def local_scan(self,rule_id:Id,section:Literal['stack','directories','failed_paths'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
+    def local_scan(self,rule_id:Text,section:Literal['stack','directories','failed_paths'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);scope='local:'+rule_id;self._one('reconcile_checkpoints','scope',scope)
         return self._page('reconcile_checkpoints',Row,lambda r:dict(id=str(r['key']),state='OBSERVED',revision='',data={'entry':public(json.loads(r['value']) if r['type'] in ('object','array') else r['value'])}),source='reconcile_checkpoints c,json_each(c.data,?) j',select='j.key,j.value,j.type',where='c.scope=?',args=('$.'+section,scope),order='j.key',limit=limit,offset=offset)
 
@@ -737,7 +742,9 @@ class Views:
 
     def preview(self,kind,objects,request,user):
         self._auth(user);self.fence(request);actor=str(user.username);objects=json.loads(encoded(objects))
-        with self.repository.connection(write=True) as db:
+        ai=self.plugin.ai
+        # Match apply: AI state lock precedes any SQLite write transaction.
+        with ai.lock if ai and kind.startswith('ai_') else nullcontext(),self.repository.connection(write=True) as db:
             facts,permissions,blockers=self._facts(kind,objects,db)
             if 'revision' in objects and facts.get('bundle',{}).get('revision')!=objects['revision']:raise HTTPException(409,'STALE_BUNDLE')
             if 'generation' in objects and facts.get('task',{}).get('generation')!=objects['generation']:raise HTTPException(409,'STALE_TASK')
@@ -810,7 +817,7 @@ class Views:
                 runtime.busy=True
         ai=self.plugin.ai
         try:
-            with ai.lock if ai and kind in ('ai_cache','ai_sessions') else nullcontext():return self._apply(kind,request,user)
+            with ai.lock if ai and kind.startswith('ai_') else nullcontext():return self._apply(kind,request,user)
         finally:
             if runtime:
                 with runtime.lock:runtime.busy=False
@@ -1047,7 +1054,7 @@ class Views:
             raise ValueError('USE_EXACT_ARCHIVE_REFRESH')
         return await self.run(request,user,action,ordinary=False)
 
-    async def download_reconcile(self,downloader:Id,infohash:Annotated[str,Field(pattern=r'^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$')],request:DownloadObservation,user:TokenPayload=Depends(verify_token))->ActionResult:
+    async def download_reconcile(self,downloader:Text,infohash:Annotated[str,Field(pattern=r'^[a-fA-F0-9]{40}$|^[a-fA-F0-9]{64}$')],request:DownloadObservation,user:TokenPayload=Depends(verify_token))->ActionResult:
         def action(runtime):
             from .execution import StrictExecutor
             plan=runtime.authority.plan(request.plan_id);s=plan['snapshot']
@@ -1123,11 +1130,11 @@ class Views:
         return wrapped
 
     def routes(self):
-        definitions=[('/tasks',self.tasks,Page[Task]),('/tasks/{task_id}',self.task,TaskDetail),('/candidates',self.candidates,Page[Candidate]),('/candidates/{candidate_key}',self.candidate,Candidate),('/candidate-decisions',self.decisions,Page[Decision]),('/candidate-decisions/{decision_id}',self.decision,Decision),('/archive/targets',self.archives,Page[ArchiveTarget]),('/archive/targets/{target_key}',self.archive,ArchiveDetail),('/archive/versions/{version_id}',self.version,VersionDetail),('/delivery/bundles',self.bundles,Page[Bundle]),('/delivery/bundles/{bundle_id}',self.bundle,BundleDetail),('/policies',self.policies,Page[PolicyView]),('/policies/{category_id}',self.policy,PolicyView),('/diagnostics',self.diagnostics,Health),('/discovery/sources',self.sources,Page[Source]),('/discovery/catalog',self.catalog,ActionResult),('/discovery/records',self.records,Page[DiscoveryRecord]),('/discovery/records/{record_id}/targets',self.record_targets,Page[Row]),('/discovery/statistics',self.statistics,ActionResult),('/parse/samples',self.samples,Page[Row]),('/parse/samples/{sample_key}/history',self.sample,Page[Row]),('/ai',self.ai,AIView)]
+        definitions=[('/tasks',self.tasks,Page[Task]),('/tasks/{task_id}',self.task,TaskDetail),('/candidates',self.candidates,Page[Candidate]),('/candidates/{candidate_key}',self.candidate,Candidate),('/candidate-decisions',self.decisions,Page[Decision]),('/candidate-decisions/{decision_id}',self.decision,Decision),('/archive/targets',self.archives,Page[ArchiveTarget]),('/archive/targets/{target_key}',self.archive,ArchiveDetail),('/archive/versions/{version_id}',self.version,VersionDetail),('/delivery/bundles',self.bundles,Page[Bundle]),('/delivery/bundles/{bundle_id}',self.bundle,BundleDetail),('/policies',self.policies,Page[PolicyView]),('/policies/{category_id:path}',self.policy,PolicyView),('/diagnostics',self.diagnostics,Health),('/discovery/sources',self.sources,Page[Source]),('/discovery/catalog',self.catalog,ActionResult),('/discovery/records',self.records,Page[DiscoveryRecord]),('/discovery/records/{record_id}/targets',self.record_targets,Page[Row]),('/discovery/statistics',self.statistics,ActionResult),('/parse/samples',self.samples,Page[Row]),('/parse/samples/{sample_key}/history',self.sample,Page[Row]),('/ai',self.ai,AIView)]
         routes=[dict(path=p,methods=['GET'],endpoint=f,response_model=m,auth='bear',route_class_override=PrivateRoute) for p,f,m in definitions]
         for path,fn,model in [('/management/previews/{preview_id}',self.preview_receipt,Preview),('/management/operations/{operation_id}',self.operation,ActionResult)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))
-        for path,fn in [('/health/local-scans/{rule_id}/{section}',self.local_scan),('/health/runtime-records',self.runtime_records),('/candidates/{candidate_key}/files/{section}',self.candidate_files),('/delivery/bundles/{bundle_id}/records/{section}',self.bundle_records),('/exclusions',self.exclusions),('/candidate-decisions/{decision_id}/plans',self.decision_plans)]:
+        for path,fn in [('/health/local-scans/{rule_id:path}/{section}',self.local_scan),('/health/runtime-records',self.runtime_records),('/candidates/{candidate_key}/files/{section}',self.candidate_files),('/delivery/bundles/{bundle_id}/records/{section}',self.bundle_records),('/exclusions',self.exclusions),('/candidate-decisions/{decision_id}/plans',self.decision_plans)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=Page[Row],auth='bear',route_class_override=PrivateRoute))
         # Specific policy catalog precedes the category identifier route.
         routes.insert(0,dict(path='/policies/catalog',methods=['GET'],endpoint=self.policy_catalog,response_model=ActionResult,auth='bear',route_class_override=PrivateRoute))
@@ -1136,7 +1143,7 @@ class Views:
         actions=[('/discovery/history/cleanup',self.history_preview,self.apply_history),('/delivery/{bundle_id}/cancel',self.cancel_preview,self.apply_cancel),('/delivery/{bundle_id}/cleanup',self.cleanup_preview,self.apply_cleanup),('/archive/invalidate',self.invalidate_preview,self.apply_archive),('/tasks/{task_id}/settings',self.settings_preview,self.apply_settings),('/exclusions',self.exclusion_preview,self.apply_exclusion),('/exclusions/{exclusion_id}/revoke',self.revoke_preview,self.apply_revoke),('/candidates/{candidate_key}/change-source',self.change_source_preview,self.apply_change_source),('/ai/cache/clear',self.cache_preview,self.apply_cache),('/ai/sessions/clear',self.sessions_preview,self.apply_sessions),('/ai/prompt/restore',self.prompt_preview,self.apply_prompt)]
         for path,preview,apply in actions:
             routes.extend([dict(path=path+'/'+suffix,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute) for suffix,fn,model in [('preview',preview,Preview),('apply',apply,ActionResult)]])
-        for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:
+        for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:
             routes.append(dict(path=path,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))
         for route in routes:route['endpoint']=self.boundary(route['endpoint'])
         return routes
