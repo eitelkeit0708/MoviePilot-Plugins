@@ -9,6 +9,7 @@ import types
 import sys
 import unittest
 from unittest.mock import patch
+from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
@@ -68,8 +69,10 @@ class MetaService:
 class Recognizer:
     def __init__(self, media=None):
         self.media = media
+        self.calls = []
 
-    def recognize(self, meta, declared):
+    def recognize(self, meta, declared, *, media_type=None):
+        self.calls.append((declared, media_type, getattr(meta, "year", None)))
         return self.media
 
     @staticmethod
@@ -138,14 +141,15 @@ class DiscoveryTests(unittest.TestCase):
         return self.d.DiscoveryConfig.model_validate(data)
 
     def service(self, config=None, *, fetch=None, media=None, owner=None, inventory=None,
-                authorized=None, excluded=None, inventory_refresh=None):
+                authorized=None, excluded=None, inventory_refresh=None, recognizer=None,
+                meta_service=None, accepted=None):
         return self.d.DiscoveryService(
-            self.repo, owner or Owner(), MetaService(), Recognizer(media), config or self.config(),
+            self.repo, owner or Owner(), meta_service or MetaService(), recognizer or Recognizer(media), config or self.config(),
             fetch=fetch or (lambda *_: self.d.FetchResult(SYNTHETIC_RSS)), clock=self.clock,
             inventory=inventory or (lambda _target: {"state": "MISSING", "evidence_ref": "fixture:missing"}),
             inventory_refresh=inventory_refresh,
             authorized=authorized or (lambda *_: True), excluded=excluded or (lambda _target: False),
-            current=lambda: True, owner_check=owner_receipt,
+            current=lambda: True, owner_check=owner_receipt, accepted=accepted,
             owner_snapshot=lambda *_: OWNER_SNAPSHOT, instance_id="SubscriBetter")
 
     def test_catalog_basepath_and_no_public_fallback(self):
@@ -276,7 +280,7 @@ class DiscoveryTests(unittest.TestCase):
         with patch.dict(sys.modules, modules):
             fetcher._safe("http://192.168.50.6:1200/proxy/rsshub/douban/list/movie_weekly_best",
                           "http://192.168.50.6:1200/proxy/rsshub")
-        self.assertEqual([(["192.168.50.6"], True, True, ["192.168.50.6/32"])], captured)
+        self.assertEqual([(["192.168.50.6:1200"], True, True, ["192.168.50.6/32"])], captured)
 
     def test_source_failures_are_isolated_and_retry_after_persists_by_origin(self):
         config = self.config(sources=[
@@ -316,6 +320,9 @@ class DiscoveryTests(unittest.TestCase):
         third = service.run()["sources"]["weekly"]
         self.assertEqual({"state": "DEFERRED", "reason": "RETRY_EXHAUSTED"}, third)
         self.assertEqual(2, len(calls))
+        self.assertEqual(1, service.retry_sources(["weekly"]))
+        self.assertEqual("FAILED", service.run()["sources"]["weekly"]["state"])
+        self.assertEqual(3, len(calls))
 
     def test_record_retry_is_bounded_and_policy_revision_reconsiders(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "42"),
@@ -335,6 +342,11 @@ class DiscoveryTests(unittest.TestCase):
         self.clock.advance(2)
         changed.run()
         self.assertEqual("SUBMITTED", changed.records()[0]["state"])
+        revision = changed.records()[0]["filter_revision"]
+        self.clock.advance(2)
+        changed.run()
+        self.assertEqual(revision, changed.records()[0]["filter_revision"])
+        self.assertEqual("SUBMITTED", changed.records()[0]["state"])
 
     def test_provider_rating_known_seasons_and_partial_receipts(self):
         media = types.SimpleNamespace(
@@ -349,26 +361,31 @@ class DiscoveryTests(unittest.TestCase):
         owner = Owner(["ACTIVE", "PENDING"])
         config = self.config(minimum_rating=8.0, rating_source="recognized_provider",
                              season_scope="all_known", media_type_allowlist=["电视剧"],
-                             request_budget=ONE_BUDGET)
+                             request_budget=ONE_BUDGET, sources=[
+                                 {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}])
         result = self.service(config, media=media, owner=owner).run()
         records = self.service(config).records()
         self.assertEqual("PARTIAL", result["sources"]["weekly"]["state"])
         self.assertEqual([1, 3], [call[1].season for call in owner.calls])
-        self.assertEqual(["SUBMITTED", "DEFERRED"], [row["state"] for row in records[0]["targets"]])
+        self.assertEqual(["SUBMITTED", "DEFERRED", "DEFERRED"], [row["state"] for row in records[0]["targets"]])
         self.assertEqual({"provider": "themoviedb", "field": "tmdb_info.vote_average", "value": 8.951},
                          {key: records[0]["rating"][key] for key in ("provider", "field", "value")})
         self.assertTrue(records[0]["rating"]["evidence_ref"].startswith("provider-payload:"))
         self.assertNotIn(0, [call[1].season for call in owner.calls])
-        self.assertNotIn(5, [call[1].season for call in owner.calls])
+        self.assertIn(5, [row["season"] for row in records[0]["targets"]])
+        future = next(row for row in records[0]["targets"] if row["season"] == 5)
+        self.assertEqual(("DEFERRED", "SEASON_NOT_AIRED"), (future["state"], future["reason"]))
 
     def test_unknown_score_type_conflict_and_inventory_uncertainty_defer(self):
         base = dict(identity=("themoviedb", "42"), title="24", year="2001", category="tv",
                     tmdb_info={"seasons": [{"season_number": 1, "episode_count": 24, "air_date": "2001-01-01"}]})
         for label, media, config, reason in (
             ("score", types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), **base),
-             self.config(minimum_rating=7.0, season_scope="all_known", request_budget=ONE_BUDGET), "RATING_UNKNOWN"),
+             self.config(minimum_rating=7.0, season_scope="all_known", request_budget=ONE_BUDGET,
+                         sources=[{"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), "RATING_UNKNOWN"),
             ("type", types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), **base),
-             self.config(media_type_allowlist=["电影"], season_scope="all_known", request_budget=ONE_BUDGET), "TYPE_NOT_ALLOWED"),
+             self.config(media_type_allowlist=["电影"], season_scope="all_known", request_budget=ONE_BUDGET,
+                         sources=[{"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), "TYPE_NOT_ALLOWED"),
         ):
             with self.subTest(label=label):
                 service = self.service(config, media=media)
@@ -410,7 +427,8 @@ class DiscoveryTests(unittest.TestCase):
                                       tmdb_info={"seasons": [{"season_number": 1, "air_date": "2008-01-01"}]})
         owner = Owner()
         service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
-                                           request_budget=ONE_BUDGET), media=media, owner=owner,
+                                           request_budget=ONE_BUDGET, sources=[
+                                               {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner,
                                inventory=lambda _: {"state": "PARTIAL", "evidence_ref": "archive-season:test"},
                                authorized=lambda *_: True)
         service.run()
@@ -477,6 +495,8 @@ class DiscoveryTests(unittest.TestCase):
             excluded=lambda _: False, current=lambda: True, owner_check=owner_receipt,
             owner_snapshot=lambda *_: OWNER_SNAPSHOT, instance_id="SubscriBetter")
         service.run()
+        self.clock.advance(10)
+        service.run()
         self.assertEqual(1, host.creates)
         self.assertEqual(1, len(self.repo.list_tasks()))
         self.assertEqual({"SUBMITTED", "ALREADY_MANAGED"}, {row["targets"][0]["state"] for row in service.records()})
@@ -489,7 +509,7 @@ class DiscoveryTests(unittest.TestCase):
         stopped = self.d.DiscoveryService(
             self.repo, owner, MetaService(), Recognizer(media), config,
             fetch=lambda *_: self.d.FetchResult(SYNTHETIC_RSS), clock=self.clock,
-            inventory=lambda _: {"state": "MISSING"}, authorized=lambda *_: True, excluded=lambda _: False,
+            inventory=lambda _: {"state": "MISSING", "evidence_ref":"fixture"}, authorized=lambda *_: True, excluded=lambda _: False,
             current=lambda: True, owner_check=owner_receipt, owner_snapshot=lambda *_: OWNER_SNAPSHOT,
             instance_id="SubscriBetter")
         stopped.run()
@@ -542,6 +562,179 @@ class DiscoveryTests(unittest.TestCase):
         imported = self.d.import_legacy({"rss_addrs": "https://feed.invalid/a%3Bpart@@TV"})
         self.assertEqual("https://feed.invalid/a%3Bpart", imported["sources"][0]["url"])
         self.assertEqual("TV", imported["sources"][0]["source_type_hint"])
+
+    def test_fix1_inventory_is_fail_closed_for_error_and_empty_evidence(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "42"),
+                                      title="Fixture", year="2026", category="movie", tmdb_info={})
+        for source_id, inventory in (("error", {"state": "ERROR", "evidence_ref": "archive:error"}),
+                                     ("empty", {"state": "MISSING", "evidence_ref": ""})):
+            with self.subTest(source_id=source_id):
+                owner = Owner()
+                config = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET,
+                                     sources=[{"id": source_id, "kind": "custom", "url": f"https://{source_id}.invalid/rss"}])
+                service = self.service(config, media=media, owner=owner, inventory=lambda _, value=inventory: value,
+                                       inventory_refresh=lambda *_: {"state":"MISSING", "evidence_ref":"should-not-rescue-error"})
+                service.run()
+                self.assertEqual("LIBRARY_STATE_UNKNOWN", service.records(source_id=source_id)[0]["reason"])
+                self.assertEqual([], owner.calls)
+
+    def test_fix1_shared_origin_spacing_rotates_without_starvation(self):
+        config = self.config(sources=[
+            {"id": "a", "kind": "rsshub", "route_key": "movie_weekly_best"},
+            {"id": "b", "kind": "rsshub", "route_key": "movie_showing"}], request_budget=ONE_BUDGET)
+        calls = []
+        service = self.service(config, fetch=lambda url, *_: (calls.append((url, self.clock())),
+                                                               self.d.FetchResult(b"<rss><channel/></rss>"))[1])
+        first = service.run()
+        self.assertEqual(("SUCCESS", "RATELIMITED"),
+                         (first["sources"]["a"]["state"], first["sources"]["b"]["state"]))
+        self.clock.advance(10)
+        second = service.run()
+        self.assertEqual(("RATELIMITED", "SUCCESS"),
+                         (second["sources"]["a"]["state"], second["sources"]["b"]["state"]))
+        self.assertEqual([0, 10], [int(at - 1_800_000_000) for _, at in calls])
+
+    def test_fix1_total_deadline_covers_redirect_and_delayed_empty_response(self):
+        clock, timeouts = Clock(0), []
+        class Response:
+            def __init__(self, status, headers): self.status_code, self.headers, self.closed = status, headers, False
+            def iter_content(self, _): return iter(())
+            def close(self): self.closed = True
+        responses = [Response(302, {"Location": "/final"}), Response(200, {"Content-Encoding": "identity"})]
+        class Requests:
+            def __init__(self, **kwargs): timeouts.append(kwargs["timeout"])
+            def request(self, **_): clock.advance(3); return responses.pop(0)
+        class Security:
+            @staticmethod
+            def evaluate_url_safety(url, allowed_domains, **kwargs):
+                return types.SimpleNamespace(allowed=allowed_domains == ["feed.invalid:8443"] and
+                                              urlsplit(url).netloc == "feed.invalid:8443")
+        modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
+                   "app.sdk.network": types.ModuleType("app.sdk.network"),
+                   "app.sdk.config": types.ModuleType("app.sdk.config")}
+        modules["app.sdk.network"].RequestUtils, modules["app.sdk.network"].SecurityUtils = Requests, Security
+        modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
+        source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid:8443/rss")
+        with patch.dict(sys.modules, modules), self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
+            self.d.HostRSSFetcher(source.url, clock=clock)(source.url, source, self.d.RequestBudget(timeout=5))
+        self.assertEqual([5, 2], timeouts)
+        self.assertTrue(all(response.closed for response in responses) if responses else True)
+
+    def test_fix1_ipv6_allowlist_preserves_brackets_and_port(self):
+        captured = []
+        class Security:
+            @staticmethod
+            def evaluate_url_safety(url, allowed_domains, strict=False, block_private=False, allowed_private_ranges=None):
+                captured.append((allowed_domains, allowed_private_ranges))
+                return types.SimpleNamespace(allowed=allowed_domains == ["[fd00::6]:1200"])
+        network = types.ModuleType("app.sdk.network"); network.SecurityUtils = Security
+        with patch.dict(sys.modules, {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
+                                      "app.sdk.network": network}):
+            self.d.HostRSSFetcher("http://[fd00::6]:1200/rss")._safe("http://[fd00::6]:1200/rss", "http://[fd00::6]:1200/rss")
+        self.assertEqual([(["[fd00::6]:1200"], ["fd00::6/128"])], captured)
+
+    def test_fix1_known_future_and_missing_date_seasons_remain_deferred_targets(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), identity=("themoviedb", "9"),
+                                      title="Series", year="2020", category="tv",
+                                      tmdb_info={"seasons": [{"season_number": 1, "air_date": "2020-01-01"},
+                                                             {"season_number": 2, "air_date": "2999-01-01"},
+                                                             {"season_number": 3}]})
+        owner = Owner()
+        service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                                           request_budget=ONE_BUDGET, sources=[
+                                               {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner)
+        service.run(); rows = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.assertEqual([1, 2, 3], sorted(rows))
+        self.assertEqual("SUBMITTED", rows[1]["state"])
+        self.assertEqual("SEASON_NOT_AIRED", rows[2]["reason"])
+        self.assertEqual("SEASON_AIR_DATE_UNKNOWN", rows[3]["reason"])
+        self.assertEqual([1], [call[1].season for call in owner.calls])
+        for _ in range(5):
+            self.clock.advance(86400)
+            service.run()
+        media.tmdb_info["seasons"][1]["air_date"] = "2020-01-01"
+        self.clock.advance(86400)
+        service.run()
+        refreshed = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.assertIn(refreshed[2]["state"], {"SUBMITTED", "ALREADY_MANAGED"})
+
+    def test_fix1_identity_constraints_defer_source_type_and_year_conflicts(self):
+        item = self.d.RSSItem("Same Name (1990)", "https://movie.douban.com/subject/123/", "g", "", "i", "r", "123")
+        class YearMeta(MetaService):
+            def parse(self, *args, **kwargs):
+                meta = Meta("Same Name"); meta.year = 1990
+                return Correction(meta)
+        cases = [
+            ("source", types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("douban", "999"), title="Same Name", year="1990", category="movie", tmdb_info={}), "SOURCE_ID_CONFLICT"),
+            ("type", types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), identity=("douban", "123"), title="Same Name", year="1990", category="tv", tmdb_info={}), "TYPE_HINT_CONFLICT"),
+            ("year", types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("douban", "123"), title="Same Name", year="2020", category="movie", tmdb_info={}), "YEAR_CONFLICT")]
+        for index, (label, media, reason) in enumerate(cases):
+            recognizer = Recognizer(media)
+            config = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET,
+                                 sources=[{"id": label, "kind": "custom", "url": f"https://{label}.invalid/rss",
+                                           "source_type_hint": "Movie"}])
+            service = self.service(config, recognizer=recognizer, meta_service=YearMeta())
+            service._observe(config.sources[0], item.__class__(**{**item.__dict__, "item_key": label, "raw_revision": f"r{index}"}))
+            self.assertEqual(reason, service.records(source_id=label)[0]["reason"])
+            self.assertEqual(("douban", "123"), recognizer.calls[0][0])
+            self.assertEqual("电影", recognizer.calls[0][1])
+
+    def test_fix1_target_exception_is_receipted_and_sibling_continues(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), identity=("themoviedb", "9"),
+                                      title="Series", year="2020", category="tv", tmdb_info={"seasons": [
+                                          {"season_number": 1, "air_date": "2020-01-01"},
+                                          {"season_number": 2, "air_date": "2020-01-01"}]})
+        def inventory(target):
+            if target.season == 1: raise RuntimeError("offline")
+            return {"state": "MISSING", "evidence_ref": "archive:missing"}
+        owner = Owner()
+        service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                                           request_budget=ONE_BUDGET, sources=[
+                                               {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner, inventory=inventory)
+        service.run(); rows = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.assertEqual(("DEFERRED", "INVENTORY_FAILED"), (rows[1]["state"], rows[1]["reason"]))
+        self.assertEqual("SUBMITTED", rows[2]["state"])
+        self.assertEqual([2], [call[1].season for call in owner.calls])
+
+    def test_fix1_scheduler_exception_keeps_native_ack_and_continues(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), identity=("themoviedb", "10"),
+                                      title="Series", year="2020", category="tv", tmdb_info={"seasons": [
+                                          {"season_number": 1, "air_date": "2020-01-01"},
+                                          {"season_number": 2, "air_date": "2020-01-01"}]})
+        owner = self.ownership_mod.Ownership(self.repo, Host())
+        def accepted(row, target, *_):
+            if target.season == 1: raise RuntimeError("scheduler offline")
+        service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                                           request_budget=ONE_BUDGET, sources=[
+                                               {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]),
+                               media=media, owner=owner, accepted=accepted)
+        service.run(); rows = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.assertEqual(("DEFERRED", "SCHEDULE_SCOPE_FAILED"), (rows[1]["state"], rows[1]["reason"]))
+        self.assertIsNotNone(rows[1]["task_id"])
+        self.assertEqual("SUBMITTED", rows[2]["state"])
+
+    def test_fix1_ingest_stat_requires_all_real_target_units(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), identity=("themoviedb", "9"),
+                                      title="Series", year="2020", category="tv",
+                                      tmdb_info={"seasons": [{"season_number": 1, "air_date": "2020-01-01"}]})
+        owner = self.ownership_mod.Ownership(self.repo, Host())
+        unit_keys = []
+        def accepted(row, target, *_):
+            for episode in (1, 2):
+                key = json.dumps([*json.loads(target.key), episode], separators=(",", ":"), ensure_ascii=False)
+                unit_keys.append(key)
+                with self.repo.connection(write=True) as db:
+                    db.execute("INSERT INTO target_units(target_key,task_id,identity) VALUES(?,?,?)", (key, row["id"], key))
+        service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                                           request_budget=ONE_BUDGET, sources=[
+                                               {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner, accepted=accepted)
+        service.run()
+        with self.repo.connection(write=True) as db:
+            db.execute("INSERT INTO ingest_receipts VALUES(?,NULL,?,0,?,?,?)", ("r1", unit_keys[0], "v1", "{}", "2026-01-01"))
+        self.assertEqual(0, service.statistics()["stages"]["ingest"]["numerator"])
+        with self.repo.connection(write=True) as db:
+            db.execute("INSERT INTO ingest_receipts VALUES(?,NULL,?,0,?,?,?)", ("r2", unit_keys[1], "v1", "{}", "2026-01-01"))
+        self.assertEqual(1, service.statistics()["stages"]["ingest"]["numerator"])
 
     def test_host_contract_is_fetch_only_until_submission_is_explicit(self):
         spec = importlib.util.spec_from_file_location("w09_subscribetter.host_discovery_contract",

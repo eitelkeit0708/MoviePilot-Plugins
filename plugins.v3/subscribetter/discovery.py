@@ -246,7 +246,8 @@ class HostRSSFetcher:
 
     def _safe(self, url, configured):
         from app.sdk.network import SecurityUtils
-        host = urlsplit(configured).hostname
+        configured_parts = urlsplit(configured)
+        host = configured_parts.hostname
         ranges = list(self.allowed_private_ranges)
         try:
             address = ipaddress.ip_address(host)
@@ -254,7 +255,7 @@ class HostRSSFetcher:
         except ValueError:
             pass
         verdict = SecurityUtils.evaluate_url_safety(
-            url, allowed_domains=[host], strict=True, block_private=True,
+            url, allowed_domains=[configured_parts.netloc], strict=True, block_private=True,
             allowed_private_ranges=sorted(set(ranges)) or None)
         if not getattr(verdict, "allowed", False):
             raise FetchError("UNSAFE_URL")
@@ -264,8 +265,14 @@ class HostRSSFetcher:
         configured = self.base_url if source.kind == "rsshub" else url
         origin = urlsplit(configured)
         current = url
-        started = self.clock()
+        deadline = self.clock() + budget.timeout
+        def remaining():
+            value = deadline - self.clock()
+            if value <= 0:
+                raise FetchError("TIMEOUT")
+            return value
         for hop in range(self.redirects + 1):
+            timeout = remaining()
             current_parts = urlsplit(_url(current))
             if (current_parts.scheme, current_parts.hostname, current_parts.port) != (origin.scheme, origin.hostname, origin.port):
                 raise FetchError("REDIRECT_ORIGIN_CHANGED")
@@ -273,7 +280,7 @@ class HostRSSFetcher:
             try:
                 from app.sdk.config import settings
                 proxies = settings.PROXY if self.proxy else None
-                response = RequestUtils(timeout=budget.timeout, proxies=proxies or {}).request(
+                response = RequestUtils(timeout=timeout, proxies=proxies or {}).request(
                     method="GET", url=current, headers={"Accept-Encoding": "identity"},
                     allow_redirects=False, stream=True)
             except Exception as error:
@@ -281,6 +288,7 @@ class HostRSSFetcher:
             if response is None:
                 raise FetchError("NETWORK_ERROR")
             try:
+                remaining()
                 if response.status_code in {301, 302, 303, 307, 308}:
                     if hop == self.redirects or not response.headers.get("Location"):
                         raise FetchError("REDIRECT_LIMIT")
@@ -295,12 +303,12 @@ class HostRSSFetcher:
                     raise FetchError("CONTENT_ENCODING_UNSUPPORTED")
                 chunks, size = [], 0
                 for chunk in response.iter_content(8192):
-                    if self.clock() - started > budget.timeout:
-                        raise FetchError("TIMEOUT")
+                    remaining()
                     size += len(chunk)
                     if size > budget.response_bytes:
                         raise FetchError("RSS_TOO_LARGE")
                     chunks.append(chunk)
+                remaining()
                 return FetchResult(b"".join(chunks), final_url=current)
             finally:
                 response.close()
@@ -414,9 +422,14 @@ class DiscoveryService:
 
     def _save_source(self, source):
         now = utcnow()
+        revision = _digest([self.config.rsshub_base_url, source.model_dump(mode="json")])
         with self.repository.connection(write=True) as db:
-            db.execute("INSERT INTO discovery_sources(source_id,config_revision,config,last_state,last_reason,failures,next_due,last_success,last_failure,updated_at) VALUES(?,?,?,'NEVER','',0,0,NULL,NULL,?) ON CONFLICT(source_id) DO UPDATE SET config_revision=excluded.config_revision,config=excluded.config,updated_at=excluded.updated_at",
-                       (source.id, self.config_digest, json.dumps(source.model_dump(mode="json"), ensure_ascii=False), now))
+            prior = db.execute("SELECT config_revision FROM discovery_sources WHERE source_id=?", (source.id,)).fetchone()
+            db.execute("INSERT INTO discovery_sources(source_id,config_revision,config,last_state,last_reason,failures,next_due,last_success,last_failure,updated_at) VALUES(?,?,?,'NEVER','',0,0,NULL,NULL,?) ON CONFLICT(source_id) DO UPDATE SET config_revision=excluded.config_revision,config=excluded.config,failures=CASE WHEN discovery_sources.config_revision!=excluded.config_revision THEN 0 ELSE discovery_sources.failures END,next_due=CASE WHEN discovery_sources.config_revision!=excluded.config_revision THEN 0 ELSE discovery_sources.next_due END,last_reason=CASE WHEN discovery_sources.config_revision!=excluded.config_revision THEN 'SOURCE_CONFIG_CHANGED' ELSE discovery_sources.last_reason END,updated_at=excluded.updated_at",
+                       (source.id, revision, json.dumps(source.model_dump(mode="json"), ensure_ascii=False), now))
+            if prior and prior[0] != revision:
+                db.execute("INSERT INTO audit(task_id,action,actor,at) VALUES(NULL,?,?,?)",
+                           (f"DISCOVERY_SOURCE_CONFIG_RESET:{source.id}", "discovery", now))
 
     def catalog(self):
         configured = {source.id: source for source in self.config.sources}
@@ -441,22 +454,34 @@ class DiscoveryService:
         p = urlsplit(url)
         return f"{p.scheme}://{p.netloc}".casefold()
 
-    def _reserve(self, source, url):
+    def _reserve(self, source, url, selected):
         now = float(self.clock())
         origin_key = "discovery_origin:" + self._origin(url)
         with self.repository.connection(write=True) as db:
             row = db.execute("SELECT next_due,failures FROM discovery_sources WHERE source_id=?", (source.id,)).fetchone()
             setting = db.execute("SELECT value FROM settings WHERE key=?", (origin_key,)).fetchone()
-            origin_due = float(json.loads(setting[0]).get("next_due", 0)) if setting else 0
+            origin_state = json.loads(setting[0]) if setting else {}
+            origin_due = float(origin_state.get("next_due", 0))
             budget = source.request_budget or self.config.request_budget
             if row["failures"] > budget.retry_limit:
                 return "RETRY_EXHAUSTED"
             if now < max(float(row[0] or 0), origin_due):
                 return "NOT_DUE"
+            peers = [candidate for candidate in self.config.sources
+                     if candidate.enabled and candidate.id in selected and candidate.id != source.id
+                     and self._origin(source_url(self.config, candidate)) == self._origin(url)]
+            if origin_state.get("last_source") == source.id and peers:
+                placeholders = ",".join("?" for _ in peers)
+                if db.execute(f"SELECT 1 FROM discovery_sources WHERE source_id IN ({placeholders}) AND failures<=? AND next_due<=? LIMIT 1",
+                              (*[peer.id for peer in peers], budget.retry_limit, now)).fetchone():
+                    return "ORIGIN_FAIRNESS"
             low, high = budget.interval_min_seconds, budget.interval_max_seconds
             wait = low if low == high else random.SystemRandom().uniform(low, high)
             db.execute("UPDATE discovery_sources SET next_due=?,last_state='FETCHING',last_reason='',updated_at=? WHERE source_id=?",
                        (now + wait, utcnow(), source.id))
+            db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                       (origin_key, json.dumps({"next_due": now + wait, "last_source": source.id,
+                                               "reason": "REQUEST_SPACING"})))
             return None
 
     def _source_state(self, source_id, state, reason="", *, success=False, retry_after=None, origin=None):
@@ -470,8 +495,24 @@ class DiscoveryService:
                            (state, reason, utcnow(), utcnow(), source_id))
             if retry_after and origin:
                 key = "discovery_origin:" + origin
+                prior = db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+                value = json.loads(prior[0]) if prior else {}
+                value.update(next_due=max(float(value.get("next_due", 0)), now + retry_after), reason=reason)
                 db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                           (key, json.dumps({"next_due": now + retry_after, "reason": reason})))
+                           (key, json.dumps(value)))
+
+    def retry_sources(self, source_ids):
+        ids = sorted(set(source_ids))
+        configured = {source.id for source in self.config.sources}
+        if not ids or len(ids) > 100 or any(not isinstance(value, str) or value not in configured for value in ids):
+            raise ValueError("INVALID_SOURCE_IDS")
+        with self.repository.connection(write=True) as db:
+            placeholders = ",".join("?" for _ in ids)
+            cursor = db.execute(f"UPDATE discovery_sources SET failures=0,next_due=0,last_state='RETRY_REQUESTED',last_reason='EXPLICIT_RETRY',updated_at=? WHERE source_id IN ({placeholders})",
+                                (utcnow(), *ids))
+            db.execute("INSERT INTO audit(task_id,action,actor,at) VALUES(NULL,?,?,?)",
+                       ("DISCOVERY_SOURCE_RETRY:" + _digest(ids), "admin", utcnow()))
+        return cursor.rowcount
 
     def _owned(self, source_id):
         if not self.current() or not callable(self.owner_check) or not callable(self.owner_snapshot): return False
@@ -498,9 +539,17 @@ class DiscoveryService:
             raise ValueError("SOURCE_NOT_FOUND")
         url = source_url(self.config, source)
         budget = source.request_budget or self.config.request_budget
-        result = self.fetch(url, source, budget)
-        items = parse_rss(result.body, max_bytes=budget.response_bytes, max_items=budget.items)
-        return dict(source_id=source.id, url=url, items=len(items), fetch_only=True)
+        try:
+            result = self.fetch(url, source, budget)
+            items = parse_rss(result.body, max_bytes=budget.response_bytes, max_items=budget.items)
+            return dict(source_id=source.id, url=url, items=len(items), fetch_only=True, state="SUCCESS")
+        except FetchError as error:
+            return dict(source_id=source.id, items=0, fetch_only=True, state="FAILED", reason=error.code)
+        except (ValueError, UnicodeError) as error:
+            allowed = {"RSS_TOO_LARGE", "RSS_ENCODING_INVALID", "RSS_ENTITY_DECLARATION",
+                       "RSS_MALFORMED", "RSS_TOO_DEEP", "RSS_TEXT_TOO_LARGE"}
+            code = str(error) if str(error) in allowed else "SOURCE_FAILED"
+            return dict(source_id=source.id, items=0, fetch_only=True, state="FAILED", reason=code)
 
     def run(self, source_ids=None):
         selected = set(source_ids or [source.id for source in self.config.sources if source.enabled])
@@ -513,7 +562,7 @@ class DiscoveryService:
             url, origin = source_url(self.config, source), self._origin(source_url(self.config, source))
             if not self._owned(source.id):
                 result["sources"][source.id] = {"state": "OWNER_UNBOUND", "reason": "OWNER_UNBOUND"}; continue
-            reserve = self._reserve(source, url)
+            reserve = self._reserve(source, url, selected)
             if reserve:
                 state = "DEFERRED" if reserve == "RETRY_EXHAUSTED" else "RATELIMITED"
                 result["sources"][source.id] = {"state": state, "reason": reserve}; continue
@@ -548,10 +597,11 @@ class DiscoveryService:
                 if row["state"] in {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "STOPPED", "RELEASED", "REJECTED"} and row["filter_revision"] == policy:
                     return row["state"]
                 if row["filter_revision"] == policy and row["state"] in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"}:
-                    if row["retry_count"] > budget.retry_limit or due < float(row["next_due"] or 0):
+                    metadata_wait = bool(db.execute("SELECT 1 FROM discovery_targets WHERE record_id=? AND reason IN ('SEASON_NOT_AIRED','SEASON_AIR_DATE_UNKNOWN') LIMIT 1", (row["id"],)).fetchone())
+                    if (row["retry_count"] > budget.retry_limit and not metadata_wait) or due < float(row["next_due"] or 0):
                         return row["state"]
                 elif row["filter_revision"] != policy:
-                    db.execute("UPDATE discovery_records SET retry_count=0,next_due=0 WHERE id=?", (row["id"],))
+                    db.execute("UPDATE discovery_records SET retry_count=0,next_due=0,filter_revision=? WHERE id=?", (policy, row["id"]))
                 record_id = row["id"]
             else:
                 cursor = db.execute("INSERT INTO discovery_records(source_id,item_key,raw_revision,raw,state,reason,retry_count,next_due,filter_revision,data,visible,first_seen,last_seen) VALUES(?,?,?,?, 'UNRECOGNIZED','',0,0,?,'{}',1,?,?)",
@@ -560,8 +610,10 @@ class DiscoveryService:
         state = self._process(record_id, source, item, policy)
         if state in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"}:
             with self.repository.connection(write=True) as db:
+                metadata_wait = bool(db.execute("SELECT 1 FROM discovery_targets WHERE record_id=? AND reason IN ('SEASON_NOT_AIRED','SEASON_AIR_DATE_UNKNOWN') LIMIT 1", (record_id,)).fetchone())
+                delay = max(budget.interval_min_seconds, 86400) if metadata_wait else budget.interval_min_seconds
                 db.execute("UPDATE discovery_records SET retry_count=retry_count+1,next_due=? WHERE id=?",
-                           (due + budget.interval_min_seconds, record_id))
+                           (due + delay, record_id))
         return state
 
     @staticmethod
@@ -583,8 +635,12 @@ class DiscoveryService:
         data = {"raw": asdict(item), "correction": correction.record(), "filter_revision": policy}
         if correction.status != "OK":
             return self._set_record(record_id, "DEFERRED", "META_" + correction.status, data)
+        requested_type = ("电视剧" if source.source_type_hint == "TV" else "电影"
+                          if source.source_type_hint == "Movie" else
+                          ROUTES.get(source.route_key, (None, None, None))[1])
+        declared = ("douban", item.douban_subject_id) if item.douban_subject_id else None
         try:
-            media = self.recognizer.recognize(correction.meta, None)
+            media = self.recognizer.recognize(correction.meta, declared, media_type=requested_type)
             identity = self.recognizer.identity(media) if media is not None else None
         except Exception:
             media, identity = None, None
@@ -594,12 +650,22 @@ class DiscoveryService:
         source_id, media_id = str(identity[0]).casefold(), str(identity[1])
         if media_type not in {"电影", "电视剧"}:
             return self._set_record(record_id, "DEFERRED", "TYPE_UNKNOWN", data)
+        if requested_type and media_type != requested_type:
+            return self._set_record(record_id, "DEFERRED", "TYPE_HINT_CONFLICT", data)
+        if declared and source_id == "douban" and media_id != item.douban_subject_id:
+            return self._set_record(record_id, "DEFERRED", "SOURCE_ID_CONFLICT", data)
         allowed = set(self.config.media_type_allowlist or ["电影", "电视剧"])
         if source.media_type_allowlist: allowed &= set(source.media_type_allowlist)
         if media_type not in allowed:
             return self._set_record(record_id, "REJECTED", "TYPE_NOT_ALLOWED", data)
         year = str(self._field(media, "year", "") or "")
         year_value = int(year) if re.fullmatch(r"\d{4}", year) else None
+        requested_year = item.year or self._field(correction.meta, "year")
+        requested_year = int(requested_year) if str(requested_year or "").isdigit() else None
+        if requested_year and year_value is None:
+            return self._set_record(record_id, "DEFERRED", "YEAR_UNKNOWN", data)
+        if requested_year and requested_year != year_value:
+            return self._set_record(record_id, "DEFERRED", "YEAR_CONFLICT", data)
         minimum_year = source.minimum_release_year or self.config.minimum_release_year
         if minimum_year and year_value is None:
             return self._set_record(record_id, "DEFERRED", "YEAR_UNKNOWN", data)
@@ -613,8 +679,15 @@ class DiscoveryService:
             rating = {"provider": source_id, "field": "tmdb_info.vote_average", "value": rating_value}
         if rating is not None:
             rating.update(observed_at=utcnow(), evidence_ref="provider-payload:" + _digest(details))
+        try:
+            classification = self.recognizer.classify(media)
+        except Exception:
+            return self._set_record(record_id, "DEFERRED", "CLASSIFICATION_UNAVAILABLE", data)
         data.update(identity={"media_type": media_type, "media_source": source_id, "media_id": media_id, "year": year_value},
-                    rating=rating, classification=self.recognizer.classify(media))
+                    identity_evidence={"declared_source": declared[0] if declared else None,
+                                       "declared_id_digest": _digest(declared) if declared else None,
+                                       "requested_type": requested_type, "requested_year": requested_year},
+                    rating=rating, classification=classification)
         minimum_rating = source.minimum_rating if source.minimum_rating is not None else self.config.minimum_rating
         if minimum_rating is not None and rating is None:
             return self._set_record(record_id, "DEFERRED", "RATING_UNKNOWN", data)
@@ -622,68 +695,44 @@ class DiscoveryService:
             return self._set_record(record_id, "REJECTED", "RATING_BELOW_MINIMUM", data)
         if media_type == "电影":
             targets = [Target(media_type, source_id, media_id)]
+            deferred = {}
         else:
             today = datetime.fromtimestamp(self.clock(), timezone.utc).date()
-            known = []
+            known, deferred = [], {}
             for season in details.get("seasons", []) if isinstance(details, dict) else []:
                 number, air = season.get("season_number"), season.get("air_date")
-                if type(number) is int and number > 0 and isinstance(air, str):
-                    try: aired = datetime.strptime(air, "%Y-%m-%d").date() <= today
-                    except ValueError: aired = False
-                    if aired: known.append(number)
+                if type(number) is not int or number <= 0:
+                    continue
+                known.append(number)
+                try:
+                    aired = datetime.strptime(air, "%Y-%m-%d").date() <= today if isinstance(air, str) else None
+                except ValueError:
+                    aired = None
+                if aired is False:
+                    deferred[number] = "SEASON_NOT_AIRED"
+                elif aired is None:
+                    deferred[number] = "SEASON_AIR_DATE_UNKNOWN"
             known = sorted(set(known))
             scope = source.season_scope or self.config.season_scope
             if scope == "all_known": seasons = known
             else:
                 identified = self._field(correction.meta, "begin_season")
-                seasons = [identified] if type(identified) is int and identified in known else []
+                seasons = [identified] if type(identified) is int and identified > 0 else []
+                if seasons and identified not in known:
+                    deferred[identified] = "SEASON_METADATA_UNKNOWN"
             if not seasons:
                 return self._set_record(record_id, "DEFERRED", "SEASON_METADATA_UNKNOWN", data)
             targets = [Target(media_type, source_id, media_id, season) for season in seasons]
         states = []
         for target in targets:
-            inventory = self.inventory(target) or {"state": "UNKNOWN"}
-            if inventory.get("state") == "UNKNOWN" and callable(self.inventory_refresh):
-                refreshed = self.inventory_refresh(target, source)
-                if isinstance(refreshed, dict) and refreshed.get("state") in {"UNKNOWN", "MISSING", "PRESENT", "PARTIAL", "INGESTED"}:
-                    if refreshed["state"] == "UNKNOWN" or isinstance(refreshed.get("evidence_ref"), str):
-                        inventory = refreshed
-            if inventory.get("state") == "UNKNOWN":
-                states.append(self._link(record_id, target, "DEFERRED", "LIBRARY_STATE_UNKNOWN", data, None)); continue
-            action = source.existing_media_action or self.config.existing_media_action
-            if inventory.get("state") in {"PRESENT", "PARTIAL"} and action == "record_only":
-                data["archive"] = inventory
-                reason = "PARTIAL_RECORD_ONLY" if inventory.get("state") == "PARTIAL" else "RECORD_ONLY"
-                states.append(self._link(record_id, target, "EXISTING", reason, data, None,
-                                         receipt_ref=inventory.get("evidence_ref"))); continue
-            if inventory.get("state") == "INGESTED":
-                states.append(self._link(record_id, target, "INGESTED", "", data, None,
-                                         receipt_ref=inventory.get("evidence_ref"))); continue
-            if not self.authorized(target, source):
-                states.append(self._link(record_id, target, "DEFERRED", "SCOPE_NOT_AUTHORIZED", data, None)); continue
-            if self.excluded(target):
-                states.append(self._link(record_id, target, "REJECTED", "EXCLUDED", data, None)); continue
-            if not self.current() or not self._owned(source.id):
-                states.append(self._link(record_id, target, "DEFERRED", "STALE_GENERATION", data, None)); continue
             save_key = "movie" if media_type == "电影" else "anime" if data["classification"].get("effective") == "anime" else "tv"
-            snapshot = {"name": self._field(media, "title", item.title), "year": year, "username": "subscriBetter discovery",
-                        "save_path": source.destination_templates.get(save_key), "media_category_id": source.media_category_id}
-            snapshot = {key: value for key, value in snapshot.items() if value not in {None, ""}}
-            snapshot_digest = _digest(snapshot)
-            intent = "discovery:" + _digest([target.key, snapshot_digest])
-            existing = self.repository.by_target(target)
-            row = self.owner.submit(intent, target, snapshot, "discovery")
-            state = ("STOPPED" if row["state"] == "STOPPED" else "RELEASED" if row["state"] == "RELEASED_NATIVE"
-                     else "ALREADY_MANAGED" if existing and row["state"] == "ACTIVE"
-                     else "SUBMITTED" if row["state"] == "ACTIVE" and row.get("native_id")
-                     else "DEFERRED")
-            reason = "" if state in {"SUBMITTED", "ALREADY_MANAGED"} else "HANDOFF_" + row["state"]
-            if state in {"SUBMITTED", "ALREADY_MANAGED"} and callable(self.accepted):
-                try:
-                    self.accepted(row, target, source, snapshot)
-                except ValueError as error:
-                    state, reason = "DEFERRED", str(error) if str(error) in {"TV_SCOPE_UNBOUND", "TV_SCOPE_INVALID"} else "SCHEDULE_SCOPE_FAILED"
-            states.append(self._link(record_id, target, state, reason, data, row, intent, snapshot_digest))
+            if target.season in deferred:
+                states.append(self._link(record_id, target, "DEFERRED", deferred[target.season], data, None)); continue
+            try:
+                state = self._process_target(record_id, target, source, media, year, data, save_key)
+            except Exception:
+                state = self._link(record_id, target, "DEFERRED", "TARGET_PROCESS_FAILED", data, None)
+            states.append(state)
         resolved = {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "INGESTED"}
         if all(state in resolved for state in states):
             overall = next((state for state in ("SUBMITTED", "ALREADY_MANAGED", "INGESTED", "EXISTING") if state in states), "EXISTING")
@@ -695,6 +744,62 @@ class DiscoveryService:
                 reasons = [row[0] for row in db.execute("SELECT reason FROM discovery_targets WHERE record_id=? AND reason!=''", (record_id,))]
             reason = reasons[0] if len(set(reasons)) == 1 else overall
         return self._set_record(record_id, overall, reason, data)
+
+    def _process_target(self, record_id, target, source, media, year, data, save_key):
+        row, intent, snapshot_digest = None, "", ""
+        try:
+            inventory = self.inventory(target)
+        except Exception:
+            return self._link(record_id, target, "DEFERRED", "INVENTORY_FAILED", data, None)
+        if not isinstance(inventory, dict) or inventory.get("state") not in {"UNKNOWN", "MISSING", "PRESENT", "PARTIAL", "INGESTED"}:
+            return self._link(record_id, target, "DEFERRED", "LIBRARY_STATE_UNKNOWN", data, None)
+        if inventory["state"] == "UNKNOWN" and callable(self.inventory_refresh):
+            try:
+                refreshed = self.inventory_refresh(target, source)
+            except Exception:
+                return self._link(record_id, target, "DEFERRED", "INVENTORY_REFRESH_FAILED", data, None)
+            if isinstance(refreshed, dict) and refreshed.get("state") in {"UNKNOWN", "MISSING", "PRESENT", "PARTIAL", "INGESTED"}:
+                inventory = refreshed
+            else:
+                inventory = {"state": "UNKNOWN"}
+        evidence = inventory.get("evidence_ref")
+        if inventory["state"] == "UNKNOWN" or not isinstance(evidence, str) or not evidence.strip():
+            return self._link(record_id, target, "DEFERRED", "LIBRARY_STATE_UNKNOWN", data, None)
+        action = source.existing_media_action or self.config.existing_media_action
+        if inventory["state"] in {"PRESENT", "PARTIAL"} and action == "record_only":
+            data["archive"] = inventory
+            reason = "PARTIAL_RECORD_ONLY" if inventory["state"] == "PARTIAL" else "RECORD_ONLY"
+            return self._link(record_id, target, "EXISTING", reason, data, None, receipt_ref=evidence)
+        if inventory["state"] == "INGESTED":
+            return self._link(record_id, target, "INGESTED", "", data, None, receipt_ref=evidence)
+        if not self.authorized(target, source, save_key):
+            return self._link(record_id, target, "DEFERRED", "SCOPE_NOT_AUTHORIZED", data, None)
+        if self.excluded(target):
+            return self._link(record_id, target, "REJECTED", "EXCLUDED", data, None)
+        if not self.current() or not self._owned(source.id):
+            return self._link(record_id, target, "DEFERRED", "STALE_GENERATION", data, None)
+        snapshot = {"name": self._field(media, "title"), "year": year,
+                    "username": "subscriBetter discovery", "save_path": source.destination_templates.get(save_key),
+                    "media_category_id": source.media_category_id}
+        snapshot = {key: value for key, value in snapshot.items() if value not in {None, ""}}
+        snapshot_digest = _digest(snapshot)
+        intent = "discovery:" + _digest([target.key, snapshot_digest])
+        existing = self.repository.by_target(target)
+        try:
+            row = self.owner.submit(intent, target, snapshot, "discovery")
+        except Exception:
+            return self._link(record_id, target, "DEFERRED", "HANDOFF_FAILED", data, None, intent, snapshot_digest)
+        state = ("STOPPED" if row["state"] == "STOPPED" else "RELEASED" if row["state"] == "RELEASED_NATIVE"
+                 else "ALREADY_MANAGED" if existing and row["state"] == "ACTIVE"
+                 else "SUBMITTED" if row["state"] == "ACTIVE" and row.get("native_id") else "DEFERRED")
+        reason = "" if state in {"SUBMITTED", "ALREADY_MANAGED"} else "HANDOFF_" + row["state"]
+        if state in {"SUBMITTED", "ALREADY_MANAGED"} and callable(self.accepted):
+            try:
+                self.accepted(row, target, source, snapshot)
+            except Exception as error:
+                state = "DEFERRED"
+                reason = str(error) if isinstance(error, ValueError) and str(error) in {"TV_SCOPE_UNBOUND", "TV_SCOPE_INVALID"} else "SCHEDULE_SCOPE_FAILED"
+        return self._link(record_id, target, state, reason, data, row, intent, snapshot_digest)
 
     def _link(self, record_id, target, state, reason, data, row, intent="", snapshot_digest="", receipt_ref=None):
         task_id = row.get("id") if row and self.repository.get_task(row.get("id")) else None
@@ -731,7 +836,18 @@ class DiscoveryService:
             intent_ack = sum(targets.get(state, 0) for state in ("SUBMITTED", "ALREADY_MANAGED"))
             download = db.execute("SELECT count(DISTINCT dt.record_id||':'||dt.target_key) FROM discovery_targets dt JOIN plans p ON p.task_id=dt.task_id JOIN plan_actions a ON a.plan_id=p.id WHERE a.kind='DOWNLOAD' AND a.state='SUCCEEDED'").fetchone()[0]
             delivered = db.execute("SELECT count(DISTINCT dt.record_id||':'||dt.target_key) FROM discovery_targets dt JOIN plans p ON p.task_id=dt.task_id JOIN delivery_bundles b ON b.plan_id=p.id WHERE b.state='CONFIRMED'").fetchone()[0]
-            ingested = db.execute("SELECT count(DISTINCT dt.record_id||':'||dt.target_key) FROM discovery_targets dt JOIN ingest_receipts i ON i.target_key=dt.target_key").fetchone()[0]
+            ingested = db.execute("""SELECT count(*) FROM discovery_targets dt
+                WHERE dt.task_id IS NOT NULL
+                  AND EXISTS (SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id
+                    AND json_array(json_extract(tu.target_key,'$[0]'),json_extract(tu.target_key,'$[1]'),
+                                   json_extract(tu.target_key,'$[2]'),json_extract(tu.target_key,'$[3]'),
+                                   json_extract(tu.target_key,'$[4]'))=dt.target_key)
+                  AND NOT EXISTS (SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id
+                    AND json_array(json_extract(tu.target_key,'$[0]'),json_extract(tu.target_key,'$[1]'),
+                                   json_extract(tu.target_key,'$[2]'),json_extract(tu.target_key,'$[3]'),
+                                   json_extract(tu.target_key,'$[4]'))=dt.target_key
+                    AND NOT EXISTS (SELECT 1 FROM ingest_receipts i
+                                    WHERE i.target_key=tu.target_key AND i.generation=tu.generation))""").fetchone()[0]
         stages = {"recognition": {"numerator": recognized, "denominator": record_total},
                   "intent_ack": {"numerator": intent_ack, "denominator": target_total},
                   "download_acceptance": {"numerator": download, "denominator": target_total},

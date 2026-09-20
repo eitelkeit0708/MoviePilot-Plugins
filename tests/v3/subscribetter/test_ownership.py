@@ -618,7 +618,7 @@ class PluginTests(unittest.TestCase):
         paths = {api["path"] for api in self.plugin.get_api()}
         self.assertTrue({"/discovery/sources", "/discovery/test", "/discovery/run",
                          "/discovery/records", "/discovery/reprocess",
-                         "/discovery/history/cleanup"} <= paths)
+                         "/discovery/history/cleanup", "/discovery/sources/retry"} <= paths)
         catalog = self.plugin.discovery_sources(user=self.TokenPayload())
         weekly = next(row for row in catalog["catalog"] if row["route_key"] == "movie_weekly_best")
         self.assertEqual("http://rss.internal:1200/proxy/rsshub/douban/list/movie_weekly_best?limit=50",
@@ -643,8 +643,12 @@ class PluginTests(unittest.TestCase):
         target=sys.modules['w01_plugin.repository'].Target('电视剧','themoviedb','1396',1)
         source=self.mod.SourceConfig(id='tv',kind='custom',url='https://feed.invalid/rss',
                                      destination_templates={'tv':'/downloads/tv'})
-        self.assertTrue(self.plugin._discovery_authorized(target,source))
-        self.assertFalse(self.plugin._discovery_authorized(target,source.model_copy(update={'destination_templates':{}})))
+        self.assertTrue(self.plugin._discovery_authorized(target,source,'tv'))
+        self.assertFalse(self.plugin._discovery_authorized(target,source,'anime'))
+        anime=source.model_copy(update={'destination_templates':{'anime':'/downloads/anime'}})
+        self.assertTrue(self.plugin._discovery_authorized(target,anime,'anime'))
+        self.assertFalse(self.plugin._discovery_authorized(target,anime,'tv'))
+        self.assertFalse(self.plugin._discovery_authorized(target,source.model_copy(update={'destination_templates':{}}),'tv'))
         requests=[]
         self.plugin.migration=types.SimpleNamespace(inventory_refresh=lambda request:
             (requests.append(request),{'state':'MISSING','evidence_ref':'archive-probe:test'})[1])
@@ -652,6 +656,8 @@ class PluginTests(unittest.TestCase):
         self.assertEqual('MISSING',result['state'])
         self.assertEqual([['emby','10']],requests[0]['library_scopes'])
         self.assertEqual(target.key,requests[0]['target_key'])
+        with self.assertRaises(Exception):
+            self.mod.DiscoveryReprocessRequest(record_ids=list(range(1,102)))
 
     def test_W09_discovery_accept_opens_shared_scheduler_scope(self):
         self.plugin.init_plugin({'enabled':True,'dry_run':False})

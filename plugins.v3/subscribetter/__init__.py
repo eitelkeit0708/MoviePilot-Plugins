@@ -143,6 +143,16 @@ class DiscoveryRecordsRequest(BaseModel):
     record_ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=500)
 
 
+class DiscoveryReprocessRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    record_ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=100)
+
+
+class DiscoveryRetryRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_ids: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")]] = Field(min_length=1, max_length=100)
+
+
 class SubscriBetter(_PluginBase):
     plugin_name = "subscriBetter"
     plugin_desc = "V3 统一订阅、榜单发现、调度、交付档案与安全隔离。"
@@ -373,11 +383,10 @@ class SubscriBetter(_PluginBase):
         return result if isinstance(result,dict) else {"state":"UNKNOWN","evidence_ref":None,
                                                        "diagnostics":["INVENTORY_REFRESH_INVALID"]}
 
-    def _discovery_authorized(self,target,source):
+    def _discovery_authorized(self,target,source,destination):
         worker=getattr(self,'delivery_worker',None)
         if worker is None or not any(rule.get('enabled') for rule in worker.rules.values()):return False
-        names=('movie',) if target.media_type=='电影' else ('tv','anime')
-        if not any(source.destination_templates.get(name) for name in names):return False
+        if destination not in {'movie','tv','anime'} or not source.destination_templates.get(destination):return False
         archive=worker.archive
         libraries=getattr(archive.sources,'libraries',{})
         return any(rule.get('media_source','themoviedb').casefold()==target.media_source
@@ -613,6 +622,13 @@ class SubscriBetter(_PluginBase):
             return self.discovery.test_source(request.source_id, proposed=proposed)
         except ValueError as error:raise HTTPException(409,str(error)) from None
 
+    def discovery_retry_sources(self, request: DiscoveryRetryRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        with self.runtime_lock:self._writes_enabled()
+        if not self.discovery:raise HTTPException(409,"Discovery configuration unavailable")
+        try:return {"changed":self.discovery.retry_sources(request.source_ids)}
+        except ValueError as error:raise HTTPException(409,str(error)) from None
+
     def discovery_run(self, request: DiscoveryRunRequest, user: TokenPayload = Depends(verify_token)) -> dict:
         self._authorize(user)
         with self.runtime_lock:
@@ -629,7 +645,7 @@ class SubscriBetter(_PluginBase):
         return {"records":self.discovery.records(limit=limit,offset=offset,state=state,source_id=source_id,view=view),
                 "statistics":self.discovery.statistics()}
 
-    def discovery_reprocess(self, request: DiscoveryRecordsRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+    def discovery_reprocess(self, request: DiscoveryReprocessRequest, user: TokenPayload = Depends(verify_token)) -> dict:
         self._authorize(user)
         with self.runtime_lock:self._writes_enabled()
         if not self.discovery:raise HTTPException(409,"Discovery configuration unavailable")
@@ -654,6 +670,7 @@ class SubscriBetter(_PluginBase):
                        ("/tasks/{task_id}/recover", "POST", self.recover_native, TaskView)]
         definitions.extend([
             ("/discovery/sources","GET",self.discovery_sources,dict),
+            ("/discovery/sources/retry","POST",self.discovery_retry_sources,dict),
             ("/discovery/test","POST",self.discovery_test,dict),
             ("/discovery/run","POST",self.discovery_run,dict),
             ("/discovery/records","GET",self.discovery_records,dict),

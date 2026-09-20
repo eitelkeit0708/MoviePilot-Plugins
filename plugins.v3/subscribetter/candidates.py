@@ -35,12 +35,14 @@ class HostCandidateAdapter:
         return SearchChain().get_search_page_size(site=site,keyword=word)
 
     @staticmethod
-    def recognize(meta,declared):
+    def recognize(meta,declared,*,media_type=None):
         from app.chain.media import MediaChain
         from app.sdk.media import normalize_media_source
+        from app.schemas.types import MediaType
         # Public module dispatch avoids NameRecognize / MediaRecognize auxiliary
         # events and shared-recognition submission used by the high-level method.
         return MediaChain().run_module('recognize_media',meta=meta,
+            mtype=MediaType(media_type) if media_type else None,
             media_source=normalize_media_source(declared[0]) if declared else None,
             media_id=str(declared[1]) if declared else None,episode_group=None)
 
