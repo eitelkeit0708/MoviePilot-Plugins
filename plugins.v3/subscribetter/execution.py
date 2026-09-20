@@ -361,6 +361,32 @@ class StrictExecutor:
             raise ValueError('WANTED_READBACK_MISMATCH')
         return mapping,union
 
+    def _prepare_selection(self,plan,s,indices,vector,client,owned,task,*,selection_changed):
+        self._prepare_cycle(s,owned,task,selection_changed=selection_changed)
+        if task['state']!='PAUSED':
+            ok,_,_=self._mutation(plan,indices,vector,'pause','SET_WANTED',lambda:client.pause(task['id']),{'id':task['id']})
+            if not ok or self._task(s,self._read(client.task,s['infohash']))['state']!='PAUSED':
+                raise ValueError('PAUSE_NOT_CONFIRMED')
+        mapping=self._table(s,self._read(client.files,s['infohash']))
+        union=set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))
+        if not set(indices)<=union:
+            raise ValueError('SELECTION_AUTHORITY_CHANGED')
+        wanted=sorted(mapping[i]['id'] for i in union)
+        unwanted=sorted(mapping[i]['id'] for i in range(len(s['torrent_files'])) if i not in union)
+        if {r['id'] for r in mapping.values() if r['wanted']}!=set(wanted):
+            for ids,enabled in ((unwanted,False),(wanted,True)):
+                if not ids:continue
+                if set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))!=union:
+                    raise ValueError('SHARED_SELECTION_CHANGED')
+                ok,_,_=self._mutation(plan,indices,vector,'select:'+str(enabled),'SET_WANTED',lambda:client.select_files(task['id'],ids,enabled),{'id':task['id'],'indices':ids,'wanted':enabled,'wanted_indices':sorted(union)})
+                if not ok:
+                    raise ValueError('SELECTION_OUTCOME_UNKNOWN')
+        self._selection(s,client)
+        if self._task(s,self._read(client.task,s['infohash']))['state']!='PAUSED':
+            raise ValueError('TASK_NOT_PAUSED')
+        self._save(s,state='PAUSED_VERIFIED',evidence={'wanted':wanted,'unwanted':unwanted})
+        return wanted
+
     def execute(self,plan_id,content,*,resume=False):
         with MUTATION_LOCK:
             try:
@@ -375,8 +401,14 @@ class StrictExecutor:
                 if s.get('local_assets'):
                     self._task(s,task)
                     if not owned or str(task['id'])!=owned['client_id']:raise ValueError('DOWNLOAD_OWNERSHIP_UNCONFIRMED')
-                    mapping,_=self._selection(s,client)
+                    if owned['state'] in ('ADD_INTENT','UNKNOWN') or owned['save_path']!=s['save_path'] or json.loads(owned['file_table'])!=[list(x) for x in table]:raise ValueError('DOWNLOAD_OWNERSHIP_UNCONFIRMED')
+                    mapping=self._table(s,self._read(client.files,s['infohash']))
                     if task['state'] in ('CHECKING','FAILED','DISCONNECTED') or any(mapping[i]['completed']!=asset_table(s)[i]['size'] for i in indices):return dict(state='WAITING_ASSETS')
+                    physical=[i for i in indices if i<len(s['torrent_files'])]
+                    union=set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))
+                    if physical and {i for i,row in mapping.items() if row['wanted']}!=union:
+                        self._prepare_selection(plan,s,physical,vector,client,owned,task,selection_changed=True)
+                    self._selection(s,client)
                     return dict(state='RUNNING')
                 if owned is None:
                     if task is not None:
@@ -407,29 +439,7 @@ class StrictExecutor:
                 if resume and unchanged and task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
                     return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
-                self._prepare_cycle(s,owned,task,selection_changed=not unchanged)
-                if task['state']!='PAUSED':
-                    ok,_,_=self._mutation(plan,indices,vector,'pause','SET_WANTED',lambda:client.pause(task['id']),{'id':task['id']})
-                    if not ok or self._task(s,self._read(client.task,s['infohash']))['state']!='PAUSED':
-                        raise ValueError('PAUSE_NOT_CONFIRMED')
-                mapping=self._table(s,self._read(client.files,s['infohash']))
-                union=set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))
-                if not set(indices)<=union:
-                    raise ValueError('SELECTION_AUTHORITY_CHANGED')
-                wanted=sorted(mapping[i]['id'] for i in union)
-                unwanted=sorted(r['id'] for i,r in mapping.items() if i not in union)
-                if {r['id'] for r in mapping.values() if r['wanted']}!=set(wanted):
-                    for ids,enabled in ((unwanted,False),(wanted,True)):
-                        if not ids:continue
-                        if set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))!=union:
-                            raise ValueError('SHARED_SELECTION_CHANGED')
-                        ok,_,_=self._mutation(plan,indices,vector,'select:'+str(enabled),'SET_WANTED',lambda:client.select_files(task['id'],ids,enabled),{'id':task['id'],'indices':ids,'wanted':enabled,'wanted_indices':sorted(union)})
-                        if not ok:
-                            raise ValueError('SELECTION_OUTCOME_UNKNOWN')
-                self._selection(s,client)
-                if self._task(s,self._read(client.task,s['infohash']))['state']!='PAUSED':
-                    raise ValueError('TASK_NOT_PAUSED')
-                self._save(s,state='PAUSED_VERIFIED',evidence={'wanted':wanted,'unwanted':unwanted})
+                wanted=self._prepare_selection(plan,s,indices,vector,client,owned,task,selection_changed=not unchanged)
                 return self.resume(plan_id) if resume else {'state':'PAUSED_VERIFIED','infohash':s['infohash'],'wanted':wanted}
             except (ValueError,RuntimeError) as error:
                 return {'state':'BLOCKED','reason':str(error) if str(error).isupper() else 'EXECUTION_CHECK_FAILED'}

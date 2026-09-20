@@ -697,23 +697,35 @@ class Delivery:
                 db.execute("UPDATE managed_downloads SET state='DELIVERY_CLEANUP',evidence=? WHERE downloader=? AND infohash=?",(encoded(evidence),s['downloader'],s['infohash']))
         def settled():
             with self.repository.connection(write=True) as db:db.execute("UPDATE managed_downloads SET state='REMOVED' WHERE downloader=? AND infohash=? AND state='DELIVERY_CLEANUP'",(s['downloader'],s['infohash']))
-        client=ConfiguredDownloader.named(s['downloader']);task=client.task(s['infohash'])
+        if self.dispatch_gate:self.dispatch_gate()
+        client=ConfiguredDownloader.named(s['downloader'])
+        if self.dispatch_gate:self.dispatch_gate()
+        task=client.task(s['infohash'])
         if task and (task['id']!=managed['client_id'] or task['save_path']!=s['save_path'] or managed['marker'] not in task['markers']):return dict(self._result(b),reason='DOWNLOAD_OWNERSHIP_CHANGED')
         if scope=='downloader_task':
             if task:
                 if b.get('downloader_remove_intent'):return dict(self._result(b),reason='DOWNLOADER_REMOVE_UNKNOWN')
+                if self.dispatch_gate:self.dispatch_gate()
                 actual=client.files(s['infohash'])
                 if [(x['id'],x['path'],x['size']) for x in sorted(actual,key=lambda x:x['id'])]!=[(x['index'],x['path'],x['size']) for x in s['torrent_files']]:return dict(self._result(b),reason='DOWNLOAD_FILE_TABLE_CHANGED')
+                if self.dispatch_gate:self.dispatch_gate()
                 guard()
                 b['downloader_remove_intent']={'client_id':task['id'],'delete_data':False,'rule_revision':r['revision'],'at':stamp(now)};self._save(b)
                 try:
+                    if self.dispatch_gate:self.dispatch_gate()
+                except ValueError:
+                    b.pop('downloader_remove_intent');self._save(b)
+                    raise
+                try:
                     client.remove(task['id'])
+                    if self.dispatch_gate:self.dispatch_gate()
                     if client.task(s['infohash']) is not None:return dict(self._result(b),reason='DOWNLOADER_REMOVE_UNKNOWN')
                 except Exception:return dict(self._result(b),reason='DOWNLOADER_REMOVE_UNKNOWN')
             settled();b['downloader_removed']=True;self._save(b);return dict(self._result(b),downloader_removed=True)
         # Source data permission never implies task removal. Even a paused task
         # can be resumed by another actor; absence is required before unlinking.
         if task:return dict(self._result(b),reason='DOWNLOADER_SOURCE_READER_UNSETTLED')
+        if self.dispatch_gate:self.dispatch_gate()
         if os.name!='posix':return dict(self._result(b),reason='BLOCKED_CLEANUP_UNSAFE')
         guard()
         for f in b['files']:
@@ -732,6 +744,7 @@ class Delivery:
                 except (ValueError,OSError):return dict(self._result(b),reason='SOURCE_CLEANUP_UNVERIFIED')
                 self._save(b)
             intent=f['source_cleanup_intent']
+            if self.dispatch_gate:self.dispatch_gate()
             try:safe_unlink(intent['snapshot'],intent['parents'],resume=True,quarantine=intent['quarantine'])
             except (ValueError,OSError):return dict(self._result(b),reason='BLOCKED_CLEANUP_UNSAFE')
             f['source_cleaned']=True;self._save(b)

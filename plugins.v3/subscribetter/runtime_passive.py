@@ -70,9 +70,12 @@ class Passive:
     def arrival(self,key):
         r=self.r;r.check()
         raw=r.candidates.refresh(key,r.budget(dict(effective=dict(candidates=self.config.candidates.model_dump()))))
+        r.check()
         corrected=r.meta.parse('rss:'+digest(key),value(raw,'title') or '',value(raw,'description'))
         if corrected.status!='OK':raise ValueError('RSS_META_UNCONFIRMED')
+        r.check()
         media=r.candidates.adapter.recognize(corrected.meta,None)
+        r.check()
         identity=r.candidates.adapter.identity(media);kind=value(media,'type');kind=getattr(kind,'value',kind)
         if not identity or kind not in ('电影','电视剧'):raise ValueError('RSS_IDENTITY_UNCONFIRMED')
         season=value(corrected.meta,'begin_season') if kind=='电视剧' else None

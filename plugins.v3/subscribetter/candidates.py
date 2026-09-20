@@ -248,16 +248,21 @@ class CandidateService:
         rows=self.search([value(raw,'site')],[value(raw,'title') or ''],budget)
         return next((r for r in rows if r['candidate_key']==key),{'status':'DEFER','reason':'DETAILS_NOT_CONFIRMED'})
 
-    def recognize(self, key, target, meta_service, *, custom_words=None, task_id=None):
+    def recognize(self, key, target, meta_service, *, custom_words=None, task_id=None, checkpoint=None):
+        def check():
+            if checkpoint:checkpoint()
+            if self.deadline is not None and time.monotonic()>=self.deadline:raise ValueError('TICK_DEADLINE')
         raw = self.runtime.get(key)
         if raw is None:
             return {'status':'DEFER','reason':'RESOURCE_REFRESH_REQUIRED'}
         declared = (getattr(value(raw,'media_source'),'value',value(raw,'media_source')),value(raw,'media_id'))
         if all(declared) and declared[0] == target.media_source and identity_matches((target.media_source,target.media_id),declared) is False:
             return {'status':'REJECT','reason':'PROVIDER_ID_CONFLICT'}
+        check()
         correction = meta_service.parse('candidate:'+sha256(key.encode()).hexdigest(), value(raw,'title') or '', value(raw,'description'), custom_words, task_id=task_id)
         assistance=None
         if self.ai is not None:
+            check()
             correction,assistance=self.ai.assist(value(raw,'title') or '',value(raw,'description') or '',
                 correction,corrector=meta_service.corrector,custom_words=custom_words)
         evidence=({k:getattr(assistance,k) for k in ('reason','source','attempts','usage','request_digest','generation')}
@@ -267,11 +272,13 @@ class CandidateService:
             if evidence is not None:result['ai']=evidence
             self._save_recognition(key,result)
             return result
+        check()
         try:
             if assistance is not None and assistance.identity:self.ai.count('candidate_submitted')
             media = self.adapter.recognize(correction.meta,declared if all(declared) else None)
         except Exception:
             return {'status':'ERROR','reason':'PROVIDER_UNAVAILABLE'}
+        check()
         identity = self.adapter.identity(media) if media is not None else None
         matched = identity_matches((target.media_source,target.media_id),identity)
         if assistance is not None and assistance.identity and matched is True:self.ai.count('identity_matched')
@@ -405,7 +412,7 @@ class CandidatePipeline:
     def evaluate(self,key,target,scope,*,downloader,save_path,dependencies=None,custom_words=None,task_id=None,mode='episode'):
         from .planner import Planner
         if self.active:self.active()
-        result=self.service.recognize(key,target,self.meta,custom_words=custom_words,task_id=task_id)
+        result=self.service.recognize(key,target,self.meta,custom_words=custom_words,task_id=task_id,checkpoint=self.active)
         if self.active:self.active()
         if result['status']!='OK':
             return dict(plans=[],reason=result['reason'])

@@ -180,7 +180,7 @@ class ArchiveTests(unittest.TestCase):
         result = self.archive.reconcile('test', '10')
         self.assertEqual('ERROR', result['status'])
 
-    def publication(self, planned_picture=0, *, unknown=False):
+    def publication(self, planned_picture=0, *, unknown=False, video_requires=None):
         task = self.repo.submit('task', self.r.Target('电影', 'themoviedb', '42'), {}, 'test', 42, True)
         self.repo.complete_handoff(task['id'], task['generation'])
         self.task = task
@@ -194,7 +194,7 @@ class ArchiveTests(unittest.TestCase):
         auth = self.archive.authority
         auth.set_revisions(self.policy.semantic_hash, 'parse')
         current = self.archive.current([self.key])[self.key]
-        files = [dict(index=0, path='movie.mkv', size=100, role='video', targets=[self.key], requires=[1]),
+        files = [dict(index=0, path='movie.mkv', size=100, role='video', targets=[self.key], requires=[1] if video_requires is None else video_requires),
                  dict(index=1, path='movie.srt', size=5, role='subtitle', targets=[self.key], requires=[])]
         spec = dict(candidate_key='release', infohash='f'*40, downloader='test', save_path='/download',
                     policy_revision=self.policy.semantic_hash, parse_revision='parse', current={self.key:dict(state='MISSING',revision=current['revision'])},
