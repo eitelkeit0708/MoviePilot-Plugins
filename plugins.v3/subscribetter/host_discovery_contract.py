@@ -1,14 +1,14 @@
 """Explicit W09 host probe: fetch-only by default; submission requires a separate flag."""
 
 
-def run_host_contract(plugin, *, phase="fetch", source_id, confirm_submission=False):
+async def run_host_contract(plugin, *, phase="fetch", source_id, confirm_submission=False):
     if phase == "fetch":
-        result = plugin.discovery.test_source(source_id)
+        result = await plugin.discovery.test_source(source_id)
         return dict(result, phase="fetch", recognition=False, submission=False, live_contract=True)
     if phase == "run":
         if confirm_submission is not True:
             raise ValueError("SUBMISSION_CONFIRMATION_REQUIRED")
-        result = plugin.discovery_tick(plugin.generation, [source_id])
+        result = await plugin.discovery_tick(plugin.generation, [source_id])
         return dict(result, phase="run", recognition=True, submission=True, live_contract=True)
     if phase == "records":
         return {"phase": "records", "records": plugin.discovery.records(source_id=source_id),

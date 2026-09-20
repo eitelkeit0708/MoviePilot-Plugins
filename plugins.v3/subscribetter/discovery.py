@@ -10,7 +10,6 @@ import json
 import math
 import random
 import re
-import threading
 from typing import Annotated, Callable, Literal
 from urllib.parse import parse_qsl, quote, unquote, urljoin, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
@@ -18,6 +17,22 @@ import xml.etree.ElementTree as ET
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .repository import Target, utcnow
+
+
+async def _drainable_to_thread(function, *args):
+    """Do not leave provider or ownership work running after scheduler cancellation."""
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        if not task.cancelled():
+            task.exception()
+        raise
 
 
 ROUTES = {
@@ -254,7 +269,7 @@ class HostRSSFetcher:
         self.clock = clock or time.monotonic
         self.allowed_private_ranges = list(allowed_private_ranges)
 
-    def _safe(self, url, configured):
+    async def _safe(self, url, configured):
         from app.sdk.network import SecurityUtils
         configured_parts = urlsplit(configured)
         host = configured_parts.hostname
@@ -264,30 +279,14 @@ class HostRSSFetcher:
             ranges.append(f"{address}/{address.max_prefixlen}")
         except ValueError:
             pass
-        verdict = SecurityUtils.evaluate_url_safety(
+        verdict = await SecurityUtils.evaluate_url_safety_async(
             url, allowed_domains=[configured_parts.netloc], strict=True, block_private=True,
             allowed_private_ranges=sorted(set(ranges)) or None)
         if not getattr(verdict, "allowed", False):
             raise FetchError("UNSAFE_URL")
 
-    def __call__(self, url, source, budget):
-        coroutine = self._fetch(url, source, budget)
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coroutine)
-        result, failure = [], []
-        def run():
-            try:
-                result.append(asyncio.run(coroutine))
-            except BaseException as error:
-                failure.append(error)
-        worker = threading.Thread(target=run, name="subscribetter-rss-fetch")
-        worker.start()
-        worker.join()
-        if failure:
-            raise failure[0]
-        return result[0]
+    async def __call__(self, url, source, budget):
+        return await self._fetch(url, source, budget)
 
     async def _fetch(self, url, source, budget):
         import httpx2
@@ -323,7 +322,7 @@ class HostRSSFetcher:
                         current_parts = urlsplit(_url(current))
                         if (current_parts.scheme, current_parts.hostname, current_parts.port) != (origin.scheme, origin.hostname, origin.port):
                             raise FetchError("REDIRECT_ORIGIN_CHANGED")
-                        self._safe(current, configured)
+                        await self._safe(current, configured)
                         timeout = remaining()
                         try:
                             transport = AsyncRequestUtils(client=client, timeout=timeout, follow_redirects=False)
@@ -593,7 +592,7 @@ class DiscoveryService:
         except Exception:
             return False
 
-    def test_source(self, source_id=None, *, proposed=None):
+    async def test_source(self, source_id=None, *, proposed=None):
         if (source_id is None) == (proposed is None):
             raise ValueError("EXACTLY_ONE_SOURCE_REQUIRED")
         source = proposed or next((x for x in self.config.sources if x.id == source_id), None)
@@ -602,7 +601,7 @@ class DiscoveryService:
         url = source_url(self.config, source)
         budget = source.request_budget or self.config.request_budget
         try:
-            result = self.fetch(url, source, budget)
+            result = await self.fetch(url, source, budget)
             items = parse_rss(result.body, max_bytes=budget.response_bytes, max_items=budget.items)
             return dict(source_id=source.id, url=url, items=len(items), fetch_only=True, state="SUCCESS")
         except FetchError as error:
@@ -613,8 +612,13 @@ class DiscoveryService:
             code = str(error) if str(error) in allowed else "SOURCE_FAILED"
             return dict(source_id=source.id, items=0, fetch_only=True, state="FAILED", reason=code)
 
-    def run(self, source_ids=None):
+    async def run(self, source_ids=None):
         selected = set(source_ids or [source.id for source in self.config.sources if source.enabled])
+        owned = set()
+        for source in self.config.sources:
+            if (source.enabled and source.id in selected
+                    and await _drainable_to_thread(self._owned, source.id)):
+                owned.add(source.id)
         result = {"sources": {}}
         requests = 0
         for source in self.config.sources:
@@ -622,18 +626,23 @@ class DiscoveryService:
             if requests >= self.config.request_budget.requests_per_run:
                 result["sources"][source.id] = {"state": "RATELIMITED", "reason": "RUN_REQUEST_BUDGET"}; continue
             url, origin = source_url(self.config, source), self._origin(source_url(self.config, source))
-            if not self._owned(source.id):
+            if (source.id not in owned
+                    or not await _drainable_to_thread(self._owned, source.id)):
+                owned.discard(source.id)
                 result["sources"][source.id] = {"state": "OWNER_UNBOUND", "reason": "OWNER_UNBOUND"}; continue
-            reserve = self._reserve(source, url, selected)
+            reserve = self._reserve(source, url, owned)
             if reserve:
                 state = "DEFERRED" if reserve == "RETRY_EXHAUSTED" else "RATELIMITED"
                 result["sources"][source.id] = {"state": state, "reason": reserve}; continue
             requests += 1
             try:
                 budget = source.request_budget or self.config.request_budget
-                fetched = self.fetch(url, source, budget)
+                fetched = await self.fetch(url, source, budget)
+                if not self.current():
+                    result["sources"][source.id] = {"state": "DEFERRED", "reason": "STALE_GENERATION"}
+                    continue
                 items = parse_rss(fetched.body, max_bytes=budget.response_bytes, max_items=budget.items)
-                states = [self._observe(source, item) for item in items]
+                states = [await _drainable_to_thread(self._observe, source, item) for item in items]
                 complete = {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "REJECTED"}
                 state = "PARTIAL" if "PARTIAL" in states or (any(x not in complete for x in states) and any(x in complete for x in states)) else "SUCCESS"
                 self._source_state(source.id, state, success=True)
@@ -655,6 +664,7 @@ class DiscoveryService:
             row = db.execute("SELECT * FROM discovery_records WHERE source_id=? AND item_key=? AND raw_revision=?",
                              (source.id, item.item_key, item.raw_revision)).fetchone()
             if row:
+                reuse_resolved = row["filter_revision"] == policy
                 db.execute("UPDATE discovery_records SET last_seen=?,visible=1 WHERE id=?", (now, row["id"]))
                 metadata_wait = self._metadata_wait(db, row, source)
                 if (row["state"] in {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "INGESTED",
@@ -669,10 +679,11 @@ class DiscoveryService:
                     db.execute("UPDATE discovery_records SET retry_count=0,next_due=0,filter_revision=? WHERE id=?", (policy, row["id"]))
                 record_id = row["id"]
             else:
+                reuse_resolved = False
                 cursor = db.execute("INSERT INTO discovery_records(source_id,item_key,raw_revision,raw,state,reason,retry_count,next_due,filter_revision,data,visible,first_seen,last_seen) VALUES(?,?,?,?, 'UNRECOGNIZED','',0,0,?,'{}',1,?,?)",
                                     (source.id, item.item_key, item.raw_revision, json.dumps(asdict(item), ensure_ascii=False), policy, now, now))
                 record_id = cursor.lastrowid
-        state = self._process(record_id, source, item, policy)
+        state = self._process(record_id, source, item, policy, reuse_resolved=reuse_resolved)
         with self.repository.connection(write=True) as db:
             row = db.execute("SELECT * FROM discovery_records WHERE id=?", (record_id,)).fetchone()
             metadata_wait = self._metadata_wait(db, row, source)
@@ -709,7 +720,7 @@ class DiscoveryService:
                        (f"DISCOVERY:{record_id}:{state}:{reason}", "discovery", utcnow()))
         return state
 
-    def _process(self, record_id, source, item, policy):
+    def _process(self, record_id, source, item, policy, *, reuse_resolved=False):
         correction = self.meta_service.parse("discovery:" + item.raw_revision, item.title)
         if correction.status != "OK" and self.ai is not None:
             correction, _ = self.ai.assist(item.title, "", correction, corrector=self.meta_service.corrector)
@@ -847,8 +858,10 @@ class DiscoveryService:
             with self.repository.connection() as db:
                 prior = db.execute("SELECT state FROM discovery_targets WHERE record_id=? AND target_key=?",
                                    (record_id, target.key)).fetchone()
-            if prior and prior["state"] in {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "INGESTED",
-                                             "STOPPED", "RELEASED"}:
+            protected = {"STOPPED", "RELEASED"}
+            reusable = {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "INGESTED"}
+            if prior and (prior["state"] in protected or
+                          (reuse_resolved and prior["state"] in reusable)):
                 states.append(prior["state"]); continue
             try:
                 state = self._process_target(record_id, target, source, media, year, data, save_key)

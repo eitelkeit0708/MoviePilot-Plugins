@@ -1,5 +1,7 @@
 """W01 unit doubles, not MoviePilot integration evidence (T007/T010/T148/T150)."""
+import asyncio
 import importlib.util
+import inspect
 from pathlib import Path
 import sys
 import tempfile
@@ -615,10 +617,13 @@ class PluginTests(unittest.TestCase):
                 {"id": "weekly", "kind": "rsshub", "route_key": "movie_weekly_best"}]}}
         self.plugin.init_plugin(config)
         self.assertNotIn("INVALID_DISCOVERY_CONFIG", self.plugin.errors)
-        paths = {api["path"] for api in self.plugin.get_api()}
+        apis = {api["path"]: api for api in self.plugin.get_api()}
+        paths = set(apis)
         self.assertTrue({"/discovery/sources", "/discovery/test", "/discovery/run",
                          "/discovery/records", "/discovery/reprocess",
                          "/discovery/history/cleanup", "/discovery/sources/retry"} <= paths)
+        self.assertTrue(inspect.iscoroutinefunction(apis["/discovery/test"]["endpoint"]))
+        self.assertTrue(inspect.iscoroutinefunction(apis["/discovery/run"]["endpoint"]))
         catalog = self.plugin.discovery_sources(user=self.TokenPayload())
         weekly = next(row for row in catalog["catalog"] if row["route_key"] == "movie_weekly_best")
         self.assertEqual("http://rss.internal:1200/proxy/rsshub/douban/list/movie_weekly_best?limit=50",
@@ -631,7 +636,9 @@ class PluginTests(unittest.TestCase):
                                       "apscheduler.triggers.cron": cron}):
             jobs = {job["id"]: job for job in self.plugin.get_service()}
         self.assertIn("SubscriBetter_discovery", jobs)
-        result = jobs["SubscriBetter_discovery"]["func"](**jobs["SubscriBetter_discovery"]["func_kwargs"])
+        self.assertTrue(inspect.iscoroutinefunction(jobs["SubscriBetter_discovery"]["func"]))
+        result = asyncio.run(jobs["SubscriBetter_discovery"]["func"](
+            **jobs["SubscriBetter_discovery"]["func_kwargs"]))
         self.assertEqual("OWNER_UNBOUND", result["sources"]["weekly"]["reason"])
 
     def test_W09_discovery_scope_and_inventory_refresh_contract_are_explicit(self):

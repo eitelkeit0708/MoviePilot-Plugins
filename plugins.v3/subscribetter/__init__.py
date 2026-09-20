@@ -211,10 +211,10 @@ class SubscriBetter(_PluginBase):
                 try:
                     discovery_config = DiscoveryConfig.model_validate(self.config.discovery)
                     generation = self.generation
-                    def fetch(url, source, budget):
+                    async def fetch(url, source, budget):
                         configured = discovery_config.rsshub_base_url if source.kind == "rsshub" else source.url
-                        return HostRSSFetcher(configured, proxy=source.proxy,
-                                              allowed_private_ranges=discovery_config.allowed_private_ranges)(url, source, budget)
+                        return await HostRSSFetcher(configured, proxy=source.proxy,
+                                                    allowed_private_ranges=discovery_config.allowed_private_ranges)(url, source, budget)
                     self.discovery = DiscoveryService(
                         self.repository, self.ownership, self.meta_service, HostCandidateAdapter(), discovery_config,
                         fetch=fetch, inventory=self._discovery_inventory,
@@ -438,12 +438,12 @@ class SubscriBetter(_PluginBase):
             runtime,meta=self.ai,self.meta_service
         if runtime:runtime.drain(meta)
 
-    def discovery_tick(self,generation=None,source_ids=None):
+    async def discovery_tick(self,generation=None,source_ids=None):
         with self.runtime_lock:
             runtime=self.discovery
             if generation is not None and generation!=self.generation:return {"sources":{},"reason":"STALE_GENERATION"}
             if not runtime or not runtime.config.enabled or not self._ordinary_work_active():return {"sources":{},"reason":"DISCOVERY_DISABLED"}
-        return runtime.run(source_ids)
+        return await runtime.run(source_ids)
 
     def reconcile(self, generation: int | None = None):
         with self.runtime_lock:
@@ -614,12 +614,12 @@ class SubscriBetter(_PluginBase):
         self._authorize(user)
         return {"catalog": self.discovery.catalog() if self.discovery else [], "errors": self.discovery_errors}
 
-    def discovery_test(self, request: DiscoverySourceRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+    async def discovery_test(self, request: DiscoverySourceRequest, user: TokenPayload = Depends(verify_token)) -> dict:
         self._authorize(user)
         if not self.discovery: raise HTTPException(409,"Discovery configuration unavailable")
         try:
             proposed = SourceConfig.model_validate(request.source) if request.source is not None else None
-            return self.discovery.test_source(request.source_id, proposed=proposed)
+            return await self.discovery.test_source(request.source_id, proposed=proposed)
         except ValueError as error:raise HTTPException(409,str(error)) from None
 
     def discovery_retry_sources(self, request: DiscoveryRetryRequest, user: TokenPayload = Depends(verify_token)) -> dict:
@@ -629,12 +629,12 @@ class SubscriBetter(_PluginBase):
         try:return {"changed":self.discovery.retry_sources(request.source_ids)}
         except ValueError as error:raise HTTPException(409,str(error)) from None
 
-    def discovery_run(self, request: DiscoveryRunRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+    async def discovery_run(self, request: DiscoveryRunRequest, user: TokenPayload = Depends(verify_token)) -> dict:
         self._authorize(user)
         with self.runtime_lock:
             self._writes_enabled()
             generation=self.generation
-        return self.discovery_tick(generation,request.source_ids or None)
+        return await self.discovery_tick(generation,request.source_ids or None)
 
     def discovery_records(self, limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
                           state: str | None = None, source_id: str | None = None,

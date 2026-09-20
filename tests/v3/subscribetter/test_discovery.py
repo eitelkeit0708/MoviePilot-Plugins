@@ -5,8 +5,11 @@ import asyncio
 import importlib.util
 import json
 from pathlib import Path
+import socket
 import sqlite3
 import tempfile
+import threading
+import time
 import types
 import sys
 import unittest
@@ -149,6 +152,10 @@ class DiscoveryTests(unittest.TestCase):
         self.repo = self.repo_mod.Repository(Path(self.tmp.name) / "state.sqlite3")
         self.clock = Clock()
 
+    @staticmethod
+    def wait(awaitable):
+        return asyncio.run(awaitable)
+
     def config(self, **changes):
         source = dict(id="weekly", kind="rsshub", route_key="movie_weekly_best")
         data = dict(enabled=True, rsshub_base_url="http://rss.internal:1200/proxy/rsshub",
@@ -163,16 +170,20 @@ class DiscoveryTests(unittest.TestCase):
 
     def service(self, config=None, *, fetch=None, media=None, owner=None, inventory=None,
                 authorized=None, excluded=None, inventory_refresh=None, recognizer=None,
-                meta_service=None, accepted=None):
+                meta_service=None, accepted=None, owner_check=None):
         if media is not None and not hasattr(media, "douban_id"):
             media.douban_id = "35322132"
+        fetch_sync = fetch or (lambda *_: self.d.FetchResult(SYNTHETIC_RSS))
+        async def fetch_async(*args):
+            result = fetch_sync(*args)
+            return await result if hasattr(result, "__await__") else result
         return self.d.DiscoveryService(
             self.repo, owner or Owner(), meta_service or MetaService(), recognizer or Recognizer(media), config or self.config(),
-            fetch=fetch or (lambda *_: self.d.FetchResult(SYNTHETIC_RSS)), clock=self.clock,
+            fetch=fetch_async, clock=self.clock,
             inventory=inventory or (lambda _target: {"state": "MISSING", "evidence_ref": "fixture:missing"}),
             inventory_refresh=inventory_refresh,
             authorized=authorized or (lambda *_: True), excluded=excluded or (lambda _target: False),
-            current=lambda: True, owner_check=owner_receipt, accepted=accepted,
+            current=lambda: True, owner_check=owner_check or owner_receipt, accepted=accepted,
             owner_snapshot=lambda *_: OWNER_SNAPSHOT, instance_id="SubscriBetter")
 
     def test_catalog_basepath_and_no_public_fallback(self):
@@ -196,7 +207,7 @@ class DiscoveryTests(unittest.TestCase):
         custom = next(row for row in catalog if row.get("configured_id") == "custom")
         self.assertEqual("https://feed.invalid/rss?limit=2", custom["full_url"])
         proposed = self.d.SourceConfig(id="preview", kind="custom", url="https://preview.invalid/rss")
-        tested = service.test_source(proposed=proposed)
+        tested = self.wait(service.test_source(proposed=proposed))
         self.assertEqual("preview", tested["source_id"])
         self.assertTrue(tested["fetch_only"])
 
@@ -275,8 +286,8 @@ class DiscoveryTests(unittest.TestCase):
                     events.append("closed")
         class Security:
             @staticmethod
-            def evaluate_url_safety(url, allowed_domains, strict=False, block_private=False,
-                                    allowed_private_ranges=None):
+            async def evaluate_url_safety_async(url, allowed_domains, strict=False, block_private=False,
+                                                allowed_private_ranges=None):
                 request.security = (url, allowed_domains, strict, block_private, allowed_private_ranges)
                 return types.SimpleNamespace(allowed=url == "https://feed.invalid/rss"
                                               and allowed_domains == ["feed.invalid"]
@@ -294,7 +305,7 @@ class DiscoveryTests(unittest.TestCase):
         source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid/rss")
         budget = types.SimpleNamespace(timeout=0.05, response_bytes=1024, items=1)
         with patch.dict(sys.modules, modules), self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
-            self.d.HostRSSFetcher(source.url)(source.url, source, budget)
+            self.wait(self.d.HostRSSFetcher(source.url)(source.url, source, budget))
         self.assertEqual("identity", request.call["headers"]["Accept-Encoding"])
         self.assertEqual(["client-entered", "entered", "body-cancelled", "closed", "client-closed"], events)
         self.assertFalse(request.client["trust_env"])
@@ -307,8 +318,8 @@ class DiscoveryTests(unittest.TestCase):
         captured = []
         class Security:
             @staticmethod
-            def evaluate_url_safety(url, allowed_domains, strict=False, block_private=False,
-                                    allowed_private_ranges=None):
+            async def evaluate_url_safety_async(url, allowed_domains, strict=False, block_private=False,
+                                                allowed_private_ranges=None):
                 captured.append((allowed_domains, strict, block_private, allowed_private_ranges))
                 return types.SimpleNamespace(allowed=True)
         modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
@@ -316,11 +327,11 @@ class DiscoveryTests(unittest.TestCase):
         modules["app.sdk.network"].SecurityUtils = Security
         fetcher = self.d.HostRSSFetcher("http://192.168.50.6:1200/proxy/rsshub")
         with patch.dict(sys.modules, modules):
-            fetcher._safe("http://192.168.50.6:1200/proxy/rsshub/douban/list/movie_weekly_best",
-                          "http://192.168.50.6:1200/proxy/rsshub")
+            asyncio.run(fetcher._safe("http://192.168.50.6:1200/proxy/rsshub/douban/list/movie_weekly_best",
+                                      "http://192.168.50.6:1200/proxy/rsshub"))
         self.assertEqual([(["192.168.50.6:1200"], True, True, ["192.168.50.6/32"])], captured)
 
-    def test_fix2_fetcher_sync_bridge_joins_cleanup_inside_running_loop(self):
+    def test_fix3_fetcher_is_native_async_and_closes_inside_running_loop(self):
         events = []
         class Response:
             status_code = 200
@@ -339,7 +350,7 @@ class DiscoveryTests(unittest.TestCase):
                 finally: events.append("close")
         class Security:
             @staticmethod
-            def evaluate_url_safety(*_args, **_kwargs): return types.SimpleNamespace(allowed=True)
+            async def evaluate_url_safety_async(*_args, **_kwargs): return types.SimpleNamespace(allowed=True)
         modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
                    "app.sdk.network": types.ModuleType("app.sdk.network"),
                    "app.sdk.config": types.ModuleType("app.sdk.config"),
@@ -349,11 +360,123 @@ class DiscoveryTests(unittest.TestCase):
         modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
         source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid/rss")
         async def invoke():
-            return self.d.HostRSSFetcher(source.url)(source.url, source, self.d.RequestBudget(timeout=1))
+            return await self.d.HostRSSFetcher(source.url)(source.url, source, self.d.RequestBudget(timeout=1))
         with patch.dict(sys.modules, modules):
             result = asyncio.run(invoke())
         self.assertEqual(b"<rss/>", result.body)
         self.assertEqual(["client-open", "open", "close", "client-close"], events)
+
+    def test_fix3_async_url_safety_is_cancelled_inside_total_deadline(self):
+        events = []
+        class Client:
+            async def __aenter__(self): events.append("client-open"); return self
+            async def __aexit__(self, *_): events.append("client-close")
+        class Requests:
+            def __init__(self, **_): pass
+            @asynccontextmanager
+            async def get_stream(self, *_args, **_kwargs):
+                raise AssertionError("transport must not start before URL safety completes")
+                yield
+        class Security:
+            @staticmethod
+            async def evaluate_url_safety_async(*_args, **_kwargs):
+                events.append("safety-open")
+                try: await asyncio.sleep(10)
+                finally: events.append("safety-cancelled")
+        modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
+                   "app.sdk.network": types.ModuleType("app.sdk.network"),
+                   "app.sdk.config": types.ModuleType("app.sdk.config"),
+                   "httpx2": types.ModuleType("httpx2")}
+        modules["app.sdk.network"].AsyncRequestUtils, modules["app.sdk.network"].SecurityUtils = Requests, Security
+        modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
+        modules["httpx2"].AsyncClient, modules["httpx2"].Timeout = lambda **_: Client(), lambda value: value
+        source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid/rss")
+        budget = types.SimpleNamespace(timeout=0.05, response_bytes=1024, items=1)
+        with patch.dict(sys.modules, modules), self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
+            self.wait(self.d.HostRSSFetcher(source.url)(source.url, source, budget))
+        self.assertEqual(["client-open", "safety-open", "safety-cancelled", "client-close"], events)
+
+    def test_fix3_slow_default_getaddrinfo_returns_at_deadline_without_starting_http(self):
+        events, dns_finished = [], threading.Event()
+        class Client:
+            async def __aenter__(self): events.append("client-open"); return self
+            async def __aexit__(self, *_): events.append("client-close")
+        class Requests:
+            def __init__(self, **_): pass
+            @asynccontextmanager
+            async def get_stream(self, *_args, **_kwargs):
+                raise AssertionError("transport must not start before URL safety completes")
+                yield
+        class Security:
+            @staticmethod
+            async def evaluate_url_safety_async(*_args, **_kwargs):
+                try:
+                    await asyncio.get_running_loop().getaddrinfo("slow.invalid", 443)
+                finally:
+                    events.append("safety-cancelled")
+        def slow_getaddrinfo(*_args, **_kwargs):
+            try:
+                time.sleep(0.2)
+                return []
+            finally:
+                dns_finished.set()
+        modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
+                   "app.sdk.network": types.ModuleType("app.sdk.network"),
+                   "app.sdk.config": types.ModuleType("app.sdk.config"),
+                   "httpx2": types.ModuleType("httpx2")}
+        modules["app.sdk.network"].AsyncRequestUtils, modules["app.sdk.network"].SecurityUtils = Requests, Security
+        modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
+        modules["httpx2"].AsyncClient, modules["httpx2"].Timeout = lambda **_: Client(), lambda value: value
+        source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid/rss")
+        budget = types.SimpleNamespace(timeout=0.02, response_bytes=1024, items=1)
+        async def scenario():
+            started = time.monotonic()
+            with self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
+                await self.d.HostRSSFetcher(source.url)(source.url, source, budget)
+            elapsed = time.monotonic() - started
+            self.assertLess(elapsed, 0.12)
+            self.assertTrue(await asyncio.to_thread(dns_finished.wait, 1))
+        with patch.dict(sys.modules, modules), patch.object(socket, "getaddrinfo", slow_getaddrinfo):
+            self.wait(scenario())
+        self.assertEqual(["client-open", "safety-cancelled", "client-close"], events)
+
+    def test_fix3_cancelled_run_drains_sync_stage_and_generation_fence_blocks_submit(self):
+        entered, release = threading.Event(), threading.Event()
+        active = [True]
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"),
+                                      identity=("themoviedb", "700"), title="Fixture", year="2026",
+                                      category="movie", tmdb_info={}, douban_id="35322132")
+        class BlockingRecognizer(Recognizer):
+            def recognize(self, *args, **kwargs):
+                entered.set()
+                if not release.wait(1):
+                    raise RuntimeError("fixture release timeout")
+                return super().recognize(*args, **kwargs)
+        async def fetch(*_):
+            return self.d.FetchResult(SYNTHETIC_RSS)
+        owner = Owner()
+        service = self.d.DiscoveryService(
+            self.repo, owner, MetaService(), BlockingRecognizer(media),
+            self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET),
+            fetch=fetch, clock=self.clock,
+            inventory=lambda _: {"state": "MISSING", "evidence_ref": "fixture"},
+            authorized=lambda *_: True, excluded=lambda _: False, current=lambda: active[0],
+            owner_check=owner_receipt, owner_snapshot=lambda *_: OWNER_SNAPSHOT,
+            instance_id="SubscriBetter")
+        async def scenario():
+            task = asyncio.create_task(service.run())
+            self.assertTrue(await asyncio.to_thread(entered.wait, 1))
+            active[0] = False
+            started = time.monotonic()
+            asyncio.get_running_loop().call_later(0.05, release.set)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+            self.assertGreaterEqual(time.monotonic() - started, 0.04)
+        self.wait(scenario())
+        self.assertEqual([], owner.calls)
+        target = service.records()[0]["targets"][0]
+        self.assertEqual(("DEFERRED", "STALE_GENERATION"), (target["state"], target["reason"]))
 
     def test_source_failures_are_isolated_and_retry_after_persists_by_origin(self):
         config = self.config(sources=[
@@ -367,15 +490,15 @@ class DiscoveryTests(unittest.TestCase):
             if "weekly" in url:
                 raise self.d.FetchError("RATE_LIMITED", retry_after=120)
             return self.d.FetchResult(b"<rss><channel/></rss>")
-        result = self.service(config, fetch=fetch).run()
+        result = self.wait(self.service(config, fetch=fetch).run())
         self.assertEqual("FAILED", result["sources"]["a"]["state"])
         self.assertEqual("SUCCESS", result["sources"]["b"]["state"])
         self.assertEqual("RATELIMITED", result["sources"]["c"]["state"])
         self.assertEqual(2, len(calls))
-        restarted = self.service(config, fetch=fetch).run(["c"])
+        restarted = self.wait(self.service(config, fetch=fetch).run(["c"]))
         self.assertEqual("RATELIMITED", restarted["sources"]["c"]["state"])
         self.clock.advance(121)
-        self.assertEqual("SUCCESS", self.service(config, fetch=fetch).run(["c"])["sources"]["c"]["state"])
+        self.assertEqual("SUCCESS", self.wait(self.service(config, fetch=fetch).run(["c"]))["sources"]["c"]["state"])
 
     def test_retry_limit_stops_repeated_fetch_until_explicit_action(self):
         config = self.config(request_budget={"items": 1, "response_bytes": 16384,
@@ -386,15 +509,15 @@ class DiscoveryTests(unittest.TestCase):
             calls.append(1)
             raise self.d.FetchError("NETWORK_ERROR")
         service = self.service(config, fetch=fetch)
-        self.assertEqual("FAILED", service.run()["sources"]["weekly"]["state"])
+        self.assertEqual("FAILED", self.wait(service.run())["sources"]["weekly"]["state"])
         self.clock.advance(2)
-        self.assertEqual("FAILED", service.run()["sources"]["weekly"]["state"])
+        self.assertEqual("FAILED", self.wait(service.run())["sources"]["weekly"]["state"])
         self.clock.advance(2)
-        third = service.run()["sources"]["weekly"]
+        third = self.wait(service.run())["sources"]["weekly"]
         self.assertEqual({"state": "DEFERRED", "reason": "RETRY_EXHAUSTED"}, third)
         self.assertEqual(2, len(calls))
         self.assertEqual(1, service.retry_sources(["weekly"]))
-        self.assertEqual("FAILED", service.run()["sources"]["weekly"]["state"])
+        self.assertEqual("FAILED", self.wait(service.run())["sources"]["weekly"]["state"])
         self.assertEqual(3, len(calls))
 
     def test_record_retry_is_bounded_and_policy_revision_reconsiders(self):
@@ -403,21 +526,21 @@ class DiscoveryTests(unittest.TestCase):
         config = self.config(minimum_rating=7.0, request_budget={"items": 1, "response_bytes": 16384,
                              "interval_min_seconds": 1, "interval_max_seconds": 1, "retry_limit": 1})
         service = self.service(config, media=media)
-        service.run()
+        self.wait(service.run())
         self.assertEqual(1, service.records()[0]["retry_count"])
         self.clock.advance(2)
-        service.run()
+        self.wait(service.run())
         self.assertEqual(2, service.records()[0]["retry_count"])
         self.clock.advance(2)
-        service.run()
+        self.wait(service.run())
         self.assertEqual(2, service.records()[0]["retry_count"])
         changed = self.service(config.model_copy(update={"minimum_rating": None}), media=media)
         self.clock.advance(2)
-        changed.run()
+        self.wait(changed.run())
         self.assertEqual("SUBMITTED", changed.records()[0]["state"])
         revision = changed.records()[0]["filter_revision"]
         self.clock.advance(2)
-        changed.run()
+        self.wait(changed.run())
         self.assertEqual(revision, changed.records()[0]["filter_revision"])
         self.assertEqual("SUBMITTED", changed.records()[0]["state"])
 
@@ -436,7 +559,7 @@ class DiscoveryTests(unittest.TestCase):
                              season_scope="all_known", media_type_allowlist=["电视剧"],
                              request_budget=ONE_BUDGET, sources=[
                                  {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}])
-        result = self.service(config, media=media, owner=owner).run()
+        result = self.wait(self.service(config, media=media, owner=owner).run())
         records = self.service(config).records()
         self.assertEqual("PARTIAL", result["sources"]["weekly"]["state"])
         self.assertEqual([1, 3], [call[1].season for call in owner.calls])
@@ -462,7 +585,7 @@ class DiscoveryTests(unittest.TestCase):
         ):
             with self.subTest(label=label):
                 service = self.service(config, media=media)
-                service.run()
+                self.wait(service.run())
                 record = service.records()[0]
                 self.assertEqual("DEFERRED" if label == "score" else "REJECTED", record["state"])
                 self.assertEqual(reason, record["reason"])
@@ -471,7 +594,7 @@ class DiscoveryTests(unittest.TestCase):
                                       title="Deadpool 2", year="2018", category="movie", tmdb_info={})
         service = self.service(self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET), media=media,
                                inventory=lambda _: {"state": "UNKNOWN", "evidence_ref": None})
-        service.run()
+        self.wait(service.run())
         self.assertEqual("LIBRARY_STATE_UNKNOWN", service.records()[0]["reason"])
 
     def test_existing_record_only_stopped_precedence_cleanup_and_reprocess(self):
@@ -480,7 +603,7 @@ class DiscoveryTests(unittest.TestCase):
                                       tmdb_info={"vote_average": 8.0})
         service = self.service(self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET), media=media,
                                inventory=lambda _: {"state": "PRESENT", "evidence_ref": "archive:v1"})
-        service.run()
+        self.wait(service.run())
         record = service.records()[0]
         self.assertEqual("EXISTING", record["state"])
         self.assertEqual("EXISTING", record["targets"][0]["state"])
@@ -504,7 +627,7 @@ class DiscoveryTests(unittest.TestCase):
                                                {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner,
                                inventory=lambda _: {"state": "PARTIAL", "evidence_ref": "archive-season:test"},
                                authorized=lambda *_: True)
-        service.run()
+        self.wait(service.run())
         record = service.records()[0]
         self.assertEqual("EXISTING", record["state"])
         self.assertEqual("PARTIAL_RECORD_ONLY", record["targets"][0]["reason"])
@@ -523,7 +646,7 @@ class DiscoveryTests(unittest.TestCase):
                                media=media, owner=owner,
                                inventory=lambda _: {"state": "UNKNOWN", "evidence_ref": None},
                                inventory_refresh=refresh)
-        service.run()
+        self.wait(service.run())
         self.assertEqual([('["电影","themoviedb","253774",null,""]', "weekly")], probes)
         self.assertEqual("SUBMITTED", service.records()[0]["state"])
 
@@ -531,10 +654,10 @@ class DiscoveryTests(unittest.TestCase):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "8"),
                                       title="Fixture", year="2026", category="movie", tmdb_info={})
         recognized = self.service(self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET), media=media)
-        recognized.run()
+        self.wait(recognized.run())
         other = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET,
                             sources=[{"id": "other", "kind": "custom", "url": "https://other.invalid/rss"}])
-        self.service(other, media=None).run()
+        self.wait(self.service(other, media=None).run())
         self.assertEqual(1, len(recognized.records(view="recognized")))
         self.assertEqual(1, len(recognized.records(view="unrecognized")))
         self.assertLessEqual(len(recognized.records(view="latest12", limit=100)), 12)
@@ -542,13 +665,14 @@ class DiscoveryTests(unittest.TestCase):
     def test_owner_receipt_is_exact_and_unbound_owner_cannot_submit(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "8"),
                                       title="Fixture", year="2026", category="movie", tmdb_info={})
+        async def fetch(*_): return self.d.FetchResult(SYNTHETIC_RSS)
         service = self.d.DiscoveryService(
             self.repo, Owner(), MetaService(), Recognizer(media), self.config(media_type_allowlist=["电影"]),
-            fetch=lambda *_: self.d.FetchResult(SYNTHETIC_RSS), clock=self.clock,
+            fetch=fetch, clock=self.clock,
             inventory=lambda _: {"state": "MISSING", "evidence_ref": "fixture"}, authorized=lambda *_: True,
             excluded=lambda _: False, current=lambda: True, owner_check=lambda *_: None,
             owner_snapshot=lambda *_: OWNER_SNAPSHOT, instance_id="SubscriBetter")
-        result = service.run()
+        result = self.wait(service.run())
         self.assertEqual("OWNER_UNBOUND", result["sources"]["weekly"]["reason"])
         self.assertEqual([], service.owner.calls)
 
@@ -558,19 +682,20 @@ class DiscoveryTests(unittest.TestCase):
         media.douban_id = "35322132"
         host = Host()
         owner = self.ownership_mod.Ownership(self.repo, host)
+        async def fetch(*_): return self.d.FetchResult(SYNTHETIC_RSS)
         config = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET, sources=[
             {"id": "one", "kind": "rsshub", "route_key": "movie_weekly_best"},
             {"id": "two", "kind": "rsshub", "route_key": "movie_showing"},
         ])
         service = self.d.DiscoveryService(
             self.repo, owner, MetaService(), Recognizer(media), config,
-            fetch=lambda *_: self.d.FetchResult(SYNTHETIC_RSS), clock=self.clock,
+            fetch=fetch, clock=self.clock,
             inventory=lambda _: {"state": "MISSING", "evidence_ref": "fixture"}, authorized=lambda *_: True,
             excluded=lambda _: False, current=lambda: True, owner_check=owner_receipt,
             owner_snapshot=lambda *_: OWNER_SNAPSHOT, instance_id="SubscriBetter")
-        service.run()
+        self.wait(service.run())
         self.clock.advance(10)
-        service.run()
+        self.wait(service.run())
         self.assertEqual(1, host.creates)
         self.assertEqual(1, len(self.repo.list_tasks()))
         self.assertEqual({"SUBMITTED", "ALREADY_MANAGED"}, {row["targets"][0]["state"] for row in service.records()})
@@ -582,11 +707,11 @@ class DiscoveryTests(unittest.TestCase):
                                        "destination_templates": {"movie": "/changed"}}])
         stopped = self.d.DiscoveryService(
             self.repo, owner, MetaService(), Recognizer(media), config,
-            fetch=lambda *_: self.d.FetchResult(SYNTHETIC_RSS), clock=self.clock,
+            fetch=fetch, clock=self.clock,
             inventory=lambda _: {"state": "MISSING", "evidence_ref":"fixture"}, authorized=lambda *_: True, excluded=lambda _: False,
             current=lambda: True, owner_check=owner_receipt, owner_snapshot=lambda *_: OWNER_SNAPSHOT,
             instance_id="SubscriBetter")
-        stopped.run()
+        self.wait(stopped.run())
         self.assertEqual("STOPPED", stopped.records(source_id="three")[0]["targets"][0]["state"])
         self.assertEqual(1, host.creates)
         target = self.repo_mod.Target("电影", "themoviedb", "blocked")
@@ -648,7 +773,7 @@ class DiscoveryTests(unittest.TestCase):
                                      sources=[{"id": source_id, "kind": "custom", "url": f"https://{source_id}.invalid/rss"}])
                 service = self.service(config, media=media, owner=owner, inventory=lambda _, value=inventory: value,
                                        inventory_refresh=lambda *_: {"state":"MISSING", "evidence_ref":"should-not-rescue-error"})
-                service.run()
+                self.wait(service.run())
                 self.assertEqual("LIBRARY_STATE_UNKNOWN", service.records(source_id=source_id)[0]["reason"])
                 self.assertEqual([], owner.calls)
 
@@ -665,11 +790,29 @@ class DiscoveryTests(unittest.TestCase):
         with self.repo.connection(write=True) as db:
             db.execute("UPDATE discovery_sources SET failures=1 WHERE source_id='d'")
         for _ in range(6):
-            service.run()
+            self.wait(service.run())
             self.clock.advance(10)
         self.assertEqual(["movie_weekly_best", "movie_showing", "movie_real_time_hotest"] * 2,
                          [urlsplit(url).path.rsplit("/", 1)[-1] for url, _ in calls])
         self.assertEqual([0, 10, 20, 30, 40, 50], [int(at - 1_800_000_000) for _, at in calls])
+
+    def test_fix3_unbound_first_peer_does_not_block_owned_fair_rotation(self):
+        config = self.config(sources=[
+            {"id": "a", "kind": "rsshub", "route_key": "movie_weekly_best"},
+            {"id": "b", "kind": "rsshub", "route_key": "movie_showing"},
+            {"id": "c", "kind": "rsshub", "route_key": "movie_real_time_hotest"}],
+            request_budget=ONE_BUDGET)
+        calls = []
+        def receipt(module, instance_id, config_digest, route_scope):
+            return None if route_scope == "a" else owner_receipt(module, instance_id, config_digest, route_scope)
+        service = self.service(config, owner_check=receipt,
+                               fetch=lambda url, *_: (calls.append(url), self.d.FetchResult(b"<rss><channel/></rss>"))[1])
+        for _ in range(4):
+            result = self.wait(service.run())
+            self.assertEqual("OWNER_UNBOUND", result["sources"]["a"]["reason"])
+            self.clock.advance(10)
+        self.assertEqual(["movie_showing", "movie_real_time_hotest"] * 2,
+                         [urlsplit(url).path.rsplit("/", 1)[-1] for url in calls])
 
     def test_fix2_sdk_classification_uses_exact_arbitrary_category_binding(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"),
@@ -684,7 +827,7 @@ class DiscoveryTests(unittest.TestCase):
                                  "destination_category_bindings": {"fixture.arbitrary.category-42": "anime"}}])
         service = self.service(config, media=media, authorized=lambda _t, _s, destination:
                                (destinations.append(destination), True)[1])
-        service.run()
+        self.wait(service.run())
         self.assertEqual(["anime"], destinations)
         self.assertEqual("SUBMITTED", service.records()[0]["state"])
         unbound = self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
@@ -694,7 +837,7 @@ class DiscoveryTests(unittest.TestCase):
                                   "destination_category_bindings": {}}])
         other = self.service(unbound, media=media)
         self.clock.advance(10)
-        other.run()
+        self.wait(other.run())
         self.assertEqual("DESTINATION_CATEGORY_UNBOUND", other.records(source_id="unbound")[0]["reason"])
 
     def test_fix1_total_deadline_covers_redirect_and_delayed_empty_response(self):
@@ -719,7 +862,7 @@ class DiscoveryTests(unittest.TestCase):
                     events.append(("close", url))
         class Security:
             @staticmethod
-            def evaluate_url_safety(url, allowed_domains, **kwargs):
+            async def evaluate_url_safety_async(url, allowed_domains, **kwargs):
                 return types.SimpleNamespace(allowed=allowed_domains == ["feed.invalid:8443"] and
                                               urlsplit(url).netloc == "feed.invalid:8443")
         modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
@@ -730,9 +873,12 @@ class DiscoveryTests(unittest.TestCase):
         modules["app.sdk.network"].AsyncRequestUtils, modules["app.sdk.network"].SecurityUtils = Requests, Security
         modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
         source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid:8443/rss")
-        with patch.dict(sys.modules, modules), self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
-            self.d.HostRSSFetcher(source.url)(source.url, source,
-                                               types.SimpleNamespace(timeout=0.05, response_bytes=1024, items=1))
+        async def invoke():
+            with self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
+                await self.d.HostRSSFetcher(source.url)(
+                    source.url, source, types.SimpleNamespace(timeout=0.05, response_bytes=1024, items=1))
+        with patch.dict(sys.modules, modules):
+            self.wait(invoke())
         self.assertEqual(2, len(timeouts))
         self.assertEqual(2, len([event for event in events if event[0] == "close"]))
         self.assertEqual(("client", "close"), events[-1])
@@ -741,13 +887,14 @@ class DiscoveryTests(unittest.TestCase):
         captured = []
         class Security:
             @staticmethod
-            def evaluate_url_safety(url, allowed_domains, strict=False, block_private=False, allowed_private_ranges=None):
+            async def evaluate_url_safety_async(url, allowed_domains, strict=False, block_private=False, allowed_private_ranges=None):
                 captured.append((allowed_domains, allowed_private_ranges))
                 return types.SimpleNamespace(allowed=allowed_domains == ["[fd00::6]:1200"])
         network = types.ModuleType("app.sdk.network"); network.SecurityUtils = Security
         with patch.dict(sys.modules, {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
                                       "app.sdk.network": network}):
-            self.d.HostRSSFetcher("http://[fd00::6]:1200/rss")._safe("http://[fd00::6]:1200/rss", "http://[fd00::6]:1200/rss")
+            asyncio.run(self.d.HostRSSFetcher("http://[fd00::6]:1200/rss")._safe(
+                "http://[fd00::6]:1200/rss", "http://[fd00::6]:1200/rss"))
         self.assertEqual([(["[fd00::6]:1200"], ["fd00::6/128"])], captured)
 
     def test_fix1_known_future_and_missing_date_seasons_remain_deferred_targets(self):
@@ -760,7 +907,7 @@ class DiscoveryTests(unittest.TestCase):
         service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
                                            request_budget=ONE_BUDGET, sources=[
                                                {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner)
-        service.run(); rows = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.wait(service.run()); rows = {row["season"]: row for row in service.records()[0]["targets"]}
         self.assertEqual([1, 2, 3], sorted(rows))
         self.assertEqual("SUBMITTED", rows[1]["state"])
         self.assertEqual("SEASON_NOT_AIRED", rows[2]["reason"])
@@ -768,10 +915,10 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual([1], [call[1].season for call in owner.calls])
         for _ in range(5):
             self.clock.advance(86400)
-            service.run()
+            self.wait(service.run())
         media.tmdb_info["seasons"][1]["air_date"] = "2020-01-01"
         self.clock.advance(86400)
-        service.run()
+        self.wait(service.run())
         refreshed = {row["season"]: row for row in service.records()[0]["targets"]}
         self.assertIn(refreshed[2]["state"], {"SUBMITTED", "ALREADY_MANAGED"})
 
@@ -808,7 +955,7 @@ class DiscoveryTests(unittest.TestCase):
         service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
                                            request_budget=ONE_BUDGET, sources=[
                                                {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner, inventory=inventory)
-        service.run(); rows = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.wait(service.run()); rows = {row["season"]: row for row in service.records()[0]["targets"]}
         self.assertEqual(("DEFERRED", "INVENTORY_FAILED"), (rows[1]["state"], rows[1]["reason"]))
         self.assertEqual("SUBMITTED", rows[2]["state"])
         self.assertEqual([2], [call[1].season for call in owner.calls])
@@ -829,14 +976,14 @@ class DiscoveryTests(unittest.TestCase):
                                            request_budget=ONE_BUDGET, sources=[
                                                 {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]),
                                media=media, owner=owner, accepted=accepted, inventory=inventory)
-        service.run(); rows = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.wait(service.run()); rows = {row["season"]: row for row in service.records()[0]["targets"]}
         self.assertEqual(("DEFERRED", "SCHEDULE_SCOPE_FAILED"), (rows[1]["state"], rows[1]["reason"]))
         self.assertIsNotNone(rows[1]["task_id"])
         self.assertEqual("SUBMITTED", rows[2]["state"])
         preserved = (rows[1]["task_id"], rows[1]["intent_key"], rows[1]["snapshot_digest"])
         failed_inventory.add(1)
         self.clock.advance(86400)
-        service.run(); retried = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.wait(service.run()); retried = {row["season"]: row for row in service.records()[0]["targets"]}
         self.assertEqual("INVENTORY_FAILED", retried[1]["reason"])
         self.assertEqual(preserved, (retried[1]["task_id"], retried[1]["intent_key"], retried[1]["snapshot_digest"]))
         self.assertEqual("SUBMITTED", retried[2]["state"])
@@ -851,10 +998,10 @@ class DiscoveryTests(unittest.TestCase):
                              request_budget={**ONE_BUDGET, "retry_limit": 0}, sources=[
                                  {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}])
         service = self.service(config, media=media, owner=owner)
-        service.run()
+        self.wait(service.run())
         media.tmdb_info["seasons"].append({"season_number": 2, "air_date": "2020-01-01"})
         self.clock.advance(86400)
-        service.run()
+        self.wait(service.run())
         self.assertEqual([1, 2], [call[1].season for call in owner.calls])
         unknown_media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"),
                                               identity=("themoviedb", "88"), title="Unknown", year="2020",
@@ -865,12 +1012,35 @@ class DiscoveryTests(unittest.TestCase):
         unknown_owner = Owner()
         unknown = self.service(unknown_config, media=unknown_media, owner=unknown_owner)
         self.clock.advance(10)
-        unknown.run()
+        self.wait(unknown.run())
         self.assertEqual("SEASON_METADATA_UNKNOWN", unknown.records(source_id="unknown")[0]["reason"])
         unknown_media.tmdb_info["seasons"].append({"season_number": 1, "air_date": "2020-01-01"})
         self.clock.advance(86400)
-        unknown.run()
+        self.wait(unknown.run())
         self.assertEqual([1], [call[1].season for call in unknown_owner.calls])
+
+    def test_fix3_policy_change_reconsiders_record_only_existing_target(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"),
+                                      identity=("themoviedb", "700"), title="Fixture", year="2026",
+                                      category="movie", tmdb_info={}, douban_id="35322132")
+        first_config = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET,
+                                   sources=[{"id": "weekly", "kind": "rsshub",
+                                             "route_key": "movie_weekly_best",
+                                             "existing_media_action": "record_only"}])
+        first_owner = Owner()
+        inventory = lambda _: {"state": "PRESENT", "evidence_ref": "archive:present"}
+        first = self.service(first_config, media=media, owner=first_owner, inventory=inventory)
+        self.wait(first.run())
+        self.assertEqual("EXISTING", first.records()[0]["state"])
+        self.assertEqual([], first_owner.calls)
+        changed_source = first_config.sources[0].model_copy(update={"existing_media_action": "manage_authorized"})
+        changed_config = first_config.model_copy(update={"sources": [changed_source]})
+        changed_owner = Owner()
+        changed = self.service(changed_config, media=media, owner=changed_owner, inventory=inventory)
+        self.clock.advance(10)
+        self.wait(changed.run())
+        self.assertEqual(1, len(changed_owner.calls))
+        self.assertEqual("SUBMITTED", changed.records()[0]["state"])
 
     def test_fix2_cross_source_identity_requires_exact_provider_mapping(self):
         declared = self.d.RSSItem("Same Name (1990)", "https://movie.douban.com/subject/123/",
@@ -923,7 +1093,7 @@ class DiscoveryTests(unittest.TestCase):
         service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
                                            request_budget=ONE_BUDGET, sources=[
                                                {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner, accepted=accepted)
-        service.run()
+        self.wait(service.run())
         with self.repo.connection(write=True) as db:
             db.execute("INSERT INTO ingest_receipts VALUES(?,NULL,?,0,?,?,?)", ("r1", unit_keys[0], "v1", "{}", "2026-01-01"))
         self.assertEqual(0, service.statistics()["stages"]["ingest"]["numerator"])
@@ -937,15 +1107,19 @@ class DiscoveryTests(unittest.TestCase):
         module = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = module
         spec.loader.exec_module(module)
-        runtime = types.SimpleNamespace(test_source=lambda source: {"source_id": source, "fetch_only": True})
-        plugin = types.SimpleNamespace(discovery=runtime, generation=9,
-                                       discovery_tick=lambda generation, source_ids: {"generation": generation, "source_ids": source_ids})
-        fetched = module.run_host_contract(plugin, phase="fetch", source_id="controlled")
+        async def test_source(source):
+            return {"source_id": source, "fetch_only": True}
+        async def discovery_tick(generation, source_ids):
+            return {"generation": generation, "source_ids": source_ids}
+        runtime = types.SimpleNamespace(test_source=test_source)
+        plugin = types.SimpleNamespace(discovery=runtime, generation=9, discovery_tick=discovery_tick)
+        fetched = self.wait(module.run_host_contract(plugin, phase="fetch", source_id="controlled"))
         self.assertTrue(fetched["fetch_only"])
         self.assertFalse(fetched["submission"])
         with self.assertRaises(ValueError):
-            module.run_host_contract(plugin, phase="run", source_id="controlled")
-        submitted = module.run_host_contract(plugin, phase="run", source_id="controlled", confirm_submission=True)
+            self.wait(module.run_host_contract(plugin, phase="run", source_id="controlled"))
+        submitted = self.wait(module.run_host_contract(
+            plugin, phase="run", source_id="controlled", confirm_submission=True))
         self.assertEqual(["controlled"], submitted["source_ids"])
         self.assertTrue(submitted["submission"])
 
