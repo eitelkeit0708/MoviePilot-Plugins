@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 from threading import RLock
 
 from .candidates import torrent_table, value
-from .planner import Authority, encoded, validate_files
+from .planner import Authority, encoded, validate_files, asset_table
 from .repository import utcnow
 from .scheduler import parse, instant
 
@@ -210,16 +210,20 @@ class StrictExecutor:
         self.exclusions=Exclusions(repository)
         self.dispatch_gate=dispatch_gate
 
+    def _read(self,function,*args):
+        if self.dispatch_gate:self.dispatch_gate()
+        return function(*args)
+
     def _plan(self, plan_id):
         plan=self.authority.plan(plan_id)
         snapshot=plan['snapshot']
         if [f['index'] for f in snapshot['torrent_files']]!=list(range(len(snapshot['torrent_files']))):
             raise ValueError('CANONICAL_TORRENT_INDICES_REQUIRED')
         active={t['target_key']:t for t in plan['targets'] if t['state']=='ACTIVE'}
-        indices=[i for i in snapshot['selected_indices'] if set(snapshot['torrent_files'][i]['targets'])<=set(active)]
+        indices=[i for i in snapshot['selected_indices'] if set(asset_table(snapshot)[i]['targets'])<=set(active)]
         if not indices:
             raise ValueError('NO_ACTIVE_SAFE_FILES')
-        keys={k for i in indices for k in snapshot['torrent_files'][i]['targets']}
+        keys={k for i in indices for k in asset_table(snapshot)[i]['targets']}
         vector=self.authority.vector(sorted(keys))
         task=self.repository.get_task(plan['task_id'])
         if task['state'] not in ('ACTIVE','PASSIVE') or task['generation']!=plan['task_generation'] or any(v['owner_plan_id']!=plan_id or v['publish_phase']!='NOT_SENT' or v['current_revision']!=snapshot['current'][k]['revision'] for k,v in vector.items()):
@@ -255,7 +259,7 @@ class StrictExecutor:
         refs=self.authority.download_references(s['downloader'],s['infohash'],s['save_path'])
         for ref in refs:
             plan,_,indices,vector=self._plan(ref['plan_id'])
-            if indices!=ref['indices'] or vector!=ref['vector']:
+            if [i for i in indices if i<len(plan['snapshot']['torrent_files'])]!=ref['indices'] or vector!=ref['vector']:
                 raise ValueError('SHARED_AUTHORITY_CHANGED')
         return refs,token
 
@@ -277,6 +281,7 @@ class StrictExecutor:
         for action_id in ids:self.authority.record_result(action_id,outcome,evidence)
 
     def _mutation(self,plan,indices,vector,verb,kind,fn,payload):
+        if self.dispatch_gate:self.dispatch_gate()
         s=plan['snapshot']
         if kind in ('ADD','SET_WANTED','RESUME'):
             refs,token=self._cohort(s)
@@ -333,6 +338,10 @@ class StrictExecutor:
             if row is None:
                 raise ValueError('FILE_PATH_SIZE_MISMATCH')
             mapping[file['index']]=row
+        for asset in s.get('local_assets',[]):
+            item=asset['file'];path=safe_local(s['save_path'],Path(s['save_path'])/item['path'])
+            if path.stat().st_size!=item['size'] or path.stat().st_mtime_ns!=asset['mtime_ns'] or digest(path)!=asset['sha256']:raise ValueError('LOCAL_ASSET_CHANGED')
+            mapping[item['index']]=dict(id=item['index'],wanted=False,completed=item['size'],path=item['path'],size=item['size'])
         return mapping
 
     @staticmethod
@@ -342,9 +351,10 @@ class StrictExecutor:
         return task
 
     def _selection(self,s,client):
-        mapping=self._table(s,client.files(s['infohash']))
+        mapping=self._table(s,self._read(client.files,s['infohash']))
         union=set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))
         if not union:
+            if s.get('local_assets') and all(i>=len(s['torrent_files']) for i in s['selected_indices']):return mapping,union
             raise ValueError('EMPTY_SELECTION')
         wanted={mapping[i]['id'] for i in union}
         if {row['id'] for row in mapping.values() if row['wanted']}!=wanted:
@@ -358,13 +368,20 @@ class StrictExecutor:
                 infohash,table=self.verify_torrent(content)
                 if infohash.lower()!=s['infohash'] or table!=[(f['path'],f['size']) for f in s['torrent_files']]:
                     raise ValueError('TORRENT_CHANGED')
-                validate_files(s['torrent_files'],indices)
+                validate_files(asset_table(s),indices)
                 client=self.clients(s['downloader'])
                 owned=self._owned(s)
-                task=client.task(s['infohash'])
+                task=self._read(client.task,s['infohash'])
+                if s.get('local_assets'):
+                    self._task(s,task)
+                    if not owned or str(task['id'])!=owned['client_id']:raise ValueError('DOWNLOAD_OWNERSHIP_UNCONFIRMED')
+                    mapping,_=self._selection(s,client)
+                    if task['state'] in ('CHECKING','FAILED','DISCONNECTED') or any(mapping[i]['completed']!=asset_table(s)[i]['size'] for i in indices):return dict(state='WAITING_ASSETS')
+                    return dict(state='RUNNING')
                 if owned is None:
                     if task is not None:
                         raise ValueError('UNMANAGED_SAME_HASH')
+                    if self.dispatch_gate:self.dispatch_gate()
                     marker='subscribetter:'+sha256((s['downloader']+s['infohash']).encode()).hexdigest()[:24]
                     with self.repository.connection(write=True) as db:
                         db.execute('INSERT INTO managed_downloads(downloader,infohash,save_path,file_table,marker,add_action,state,updated_at) VALUES(?,?,?,?,?,?,?,?)',(s['downloader'],s['infohash'],s['save_path'],encoded(table),marker,plan_id,'ADD_INTENT',utcnow()))
@@ -374,7 +391,7 @@ class StrictExecutor:
                         return {'state':'UNKNOWN','reason':'ADD_OUTCOME_UNKNOWN'}
                     self._save(s,client_id=str(result),state='ADDED',evidence={'action_id':action})
                     owned=self._owned(s)
-                    task=client.task(s['infohash'])
+                    task=self._read(client.task,s['infohash'])
                 elif owned['state'] in ('ADD_INTENT','UNKNOWN') or not owned['client_id']:
                     # No response cannot establish new ownership; never adopt a coincident manual task.
                     return {'state':'UNKNOWN','reason':'ADD_OWNERSHIP_UNCONFIRMED'}
@@ -383,7 +400,7 @@ class StrictExecutor:
                 task=self._task(s,task)
                 if str(task['id'])!=owned['client_id']:
                     raise ValueError('CLIENT_TASK_ID_CHANGED')
-                mapping=self._table(s,client.files(s['infohash']))
+                mapping=self._table(s,self._read(client.files,s['infohash']))
                 refs,_=self._cohort(s)
                 union={i for ref in refs for i in ref['indices']}
                 unchanged={i for i,r in mapping.items() if r['wanted']}==union
@@ -393,9 +410,9 @@ class StrictExecutor:
                 self._prepare_cycle(s,owned,task,selection_changed=not unchanged)
                 if task['state']!='PAUSED':
                     ok,_,_=self._mutation(plan,indices,vector,'pause','SET_WANTED',lambda:client.pause(task['id']),{'id':task['id']})
-                    if not ok or self._task(s,client.task(s['infohash']))['state']!='PAUSED':
+                    if not ok or self._task(s,self._read(client.task,s['infohash']))['state']!='PAUSED':
                         raise ValueError('PAUSE_NOT_CONFIRMED')
-                mapping=self._table(s,client.files(s['infohash']))
+                mapping=self._table(s,self._read(client.files,s['infohash']))
                 union=set(self.authority.active_files(s['downloader'],s['infohash'],s['save_path']))
                 if not set(indices)<=union:
                     raise ValueError('SELECTION_AUTHORITY_CHANGED')
@@ -410,7 +427,7 @@ class StrictExecutor:
                         if not ok:
                             raise ValueError('SELECTION_OUTCOME_UNKNOWN')
                 self._selection(s,client)
-                if self._task(s,client.task(s['infohash']))['state']!='PAUSED':
+                if self._task(s,self._read(client.task,s['infohash']))['state']!='PAUSED':
                     raise ValueError('TASK_NOT_PAUSED')
                 self._save(s,state='PAUSED_VERIFIED',evidence={'wanted':wanted,'unwanted':unwanted})
                 return self.resume(plan_id) if resume else {'state':'PAUSED_VERIFIED','infohash':s['infohash'],'wanted':wanted}
@@ -427,7 +444,7 @@ class StrictExecutor:
                 if not owned or not owned['client_id'] or owned['state'] not in ('PAUSED_VERIFIED','RUNNING'):
                     raise ValueError('PAUSED_SELECTION_NOT_VERIFIED')
                 client=self.clients(s['downloader'])
-                task=self._task(s,client.task(s['infohash']))
+                task=self._task(s,self._read(client.task,s['infohash']))
                 if str(task['id'])!=owned['client_id']:
                     raise ValueError('CLIENT_TASK_ID_CHANGED')
                 _,union=self._selection(s,client)
@@ -437,7 +454,7 @@ class StrictExecutor:
                     return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
                 self._prepare_cycle(s,owned,task)
                 ok,_,_=self._mutation(plan,indices,vector,'resume','RESUME',lambda:client.resume(task['id']),{'id':task['id'],'wanted_indices':sorted(union)})
-                state=self._task(s,client.task(s['infohash']))['state']
+                state=self._task(s,self._read(client.task,s['infohash']))['state']
                 if not ok or state not in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='PAUSED_VERIFIED',evidence={'code':'RESUME_NOT_ACCEPTED','actual_state':state})
                     return {'state':'UNKNOWN','reason':'RESUME_NOT_ACCEPTED','actual_state':state}
@@ -453,10 +470,10 @@ class StrictExecutor:
         if not owned or not owned['client_id']:
             raise ValueError('DOWNLOAD_OWNERSHIP_UNCONFIRMED')
         client=self.clients(s['downloader'])
-        task=self._task(s,client.task(s['infohash']))
+        task=self._task(s,self._read(client.task,s['infohash']))
         if str(task['id'])!=owned['client_id']:
             raise ValueError('CLIENT_TASK_ID_CHANGED')
-        mapping=self._table(s,client.files(s['infohash']))
+        mapping=self._table(s,self._read(client.files,s['infohash']))
         stats={i:{'downloaded_bytes':mapping[i].get('completed'),'speed':None} for i in s['selected_indices']}
         previous=self.authority.progress(plan_id,s['selected_indices'])
         now=instant()
@@ -466,7 +483,7 @@ class StrictExecutor:
                 for i,row in stats.items():
                     before=previous['files'].get(str(i),{}).get('downloaded_bytes');after=row['downloaded_bytes']
                     if type(before)is int and type(after)is int and after>=before:row['speed']=(after-before)/elapsed
-        complete=all(stats[i]['downloaded_bytes']==s['torrent_files'][i]['size'] for i in stats)
+        complete=all(stats[i]['downloaded_bytes']==asset_table(s)[i]['size'] for i in stats)
         status='COMPLETED' if complete and task['state'] not in ('CHECKING','DISCONNECTED','FAILED') else task['state']
         return self.authority.record_progress(plan_id,s['selected_indices'],stats,torrent=task,status=status,now=now)
 
@@ -475,8 +492,8 @@ class StrictExecutor:
         with MUTATION_LOCK:
             plan=self.authority.plan(plan_id);s=plan['snapshot'];owned=self._owned(s)
             if not owned:return {'state':'UNKNOWN','reason':'NO_OWNERSHIP_INTENT'}
-            client=self.clients(s['downloader']);task=self._task(s,client.task(s['infohash']))
-            mapping=self._table(s,client.files(s['infohash']))
+            client=self.clients(s['downloader']);task=self._task(s,self._read(client.task,s['infohash']))
+            mapping=self._table(s,self._read(client.files,s['infohash']))
             if not owned['client_id']:
                 if owned['marker'] not in task.get('markers',[]) or task['state']!='PAUSED':
                     return {'state':'UNKNOWN','reason':'ADD_IDENTITY_UNPROVEN'}
@@ -549,15 +566,15 @@ class Organizer:
                 target=Path(target_root).absolute()
                 safe_local(target,target,exists=False)
                 client=self.executor.clients(s['downloader'])
-                task=self.executor._task(s,client.task(s['infohash']))
+                task=self.executor._task(s,self.executor._read(client.task,s['infohash']))
                 mapping,_=self.executor._selection(s,client)
-                if task['state'] in ('CHECKING','FAILED','DISCONNECTED') or any(mapping[i].get('completed')!=s['torrent_files'][i]['size'] for i in indices):
+                if task['state'] in ('CHECKING','FAILED','DISCONNECTED') or any(mapping[i].get('completed')!=asset_table(s)[i]['size'] for i in indices):
                     return {'state':'WAITING_ASSETS'}
-                paths={i:safe_local(self.source_root(s),Path(self.source_root(s))/s['torrent_files'][i]['path']) for i in indices}
+                paths={i:safe_local(self.source_root(s),Path(self.source_root(s))/asset_table(s)[i]['path']) for i in indices}
                 asset_digests={i:asset_hashes(p) for i,p in paths.items()}
                 hashes={i:v[0] for i,v in asset_digests.items()}
                 content_sha1=[v[1] for v in asset_digests.values()]
-                if any(paths[i].stat().st_size!=s['torrent_files'][i]['size'] for i in indices):
+                if any(paths[i].stat().st_size!=asset_table(s)[i]['size'] for i in indices):
                     raise ValueError('COMPLETED_ASSET_SIZE_MISMATCH')
                 self.executor.sample(plan_id)
                 history_snapshot=dict(s,selected_indices=indices,targets={k:s['targets'][k] for k in vector})
@@ -565,7 +582,7 @@ class Organizer:
                 if not ok:
                     return {'state':'UNKNOWN','reason':'HISTORY_OUTCOME_UNKNOWN'}
                 outputs=[]
-                for index in sorted(indices,key=lambda i:(s['torrent_files'][i]['role']!='video',i)):
+                for index in sorted(indices,key=lambda i:(asset_table(s)[i]['role']!='video',i)):
                     with self.repository.connection() as db:
                         row=db.execute('SELECT * FROM organized_assets WHERE plan_id=? AND file_index=?',(plan_id,index)).fetchone()
                     if row and row['state']=='COMPLETE':
@@ -573,7 +590,7 @@ class Organizer:
                         if output.stat().st_size!=row['size'] or digest(output)!=row['sha256']:
                             raise ValueError('ORGANIZED_ASSET_CHANGED')
                         outputs.append(str(output));continue
-                    item=s['torrent_files'][index];src=paths[index]
+                    item=asset_table(s)[index];src=paths[index]
                     evidence=dict(vector=vector,target_root=str(target),indices=indices,source_mtime_ns=src.stat().st_mtime_ns,exclusions_token=self.executor.exclusions.token())
                     with self.repository.connection(write=True) as db:
                         db.execute('INSERT INTO organized_assets VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(plan_id,file_index) DO UPDATE SET evidence=excluded.evidence',
@@ -754,7 +771,7 @@ class HostOrganization:
             raise ValueError('HISTORY_IDENTITY_CONFLICT')
         scope=sha256(encoded(sorted(s['targets'])).encode()).hexdigest()
         if row is None or not isinstance(value(row,'note'),dict) or row.note.get('strict_scope')!=scope:
-            oper.add(path=s['save_path'],type=identities[0][0],title=self.media.title,year=str(self.media.year or ''),media_source=source.value,media_id=str(mid),seasons=','.join(sorted({f'S{i[3]:02}' for i in identities if i[3] is not None})),episodes=','.join(sorted({f'E{i[5]:02}' for i in identities if i[5] is not None})),episode_group=identities[0][4],downloader=s['downloader'],download_hash=s['infohash'],torrent_name=PurePosixPath(s['torrent_files'][0]['path']).parts[0],username='subscriBetter',note={'strict_plan':True,'strict_scope':scope,'candidate_key':s['candidate_key']})
+            oper.add(path=s['save_path'],type=identities[0][0],title=self.media.title,year=str(self.media.year or ''),media_source=source.value,media_id=str(mid),seasons=','.join(sorted({f'S{i[3]:02}' for i in identities if i[3] is not None})),episodes=','.join(sorted({f'E{i[5]:02}' for i in identities if i[5] is not None})),episode_group=identities[0][4],downloader=s['downloader'],download_hash=s['infohash'],torrent_name=PurePosixPath(asset_table(s)[0]['path']).parts[0],username='subscriBetter',note={'strict_plan':True,'strict_scope':scope,'candidate_key':s['candidate_key']})
         selected=[str(paths[i]) for i in s['selected_indices']]
         return self.repair_history(s,selected,self.history_missing(s,selected))
 
@@ -769,7 +786,7 @@ class HostOrganization:
         def include(s,selected):
             if len(selected)!=len(s['selected_indices']) or len(set(selected))!=len(selected):raise ValueError('HISTORY_SCOPE_CONFLICT')
             for i,path in zip(s['selected_indices'],selected):
-                item=dict(downloader=s['downloader'],download_hash=s['infohash'],fullpath=path,savepath=s['save_path'],filepath=s['torrent_files'][i]['path'],torrentname=PurePosixPath(s['torrent_files'][i]['path']).parts[0],state=1)
+                item=dict(downloader=s['downloader'],download_hash=s['infohash'],fullpath=path,savepath=s['save_path'],filepath=asset_table(s)[i]['path'],torrentname=PurePosixPath(asset_table(s)[i]['path']).parts[0],state=1)
                 if path in expected and expected[path]!=item:raise ValueError('HISTORY_SCOPE_CONFLICT')
                 expected[path]=item
         include(snapshot,paths)
@@ -813,8 +830,12 @@ class HostOrganization:
             with self.repository.connection() as db:
                 row=db.execute("SELECT destination FROM organized_assets WHERE source=? AND state='COMPLETE'",(str(Path(snapshot['save_path'])/video['path']),)).fetchone()
             output=Path(row[0]) if row else None
+        if output is None and all(v['action']=='SIDECAR_SUPPLEMENT' for v in snapshot['targets'].values()):
+            # Pure native name planning, no video copy/download. Archive's final
+            # confirmation still binds the sidecar to the proved current video.
+            output=self.prepare_transfer(Path(snapshot['save_path'])/video['path'],destination,video,snapshot)['planned']
         if output is None:raise ValueError('ORGANIZED_VIDEO_RECEIPT_REQUIRED')
-        return safe_local(destination,output)
+        return safe_local(destination,output,exists=False)
 
     @staticmethod
     def _subtitle_name(item,video,files):
@@ -833,7 +854,7 @@ class HostOrganization:
         from app.schemas.system import TransferDirectoryConf
         unique=item['role'] in ('video','subtitle')
         rename=item['role']=='video' or (legacy and item['role']=='subtitle')
-        videos=[f for f in snapshot['torrent_files'] if f['role']=='video' and (set(item['targets'])<=set(f['targets']) if unique else set(item['targets'])&set(f['targets']))]
+        videos=[f for f in asset_table(snapshot) if f['role']=='video' and (set(item['targets'])<=set(f['targets']) if unique else set(item['targets'])&set(f['targets']))]
         if not videos or (unique and len(videos)!=1) or not set(item['targets'])<={k for video in videos for k in video['targets']}:
             raise ValueError('UNIQUE_TRANSFER_VIDEO_REQUIRED')
         meta=(self.meta_factory or MetaInfoPath)(Path(videos[0]['path']))
@@ -846,7 +867,7 @@ class HostOrganization:
         target=destination;name=src.name
         if item['role']=='subtitle' and not legacy:
             video=self._video_output(videos[0],snapshot,destination)
-            target=video.parent;name=self._subtitle_name(item,video,snapshot['torrent_files'])
+            target=video.parent;name=self._subtitle_name(item,video,asset_table(snapshot))
         elif not rename:
             parents={self._video_output(consumer,snapshot,destination).parent for consumer in videos}
             # The configured host season layout puts these consumers together.

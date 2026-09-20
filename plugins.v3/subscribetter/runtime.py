@@ -44,6 +44,7 @@ class ScopeProvider:
 
     def resolve(self,target,*,today=None):
         media=self._verified(self.recognize(target,''),target)
+        if getattr(self,'checkpoint',None):self.checkpoint()
         result=dict(target_key=target.key,provider_identity=[target.media_source,target.media_id],
             episode_group=target.episode_group,season=target.season,episodes=[],provider_rows=[],scope_closed=True,
             classification=self.classify(media),keywords=list(dict.fromkeys(str(value(media,k)) for k in ('title','original_title','original_name') if value(media,k)))[:3])
@@ -144,6 +145,7 @@ class Runtime:
         self.delivery=plugin.delivery_worker;self.provider=provider or ScopeProvider();self.clients=clients or ConfiguredDownloader.named
         self.scopes={};self.scope_workers={};self.busy=False;self.lock=RLock();self.ai=plugin.ai
         self.stages=OwnedStages(self.close)
+        if isinstance(self.provider,ScopeProvider):self.provider.checkpoint=lambda:self.checkpoint(getattr(self,'deadline',None))
         self.owner.dispatch_gate=self.check
         config=self.config.policy
         self.policy=Policy(config.bindings or self.config.delivery.get('policy_bindings',{}),
@@ -155,6 +157,7 @@ class Runtime:
         if self.delivery:
             self.delivery.archive.scope_provider=lambda target:self.scope(target,fresh=True)
             self.delivery.dispatch_gate=self.check
+            if hasattr(self.delivery.archive,'sources'):self.delivery.archive.sources.checkpoint=lambda:self.checkpoint(getattr(self,'deadline',None))
         if self.policy:self.authority.set_revisions(self.policy.semantic_hash,self.meta.corrector.revision)
 
     def close(self):
@@ -172,6 +175,7 @@ class Runtime:
     def check(self):
         if self.stages.retired or self.plugin.generation!=self.generation or not self.plugin._ordinary_work_active():
             raise ValueError('STALE_OR_DISABLED_RUNTIME')
+        self.checkpoint(getattr(self,'deadline',None))
 
     def scope(self,target,*,fresh=False):
         old=self.scopes.get(target.key)
@@ -259,19 +263,24 @@ class Runtime:
         self.repository.setting('runtime-input:'+opportunity['id'],saved)
         return saved
 
-    def inventory(self,target):
+    @staticmethod
+    def checkpoint(deadline=None):
+        if deadline is not None and time.monotonic()>=deadline:raise ValueError('TICK_DEADLINE')
+
+    def inventory(self,target,*,template_id=None,deadline=None):
+        self.checkpoint(deadline)
         if not self.delivery:return dict(state='UNKNOWN',diagnostics=['ARCHIVE_UNAVAILABLE'],evidence_ref=None)
         scope=self.scope(target,fresh=True);archive=self.delivery.archive
-        template=self.destination(scope)
+        self.checkpoint(deadline);template=self.destination(scope,template_id)
         cloud_scope=self.delivery.rules[template['organized_rule']]['cloud_scope_id']
         selected=sorted({(r['emby_service'],str(r['library_id'])) for r in archive.mappings.rules
             if r.get('media_source','themoviedb')==target.media_source and r.get('episode_group','')==target.episode_group and r['cloud_scope_id']==cloud_scope})
         if not selected:raise ValueError('SELECTED_LIBRARY_SCOPE_REQUIRED')
-        key='runtime-inventory:'+digest(scope);state=self.repository.setting(key) or dict(cursor=0,scans={},complete=[])
+        key='runtime-inventory:'+digest([scope,template]);state=self.repository.setting(key) or dict(cursor=0,scans={},complete=[])
         service,library=selected[state['cursor']%len(selected)];pair=encoded([service,library])
         limits=self.config.recovery
         result=archive.reconcile(service,library,target_keys=scope['units'],scope=scope,scan_id=state['scans'].get(pair),
-            limits=dict(pages=limits.pages,page_size=limits.entries,items=limits.entries),deadline=time.monotonic()+limits.seconds)
+            limits=dict(pages=limits.pages,page_size=limits.entries,items=limits.entries),deadline=min(deadline or float('inf'),time.monotonic()+limits.seconds))
         if result['status']=='INCOMPLETE':state['scans'][pair]=result['scan_id']
         else:
             state['scans'].pop(pair,None);state['cursor']=(state['cursor']+1)%len(selected)
@@ -321,7 +330,11 @@ class Runtime:
         key=plan['snapshot']['candidate_key']
         self.candidates.refresh(key,self.budget(saved))
         output=self.evaluate(saved,key)
-        if plan['snapshot'] not in output['plans']:raise ValueError('COLD_PLAN_CHANGED')
+        snapshot=plan['snapshot']
+        if snapshot.get('local_assets') and snapshot not in output['plans']:
+            snapshot={k:v for k,v in snapshot.items() if k not in ('local_assets','source_plan')}
+            snapshot['selected_indices']=[i for i in snapshot['selected_indices'] if i<len(snapshot['torrent_files'])]
+        if snapshot not in output['plans']:raise ValueError('COLD_PLAN_CHANGED')
         self.pipeline.revalidate(plan)
         return output
 
@@ -338,33 +351,105 @@ class Runtime:
         self.repository.setting(key,state)
         return rows
 
-    def advance(self,plan,saved):
+    def advance(self,plan,saved,*,deadline=None):
+        self.checkpoint(deadline)
         self.verify_input(saved)
-        if plan['snapshot']['candidate_key'] not in self.pipeline.rounds:self.recover(plan,saved)
+        self.checkpoint(deadline)
+        cached=self.pipeline.rounds.get(plan['snapshot']['candidate_key'])
+        if cached is None or time.monotonic()-cached.get('acquired',0)>300:self.recover(plan,saved)
+        self.checkpoint(deadline)
         self.pipeline.revalidate(plan)
         executor=self.pipeline.executor();owned=executor._owned(plan['snapshot'])
         if owned and owned['state'] in ('ADD_INTENT','UNKNOWN'):
             return executor.reconcile(plan['id'])
         result=self.pipeline.execute(plan['id'],resume=True)
         if result['state']!='RUNNING':return result
+        self.checkpoint(deadline)
         progress=executor.sample(plan['id'])
         if progress['status']!='COMPLETED':return dict(state='DOWNLOADING',progress=progress)
+        self.checkpoint(deadline)
+        if result.get('subtitles',{}).get('assets_state')=='UNVERIFIED':
+            if any(w['state']=='UNKNOWN' for w in result['subtitles'].get('workflows',[])):
+                return dict(state='WAITING_ASSETS',reason='SUBTITLE_DISPATCH_UNKNOWN')
+            if not hasattr(self.pipeline,'service'):return dict(state='WAITING_ASSETS',reason='SUBTITLE_ASSETS_UNVERIFIED')
+            from .runtime_assets import observe
+            rule=self.delivery.rules[saved['effective']['template']['organized_rule']]
+            assets=observe(self.pipeline,plan,seconds=rule.get('stable_seconds',10),entries=self.config.recovery.entries)
+            if assets['state']!='VERIFIED':return assets
+            self.checkpoint(deadline)
+            if assets['assets']:
+                snapshot=dict(plan['snapshot'],local_assets=assets['assets'],source_plan=plan['id'])
+                snapshot['selected_indices']=snapshot['selected_indices']+[a['file']['index'] for a in assets['assets']]
+                self.pipeline.revalidate(plan)
+                plan=self.authority.extend_assets(plan['id'],'asset-plan:'+digest(snapshot),snapshot,self.authority.vector(list(snapshot['targets'])))
+                return dict(state='ASSET_PLAN_READY',plan_id=plan['id'])
+            self.repository.setting('subtitle:'+plan['id'],dict(result['subtitles'],assets_state='VERIFIED_EMPTY',observation=assets['observation']))
         rule_id=saved['effective']['template']['organized_rule'];rule=self.delivery.rules[rule_id]
         result=self.pipeline.organize(plan['id'],rule['local_root'])
         if result['state']!='COMPLETE':return result
+        self.checkpoint(deadline)
         self.verify_input(saved)
+        self.checkpoint(deadline)
         candidate=self.pipeline.revalidate(self.authority.plan(plan['id']))
         publication={k:dict(raw=dict(candidate['facts'][k].raw),classification=candidate['classification']) for k in plan['snapshot']['targets']}
         self.delivery.validate_publication(plan,publication)
+        self.checkpoint(deadline)
         result=self.delivery.prepare(plan['id'],rule_id,publication=publication)
         self.persist_scope(result['bundle_id'])
         return result
 
-    def candidate_plan(self,opportunity,saved,snapshot,*,failure_id=None):
+    @staticmethod
+    def ranked(plans):
+        plans=sorted(plans,key=lambda p:p['candidate_key'])
+        return sorted(plans,key=lambda p:max(tuple(v['quality']) for v in p['targets'].values()),reverse=True)
+
+    def candidate_round(self,saved,rows,deadline=None):
+        """Finish one bounded round before choosing; persist progress across ticks."""
+        setting='runtime-round:'+saved['opportunity_id'];state=self.repository.setting(setting)
+        if not state or state.get('complete'):
+            with self.repository.connection() as db:
+                previous=[r[0] for r in db.execute('SELECT DISTINCT best_key FROM observations WHERE opportunity_id=?',(saved['opportunity_id'],))]
+            keys=list(dict.fromkeys([r['candidate_key'] for r in rows]+previous+(state or {}).get('keys',[])))[:1000]
+            state=dict(keys=keys,cursor=0,plans=[],complete=False)
+            self.repository.setting(setting,state)
+        # A restart/expired acquisition redoes only the affected key, never uses
+        # an unavailable saved preference to authorize a weaker/unknown resource.
+        stale={p['candidate_key'] for p in state['plans'] if p['candidate_key'] not in self.pipeline.rounds or time.monotonic()-self.pipeline.rounds[p['candidate_key']]['acquired']>300}
+        if stale:
+            state['keys']=list(dict.fromkeys(state['keys'][state['cursor']:]+sorted(stale)));state['cursor']=0
+            state['plans']=[p for p in state['plans'] if p['candidate_key'] not in stale]
+        while state['cursor']<len(state['keys']):
+            self.checkpoint(deadline);key=state['keys'][state['cursor']]
+            try:
+                if key not in self.candidates.runtime:self.candidates.refresh(key,self.budget(saved))
+                self.checkpoint(deadline);result=self.evaluate(saved,key)
+            except ValueError as error:
+                if str(error)=='TICK_DEADLINE':raise
+                result=dict(plans=[])
+            if result.get('enrichments'):
+                self.checkpoint(deadline)
+                self.delivery.archive.enrich_evidence(saved['opportunity_id'],key,result['enrichments'],result['evidence_manifest'])
+                self.repository.setting(setting,dict(complete=True))
+                return []
+            state['plans']+=result['plans'];state['cursor']+=1
+            self.repository.setting(setting,state)
+            self.checkpoint(deadline)
+        state['complete']=True;self.repository.setting(setting,state)
+        return self.ranked(state['plans'])
+
+    def candidate_plan(self,opportunity,saved,snapshot,*,failure_id=None,round_plans=None):
         """Claim/replacement share one exact vector and physical isolation gate."""
-        for key,value in snapshot['targets'].items():
-            self.scheduler.observe(opportunity['id'],key,snapshot['candidate_key'],value['quality'],eligible=True)
+        if round_plans is None or snapshot not in round_plans:raise ValueError('COMPLETE_CANDIDATE_ROUND_REQUIRED')
+        ranked=self.ranked(round_plans)
+        if any(set(p['targets'])&set(snapshot['targets']) for p in ranked[:ranked.index(snapshot)]):return None
+        for candidate in round_plans:
+            for key,value in candidate['targets'].items():self.scheduler.observe(opportunity['id'],key,candidate['candidate_key'],value['quality'],eligible=True)
+        with self.repository.connection(write=True) as db:
+            for key in snapshot['targets']:
+                preferred=next(p for p in ranked if key in p['targets'])
+                db.execute('UPDATE observations SET best_key=?,best_quality=? WHERE opportunity_id=? AND target_key=?',(preferred['candidate_key'],encoded(preferred['targets'][key]['quality']),opportunity['id'],key))
         if not all(self.scheduler.ready(opportunity['id'],key,value['action'])['ready'] for key,value in snapshot['targets'].items()):return None
+        if getattr(self,'pipeline',None):self.pipeline.revalidate(dict(snapshot=snapshot))
         self.verify_input(saved);pid='runtime-plan:'+digest([opportunity['id'],snapshot])
         self.authority.prepare(pid,opportunity['id'],snapshot)
         prepared=self.authority.plan(pid)
@@ -390,10 +475,12 @@ class Runtime:
             else:self.authority.supersede(pid,vector,reason='VERIFIED_BETTER_CANDIDATE',safe_isolation=True,now=now,progress=progress)
         return self.authority.plan(pid)
 
-    def work(self,opportunity):
+    def work(self,opportunity,*,deadline=None):
+        self.checkpoint(deadline)
         saved=self.repository.setting('runtime-input:'+opportunity['id'])
         if not saved:raise ValueError('ORIGINAL_RUNTIME_INPUT_REQUIRED')
         row=self.verify_input(saved)
+        self.checkpoint(deadline)
         if opportunity['mode']=='ONESHOT' and (instant()-parse(saved['created_at'])).total_seconds()>saved['effective']['lifecycle']['oneshot_seconds']:
             with self.repository.connection(write=True) as db:
                 for p in db.execute("SELECT id FROM plans WHERE opportunity_id=? AND authorization='ACTIVE'",(opportunity['id'],)).fetchall():
@@ -403,7 +490,7 @@ class Runtime:
                 db.execute("UPDATE opportunities SET state='ARCHIVED',updated_at=? WHERE id=?",(utcnow(),opportunity['id']))
             return dict(state='ARCHIVED',reason='ONESHOT_EXPIRED')
         with self.repository.connection() as db:
-            active=db.execute("SELECT id FROM plans WHERE opportunity_id=? AND authorization IN ('ACTIVE','PREPARED') ORDER BY created_at,id LIMIT 1",(opportunity['id'],)).fetchone()
+            active=db.execute("SELECT id FROM plans WHERE opportunity_id=? AND authorization IN ('ACTIVE','PREPARED') ORDER BY authorization!='ACTIVE',created_at,id LIMIT 1",(opportunity['id'],)).fetchone()
         if active:
             plan=self.authority.plan(active['id'])
             if plan['authorization']=='PREPARED':
@@ -412,7 +499,8 @@ class Runtime:
                 plan=self.authority.plan(plan['id'])
             if any(t['publish_phase']!='NOT_SENT' for t in self.authority.vector(list(plan['snapshot']['targets'])).values()):
                 return dict(state='DELIVERY_PENDING',plan_id=plan['id'])
-            if self.inventory(Target.from_task(row))['state']=='UNKNOWN':return dict(state='WAIT_INVENTORY')
+            if self.inventory(Target.from_task(row),template_id=saved['effective']['template']['id'],deadline=deadline)['state']=='UNKNOWN':return dict(state='WAIT_INVENTORY')
+            self.checkpoint(deadline)
             failure_id=None
             executor=self.pipeline.executor();owned=executor._owned(plan['snapshot'])
             if owned and owned.get('client_id'):
@@ -423,17 +511,19 @@ class Runtime:
             schedule=saved['effective']['schedule']
             if failure_id or schedule['supersession_limit']:
                 words=saved['scope']['keywords'][:saved['effective']['candidates']['keywords']]
-                for candidate in self.search(saved,words):
-                    if candidate['candidate_key']==plan['snapshot']['candidate_key']:continue
-                    result=self.evaluate(saved,candidate['candidate_key'])
-                    for snapshot in result['plans']:
-                        try:replacement=self.candidate_plan(opportunity,saved,snapshot,failure_id=failure_id)
-                        except ValueError as error:
-                            self.repository.setting('runtime-replacement:'+opportunity['id'],dict(reason=self.reason(error),at=utcnow()));continue
-                        if replacement:return self.advance(replacement,saved)
+                plans=self.candidate_round(saved,self.search(saved,words),deadline)
+                if failure_id:plans=[p for p in plans if p['candidate_key']!=plan['snapshot']['candidate_key']]
+                for snapshot in plans:
+                    if snapshot['candidate_key']==plan['snapshot']['candidate_key']:continue
+                    self.checkpoint(deadline)
+                    try:replacement=self.candidate_plan(opportunity,saved,snapshot,failure_id=failure_id,round_plans=plans)
+                    except ValueError as error:
+                        self.repository.setting('runtime-replacement:'+opportunity['id'],dict(reason=self.reason(error),at=utcnow()));continue
+                    if replacement:return self.advance(replacement,saved,deadline=deadline)
             if failure_id:return dict(state='WAIT_REPLACEMENT',reason='EXECUTION_FAILED')
-            return self.advance(plan,saved)
-        inventory=self.inventory(Target.from_task(row))
+            return self.advance(plan,saved,deadline=deadline)
+        inventory=self.inventory(Target.from_task(row),template_id=saved['effective']['template']['id'],deadline=deadline)
+        self.checkpoint(deadline)
         if inventory['state']=='UNKNOWN':return dict(state='WAIT_INVENTORY',reason=inventory['diagnostics'])
         scope=self.scope(Target.from_task(row));facts=self.delivery.archive.current(scope['units'])
         if opportunity['mode']=='CONTINUOUS':self.scheduler.update_completion(row['id'],scope['units'],scope_closed=scope['scope_closed'],collected=all(v['state']=='PRESENT' for v in facts.values()))
@@ -448,11 +538,12 @@ class Runtime:
         expired=lifecycle and lifecycle['expires_at'] and instant()>=parse(lifecycle['expires_at'])
         if not (expired and opportunity['mode']=='CONTINUOUS' and all(v['state']=='PRESENT' for v in facts.values())):
             rows+=self.search(saved,words)
-        for candidate in rows:
-            result=self.evaluate(saved,candidate['candidate_key'])
-            for snapshot in result['plans']:
-                claimed=self.candidate_plan(opportunity,saved,snapshot)
-                if claimed:return self.advance(claimed,saved)
+        plans=self.candidate_round(saved,rows,deadline)
+        if self.scheduler.opportunity(opportunity['id'])['state']!='ACTIVE':return dict(state='EVIDENCE_CONFIRMED')
+        for snapshot in plans:
+            self.checkpoint(deadline)
+            claimed=self.candidate_plan(opportunity,saved,snapshot,round_plans=plans)
+            if claimed:return self.advance(claimed,saved,deadline=deadline)
         return dict(state='WAITING',reason='SITE_SEARCH_FAILED' if self.candidates.search_errors else 'NO_READY_CANDIDATE')
 
     async def tick(self):
@@ -464,12 +555,18 @@ class Runtime:
             with self.lock:self.busy=False
 
     def _tick(self):
+        self.deadline=time.monotonic()+self.config.recovery.seconds
+        self.candidates.deadline=self.deadline
+        try:return self._run_tick()
+        finally:self.deadline=None;self.candidates.deadline=None
+
+    def _run_tick(self):
         deadline=time.monotonic()+self.config.recovery.seconds;results=[]
         self.owner.ensure_paused(limit=self.config.recovery.entries);self.scheduler.tick(limit=self.config.recovery.entries)
         try:self.check()
         except ValueError:return dict(state='SAFETY_ONLY',results=self.safety(deadline))
         lane=self.repository.setting('runtime-lane') or 0
-        self.repository.setting('runtime-lane',(lane+1)%5)
+        self.repository.setting('runtime-lane',(lane+1)%7)
         if lane==0:return dict(state='SAFETY',results=self.safety(deadline))
         if lane in (2,3) and self.pipeline:
             from .runtime_passive import Passive
@@ -478,6 +575,12 @@ class Runtime:
             except Exception as error:result=dict(state='DEFER',reason=self.reason(error))
             return dict(state='PASSIVE',results=[result])
         if lane==4 and self.policy:return dict(state='REPROFILE',results=[self.reprofile()])
+        if lane==5 and self.delivery:
+            return dict(state='MAINTENANCE',results=[self.delivery.local_maintenance(entries=self.config.recovery.entries,deadline=deadline)])
+        if lane==6 and self.pipeline:
+            try:result=self.late_assets(deadline)
+            except Exception as error:result=dict(state='DEFER',reason=self.reason(error))
+            return dict(state='SUBTITLES',results=[result])
         self.owner.reconcile()
         self.bootstrap(deadline)
         cursor=self.repository.setting('runtime-opportunity-cursor') or ''
@@ -486,12 +589,50 @@ class Runtime:
         if not rows:self.repository.setting('runtime-opportunity-cursor','')
         for opportunity in rows:
             if time.monotonic()>=deadline:break
-            try:result=self.work(opportunity)
+            try:result=self.work(opportunity,deadline=deadline)
             except Exception as error:result=dict(state='DEFER',reason=self.reason(error))
             results.append(dict(opportunity_id=opportunity['id'],**result))
             self.repository.setting('runtime-result:'+opportunity['id'],dict(result,at=utcnow()))
             self.repository.setting('runtime-opportunity-cursor',opportunity['id'])
         return dict(state='CHECKED',results=results)
+
+    def late_assets(self,deadline):
+        """One issued resource per pass; late sidecars use the common admission."""
+        from .runtime_assets import observe
+        cursor=self.repository.setting('runtime-subtitle-cursor') or ''
+        with self.repository.connection() as db:
+            row=db.execute("SELECT p.id FROM plans p JOIN tasks t ON t.id=p.task_id WHERE p.authorization='COMPLETED' AND t.state IN ('ACTIVE','PASSIVE') AND p.id>? ORDER BY p.id LIMIT 1",(cursor,)).fetchone()
+        if not row:self.repository.setting('runtime-subtitle-cursor','');return dict(state='SUBTITLE_IDLE')
+        plan=self.authority.plan(row['id']);s=plan['snapshot'];saved=self.repository.setting('runtime-input:'+plan['opportunity_id'])
+        if not saved:raise ValueError('ORIGINAL_RUNTIME_INPUT_REQUIRED')
+        self.verify_input(saved);self.checkpoint(deadline)
+        rule=self.delivery.rules[saved['effective']['template']['organized_rule']]
+        observed=observe(self.pipeline,plan,seconds=rule.get('stable_seconds',10),entries=self.config.recovery.entries)
+        self.repository.setting('runtime-subtitle-cursor',row['id'])
+        if observed['state']!='VERIFIED':return observed
+        with self.repository.connection() as db:
+            versions=[json.loads(v['data']) for key in s['targets'] for v in self.delivery.archive._live_versions(db,key)]
+        pending=[a for a in observed['assets'] if not all(any(old['role']=='subtitle' and old['content']==dict(sha1=a['sha1'],size=a['file']['size']) for old in v.get('assets',[])) for v in versions if v['target_key'] in a['file']['targets'])]
+        if not pending:return dict(state='SUBTITLE_CURRENT')
+        for index,asset in enumerate(pending,len(s['torrent_files'])):asset['file']['index']=index
+        self.repository.setting('subtitle-candidate:'+s['candidate_key'],dict(source_plan=plan['id'],assets=pending,source_digest=digest([s[k] for k in ('infohash','torrent_files','downloader','save_path')])))
+        self.checkpoint(deadline);self.candidates.refresh(s['candidate_key'],self.budget(saved));self.checkpoint(deadline)
+        result=self.evaluate(saved,s['candidate_key'])
+        approved=sorted({k for p in result['plans'] for k,v in p['targets'].items() if v['action']=='SIDECAR_SUPPLEMENT'})
+        if not approved:return dict(state='NO_SUBTITLE_IMPROVEMENT')
+        task=self.repository.get_task(plan['task_id'])
+        with self.repository.connection() as db:active=db.execute("SELECT id FROM opportunities WHERE task_id=? AND state='ACTIVE'",(task['id'],)).fetchone()
+        if active:opportunity=active['id']
+        else:
+            baseline=self.delivery.archive.current(approved)
+            intent='subtitle:'+digest([s['candidate_key'],pending,[(k,v['archive_revision']) for k,v in baseline.items()]])
+            row=self.submit(intent,Target.from_task(task),saved.get('native',{}),'subtitle',template_id=saved['effective']['template']['id'],mode='ONESHOT',approved_units=approved)
+            with self.repository.connection() as db:active=db.execute("SELECT id FROM opportunities WHERE task_id=? AND state='ACTIVE'",(row['id'],)).fetchone()
+            if not active:return dict(state='SUBTITLE_ADMISSION_PENDING')
+            opportunity=active['id']
+        from .runtime_passive import Passive
+        Passive(self).queue(opportunity,s['candidate_key'])
+        return dict(state='SUBTITLE_QUEUED',opportunity_id=opportunity)
 
     def reprofile(self):
         """Bounded stored-fact re-evaluation; no remote media or lifecycle writes."""
@@ -583,7 +724,14 @@ class Runtime:
         if ordinary:self.check()
         elif self.plugin._ordinary_work_active():raise ValueError('DISABLE_ORDINARY_WORK_FIRST')
         if len(encoded(config))>524288:raise ValueError('SCOPE_LIMIT')
-        DeliveryConfig.model_validate(config)  # Validate, but preserve historical scalar types/hash.
+        validation=json.loads(encoded(config))
+        # Only this historical scope import accepts a bounded decimal string;
+        # ordinary configuration remains strict and the original hash is retained.
+        import re
+        for rule in validation.get('rules',[]):
+            scalar=rule.get('fallback_gb')
+            if isinstance(scalar,str) and re.fullmatch(r'[0-9]{1,6}(?:\.[0-9]{1,12})?',scalar):rule['fallback_gb']=float(scalar)
+        DeliveryConfig.model_validate(validation)
         with self.repository.connection() as db:
             row=db.execute('SELECT * FROM delivery_bundles WHERE id=?',(bundle_id,)).fetchone()
         if not row or row['revision']!=revision:raise ValueError('STALE_BUNDLE')
@@ -627,6 +775,7 @@ class Runtime:
         if saved['digest'] not in self.scope_workers:
             worker=build_delivery(self.plugin,saved['config'])
             worker.archive.scope_provider=lambda target:self.scope(target,fresh=True)
+            worker.archive.sources.checkpoint=lambda:self.checkpoint(getattr(self,'deadline',None))
             def safety_only():raise ValueError('ORIGINAL_SCOPE_SAFETY_ONLY')
             worker.dispatch_gate=safety_only;self.scope_workers[saved['digest']]=worker
         return self.scope_workers[saved['digest']]
@@ -636,8 +785,9 @@ class Runtime:
         worker=self.scope_worker(bundle_id);bundle=worker.bundle(bundle_id)
         if not bundle.get('publication_action'):raise ValueError('PUBLICATION_REQUIRED')
         receipt=observe_consumer(worker,bundle,lambda target:self.scope(target,fresh=True),entries=self.config.recovery.entries,
-            pages=self.config.recovery.pages,seconds=self.config.recovery.seconds)
+            pages=self.config.recovery.pages,seconds=self.config.recovery.seconds,deadline=getattr(self,'deadline',None))
         if receipt is None:return dict(state='WAIT_CONSUMER',bundle_id=bundle_id,reason='CONSUMER_OBSERVATION_INCOMPLETE')
+        self.checkpoint(getattr(self,'deadline',None))
         return worker.confirm(bundle_id,receipt)
 
     def safety(self,deadline):

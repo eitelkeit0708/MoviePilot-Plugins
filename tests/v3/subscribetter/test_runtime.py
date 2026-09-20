@@ -466,10 +466,10 @@ class ReplacementTests(unittest.TestCase):
         f.claim('A')
         opportunity=f.schedule.opportunity('round');snapshot=f.spec(candidate='B')
         with patch.object(m,'instant',return_value=test_planner.NOW),self.assertRaisesRegex(ValueError,'REPLACEMENT_LAYOUT_COLLISION'):
-            r.candidate_plan(opportunity,{},snapshot)
+            r.candidate_plan(opportunity,{},snapshot,round_plans=[snapshot])
         self.assertEqual({'A'},{v['owner_plan_id'] for v in f.auth.vector(f.keys).values()})
         snapshot['save_path']='/isolated-b'
-        with patch.object(m,'instant',return_value=test_planner.NOW):new=r.candidate_plan(opportunity,{},snapshot)
+        with patch.object(m,'instant',return_value=test_planner.NOW):new=r.candidate_plan(opportunity,{},snapshot,round_plans=[snapshot])
         self.assertEqual('ACTIVE',new['authorization']);self.assertEqual('SUPERSEDED',f.auth.plan('A')['authorization'])
         self.assertEqual(1,f.schedule.opportunity('round')['supersessions'])
         self.assertEqual(opportunity['created_at'],f.schedule.opportunity('round')['created_at'])

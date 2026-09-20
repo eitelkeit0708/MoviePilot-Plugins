@@ -27,8 +27,13 @@ class HostDeliveryCloud:
 
     def _raw(self,scope):return self.sources._client(scope,self.timeout)
 
+    def _checkpoint(self):
+        check=getattr(self.sources,'checkpoint',None)
+        if check:check()
+
     def stat(self,scope,path):
         self._scope(scope,path);client,pb,meta=self._raw(scope)
+        self._checkpoint()
         try:raw=client.stub.FindFileByPath(pb.FindFileByPathRequest(parentPath='',path=path),metadata=meta,timeout=self.timeout)
         except Exception as error:
             # Only NOT_FOUND proves absence. Authentication/timeouts are unknown.
@@ -49,6 +54,7 @@ class HostDeliveryCloud:
             if not old.get('directory'):raise ValueError('DIRECTORY_CONFLICT')
             return old
         client,pb,meta=self._raw(scope)
+        self._checkpoint()
         response=client.stub.CreateFolder(pb.CreateFolderRequest(parentPath=str(PurePosixPath(path).parent),folderName=PurePosixPath(path).name),metadata=meta,timeout=self.timeout)
         if not response.result.success or not response.folderCreated.isDirectory or response.folderCreated.fullPathName!=path or not response.folderCreated.id:raise ValueError('DIRECTORY_CREATE_UNKNOWN')
         value=self.stat(scope,path)
@@ -67,10 +73,10 @@ class HostDeliveryCloud:
     def _parent(self,scope,parent):
         config=self._scope(scope,parent);client=self._p115(scope)
         relative='/' + str(PurePosixPath(parent).relative_to(PurePosixPath(config['root'])))
-        response=client.fs_dir_getid(relative,timeout=self.timeout)
+        self._checkpoint();response=client.fs_dir_getid(relative,timeout=self.timeout)
         cid=str(response.get('id',''))
         if response.get('state') is not True or not cid.isdecimal() or cid=='0':raise ValueError('P115_PARENT_UNKNOWN')
-        page=client.fs_files({'cid':cid,'offset':0,'limit':1,'cur':1,'record_open_time':0},timeout=self.timeout)
+        self._checkpoint();page=client.fs_files({'cid':cid,'offset':0,'limit':1,'cur':1,'record_open_time':0},timeout=self.timeout)
         chain=page.get('path') or []
         actual=str(page.get('cid') if page.get('cid') is not None else chain[-1].get('cid') if chain else '')
         names=[str(x.get('name',x.get('n',''))) for x in chain if str(x.get('cid'))!='0']
@@ -84,6 +90,7 @@ class HostDeliveryCloud:
             if time.monotonic()>deadline:raise TimeoutError('RAPID_DEADLINE')
             return source.range_hash(value,deadline=deadline)
         source.check()
+        self._checkpoint()
         try:result=client.upload_file_init(filename=PurePosixPath(path).name,filesha1=source.sha1.upper(),filesize=source.size,pid=cid,read_range_bytes_or_hash=ranges,timeout=self.timeout)
         except Exception as error:
             status=getattr(getattr(error,'response',None),'status_code',None)
@@ -101,9 +108,9 @@ class HostDeliveryCloud:
         self._scope(scope,path);client,pb,meta=self._raw(scope);source.check()
         # Subscribe before Start: even an immediate terminal event must have a
         # receiver. The caller persists the returned ID before consuming bytes.
-        call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=self.timeout+budget)
+        self._checkpoint();call=client.stub.RemoteUploadChannel(pb.RemoteUploadChannelRequest(device_id=device_id),metadata=meta,timeout=self.timeout+budget)
         try:
-            response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=self.timeout)
+            self._checkpoint();response=client.stub.StartRemoteUpload(pb.StartRemoteUploadRequest(file_path=path,file_size=source.size,known_hashes={1:source.md5,2:source.sha1},client_can_calculate_hashes=True),metadata=meta,timeout=self.timeout)
             if not response.upload_id:raise ValueError('UPLOAD_START_UNKNOWN')
             self.pending_channels[scope,response.upload_id]=(device_id,call)
             return response.upload_id
@@ -121,6 +128,7 @@ class HostDeliveryCloud:
         work_deadline=deadline-min(2,budget/2)
         state='UNKNOWN';sent=0;requests=0;call=None;pause_requested=False
         def remaining():
+            self._checkpoint()
             value=min(self.timeout,deadline-time.monotonic())
             if value<=0:raise TimeoutError('READER_BUDGET')
             return value
@@ -202,6 +210,7 @@ class HostDeliveryCloud:
 
     def refresh(self,scope,path):
         self._scope(scope,path);client,pb,meta=self._raw(scope);count=0
+        self._checkpoint()
         call=client.stub.GetSubFiles(pb.ListSubFileRequest(path=path,forceRefresh=True),metadata=meta,timeout=self.timeout)
         try:
             for reply in call:
@@ -215,6 +224,7 @@ class HostDeliveryCloud:
         if type(limit)is not int or not 1<=limit<=10000 or not 0<seconds<=30:raise ValueError('BUNDLE_LIST_LIMIT')
         pending=[path];rows=[];seen=set();deadline=time.monotonic()+seconds
         while pending:
+            self._checkpoint()
             current=pending.pop()
             remaining=min(self.timeout,deadline-time.monotonic())
             if remaining<=0:raise ValueError('BUNDLE_LIST_TIMEOUT')
@@ -234,6 +244,7 @@ class HostDeliveryCloud:
         self._scope(scope,source);self._scope(scope,destination)
         if PurePosixPath(source).name!=PurePosixPath(destination).name:raise ValueError('BUNDLE_RENAME_FORBIDDEN')
         client,pb,meta=self._raw(scope)
+        self._checkpoint()
         response=client.stub.MoveFile(pb.MoveFileRequest(theFilePaths=[source],destPath=str(PurePosixPath(destination).parent),conflictPolicy=2,moveAcrossClouds=False,handleConflictRecursively=False),metadata=meta,timeout=self.timeout)
         return {'success':response.success}  # Never used as location proof.
 
@@ -241,6 +252,7 @@ class HostDeliveryCloud:
         if self.stat(scope,path)!=expected:raise ValueError('REMOTE_IDENTITY_CHANGED')
         if expected.get('directory'):raise ValueError('RECURSIVE_DELETE_FORBIDDEN')
         client,pb,meta=self._raw(scope)
+        self._checkpoint()
         client.stub.DeleteFile(pb.FileRequest(path=path),metadata=meta,timeout=self.timeout)
         if self.stat(scope,path) is not None:raise ValueError('DELETE_OUTCOME_UNKNOWN')
 

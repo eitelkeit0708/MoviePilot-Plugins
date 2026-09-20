@@ -12,7 +12,7 @@ import uuid
 from contextlib import nullcontext
 from functools import wraps
 
-from .planner import BARRIERS, encoded, validate_files
+from .planner import BARRIERS, encoded, validate_files, asset_table
 from .scheduler import instant, parse, stamp
 from .execution import Exclusions, MUTATION_LOCK
 
@@ -227,7 +227,7 @@ class Delivery:
                 if source_plan['task_id']!=plan['task_id'] or source_plan['opportunity_id']!=plan['opportunity_id'] or source_plan['authorization'] not in ('CANCELLED','SUPERSEDED') or any(source_plan['snapshot'][k]!=s[k] for k in ('candidate_key','infohash','torrent_files','downloader','save_path')):raise ValueError('SOURCE_PLAN_LINEAGE_MISMATCH')
                 with self.repository.connection() as db:
                     if db.execute("SELECT 1 FROM plan_actions WHERE plan_id=? AND kind IN ('RAPID','CD2_UPLOAD','PUBLISH','ORGANIZE') AND state IN ('IN_FLIGHT','UNKNOWN','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF')",(source_plan_id,)).fetchone():raise ValueError('SOURCE_PLAN_UNSETTLED')
-            table=validate_files(s['torrent_files'],indices)
+            table=validate_files(asset_table(s),indices)
             keys=sorted({k for i in indices for k in table[i]['targets']});vector=self.authority.vector(keys)
             bid=sha256(encoded([plan_id,source_plan_id,rule_id,r['transfer_revision'],indices,vector]).encode()).hexdigest()
             with self.repository.connection() as db:
@@ -387,6 +387,30 @@ class Delivery:
                 results.append({'bundle_id':bid,'state':'BLOCKED','reason':reason})
         with self.repository.connection(write=True) as db:db.execute('INSERT OR REPLACE INTO settings VALUES(?,?)',('delivery_tick_cursor',encoded(cursor)))
         return dict(scans=[{k:s.get(k) for k in ('state','watermark','count','failed_paths')} for s in scans],bundles=results)
+
+    def local_maintenance(self,*,entries,deadline):
+        """One ordinary scan and one independently permitted cleanup scope."""
+        if self.dispatch_gate:self.dispatch_gate()
+        cursor=self.repository.setting('delivery-maintenance') or dict(rule='',bundle='',scope=0)
+        rules=sorted(k for k,r in self.rules.items() if r['enabled']);scans=[];results=[]
+        if rules and time.monotonic()<deadline:
+            key=next((k for k in rules if k>cursor['rule']),rules[0])
+            scans.append(LocalReconciler(self.repository,[{k:v for k,v in r.items() if k not in ('revision','transfer_revision')} for r in self.rules.values()]).scan(key,
+                limits=dict(entries=entries,seconds=min(30,max(.001,deadline-time.monotonic())))))
+            cursor['rule']=key
+        scopes=('monitor','staging','downloader_task','downloader_data')
+        with self.repository.connection() as db:
+            rows=db.execute("SELECT id FROM delivery_bundles WHERE state IN ('WAIT_CONSUMER','CONFIRMED','ABANDONED') AND id>? ORDER BY id LIMIT 1",(cursor['bundle'],)).fetchall()
+        if not rows:cursor.update(bundle='',scope=0)
+        for row in rows:
+            if time.monotonic()>=deadline:break
+            if self.dispatch_gate:self.dispatch_gate()
+            try:results.append(self.cleanup(row['id'],scope=scopes[cursor['scope']]))
+            except ValueError as error:results.append(dict(state='DEFER',reason=str(error)))
+            cursor['scope']=(cursor['scope']+1)%len(scopes)
+            if not cursor['scope']:cursor['bundle']=row['id']
+        self.repository.setting('delivery-maintenance',cursor)
+        return dict(state='LOCAL_CHECKED',scans=scans,cleanup=results)
 
     @exclusive
     def reconcile(self,bundle_id,*,now=None,limits=None):

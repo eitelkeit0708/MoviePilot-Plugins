@@ -379,7 +379,12 @@ class SubscriBetter(_PluginBase):
     def _discovery_inventory_refresh(self,target,source):
         runtime=getattr(self,'runtime',None)
         if not runtime:return {"state":"UNKNOWN","evidence_ref":None,"diagnostics":["ARCHIVE_UNAVAILABLE"]}
-        return runtime.inventory(target)
+        scope=runtime.scope(target)
+        category=scope['classification'].get('effective',{}).get('category_id')
+        destination=source.destination_category_bindings.get(category)
+        template=source.destination_templates.get(destination)
+        if not template:raise ValueError('EXACT_DESTINATION_TEMPLATE_REQUIRED')
+        return runtime.inventory(target,template_id=template)
 
     def _discovery_authorized(self,target,source,destination):
         runtime=getattr(self,'runtime',None);template=source.destination_templates.get(destination)

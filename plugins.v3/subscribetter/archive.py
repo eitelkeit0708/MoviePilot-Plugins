@@ -16,7 +16,7 @@ from uuid import uuid4
 from urllib.parse import urlencode
 from http.cookies import SimpleCookie
 
-from .planner import Authority, BARRIERS, TargetUnit, encoded
+from .planner import Authority, BARRIERS, TargetUnit, encoded, asset_table
 from .policy import Version
 from .repository import Target, utcnow
 from .scheduler import instant, parse, stamp
@@ -256,6 +256,7 @@ class HostArchiveSources:
         self.libraries = {s: {str(i) for i in ids} for s, ids in libraries.items()}
         self.clients = {}
         self.accounts = {}
+        self.checkpoint=lambda:None
 
     def close(self):
         for client, _, _ in self.clients.values():
@@ -264,6 +265,7 @@ class HostArchiveSources:
         self.accounts.clear()
 
     def _emby(self, service, library, query):
+        self.checkpoint()
         if str(library) not in self.libraries.get(service, set()):
             raise ValueError('OUTSIDE_LIBRARY')
         from app.sdk.services import MediaServerHelper
@@ -330,6 +332,7 @@ class HostArchiveSources:
         return dict(page,Series=item_projection(series))
 
     def classify_target(self, key):
+        self.checkpoint()
         from .candidates import HostCandidateAdapter
         from app.chain.media import MediaChain
         from app.sdk.media import normalize_media_source
@@ -342,6 +345,7 @@ class HostArchiveSources:
         return HostCandidateAdapter.classify(media)
 
     def _client(self, scope_id, timeout):
+        self.checkpoint()
         if scope_id not in self.scopes:
             raise ValueError('CLOUD_SCOPE_UNKNOWN')
         if scope_id in self.clients:
@@ -375,6 +379,7 @@ class HostArchiveSources:
                 raise ValueError('CLOUD_AUTH_FAILED')
             client.jwt_token = token.token
             metadata = [('authorization', 'Bearer ' + client.jwt_token)]
+            self.checkpoint()
             root = client.stub.FindFileByPath(pb.FindFileByPathRequest(parentPath='', path=posix(scope['root'])), metadata=metadata, timeout=timeout)
             if not root.isDirectory or root.fullPathName != scope['root'] or str(root.CloudAPI.userName) != uid:
                 raise ValueError('ACCOUNT_MISMATCH')
@@ -397,6 +402,7 @@ class HostArchiveSources:
         client, pb, metadata = self._client(scope_id, timeout)
         try:
             if refresh:
+                self.checkpoint()
                 call = client.stub.GetSubFiles(pb.ListSubFileRequest(path=str(PurePosixPath(path).parent), forceRefresh=True), metadata=metadata, timeout=timeout)
                 try:
                     count = 0
@@ -407,6 +413,7 @@ class HostArchiveSources:
                 finally:
                     if hasattr(call, 'cancel'):
                         call.cancel()
+            self.checkpoint()
             raw = client.stub.FindFileByPath(pb.FindFileByPathRequest(parentPath='', path=path), metadata=metadata, timeout=timeout)
             if raw.fullPathName != path or raw.isDirectory:
                 raise ValueError('CLOUD_PATH_CONFLICT')
@@ -430,6 +437,7 @@ class HostArchiveSources:
         client=P115Client((self.plugin.get_config(scope.get('p115_plugin','P115Disk')) or {})['cookie'])
         matches,offset,total=[],0,None;deadline=time.monotonic()+min(30,timeout)
         def remaining():
+            self.checkpoint()
             value=deadline-time.monotonic()
             if value<=0:raise ValueError('P115_LIST_TIMEOUT')
             return min(timeout,value)
@@ -571,9 +579,10 @@ class Archive:
                     state, diagnostics = 'UNKNOWN', ['STALE_MAPPING' if row else 'UNOBSERVED']
                 if row and (instant() - parse(row['updated_at'])).total_seconds() > 900:
                     state, diagnostics = 'UNKNOWN', ['STALE_OBSERVATION']
-                versions = []
+                versions = [];sidecars=[]
                 for v in self._live_versions(db, key):
                     observed = json.loads(v['data'])
+                    sidecars.append(any(s.get('Type')=='Subtitle' and s.get('IsExternal') is True for s in observed.get('streams',[])))
                     versions.append(Version(v['id'], self.policy.normalize(observed['raw'], current=True), reliable=observed['reliable']))
                     if (instant() - parse(observed['observed_at'])).total_seconds() > 900:
                         state, diagnostics = 'UNKNOWN', ['STALE_OBSERVATION']
@@ -583,8 +592,61 @@ class Archive:
                     state, diagnostics = 'UNKNOWN', ['CURRENT_BINDING_REQUIRED']
                 result[key] = dict(state=state, revision=managed['current_revision'] if managed else None,
                                    archive_revision=row['revision'] if row else None, versions=versions,
-                                   evidence_ref=data.get('evidence_ref'), diagnostics=diagnostics)
+                                   evidence_ref=data.get('evidence_ref'), diagnostics=diagnostics,
+                                   sidecar_missing=state=='PRESENT' and bool(sidecars) and not any(sidecars))
             return result
+
+    def candidate_evidence(self,candidate,scope):
+        """Join recorded source hashes to fresh associated current assets only."""
+        key=candidate['candidate_key'];table=candidate['torrent_files'];proven=[];versions=[]
+        with self.repository.connection() as db:
+            for row in db.execute("SELECT data FROM archive_sources WHERE json_extract(data,'$.candidate_key')=? AND json_extract(data,'$.infohash')=?",(key,candidate['infohash'])):
+                source=json.loads(row[0]);proven+=source.get('source_assets',source.get('assets',[]))
+            for row in db.execute("SELECT r.evidence,p.snapshot FROM action_receipts r JOIN plan_actions a ON a.id=r.action_id JOIN plans p ON p.id=a.plan_id WHERE r.outcome='SUCCEEDED' AND a.kind IN ('ORGANIZE','RAPID','CD2_UPLOAD') AND json_extract(p.snapshot,'$.candidate_key')=?",(key,)):
+                snapshot=json.loads(row['snapshot'])
+                if snapshot['infohash']==candidate['infohash'] and snapshot['torrent_files']==table:proven+=json.loads(row['evidence']).get('asset_manifest',{}).get('assets',[])
+            for target in scope:
+                versions += [json.loads(r['data']) for r in self._live_versions(db,target)]
+            consumed={r[0] for r in db.execute('SELECT evidence_key FROM evidence_consumption')}
+        assets={}
+        for item in table:
+            matching=[a for a in proven if a.get('file_index')==item['index'] and a.get('relative_path')==item['path'] and all(a.get(k)==item[k] for k in ('role','targets','requires')) and a.get('content',{}).get('size')==item['size']]
+            hashes={encoded(a['content']) for a in matching}
+            if len(hashes)==1:assets[item['index']]={k:matching[0][k] for k in ('file_index','relative_path','role','targets','requires','content')}
+        current=self.current(scope);same_video={};same_assets=set();association=[];emby=[];used={}
+        for observed in versions:
+            target=observed['target_key']
+            if current.get(target,{}).get('state')!='PRESENT':continue
+            self.validate_observation(observed)
+            videos=[f for f in table if f['role']=='video' and target in f['targets']]
+            if len(videos)!=1 or videos[0]['index'] not in assets or assets[videos[0]['index']]['content']!=content(observed['video']):continue
+            same_video[target]=True
+            if candidate.get('local_assets'):
+                missing=[a for a in candidate['local_assets'] if target in a['file']['targets'] and not any(old['role']=='subtitle' and old['content']==dict(sha1=a['sha1'],size=a['file']['size']) for old in observed.get('assets',[]))]
+                if missing:current[target]['sidecar_missing']=True
+                else:current[target]['sidecar_missing']=False
+            bound=[f for f in table if target in f['targets'] and f['role'] in ('video','subtitle')]
+            locations=[]
+            for item in bound:
+                asset=assets.get(item['index'])
+                if not asset:break
+                choices=[observed['video']] if item['role']=='video' else [a['location'] for a in observed.get('assets',[]) if a['role']=='subtitle' and a['content']==asset['content']]
+                if len(choices)!=1:break
+                loc=choices[0];locations.append(dict(file_index=item['index'],cloud_scope_id=loc['cloud_scope_id'],path=loc['path']))
+            else:
+                if not candidate.get('local_assets'):same_assets.add(observed['version_id'])
+                association+=locations
+                used.update({f['index']:assets[f['index']] for f in bound})
+                emby.append(dict(service=observed['service'],library_id=observed['library'],item_id=observed['item_id']))
+        manifest=None
+        if used:
+            with self.repository.connection() as db:
+                self._candidate_asset_proof(db,key,candidate,list(used.values()))
+                raw=json.loads(db.execute('SELECT data FROM candidates WHERE candidate_key=?',(key,)).fetchone()[0])
+            manifest=dict(candidate_key=key,manifest_ref='source:'+digest([key,list(used.values())]),selected_indices=sorted(used),assets=list(used.values()),
+                publication={k:dict(raw=raw,classification=candidate['classification']) for k in scope},
+                association=dict(assets=list({encoded(a):a for a in association}.values()),emby=list({encoded(e):e for e in emby}.values())))
+        return dict(current=current,same_video_verified=same_video,same_assets_verified=same_assets,consumed=consumed,manifest=manifest)
 
     def discovery_inventory(self, target):
         """Project indexed archive facts to a work/season without inventing episodes."""
@@ -901,7 +963,7 @@ class Archive:
         from .execution import Exclusions
         exclusions = Exclusions(self.repository)
         exclusion_token = exclusions.token()
-        observed = self._verify_final(manifest, plan['snapshot']['torrent_files'], selected, consumer, vector)
+        observed = self._verify_final(manifest, asset_table(plan['snapshot']), selected, consumer, vector)
         for o in observed:
             o.update(candidate_key=plan['snapshot']['candidate_key'], infohash=plan['snapshot']['infohash'])
         confirmations = {}

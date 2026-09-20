@@ -691,9 +691,10 @@ class PluginTests(unittest.TestCase):
         self.assertFalse(self.plugin._discovery_authorized(target,anime,'tv'))
         self.assertFalse(self.plugin._discovery_authorized(target,source.model_copy(update={'destination_templates':{}}),'tv'))
         runtime.inventory=Mock(return_value={'state':'MISSING','evidence_ref':'archive-probe:test'})
+        source=source.model_copy(update={'destination_category_bindings':{runtime.scope(target)['classification']['effective']['category_id']:'tv'}})
         result=self.plugin._discovery_inventory_refresh(target,source)
         self.assertEqual('MISSING',result['state'])
-        runtime.inventory.assert_called_once_with(target)
+        runtime.inventory.assert_called_once_with(target,template_id='fixture')
         with self.assertRaises(Exception):
             self.mod.DiscoveryReprocessRequest(record_ids=list(range(1,102)))
 

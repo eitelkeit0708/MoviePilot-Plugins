@@ -8,10 +8,14 @@ from .repository import Target,utcnow
 from .scheduler import instant,parse
 
 
-def observe_consumer(worker,bundle,provider,*,entries=100,pages=2,seconds=5):
+def observe_consumer(worker,bundle,provider,*,entries=100,pages=2,seconds=5,deadline=None):
+    deadline=min(deadline or float('inf'),time.monotonic()+seconds)
+    def check():
+        if time.monotonic()>=deadline:raise ValueError('TICK_DEADLINE')
     archive=worker.archive;manifest=bundle['manifest'];keys=set(manifest['publication'])
     targets={encoded(json.loads(k)[:5]):Target(*json.loads(k)[:5]) for k in keys}
-    scopes={k:provider(t) for k,t in targets.items()}
+    scopes={}
+    for k,t in targets.items():check();scopes[k]=provider(t)
     selected=sorted({(r['emby_service'],str(r['library_id']),k) for r in archive.mappings.rules for k,t in targets.items()
         if r.get('media_source','themoviedb')==t.media_source and r.get('episode_group','')==t.episode_group})
     if not selected:raise ValueError('SELECTED_LIBRARY_SCOPE_REQUIRED')
@@ -19,10 +23,11 @@ def observe_consumer(worker,bundle,provider,*,entries=100,pages=2,seconds=5):
     state=archive.repository.setting(checkpoint)
     if not state or state['identity']!=identity or (instant()-parse(state['started_at'])).total_seconds()>300:
         state=dict(identity=identity,started_at=utcnow(),phase='EMBY',cursor=0,start=0,total=None,items=[],matches=[],directories={},assets={})
-    deadline=time.monotonic()+seconds
+    check()
     def save():archive.repository.setting(checkpoint,state)
     if state['phase']=='EMBY':
         for _ in range(pages):
+            check()
             if state['cursor']>=len(selected):state['phase']='MATCH';state['cursor']=0;break
             service,library,targetkey=selected[state['cursor']]
             page=archive.sources.emby_target_page(service,library,targets[targetkey],state['start'],entries)
@@ -47,6 +52,7 @@ def observe_consumer(worker,bundle,provider,*,entries=100,pages=2,seconds=5):
             affected=keys&set(actual)
             if affected:
                 for source in item.get('MediaSources',[]):
+                    check()
                     source_path=source.get('Path');item_path=source_path if str(source_path).lower().endswith('.strm') else item.get('Path')
                     rule,path,_=archive.mappings.resolve(row['service'],row['library'],item_path,source_path)
                     remote=archive.sources.cloud_stat(rule['cloud_scope_id'],path,refresh=True)
@@ -68,12 +74,14 @@ def observe_consumer(worker,bundle,provider,*,entries=100,pages=2,seconds=5):
         state['phase']='ASSETS';save();return None
     if state['phase']=='ASSETS':
         for name,directory in state['directories'].items():
+            check()
             scope,path=json.loads(name)
             if directory['rows'] is None:
                 directory['rows']=worker.cloud.inventory(scope,path,limit=10000,seconds=seconds)
                 save()
             count=0
             while directory['cursor']<len(directory['rows']) and count<entries:
+                check()
                 item=directory['rows'][directory['cursor']];directory['cursor']+=1;count+=1
                 if not item['directory']:
                     observed=archive.sources.cloud_stat(scope,item['path'],refresh=True)

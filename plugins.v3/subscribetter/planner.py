@@ -101,6 +101,11 @@ def validate_new_asset_scope(files):
     return by_index
 
 
+def asset_table(snapshot):
+    """Execution assets include verified local sidecars; torrent metadata does not."""
+    return snapshot['torrent_files']+[a['file'] for a in snapshot.get('local_assets',[])]
+
+
 class Authority:
     def __init__(self, repository):
         self.repository = repository
@@ -120,8 +125,13 @@ class Authority:
         snapshot = json.loads(encoded(snapshot))
         required = {'candidate_key', 'infohash', 'downloader', 'save_path', 'policy_revision', 'parse_revision',
                     'current', 'targets', 'torrent_files', 'selected_indices', 'verified'}
-        if set(snapshot) != required:
+        if set(snapshot) not in (required,required|{'local_assets','source_plan'}):
             raise ValueError('complete frozen execution snapshot required')
+        if 'local_assets' in snapshot:
+            identifier(snapshot['source_plan'])
+            for n,asset in enumerate(snapshot['local_assets'],len(snapshot['torrent_files'])):
+                if set(asset)!={'file','sha256','sha1','mtime_ns','stable_since','observed_at'} or asset['file']['index']!=n or asset['file']['role']!='subtitle' or not re.fullmatch('[a-f0-9]{64}',asset['sha256']) or not re.fullmatch('[a-f0-9]{40}',asset['sha1']):raise ValueError('LOCAL_ASSET_PROOF_REQUIRED')
+                if parse(asset['observed_at'])<=parse(asset['stable_since']):raise ValueError('LOCAL_ASSET_STABILITY_REQUIRED')
         for name in ('candidate_key', 'downloader', 'policy_revision', 'parse_revision'):
             identifier(snapshot[name])
         if not isinstance(snapshot['infohash'], str) or not re.fullmatch(r'[a-fA-F0-9]{40}|[a-fA-F0-9]{64}', snapshot['infohash']):
@@ -131,7 +141,7 @@ class Authority:
             raise ValueError('explicit absolute downloader layout required')
         if set(snapshot['verified']) != {'identity', 'scope', 'admission', 'files', 'configuration'} or any(v is not True for v in snapshot['verified'].values()):
             raise ValueError('candidate has not passed all preflight gates')
-        files = validate_files(snapshot['torrent_files'], snapshot['selected_indices'])
+        files = validate_files(asset_table(snapshot), snapshot['selected_indices'])
         targets = snapshot['targets']
         covered = {key for i in snapshot['selected_indices'] for key in files[i]['targets']}
         if not isinstance(targets, dict) or not targets or set(targets) != covered or set(snapshot['current']) != covered:
@@ -151,6 +161,11 @@ class Authority:
         if all(t['action'] == 'UNCHANGED' for t in targets.values()):
             raise ValueError('plan has no improvement')
         with self.repository.connection(write=True) as db:
+            if snapshot.get('local_assets'):
+                source=db.execute('SELECT * FROM plans WHERE id=?',(snapshot['source_plan'],)).fetchone()
+                if not source:raise ValueError('LOCAL_ASSET_SOURCE_PLAN_REQUIRED')
+                before=json.loads(source['snapshot'])
+                if any(before[k]!=snapshot[k] for k in ('candidate_key','infohash','torrent_files','downloader','save_path')) or not set(snapshot['targets'])<=set(before['targets']):raise ValueError('LOCAL_ASSET_SOURCE_CONFLICT')
             opportunity = db.execute('SELECT * FROM opportunities WHERE id=?', (opportunity_id,)).fetchone()
             if not opportunity or opportunity['state'] != 'ACTIVE' or not covered <= set(json.loads(opportunity['scope'])):
                 raise ValueError('plan outside active frozen opportunity')
@@ -161,7 +176,7 @@ class Authority:
                 if old['snapshot'] != text or old['opportunity_id'] != opportunity_id:
                     raise ValueError('immutable plan id reused')
                 return self._plan(old)
-            validate_new_asset_scope(snapshot['torrent_files'])
+            validate_new_asset_scope(asset_table(snapshot))
             task_generation = db.execute('SELECT generation FROM tasks WHERE id=?', (opportunity['task_id'],)).fetchone()[0]
             db.execute("INSERT INTO plans(id,opportunity_id,task_id,snapshot,authorization,transfer_phase,created_at,task_generation) VALUES(?,?,?,?,'PREPARED','PENDING',?,?)", (plan_id, opportunity_id, opportunity['task_id'], text, stamp(now), task_generation))
             for key, action in targets.items():
@@ -312,6 +327,23 @@ class Authority:
         with self.repository.connection(write=True) as db:
             return self._acquire(db, plan_id, expected, replacement=True, reason='FAILURE_RECOVERY', safe_isolation=safe_isolation, now=instant(now), immediate=False, progress=None, failure_id=failure_id)
 
+    def extend_assets(self,old_id,new_id,snapshot,expected):
+        """Same resource, unchanged target decision; no upgrade clock or budget."""
+        old=self.plan(old_id);before=old['snapshot']
+        if snapshot.get('source_plan')!=old_id or 'local_assets' in before or not snapshot.get('local_assets') or any(snapshot[k]!=v for k,v in before.items() if k!='selected_indices') or snapshot['selected_indices']!=before['selected_indices']+[a['file']['index'] for a in snapshot['local_assets']]:raise ValueError('ASSET_EXTENSION_LINEAGE_REQUIRED')
+        self.prepare(new_id,old['opportunity_id'],snapshot)
+        with self.repository.connection(write=True) as db:
+            self._task_active(db,old);self._revisions(db,before);self._match(db,expected,owner=old_id)
+            if db.execute("SELECT 1 FROM plan_actions WHERE plan_id=? AND state IN ('UNKNOWN','IN_FLIGHT','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF')",(old_id,)).fetchone() or db.execute('SELECT 1 FROM delivery_bundles WHERE plan_id=?',(old_id,)).fetchone():raise ValueError('SOURCE_PLAN_UNSETTLED')
+            for key,v in expected.items():
+                if v['current_revision']!=before['current'][key]['revision']:raise ValueError('STALE_CURRENT')
+                db.execute("UPDATE target_units SET owner_plan_id=?,generation=generation+1 WHERE target_key=?",(new_id,key))
+                db.execute("UPDATE plan_targets SET state='SUPERSEDED',superseded_by=?,reason='VERIFIED_LOCAL_ASSETS' WHERE plan_id=? AND target_key=?",(new_id,old_id,key))
+                db.execute("UPDATE plan_targets SET state='ACTIVE',generation=?,transfer_phase='WAITING_ASSETS' WHERE plan_id=? AND target_key=?",(v['generation']+1,new_id,key))
+            db.execute("UPDATE plans SET authorization='SUPERSEDED' WHERE id=?",(old_id,))
+            db.execute("UPDATE plans SET authorization='ACTIVE',transfer_phase='WAITING_ASSETS' WHERE id=?",(new_id,))
+        return self.plan(new_id)
+
     def update_current(self, target_key, facts, *, expected_revision, db=None):
         """W06 refreshes the target CAS token with its archive writes, never its clock."""
         if db is None:
@@ -330,7 +362,7 @@ class Authority:
 
     @staticmethod
     def _batch(plan, vector, indices):
-        files = validate_files(plan['snapshot']['torrent_files'], indices)
+        files = validate_files(asset_table(plan['snapshot']), indices)
         if not set(indices) <= set(plan['snapshot']['selected_indices']):
             raise ValueError('file not in frozen plan')
         coverage = {k for i in indices for k in files[i]['targets']}
@@ -602,7 +634,7 @@ class Authority:
             raise ValueError('explicit downloader status required')
         with self.repository.connection(write=True) as db:
             plan = self._plan(db.execute('SELECT * FROM plans WHERE id=?', (plan_id,)).fetchone())
-            files = validate_files(plan['snapshot']['torrent_files'], indices)
+            files = validate_files(asset_table(plan['snapshot']), indices)
             if not set(indices) <= set(plan['snapshot']['selected_indices']) or set(file_stats) != set(indices):
                 raise ValueError('exact selected-file statistics required')
             for index, values in file_stats.items():
@@ -793,7 +825,7 @@ class Planner:
             result['reason'] = 'CANDIDATE_UNVERIFIED_OR_UNAVAILABLE'
             return result
         try:
-            table = candidate['torrent_files']
+            table = asset_table(candidate)
             bound = [f['index'] for f in table if f['targets']]
             files = validate_files(table, bound)
         except (ValueError, KeyError, TypeError):
@@ -887,8 +919,9 @@ class Planner:
         snapshot = {key: candidate[key] for key in ('candidate_key', 'infohash', 'downloader', 'save_path', 'parse_revision')}
         snapshot.update(policy_revision=self.policy.semantic_hash, current=frozen_current,
                         targets={k: {**{name: decisions[k][name] for name in ('action', 'reason', 'evidence_keys', 'evidence_source')}, 'quality': decisions[k]['rank']} for k in sorted(covered)},
-                        torrent_files=table, selected_indices=sorted(selected),
+                        torrent_files=candidate['torrent_files'], selected_indices=sorted(selected),
                         verified=dict(identity=True, scope=True, admission=True, files=True, configuration=True))
+        if candidate.get('local_assets'):snapshot.update(local_assets=candidate['local_assets'],source_plan=candidate['source_plan'])
         result['plans'] = [json.loads(encoded(snapshot))]
         result['reason'] = 'READY_FOR_OBSERVATION_AND_CLAIM'
         return result

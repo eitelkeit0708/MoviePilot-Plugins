@@ -86,7 +86,7 @@ class Passive:
             saved=self.repo.setting('runtime-input:'+active['id'])
             if not saved:raise ValueError('ORIGINAL_RUNTIME_INPUT_REQUIRED')
             result=r.evaluate(saved,key)
-            if not result['plans']:return dict(state='NO_IMPROVEMENT')
+            if not result['plans'] and not result.get('enrichments'):return dict(state='NO_IMPROVEMENT')
             self.queue(active['id'],key);return dict(state='MERGED',opportunity_id=active['id'])
         scopes=[[s,str(lib)] for s,libs in self.config.passive_libraries.items() for lib in libs]
         # The existing expression identity index avoids walking the whole library
@@ -100,6 +100,7 @@ class Passive:
         if not eligible:return dict(state='OUTSIDE_PROVIDER_SCOPE')
         result=r.pipeline.evaluate(key,target,eligible,downloader=template['downloader'],save_path=template['save_path'],custom_words=template['custom_words'],mode='episode')
         approved=sorted({k for plan in result['plans'] for k,v in plan['targets'].items() if v['action'] in ('QUALITY_UPGRADE','EVIDENCE_UPGRADE','REPLACE_INVALID','SIDECAR_SUPPLEMENT')})
+        approved=sorted(set(approved)|{e['target_key'] for e in result.get('enrichments',[])})
         if not approved:return dict(state='NO_IMPROVEMENT')
         r.check()
         # Include the old revision so a later genuinely changed archive may open

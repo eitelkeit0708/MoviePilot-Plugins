@@ -151,6 +151,7 @@ class CandidateService:
         self.repository, self.adapter, self.ai = repository, adapter, ai
         self.runtime = {}  # Host credential-bearing objects never enter SQLite.
         self.search_errors=[]
+        self.deadline=None
 
     def observe(self, raw, *, source='search'):
         key = candidate_key(raw)
@@ -175,8 +176,11 @@ class CandidateService:
         with self.repository.connection() as db:
             return [dict(json.loads(r['data']),first_seen=r['first_seen']) for r in db.execute('SELECT * FROM candidates ORDER BY first_seen,candidate_key LIMIT ? OFFSET ?', (limit,offset))]
 
-    def search(self, selected_sites, keywords, budget):
+    def search(self, selected_sites, keywords, budget,*,deadline=None):
+        deadline=deadline if deadline is not None else self.deadline
+        def expired():return deadline is not None and time.monotonic()>=deadline
         self.search_errors=[]
+        if expired():raise ValueError('TICK_DEADLINE')
         if not isinstance(selected_sites,(list,tuple)) or len(selected_sites)>32 or any(type(i) is not int or i<1 for i in selected_sites):
             raise ValueError('explicit bounded site IDs required')
         if not selected_sites:
@@ -190,7 +194,7 @@ class CandidateService:
         def run(site):
             for word in words:
                 with lock:
-                    if remaining[0]<2 or len(output)>=budget.results:return
+                    if expired() or remaining[0]<2 or len(output)>=budget.results:return
                     remaining[0]-=1
                 try:
                     size = self.adapter.page_size(site,word)
@@ -198,7 +202,7 @@ class CandidateService:
                     size = None
                 for page in range(budget.pages if type(size) is int and size>0 else 1):
                     with lock:
-                        if remaining[0] <= 0 or len(output)>=budget.results:
+                        if expired() or remaining[0] <= 0 or len(output)>=budget.results:
                             return
                         remaining[0] -= 1
                     try:
@@ -219,7 +223,7 @@ class CandidateService:
                         except (ValueError,TypeError):
                             continue
                     if budget.interval:
-                        time.sleep(budget.interval)
+                        time.sleep(min(budget.interval,max(0,deadline-time.monotonic())) if deadline else budget.interval)
                     if type(size) is not int or len(rows or [])<size:
                         break
         with ThreadPoolExecutor(max_workers=budget.concurrency) as pool:
@@ -396,12 +400,13 @@ class CandidatePipeline:
         self.service,self.meta,self.policy=service,meta_service,policy
         self.current,self.clients=current_provider,client_factory
         self.rounds={}
-        self.active=current;self.locked=locked
+        self.active=current;self.locked=locked;self.archive=getattr(current_provider,'__self__',None)
 
     def evaluate(self,key,target,scope,*,downloader,save_path,dependencies=None,custom_words=None,task_id=None,mode='episode'):
         from .planner import Planner
         if self.active:self.active()
         result=self.service.recognize(key,target,self.meta,custom_words=custom_words,task_id=task_id)
+        if self.active:self.active()
         if result['status']!='OK':
             return dict(plans=[],reason=result['reason'])
         if not isinstance(save_path,str) or not PurePosixPath(save_path).is_absolute() or '..' in PurePosixPath(save_path).parts or '\\' in save_path:
@@ -413,11 +418,13 @@ class CandidatePipeline:
             infohash,table=torrent_table(content)
         except Exception:
             return dict(plans=[],reason='TORRENT_METADATA_UNAVAILABLE')
+        if self.active:self.active()
         scopes={};parse_evidence={}
         for index,(path,size) in enumerate(table):
             if PurePosixPath(path).suffix.casefold() not in VIDEO:
                 continue
             corrected=self.meta.parse('file:'+sha256((key+':'+str(index)).encode()).hexdigest(),path,custom_words=custom_words,task_id=task_id,is_path=True,force_video=True)
+            if self.active:self.active()
             if corrected.status!='OK':
                 return dict(plans=[],reason='PHYSICAL_META_UNCONFIRMED')
             if target.media_type=='电影':
@@ -447,6 +454,11 @@ class CandidatePipeline:
             fact=self.policy.normalize(data)
             for unit in keys:facts[unit]=fact
         candidate=dict(candidate_key=key,infohash=infohash,downloader=downloader,save_path=save_path,parse_revision=self.meta.corrector.revision,facts=facts,classification=self.service.adapter.classify(result['media']),torrent_files=files,available=True,identity_ok=True,scope_ok=True,parse_status='OK',files_verified=True,configuration_verified=True)
+        projection=self.service.repository.setting('subtitle-candidate:'+key)
+        if projection:
+            from .archive import digest
+            if projection['source_digest']==digest([infohash,files,downloader,save_path]):
+                candidate.update(local_assets=projection['assets'],source_plan=projection['source_plan'])
         self.rounds[key]=dict(candidate=candidate,media=result['media'],meta=result['meta'],content=content,scope=list(scope),mode=mode,acquired=time.monotonic())
         while len(self.rounds)>1000:self.rounds.pop(next(iter(self.rounds)))
         output=self._evaluate(candidate,scope,mode)
@@ -461,7 +473,12 @@ class CandidatePipeline:
         from .planner import Planner
         exclusions=Exclusions(self.service.repository)
         excluded={k for k in scope if exclusions.matches(dict(candidate,targets=[k]),facts=dict(candidate['facts'][k].raw) if k in candidate['facts'] else {})}
-        return Planner(self.policy).evaluate(candidate,self.current(scope),scope,mode=mode,excluded=excluded,locked=self.locked)
+        proof=self.archive.candidate_evidence(candidate,scope) if self.archive and hasattr(self.archive,'candidate_evidence') else {}
+        candidate=dict(candidate,same_video_verified=proof.get('same_video_verified',{}))
+        result=Planner(self.policy).evaluate(candidate,proof.get('current',self.current(scope)),scope,mode=mode,excluded=excluded,locked=self.locked,
+            same_assets_verified=proof.get('same_assets_verified',frozenset()),consumed=proof.get('consumed',frozenset()))
+        if result['enrichments']:result['evidence_manifest']=proof['manifest']
+        return result
 
     def revalidate(self,plan):
         if self.active:self.active()
@@ -471,9 +488,18 @@ class CandidatePipeline:
         if self.meta.corrector.revision!=s['parse_revision'] or self.policy.semantic_hash!=s['policy_revision']:
             raise ValueError('POLICY_PARSE_CHANGED')
         candidate=dict(round['candidate'],classification=self.service.adapter.classify(round['media']))
+        if s.get('local_assets'):
+            from .execution import safe_local,asset_hashes
+            for asset in s['local_assets']:
+                path=safe_local(s['save_path'],Path(s['save_path'])/asset['file']['path'])
+                if path.stat().st_size!=asset['file']['size'] or path.stat().st_mtime_ns!=asset['mtime_ns'] or asset_hashes(path)!=(asset['sha256'],asset['sha1']):raise ValueError('LOCAL_ASSET_CHANGED')
+            if not candidate.get('local_assets'):
+                s={k:v for k,v in s.items() if k not in ('local_assets','source_plan')}
+                s['selected_indices']=[i for i in s['selected_indices'] if i<len(s['torrent_files'])]
         active={t['target_key'] for t in plan['targets'] if t['state']=='ACTIVE'} if 'targets' in plan and plan.get('authorization')!='PREPARED' else set(s['targets'])
-        indices=[i for i in s['selected_indices'] if set(s['torrent_files'][i]['targets'])<=active]
-        active={k for i in indices for k in s['torrent_files'][i]['targets']}
+        from .planner import asset_table
+        indices=[i for i in s['selected_indices'] if set(asset_table(s)[i]['targets'])<=active]
+        active={k for i in indices for k in asset_table(s)[i]['targets']}
         expected=dict(s,selected_indices=indices,targets={k:s['targets'][k] for k in active},current={k:s['current'][k] for k in active})
         if not active:raise ValueError('NO_ACTIVE_SAFE_FILES')
         fresh=self._evaluate(candidate,sorted(active),round['mode'] if active==set(s['targets']) else 'episode')
@@ -503,13 +529,29 @@ class CandidatePipeline:
         from app.chain.download import DownloadChain
         from app.sdk.media import Context
         executor=self.executor();plan,s,indices,vector=executor._plan(plan_id)
+        if s.get('local_assets'):return dict(assets_state='VERIFIED',fresh_asset_plan_required=False)
         owned=executor._owned(s)
         if not owned or owned['state'] not in ('PAUSED_VERIFIED','RUNNING'):
             raise ValueError('MANAGED_DOWNLOAD_NOT_READY')
         round=self.rounds[s['candidate_key']]
         context=Context(meta_info=round['meta'],media_info=round['media'],torrent_info=self.service.runtime[s['candidate_key']])
-        chain=DownloadChain();out=[]
+        chain=DownloadChain();out=[];noops=[]
         for method in ('download_added','download_site_subtitles'):
+            if self.active:self.active()
+            if method=='download_site_subtitles':
+                configured=getattr(getattr(chain,'runtime_config',None),'download_subtitle',None)
+                if configured is False or not round['content'] or not value(self.service.runtime[s['candidate_key']],'page_url'):
+                    noops.append(method);continue
+            if method=='download_added':
+                try:
+                    from app.sdk.plugin import ModuleManager,PluginManager
+                    from collections.abc import Mapping
+                    handlers=list(ModuleManager().get_running_modules('download_added'))
+                    plugins=PluginManager().get_plugin_modules()
+                    if not isinstance(plugins,dict) or any(not isinstance(methods,Mapping) for methods in plugins.values()):raise TypeError('unknown plugin callback projection')
+                    callbacks=[methods.get('download_added') for methods in plugins.values() if callable(methods.get('download_added'))]
+                    if not handlers and not callbacks:noops.append(method);continue
+                except (ImportError,AttributeError,TypeError):pass
             kwargs=dict(context=context,download_dir=Path(s['save_path']),torrent_content=round['content'])
             if method=='download_site_subtitles':kwargs.update(download_hash=s['infohash'],downloader=s['downloader'])
             def dispatch():
@@ -518,7 +560,7 @@ class CandidatePipeline:
             ok,action,_=executor._mutation(plan,indices,vector,method,'ORGANIZE',dispatch,{'workflow':method})
             out.append({'workflow':method,'action_id':action,'state':'DISPATCHED' if ok else 'UNKNOWN'})
             if not ok:break
-        state={'workflows':out,'assets_state':'UNVERIFIED','fresh_asset_plan_required':True}
+        state={'workflows':out,'noops':noops,'assets_state':'UNVERIFIED','fresh_asset_plan_required':True}
         self.service.repository.setting('subtitle:'+plan_id,state)
         return state
 
