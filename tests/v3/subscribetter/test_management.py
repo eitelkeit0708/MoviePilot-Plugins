@@ -21,7 +21,7 @@ class ManagementTests(unittest.TestCase):
         self.repo=self.r.Repository(Path(self.tmp.name)/'state.db')
         self.config=self.c.Configuration(self.repo,'SubscriBetter',PrivateFixture(),lambda x:None)
         self.config.initialize({})
-        self.plugin=SimpleNamespace(repository=self.repo,configuration=self.config,generation=4,runtime=None,
+        self.plugin=SimpleNamespace(repository=self.repo,configuration=self.config,generation=4,runtime=None,runtime_lock=threading.RLock(),
             config=self.c.Config.model_validate(self.config.view()['config']),ai=None,errors=[],ai_errors=[],
             _authorize=lambda u:None,_ordinary_work_active=lambda:False,lifecycle_active=True)
 

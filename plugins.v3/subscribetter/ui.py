@@ -1,6 +1,6 @@
 """Nine administrator views over existing domains, bounded SQL and exact receipts."""
 from datetime import timedelta
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import json
 import sqlite3
 import time
@@ -740,11 +740,20 @@ class Views:
         facts['planner_revisions']=rows('settings',"key='planner_revisions'",())
         return facts,permissions,blockers
 
+    @contextmanager
+    def _ai_guard(self,kind,request=None):
+        if not kind.startswith('ai_'):
+            yield;return
+        # init_plugin uses this same order while replacing/closing the AI instance.
+        with self.plugin.runtime_lock:
+            ai=self.plugin.ai
+            with ai.lock if ai else nullcontext():
+                if request is not None:self.fence(request)
+                yield
+
     def preview(self,kind,objects,request,user):
         self._auth(user);self.fence(request);actor=str(user.username);objects=json.loads(encoded(objects))
-        ai=self.plugin.ai
-        # Match apply: AI state lock precedes any SQLite write transaction.
-        with ai.lock if ai and kind.startswith('ai_') else nullcontext(),self.repository.connection(write=True) as db:
+        with self._ai_guard(kind,request),self.repository.connection(write=True) as db:
             facts,permissions,blockers=self._facts(kind,objects,db)
             if 'revision' in objects and facts.get('bundle',{}).get('revision')!=objects['revision']:raise HTTPException(409,'STALE_BUNDLE')
             if 'generation' in objects and facts.get('task',{}).get('generation')!=objects['generation']:raise HTTPException(409,'STALE_TASK')
@@ -810,17 +819,16 @@ class Views:
 
     def apply(self,kind,request,user):
         self._auth(user)
-        runtime=self.plugin.runtime
-        if runtime:
-            with runtime.lock:
-                if runtime.busy:raise HTTPException(409,'RUNTIME_BUSY')
-                runtime.busy=True
-        ai=self.plugin.ai
-        try:
-            with ai.lock if ai and kind.startswith('ai_') else nullcontext():return self._apply(kind,request,user)
-        finally:
+        with self._ai_guard(kind):
+            runtime=self.plugin.runtime
             if runtime:
-                with runtime.lock:runtime.busy=False
+                with runtime.lock:
+                    if runtime.busy:raise HTTPException(409,'RUNTIME_BUSY')
+                    runtime.busy=True
+            try:return self._apply(kind,request,user)
+            finally:
+                if runtime:
+                    with runtime.lock:runtime.busy=False
 
     def _apply(self,kind,request,user):
         self._auth(user);actor=str(user.username)

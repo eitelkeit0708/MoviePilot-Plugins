@@ -69,6 +69,12 @@ class QualityFixTests(unittest.TestCase):
                     body=f.apply_body(preview,kind+'-'+preview_kind)
                     apply_entered=threading.Event();preview_entered=threading.Event();release=threading.Event()
                     owned=threading.local();real_lock=threading.RLock()
+                    lifecycle_lock=f.plugin.runtime_lock
+                    class LifecycleLock:
+                        def __enter__(self):
+                            if threading.current_thread().name.startswith('preview'):preview_entered.set()
+                            lifecycle_lock.acquire();return self
+                        def __exit__(self,*args):lifecycle_lock.release()
                     class Lock:
                         def __enter__(self):
                             if threading.current_thread().name.startswith('preview'):preview_entered.set()
@@ -85,7 +91,7 @@ class QualityFixTests(unittest.TestCase):
                         with original_connection(write=write) as db:yield db
                     def gated(*args):
                         apply_entered.set();self.assertTrue(release.wait(2));return original_apply(*args)
-                    with patch.object(ai,'lock',Lock()),patch.object(f.repo,'connection',connection),patch.object(view,'_apply',gated):
+                    with patch.object(f.plugin,'runtime_lock',LifecycleLock()),patch.object(ai,'lock',Lock()),patch.object(f.repo,'connection',connection),patch.object(view,'_apply',gated):
                         with ThreadPoolExecutor(max_workers=1,thread_name_prefix='apply') as apool,ThreadPoolExecutor(max_workers=1,thread_name_prefix='preview') as ppool:
                             a=apool.submit(view.apply,kind,body,user)
                             try:
