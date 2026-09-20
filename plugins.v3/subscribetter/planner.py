@@ -23,7 +23,7 @@ TRANSFER_PHASES = {'PENDING', 'QUEUED', 'DOWNLOADING', 'WAITING_ASSETS', 'RAPID_
                    'RAPID_IN_FLIGHT', 'CD2_UPLOADING', 'REMOTE_VERIFIED', 'READY_TO_PUBLISH', 'FAILED'}
 ATTEMPT_KINDS = {'ADD', 'SET_WANTED', 'RESUME', 'RAPID', 'CD2_UPLOAD', 'ORGANIZE', 'REFRESH', 'PUBLISH'}
 VIDEO_SUFFIXES = frozenset({'.mkv', '.mp4', '.avi', '.ts', '.m2ts', '.mov', '.wmv'})
-TEXT_SUBTITLE_SUFFIXES = frozenset({'.ass', '.srt'})
+TEXT_SUBTITLE_SUFFIXES = frozenset({'.ass', '.srt', '.ssa', '.vtt', '.sup'})
 
 
 def encoded(value):
@@ -89,7 +89,7 @@ def validate_files(files, selected):
 
 
 def validate_new_asset_scope(files):
-    """Require canonical video/ASS/SRT bindings before creating a new plan."""
+    """Require canonical video/supported-subtitle bindings for new plans."""
     by_index = {item['index']: item for item in files}
     for item in files:
         suffix = PurePosixPath(item['path']).suffix.casefold()

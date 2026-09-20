@@ -72,8 +72,9 @@ class CandidateTests(unittest.TestCase):
                 self.m.bind_files(table, target, dependencies=dependencies)
         for suffix in ('.ssa', '.vtt', '.sup'):
             with self.subTest(suffix=suffix):
-                ignored = self.m.bind_files([('Pack/Movie.mkv', 100), ('Pack/Movie' + suffix, 1)], target)[1]
-                self.assertEqual(('other', [], []), (ignored['role'], ignored['targets'], ignored['requires']))
+                subtitle = self.m.bind_files([('Pack/Movie.mkv', 100), ('Pack/Movie' + suffix, 1)], target)[1]
+                self.assertEqual(('subtitle', [self.m.TargetUnit(target).key], []),
+                                 (subtitle['role'], subtitle['targets'], subtitle['requires']))
 
     def test_unsafe_paths_and_ambiguous_subtitle_refused(self):
         target = self.r.Target('电视剧', 'tmdb', '42', 1)
