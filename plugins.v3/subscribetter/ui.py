@@ -682,6 +682,28 @@ class Views:
         if (request.config_revision,request.runtime_generation)!=(c['revision'],self.plugin.generation):raise HTTPException(409,'STALE_CONFIGURATION_OR_RUNTIME')
         return c
 
+    @staticmethod
+    def _cancellable_uploads(b,facts):
+        # Only an issued, durably receipted CD2 ID permits cancelling an unknown
+        # result. This is neither a terminal receipt nor permission to clean up.
+        barriers=('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF')
+        if b.get('publication_action') or b['state'] in barriers or any(u['publish_phase'] in barriers for u in facts['units']):return set()
+        actions={a['id']:a for a in facts['actions']};issued=set();uploads=set()
+        if any(a['kind']=='PUBLISH' for a in actions.values()):return set()
+        for f in b['files']:
+            uid=f.get('upload_id')
+            if not uid:
+                if 'UNKNOWN' in f.get('state',''):return set()
+                continue
+            a=actions.get(f.get('action_id'))
+            if not isinstance(uid,str) or uid in uploads or not a or a['kind']!='CD2_UPLOAD':return set()
+            payload=dict(bundle_id=b['id'],file_index=f['file_index'],path=b['staging']+'/'+f['relative_path'])
+            if (json.loads(a['payload'])!=payload or json.loads(a['targets'])!=b['vector'] or json.loads(a['files'])!=sorted(b['indices'])
+                    or a['task_generation']!=facts['plan']['task_generation']):return set()
+            if not any(r['action_id']==a['id'] and json.loads(r['evidence']).get('upload_id')==uid for r in facts['upload_receipts']):return set()
+            issued.add(a['id']);uploads.add(uid)
+        return issued
+
     def _facts(self,kind,objects,db):
         facts={};blockers=[];permissions={}
         def rows(table,where,args):
@@ -708,8 +730,12 @@ class Views:
             facts['shared']=rows('plans',"id!=? AND authorization IN ('ACTIVE','PREPARED') AND json_extract(snapshot,'$.downloader')=? AND json_extract(snapshot,'$.infohash')=?",(pid,s['downloader'],s['infohash']))
             facts['other_bundles']=rows('delivery_bundles',"id!=? AND EXISTS(SELECT 1 FROM json_each(data,'$.files') f JOIN json_each(?,'$.files') own ON json_extract(f.value,'$.snapshot.path')=json_extract(own.value,'$.snapshot.path') WHERE coalesce(json_extract(f.value,'$.cleaned'),0)=0)",(b['id'],encoded(b)))
             if facts['shared'] or facts['other_bundles']:blockers.append('SHARED_REFERENCE')
-            if 'UNKNOWN' in b['state'] or any('UNKNOWN' in f.get('state','') for f in b['files']):blockers.append('EXTERNAL_OUTCOME_UNKNOWN')
-            if any(a['state'] in ('UNKNOWN','IN_FLIGHT','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN') for a in facts['actions']):blockers.append('EXTERNAL_OUTCOME_UNKNOWN')
+            cancellable=set()
+            if kind=='cancel':
+                facts['upload_receipts']=rows('action_receipts',"action_id IN (SELECT id FROM plan_actions WHERE plan_id=? AND kind='CD2_UPLOAD')",(pid,))
+                cancellable=self._cancellable_uploads(b,facts)
+            if not cancellable and ('UNKNOWN' in b['state'] or any('UNKNOWN' in f.get('state','') for f in b['files'])):blockers.append('EXTERNAL_OUTCOME_UNKNOWN')
+            if any(a['state'] in ('UNKNOWN','IN_FLIGHT','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN') and not (a['state'] in ('UNKNOWN','IN_FLIGHT') and a['id'] in cancellable) for a in facts['actions']):blockers.append('EXTERNAL_OUTCOME_UNKNOWN')
             if kind=='cleanup':
                 success=b['state'] in ('WAIT_CONSUMER','CONFIRMED')
                 permission={'monitor':'cleanup_success' if success else 'cleanup_abandoned','staging':'cleanup_staging','downloader_task':'remove_downloader_task_enabled','downloader_data':'delete_downloader_data_enabled'}[objects['scope']]
