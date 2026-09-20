@@ -67,7 +67,7 @@ class CandidateTests(unittest.TestCase):
         self.assertTrue(all(files[i]['targets'] == files[6]['targets'] for i in (0, 2, 4, 5)))
         self.assertEqual([], files[0]['requires'])
 
-        for dependencies in ({1: [1]}, {0: [99]}, {'0': [1]}, {0: '1'}):
+        for dependencies in ({1: [1]}, {0: [99]}, {'0': [1]}, {0: '1'}, [], '', 0, False):
             with self.subTest(dependencies=dependencies), self.assertRaises(ValueError):
                 self.m.bind_files(table, target, dependencies=dependencies)
         for suffix in ('.ssa', '.vtt', '.sup'):

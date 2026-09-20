@@ -312,12 +312,8 @@ def bind_files(table, target, *, dependencies=None, video_scopes=None):
         if len(videos)!=1:
             raise ValueError('subtitle cannot bind uniquely')
         item['targets']=list(videos[0]['targets'])
-        if path.suffix.casefold() in ('.idx','.sub'):
-            pair=[f['index'] for f in files if PurePosixPath(f['path']).with_suffix('')==path.with_suffix('') and PurePosixPath(f['path']).suffix.casefold() in ('.idx','.sub') and f['index']!=item['index']]
-            if len(pair)!=1:
-                raise ValueError('IDX/SUB pair incomplete')
-            item['requires']=pair
-    dependencies=dependencies or {}
+    if dependencies is None:
+        dependencies={}
     if not isinstance(dependencies,dict) or len(dependencies)>10000:
         raise ValueError('invalid dependency evidence')
     for source,required in dependencies.items():
