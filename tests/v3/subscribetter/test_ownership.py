@@ -469,6 +469,11 @@ class PluginTests(unittest.TestCase):
         adapter.target_from_native = lambda row: sys.modules["w01_plugin.repository"].Target(row["type"], row["media_source"], str(row["media_id"]), row.get("season"), row.get("episode_group") or "")
         adapter.make_target = lambda *args: sys.modules["w01_plugin.repository"].Target(*args)
         sys.modules[adapter.__name__] = adapter
+        # API modules capture the concrete TokenPayload/dependency at import.
+        # Each isolated host fixture creates a new class, so refresh both API
+        # modules rather than weakening the production administrator check.
+        for name in ('w01_plugin.management','w01_plugin.ui'):
+            sys.modules.pop(name,None)
         spec = importlib.util.spec_from_file_location("w01_plugin", PLUGIN / "__init__.py", submodule_search_locations=[str(PLUGIN)])
         cls.mod = importlib.util.module_from_spec(spec)
         sys.modules[spec.name] = cls.mod

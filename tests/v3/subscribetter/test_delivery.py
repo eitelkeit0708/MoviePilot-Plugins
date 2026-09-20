@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import test_planner as tp
@@ -119,6 +120,47 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual(before,self.cloud.calls)
         self.assertEqual('upload-owned',self.worker.bundle(bid)['files'][0]['upload_id'])
         with self.assertRaisesRegex(ValueError,'RULE_CHANGED'):self.worker.reconcile(bid,now=tp.NOW)
+
+    def test_missing_or_changed_rule_rejects_every_bundle_entrypoint(self):
+        bid=self.prepared();before=self.worker.bundle(bid)
+        calls=[lambda:self.worker.reconcile(bid),lambda:self.worker.publish(bid),
+               lambda:self.worker.confirm(bid,{}),lambda:self.worker.safety_reconcile(bid),
+               lambda:self.worker.cancel(bid,reason='USER_ABANDON',exclusion_id='deny',criteria={}),
+               lambda:self.worker.cleanup(bid)]
+        for rules in ([dict(self.rule,id='replacement')],[dict(self.rule,cloud_scope_id='changed')]):
+            self.worker.rules=self.m.validate_rules(rules)
+            for index,call in enumerate(calls):
+                with self.subTest(rules=rules,index=index),self.assertRaisesRegex(ValueError,'^RULE_CHANGED$'):call()
+            self.assertEqual(before,self.worker.bundle(bid))
+        self.assertEqual([],self.cloud.calls)
+        self.assertFalse(self.worker.exclusions.matches({'candidate_key':'candidate','targets':[self.key]}))
+
+    def test_missing_rule_maintenance_defers_and_advances_to_next_bundle(self):
+        bid=self.all_remote();self.worker.publish(bid,now=tp.NOW+timedelta(minutes=5))
+        before=self.worker.bundle(bid);plan=self.auth.plan('A');cloud=copy.deepcopy(self.cloud.objects)
+        files={p:p.read_bytes() for p in self.local.iterdir()}
+        frozen={'rules':[self.rule]};self.repo.setting('delivery-scope:'+bid,frozen)
+        self.worker.rules=self.m.validate_rules([dict(self.rule,id='replacement')])
+        # A later persisted bundle uses the current rule, with cleanup still disabled.
+        later=copy.deepcopy(before);later.update(id=bid+'-later',rule_id='replacement',
+            rule_transfer_revision=self.worker.rules['replacement']['transfer_revision'])
+        with self.repo.connection(write=True) as db:
+            db.execute('INSERT INTO delivery_bundles VALUES(?,?,?,?,?,0,?)',
+                (later['id'],later['plan_id'],later['rule_id'],later['state'],later['due'],
+                 json.dumps({k:v for k,v in later.items() if k!='revision'})))
+        self.cloud.calls.clear()
+        with patch.object(self.cloud,'stat',side_effect=AssertionError('external read')),patch.object(self.cloud,'inventory',side_effect=AssertionError('external read')):
+            for scope in range(4):
+                result=self.worker.local_maintenance(entries=10,deadline=time.monotonic()+5)
+                self.assertEqual([dict(state='DEFER',reason='RULE_CHANGED')],result['cleanup'])
+                self.assertEqual(dict(rule='replacement',bundle=bid if scope==3 else '',scope=(scope+1)%4),self.repo.setting('delivery-maintenance'))
+            result=self.worker.local_maintenance(entries=10,deadline=time.monotonic()+5)
+        self.assertEqual(later['id'],result['cleanup'][0]['bundle_id'])
+        self.assertEqual('CLEANUP_PERMISSION_DISABLED',result['cleanup'][0]['reason'])
+        self.assertEqual(before,self.worker.bundle(bid));self.assertEqual(plan,self.auth.plan('A'))
+        self.assertEqual(frozen,self.repo.setting('delivery-scope:'+bid))
+        self.assertEqual(files,{p:p.read_bytes() for p in self.local.iterdir()})
+        self.assertEqual(cloud,self.cloud.objects);self.assertEqual([],self.cloud.calls)
 
     def test_changed_inode_invalidates_cached_hash(self):
         bid=self.prepared(); path=self.local/'movie.mkv'; old=path.stat(); path.unlink(); path.write_bytes(b'y'*100)
@@ -554,14 +596,14 @@ class DeliveryTests(unittest.TestCase):
 
     def test_schema6_migration_preserves_every_old_row(self):
         with self.repo.connection(write=True) as db:
-            for table in ('archive_scan_baselines','migration_history','migration_receipts','discovery_targets','discovery_records','discovery_sources','ai_usage','ai_requests','ai_runtime','delivery_bundles','reconcile_checkpoints','local_observations'):db.execute('DROP TABLE '+table)
+            for table in ('management_operations','management_previews','candidate_decisions','archive_scan_baselines','migration_history','migration_receipts','discovery_targets','discovery_records','discovery_sources','ai_usage','ai_requests','ai_runtime','delivery_bundles','reconcile_checkpoints','local_observations'):db.execute('DROP TABLE '+table)
             db.execute('DROP INDEX archive_target_identity')
             db.execute('PRAGMA user_version=6')
             names=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
             before={n:sorted([tuple(r) for r in db.execute('SELECT * FROM "'+n+'"')],key=repr) for n in names}
         self.r.Repository(self.repo.path)
         with self.repo.connection() as db:
-            self.assertEqual(11,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(12,db.execute('PRAGMA user_version').fetchone()[0])
             self.assertEqual(before,{n:sorted([tuple(r) for r in db.execute('SELECT * FROM "'+n+'"')],key=repr) for n in names})
 
     def test_tick_with_no_events_scans_and_advances_only_durable_bundle(self):

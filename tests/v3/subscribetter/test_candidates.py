@@ -164,10 +164,32 @@ class CandidateTests(unittest.TestCase):
         pipeline=self.m.CandidatePipeline(service,Meta(),policy,lambda keys:current,lambda name:object())
         result=pipeline.evaluate(row['candidate_key'],target,[key],downloader='test',save_path='/test')
         self.assertEqual([0,1],result['plans'][0]['selected_indices'])
+        import json
+        with self.repo.connection() as db:
+            evidence=dict(db.execute('SELECT * FROM candidate_decisions WHERE id=?',(result['decision_id'],)).fetchone())
+        self.assertEqual('ACCEPT',evidence['status']);self.assertEqual(result['decision_digest'],evidence['digest'])
+        self.assertEqual(result['decision_id'],result['plans'][0]['decision_id'])
         self.assertIsNone(service.adapter.declared)
         pipeline.revalidate({'snapshot':result['plans'][0]})
+        task=self.repo.submit('intent',target,{},'admin',42,True);self.repo.complete_handoff(task['id'],task['generation'])
+        scheduler=load('scheduler');scheduler.Scheduler(self.repo).open_opportunity('round',task['id'],[planner.TargetUnit(target,1)],mode='ONESHOT',config=scheduler.ScheduleConfig(observation_enabled=False))
+        authority=planner.Authority(self.repo);authority.set_revisions(policy.semantic_hash,'meta-1')
+        authority.prepare('plan','round',result['plans'][0])
+        wrong=dict(result['plans'][0],infohash='f'*40)
+        with self.assertRaisesRegex(ValueError,'DECISION'):authority.prepare('changed','round',wrong)
+        simulation=pipeline.evaluate(row['candidate_key'],target,[key],downloader='test',save_path='/test',simulation=True)
+        with self.assertRaisesRegex(ValueError,'DECISION'):authority.prepare('simulation','round',simulation['plans'][0])
         classification['policy_revision']=8
         with self.assertRaises(ValueError):pipeline.revalidate({'snapshot':result['plans'][0]})
+        deferred=pipeline.evaluate(row['candidate_key'],target,[key],downloader='test',save_path='/test')
+        service.adapter.identity=lambda media:('tmdb','999')
+        rejected=pipeline.evaluate(row['candidate_key'],target,[key],downloader='test',save_path='/test')
+        service.runtime.clear();pipeline.rounds.clear()
+        with self.repo.connection() as db:
+            self.assertEqual('DEFER',db.execute('SELECT status FROM candidate_decisions WHERE id=?',(deferred['decision_id'],)).fetchone()[0])
+            self.assertEqual('REJECT',db.execute('SELECT status FROM candidate_decisions WHERE id=?',(rejected['decision_id'],)).fetchone()[0])
+            self.assertEqual(evidence['data'],db.execute('SELECT data FROM candidate_decisions WHERE id=?',(result['decision_id'],)).fetchone()[0])
+        with self.assertRaises(ValueError):pipeline.revalidate(authority.plan('plan'))
 
 
 if __name__ == '__main__':

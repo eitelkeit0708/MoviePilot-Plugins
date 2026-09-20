@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 11:
+            if revision > 12:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -182,6 +182,12 @@ class Repository:
             if revision < 11:
                 db.execute('CREATE TABLE archive_scan_baselines (scan_id TEXT NOT NULL REFERENCES archive_scans(id),target_key TEXT NOT NULL,current_revision INTEGER NOT NULL,unit_generation INTEGER NOT NULL,task_generation INTEGER NOT NULL,PRIMARY KEY(scan_id,target_key))')
                 db.execute('PRAGMA user_version=11')
+            if revision < 12:
+                db.execute('CREATE TABLE candidate_decisions (id TEXT PRIMARY KEY,candidate_key TEXT NOT NULL,task_id INTEGER,opportunity_id TEXT,status TEXT NOT NULL,simulation INTEGER NOT NULL,digest TEXT NOT NULL,data TEXT NOT NULL,created_at TEXT NOT NULL)')
+                db.execute('CREATE INDEX decision_candidate ON candidate_decisions(candidate_key,created_at,id)')
+                db.execute('CREATE TABLE management_previews (id TEXT PRIMARY KEY,kind TEXT NOT NULL,actor TEXT NOT NULL,digest TEXT NOT NULL,data TEXT NOT NULL,expires_at TEXT NOT NULL)')
+                db.execute('CREATE TABLE management_operations (operation_id TEXT PRIMARY KEY,preview_id TEXT NOT NULL REFERENCES management_previews(id),actor TEXT NOT NULL,state TEXT NOT NULL,result TEXT NOT NULL)')
+                db.execute('PRAGMA user_version=12')
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:

@@ -92,8 +92,14 @@ class Ownership:
             self.repository.action_state(task_id, "PENDING", "HOST_UNAVAILABLE",
                                          expected_state="PENDING" if current["native_id"] is None else None)
 
-    def reconcile(self):
+    def reconcile(self,task_id=None):
         with self.lock:
+            if task_id is not None:
+                task=self.repository.get_task(task_id)
+                if not task:raise ValueError('TASK_NOT_FOUND')
+                if task['state']=='PENDING':self._handoff(task)
+                elif task['state']=='RELEASING':self._release(task)
+                return
             progress = self.repository.setting("ownership_outbox_progress")
             if progress is None:
                 progress = {"after_id": 0, "through_id": self.repository.action_high_watermark()}

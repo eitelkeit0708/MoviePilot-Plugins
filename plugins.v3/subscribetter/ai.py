@@ -922,6 +922,16 @@ class AIService:
         with self.repository.connection(write=True) as db:
             self.repository._audit(db,None,'AI_CACHE_CLEAR',str(actor)[:128])
 
+    def clear_sessions(self,actor):
+        """Administrative local clearing; deliberately has no message callback."""
+        with self.lock:
+            keys=set(self.sessions)|set(self.session_epochs)|set(self.chat_busy)
+            for key in keys:self.session_epochs[key]=self.session_epochs.get(key,0)+1
+            self.sessions.clear();self.chat_queue.clear()
+        with self.repository.connection(write=True) as db:
+            self.repository._audit(db,None,'AI_SESSIONS_CLEAR',str(actor)[:128])
+        return len(keys)
+
     def _close_clients(self):
         for client in self.clients.values():
             try:client.close()
@@ -939,7 +949,6 @@ class AIService:
             health=self._runtime(db)
             recovery=[dict(row) for row in db.execute("SELECT scope,digest,state,attempts,next_at,reason,updated_at FROM ai_requests WHERE state='INFLIGHT' AND scope IN (SELECT scope FROM ai_runtime WHERE json_extract(state,'$.instance_id')=?) ORDER BY updated_at LIMIT 100",(self.instance_id,))]
         with self.lock:
-            self._expiry()
             return dict(counts=counts,usage={k[7:]:v for k,v in counts.items() if k.startswith('tokens:')},
                 cooldown_remaining=max(0,health.get('until',0)-self.clock()),cooldown_reason=health.get('reason'),
                 cache_size=len(self.cache),inflight=len(self.pending),queued=len(self.queue)+len(self.chat_queue),

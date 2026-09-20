@@ -5,7 +5,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[3]
 PLUGIN = ROOT / "plugins.v3/subscribetter"
@@ -30,6 +30,27 @@ def native(name="Fictional", **fields):
                   resource_effect="HDR", resource_team="HHWEB", audio_encode="DTS")
     values.update(fields)
     return types.SimpleNamespace(**values)
+
+
+class MetaVideo(types.SimpleNamespace):
+    def __init__(self, name="GAT", **fields):
+        super().__init__(**vars(native(name, **fields)))
+
+
+class MetaAnime(MetaVideo):
+    pass
+
+
+class Envelope:
+    def __init__(self, meta):
+        self.meta = meta
+
+    def __getattr__(self, name):
+        return getattr(self.meta, name)
+
+    def __deepcopy__(self, memo):
+        from copy import deepcopy
+        return type(self)(deepcopy(self.meta, memo))
 
 
 class MetaTests(unittest.TestCase):
@@ -337,23 +358,33 @@ class MetaTests(unittest.TestCase):
         PluginTests.setUpClass()
         compat = load("meta_compat")
         def python(title, subtitle=None, custom_words=None):
-            return native("GAT")
+            return MetaVideo()
         def rust(parsed):
-            return native("GAT")
-        host = types.SimpleNamespace(_build_python_meta_info=python, _meta_from_rust=rust)
+            return MetaVideo()
+        host = types.SimpleNamespace(_build_python_meta_info=python, _meta_from_rust=rust,
+                                     MetaVideo=MetaVideo, MetaAnime=MetaAnime)
         system = types.ModuleType("app.chain.system")
         system.SystemChain = types.SimpleNamespace(get_server_local_version=lambda: "v3.0.4")
         with tempfile.TemporaryDirectory() as directory, patch.dict(sys.modules, {"app.chain.system": system}), patch.object(
                 PluginTests.mod, "MetaPatch", lambda corrector: compat.MetaPatch(corrector, host)):
             plugin = PluginTests.mod.SubscriBetter()
             plugin.data_path = Path(directory)
+            plugin.init_plugin({})
             for _ in range(2):
-                plugin.init_plugin({"enabled": True, "dry_run": False, "enhance_host_meta": True})
+                current = plugin.configuration.view()
+                preview = plugin.configuration.preview(
+                    {"enabled": True, "dry_run": False, "enhance_host_meta": True},
+                    current["revision"], current["digest"], "unit-admin")
+                self.assertTrue(preview["valid"])
+                plugin.init_plugin(preview["config"])
                 self.assertTrue(plugin.meta_patch.active)
                 self.assertEqual("GATE24", host._build_python_meta_info("GATE24").en_name)
             plugin.stop_service()
             self.assertIs(python, host._build_python_meta_info)
-            plugin.init_plugin({"enabled": True, "dry_run": True, "enhance_host_meta": True})
+            current = plugin.configuration.view()
+            preview = plugin.configuration.preview({"dry_run": True}, current["revision"], current["digest"], "unit-admin")
+            self.assertTrue(preview["valid"])
+            plugin.init_plugin(preview["config"])
             self.assertFalse(plugin.meta_patch.active)
             self.assertIs(python, host._build_python_meta_info)
             plugin.stop_service()
@@ -400,11 +431,12 @@ class BridgeTests(unittest.TestCase):
     def setUp(self):
         self.assertTrue((PLUGIN / "meta_compat.py").exists(), "W03 bridges not implemented")
         self.m, self.b = load("meta"), load("meta_compat")
-        self.host = types.SimpleNamespace()
+        self.host = types.SimpleNamespace(MetaVideo=MetaVideo, MetaAnime=MetaAnime)
+        self.native = MetaVideo()
         def python(title, subtitle=None, custom_words=None):
-            return native("GAT")
+            return self.native
         def rust(parsed):
-            return native("GAT")
+            return self.native
         self.host._build_python_meta_info, self.host._meta_from_rust = python, rust
         self.originals = python, rust
         self.bridge = self.b.MetaPatch(self.m.MetaCorrector(), self.host)
@@ -412,6 +444,115 @@ class BridgeTests(unittest.TestCase):
     def tearDown(self):
         if hasattr(self, "bridge"):
             self.bridge.uninstall()
+
+    def test_forwarding_result_wrapper_must_disable_instead_of_shadow_correcting(self):
+        self.native = Envelope(MetaVideo())
+        self.assertTrue(self.bridge.install("v3.0.4"))
+        result = self.host._build_python_meta_info("GATE24")
+        self.assertEqual({"identity": True, "exposed": "GAT", "nested": "GAT",
+                          "state": "RESULT_UNSUPPORTED", "active": False,
+                          "reason": "RESULT_SHAPE_UNSUPPORTED"},
+                         {"identity": result is self.native, "exposed": result.en_name,
+                          "nested": result.meta.en_name, "state": self.bridge.state,
+                          "active": self.bridge.active, "reason": self.bridge.last_reason})
+
+    def test_only_declared_concrete_types_are_accepted_by_both_bridges(self):
+        self.assertTrue(self.bridge.install("v3.0.4"))
+        for kind in (MetaVideo, MetaAnime):
+            for engine in ("python", "rust"):
+                with self.subTest(kind=kind.__name__, engine=engine):
+                    # Rust cannot correct a diff without caller locks; use a stable
+                    # concrete result to prove its copy ABI without hiding that limit.
+                    self.native = (kind() if engine == "python" else
+                                   kind("Fictional", begin_episode=None, total_episode=0))
+                    before = self.m.snapshot(self.native)
+                    result = (self.host._build_python_meta_info("GATE24") if engine == "python" else
+                              self.host._meta_from_rust({"title": "Fictional"}))
+                    self.assertIs(type(result), kind)
+                    self.assertIsNot(result, self.native)
+                    self.assertEqual(before, self.m.snapshot(self.native))
+                    self.assertEqual("GATE24" if engine == "python" else "Fictional", result.en_name)
+                    self.assertEqual("ACTIVE", self.bridge.state)
+        self.native = MetaVideo()
+        self.assertIs(self.native, self.host._meta_from_rust({"title": "GATE24"}))
+        self.assertEqual("RUST_LOCK_CONTEXT_UNKNOWN", self.bridge.last_reason)
+        self.assertTrue(self.bridge.active)
+
+    def test_unsupported_shapes_stop_both_bridges_without_touching_native(self):
+        class Subclass(MetaVideo):
+            pass
+        class MetaMusic(MetaVideo):
+            pass
+        for value in (Envelope(MetaVideo()), Subclass(), (MetaVideo(), {}), native("GAT"),
+                      MetaMusic(type="音乐"), {"meta": MetaVideo()}):
+            for engine in ("python", "rust"):
+                with self.subTest(kind=type(value).__name__, engine=engine):
+                    self.native = value
+                    self.assertTrue(self.bridge.install("v3.0.4"))
+                    correct = self.bridge.corrector.correct
+                    self.bridge.corrector.correct = Mock(wraps=correct)
+                    try:
+                        result = (self.host._build_python_meta_info("GATE24") if engine == "python" else
+                                  self.host._meta_from_rust({"title": "GATE24"}))
+                        self.assertIs(value, result)
+                        self.assertFalse(self.bridge.active)
+                        self.assertEqual("RESULT_UNSUPPORTED", self.bridge.state)
+                        self.assertEqual("RESULT_SHAPE_UNSUPPORTED", self.bridge.last_reason)
+                        self.bridge.corrector.correct.assert_not_called()
+                        if isinstance(value, Envelope):
+                            self.assertEqual(("GAT", "GAT"), (value.en_name, value.meta.en_name))
+                            self.assertNotIn("en_name", vars(value))
+                        self.native = MetaVideo()
+                        self.assertIs(self.native, self.host._build_python_meta_info("GATE24"))
+                        self.assertIs(self.native, self.host._meta_from_rust({"title": "GATE24"}))
+                        self.bridge.corrector.correct.assert_not_called()
+                    finally:
+                        self.bridge.corrector.correct = correct
+                        self.bridge.uninstall()
+                    self.assertEqual(self.originals, (self.host._build_python_meta_info, self.host._meta_from_rust))
+
+    def test_rust_none_is_valid_but_python_none_is_not(self):
+        self.native = None
+        self.assertTrue(self.bridge.install("v3.0.4"))
+        self.assertIsNone(self.host._meta_from_rust({}))
+        self.assertTrue(self.bridge.active)
+        self.assertIsNone(self.host._build_python_meta_info("GATE24"))
+        self.assertFalse(self.bridge.active)
+        self.assertEqual("RESULT_SHAPE_UNSUPPORTED", self.bridge.last_reason)
+
+    def test_missing_or_invalid_type_declarations_leave_helpers_unchanged(self):
+        for name in ("MetaVideo", "MetaAnime"):
+            for invalid in (None, "MetaVideo", MetaVideo()):
+                with self.subTest(name=name, invalid=invalid):
+                    with patch.object(self.host, name, invalid):
+                        self.assertFalse(self.bridge.install("v3.0.4"))
+                        self.assertFalse(self.bridge.active)
+                        self.assertEqual("RESULT_TYPE_UNSUPPORTED", self.bridge.state)
+                        self.assertEqual(self.originals, (self.host._build_python_meta_info, self.host._meta_from_rust))
+            kind = getattr(self.host, name)
+            delattr(self.host, name)
+            try:
+                self.assertFalse(self.bridge.install("v3.0.4"))
+                self.assertEqual("RESULT_TYPE_UNSUPPORTED", self.bridge.state)
+            finally:
+                setattr(self.host, name, kind)
+
+    def test_deepcopy_must_preserve_exact_concrete_class(self):
+        self.assertTrue(self.bridge.install("v3.0.4"))
+        before = self.m.snapshot(self.native)
+        with patch.object(MetaVideo, "__deepcopy__", lambda value, memo: MetaAnime(), create=True):
+            self.assertIs(self.native, self.host._build_python_meta_info("GATE24"))
+        self.assertEqual(before, self.m.snapshot(self.native))
+        self.assertFalse(self.bridge.active)
+        self.assertEqual("RESULT_SHAPE_UNSUPPORTED", self.bridge.last_reason)
+
+    def test_corrector_error_keeps_existing_fail_closed_reason(self):
+        self.native.year = object()  # Exact supported class, incompatible field.
+        self.assertTrue(self.bridge.install("v3.0.4"))
+        self.assertIs(self.native, self.host._build_python_meta_info("GATE24"))
+        self.assertFalse(self.bridge.active)
+        self.assertEqual("RESULT_UNSUPPORTED", self.bridge.state)
+        self.assertEqual("META_CORRECTION_UNAVAILABLE", self.bridge.last_reason)
 
     def test_idempotent_install_second_owner_and_restore(self):
         self.assertTrue(self.bridge.install("v3.0.4"))
@@ -455,6 +596,9 @@ class BridgeTests(unittest.TestCase):
         self.bridge.corrector.correct = Mock(side_effect=RuntimeError("secret"))
         result = self.host._build_python_meta_info("GATE24")
         self.assertEqual("GAT", result.en_name)
+        self.assertIs(self.native, result)
+        self.assertTrue(self.bridge.active)
+        self.assertEqual("CORRECTION_FAILED", self.bridge.last_reason)
         self.assertNotIn("secret", str(self.bridge.diagnostics()))
 
 
@@ -466,7 +610,7 @@ def run_host_contract():
     Global enhancement must be off before running. A missing Rust runtime FAILS.
     """
     import importlib
-    from app.sdk.media import MetaInfo, MetaInfoPath, MetaVideo
+    from app.sdk.media import MetaInfo, MetaInfoPath, MetaVideo, MetaAnime, MetaMusic
     from app.chain.system import SystemChain
     core = importlib.import_module("app.plugins.subscribetter.meta")
     compat = importlib.import_module("app.plugins.subscribetter.meta_compat")
@@ -474,12 +618,18 @@ def run_host_contract():
     names = ("_build_python_meta_info", "_meta_from_rust")
     originals = {name: getattr(host, name) for name in names}
     checks, outputs, calls = {}, {}, []
+    allowed_types = (MetaVideo, MetaAnime)
     class Capture(core.MetaCorrector):
         def correct(self, *args, **kwargs):
+            before = core.snapshot(args[0])
             result = super().correct(*args, **kwargs)
             calls.append({"path": "rust" if kwargs.get("context_known") is False else "python",
                           "status": result.status, "reasons": list(result.reasons),
-                          "native_before": {k: core.snapshot(args[0])[k] for k in
+                          "exact_native_type": type(args[0]) in allowed_types,
+                          "same_result_type": type(result.meta) is type(args[0]),
+                          "native_unchanged": before == core.snapshot(args[0]),
+                          "copied": result.meta is not args[0],
+                          "native_before": {k: before[k] for k in
                                             ("title", "cn_name", "en_name", "year", "type", "begin_season", "begin_episode", "end_episode", "total_episode", "apply_words")}})
             return result
     corrector = Capture()
@@ -489,6 +639,10 @@ def run_host_contract():
     python_words = ["# [media_source=python-contract]"]
     third = None
     try:
+        checks["sdk_class_identity"] = host.MetaVideo is MetaVideo and host.MetaAnime is MetaAnime
+        assert checks["sdk_class_identity"], "Pinned host/SDK concrete classes differ"
+        helper_native = originals[names[0]]("GATE24.2024.2160p", custom_words=python_words)
+        checks["original_python_helper_exact_type"] = type(helper_native) in allowed_types
         baseline = MetaInfo("Fictional.S00E02-E04.2024.2160p.WEB-DL.HDR.HEVC-HHWEB", custom_words=python_words)
         assert bridge.install(SystemChain.get_server_local_version()), bridge.state
         wrappers = {name: getattr(host, name) for name in names}
@@ -498,6 +652,7 @@ def run_host_contract():
             result = MetaInfo(title, custom_words=python_words)
             key = title.split(".")[0]
             outputs[title] = core.snapshot(result)
+            checks["python_exact_type:" + title] = type(result) in allowed_types
             checks["python_name:" + title] = result.name == key
             if key in ("GATE24", "CODE46"):
                 checks["python_scope:" + title] = result.begin_episode is None and result.total_episode == 0
@@ -511,6 +666,7 @@ def run_host_contract():
                                     ("/Library/GATE24.2024/简体字幕.mkv", "GATE24")):
             result = MetaInfoPath(Path(path), custom_words=python_words)
             outputs[path] = core.snapshot(result)
+            checks["python_path_exact_type:" + path] = type(result) in allowed_types
             checks["python_final_path:" + path] = result.name == expected_name and result.begin_episode is None
         path = "/Fictional.2024/Season 0/Fictional.S00E02-E04.mkv"
         result = MetaInfoPath(Path(path), custom_words=python_words)
@@ -525,9 +681,9 @@ def run_host_contract():
         before = len(calls)
         music = MetaInfo("Fictional Artist - Track.flac")
         music_path = MetaInfoPath(Path("/Fictional Album/01 - Track.flac"))
-        checks["audio_music_bypass"] = len(calls) == before and type(music).__name__ == "MetaMusic" and type(music_path).__name__ == "MetaMusic"
+        checks["audio_music_bypass"] = len(calls) == before and type(music) is MetaMusic and type(music_path) is MetaMusic
         result = MetaInfo("GATE24.2024.flac", force_video=True, custom_words=python_words)
-        checks["force_video"] = len(calls) > before and type(result).__name__ != "MetaMusic" and result.name == "GATE24"
+        checks["force_video"] = len(calls) > before and type(result) in allowed_types and result.name == "GATE24"
         before = len(calls)
         MetaVideo("GATE24.2024.2160p")
         checks["direct_metavideo_documented_bypass"] = len(calls) == before
@@ -535,12 +691,14 @@ def run_host_contract():
         for title in ("GATE24.2024.2160p", "CODE46.2024.1080p", "Fictional.S00E02-E04.2024.1080p"):
             result = MetaInfo(title, custom_words=["#"])
             outputs["rust:" + title] = core.snapshot(result)
+            checks["rust_exact_type:" + title] = type(result) in allowed_types
             managed = core.MetaCorrector().correct(result, title, custom_words=["#"])
             if title.startswith(("GATE24", "CODE46")):
                 checks["managed_after_rust:" + title] = managed.status == "OK" and managed.meta.name == title.split(".")[0] and managed.meta.begin_episode is None
         path = "/Fictional.2024/Season 0/Fictional.S00E02-E04.mkv"
         result = MetaInfoPath(Path(path), custom_words=["#"])
         outputs["rust_path:" + path] = core.snapshot(result)
+        checks["rust_path_exact_type"] = type(result) in allowed_types
         checks["rust_final_s00_path"] = (result.begin_season, result.begin_episode, result.end_episode, result.total_episode) == (0, 2, 4, 3)
         managed = core.MetaCorrector().correct_path(result, path, custom_words=["#"])
         outputs["managed_rust_path:" + path] = managed.record()
@@ -559,6 +717,12 @@ def run_host_contract():
                                ("电视剧", season, None, 1, None, None, 0))
         checks["actual_rust_bridge_called"] = any(c["path"] == "rust" for c in calls[before:])
         checks["actual_python_bridge_called"] = any(c["path"] == "python" for c in calls)
+        for engine in ("python", "rust"):
+            actual = [c for c in calls if c["path"] == engine]
+            checks[engine + "_helper_results_preserve_concrete_types"] = bool(actual) and all(
+                c["exact_native_type"] and c["same_result_type"] and c["native_unchanged"] for c in actual)
+        checks["python_correction_copied"] = any(c["path"] == "python" and c["copied"] for c in calls)
+        checks["bridge_active_after_actual_results"] = bridge.diagnostics()["state"] == "ACTIVE"
         preserved = originals[names[0]]("GATE24", custom_words=python_words)
         real_correct = corrector.correct
         corrector.correct = Mock(side_effect=RuntimeError("fictional injected fault"))
@@ -577,15 +741,45 @@ def run_host_contract():
         bridge.uninstall()
         if third is not None and host._build_python_meta_info is third:
             host._build_python_meta_info = originals[names[0]]
+        assert all(getattr(host, n) is f for n, f in originals.items()), "Actual helpers not restored"
     checks["both_originals_restored"] = all(getattr(host, n) is f for n, f in originals.items())
     fresh = compat.MetaPatch(core.MetaCorrector())
     try:
         checks["fresh_reload_install"] = fresh.install(SystemChain.get_server_local_version())
     finally:
         fresh.uninstall()
+        assert all(getattr(host, n) is f for n, f in originals.items()), "Reload helpers not restored"
     checks["reload_restored"] = all(getattr(host, n) is f for n, f in originals.items())
+    # Controlled proxy negative only: real SDK class identities, fictional helper
+    # output. Never substitute a real helper and bypass its provenance check.
+    nested = MetaVideo("GATE24")
+    nested.en_name = "GAT"
+    envelope = Envelope(nested)
+    before = core.snapshot(nested)
+    def python(title, subtitle=None, custom_words=None):
+        return envelope
+    def rust(parsed):
+        return envelope
+    proxy = types.SimpleNamespace(MetaVideo=MetaVideo, MetaAnime=MetaAnime,
+                                  _build_python_meta_info=python, _meta_from_rust=rust)
+    proxy_patch = compat.MetaPatch(core.MetaCorrector(), proxy)
+    proxy_checks = {}
+    try:
+        proxy_checks["installed_with_real_sdk_classes"] = proxy_patch.install(SystemChain.get_server_local_version())
+        result = proxy._build_python_meta_info("GATE24")
+        proxy_checks["native_envelope_identity"] = result is envelope
+        proxy_checks["nested_and_exposed_unchanged"] = (
+            before == core.snapshot(nested) and result.en_name == "GAT" and "en_name" not in vars(result))
+        proxy_checks["explicit_incompatibility"] = (proxy_patch.state == "RESULT_UNSUPPORTED" and
+            not proxy_patch.active and proxy_patch.last_reason == "RESULT_SHAPE_UNSUPPORTED")
+        proxy_checks["other_bridge_disabled"] = proxy._meta_from_rust({"title": "GATE24"}) is envelope
+    finally:
+        proxy_patch.uninstall()
+        assert proxy._build_python_meta_info is python and proxy._meta_from_rust is rust
+        assert all(getattr(host, n) is f for n, f in originals.items()), "Proxy touched actual helpers"
     return {"checks": checks, "outputs": outputs, "bridge_calls": calls,
-            "status": "PASS" if all(checks.values()) else "FAIL",
+            "controlled_proxy_checks": proxy_checks,
+            "status": "PASS" if all(checks.values()) and all(proxy_checks.values()) else "FAIL",
             "expected_limitations": {} if checks["rust_final_s00_path"] else {
                 "rust_final_s00_path": "Global Rust bridge lacks call-specific locks and full path; it cannot safely expand E02 to E02-E04. Managed full-path correction is checked independently; the original failed coverage check is retained."},
             "coverage": "Actual SDK functions and final MetaInfoPath; no recognition/search/download or historical host cache invalidation"}

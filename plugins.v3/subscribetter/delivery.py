@@ -196,8 +196,8 @@ class Delivery:
         b['revision']+=1
 
     def _rule(self,b,*,safety=False):
-        r=self.rules[b['rule_id']]
-        if (not r['enabled'] and not safety) or r['transfer_revision']!=b['rule_transfer_revision']:raise ValueError('RULE_CHANGED')
+        r=self.rules.get(b['rule_id'])
+        if r is None or (not r['enabled'] and not safety) or r['transfer_revision']!=b['rule_transfer_revision']:raise ValueError('RULE_CHANGED')
         return r
 
     def _valid(self,b,*,publication=False):

@@ -252,7 +252,7 @@ class CandidateService:
         rows=self.search([value(raw,'site')],[value(raw,'title') or ''],budget)
         return next((r for r in rows if r['candidate_key']==key),{'status':'DEFER','reason':'DETAILS_NOT_CONFIRMED'})
 
-    def recognize(self, key, target, meta_service, *, custom_words=None, task_id=None, checkpoint=None):
+    def recognize(self, key, target, meta_service, *, custom_words=None, task_id=None, checkpoint=None, assistance=True):
         def check():
             self.checkpoint()
             if checkpoint:checkpoint()
@@ -265,8 +265,8 @@ class CandidateService:
             return {'status':'REJECT','reason':'PROVIDER_ID_CONFLICT'}
         check()
         correction = meta_service.parse('candidate:'+sha256(key.encode()).hexdigest(), value(raw,'title') or '', value(raw,'description'), custom_words, task_id=task_id)
-        assistance=None
-        if self.ai is not None:
+        allow_ai=assistance;assistance=None
+        if self.ai is not None and allow_ai:
             check()
             correction,assistance=self.ai.assist(value(raw,'title') or '',value(raw,'description') or '',
                 correction,corrector=meta_service.corrector,custom_words=custom_words)
@@ -414,13 +414,27 @@ class CandidatePipeline:
         self.rounds={}
         self.active=current;self.locked=locked;self.archive=getattr(current_provider,'__self__',None)
 
-    def evaluate(self,key,target,scope,*,downloader,save_path,dependencies=None,custom_words=None,task_id=None,mode='episode'):
+    def evaluate(self,key,target,scope,*,simulation=False,opportunity_id=None,assistance=True,**kwargs):
+        from .evidence import append
+        output=self._evaluate_live(key,target,scope,assistance=assistance,**kwargs)
+        with self.service.repository.connection() as db:
+            row=db.execute('SELECT data FROM candidates WHERE candidate_key=?',(key,)).fetchone()
+        context=getattr(self,'context',lambda:{})()
+        context.update(policy=self.policy.semantic_hash,parse=self.meta.corrector.revision)
+        reference=append(self.service.repository,key,scope,output,task_id=kwargs.get('task_id'),
+            opportunity_id=opportunity_id,simulation=simulation,mode=kwargs.get('mode','episode'),
+            observed=json.loads(row[0]) if row else {},context=context,sanitize=getattr(self,'sanitize',None))
+        output.update(reference)
+        for plan in output.get('plans',[]):plan.update(reference)
+        return output
+
+    def _evaluate_live(self,key,target,scope,*,downloader,save_path,dependencies=None,custom_words=None,task_id=None,mode='episode',assistance=True,locks=None):
         from .planner import Planner
         if self.active:self.active()
-        result=self.service.recognize(key,target,self.meta,custom_words=custom_words,task_id=task_id,checkpoint=self.active)
+        result=self.service.recognize(key,target,self.meta,custom_words=custom_words,task_id=task_id,checkpoint=self.active,assistance=assistance)
         if self.active:self.active()
         if result['status']!='OK':
-            return dict(plans=[],reason=result['reason'])
+            return dict(plans=[],reason=result['reason'],status=result['status'])
         if not isinstance(save_path,str) or not PurePosixPath(save_path).is_absolute() or '..' in PurePosixPath(save_path).parts or '\\' in save_path:
             raise ValueError('explicit absolute download layout required')
         if self.clients(downloader) is None:
@@ -471,23 +485,23 @@ class CandidatePipeline:
             from .archive import digest
             if projection['source_digest']==digest([infohash,files,downloader,save_path]):
                 candidate.update(local_assets=projection['assets'],source_plan=projection['source_plan'])
-        self.rounds[key]=dict(candidate=candidate,media=result['media'],meta=result['meta'],content=content,scope=list(scope),mode=mode,acquired=time.monotonic())
+        self.rounds[key]=dict(candidate=candidate,media=result['media'],meta=result['meta'],content=content,scope=list(scope),mode=mode,locks=locks,acquired=time.monotonic())
         while len(self.rounds)>1000:self.rounds.pop(next(iter(self.rounds)))
-        output=self._evaluate(candidate,scope,mode)
+        output=self._evaluate(candidate,scope,mode,locks=locks)
         with self.service.repository.connection(write=True) as db:
             row=db.execute('SELECT data FROM candidates WHERE candidate_key=?',(key,)).fetchone()
             data=json.loads(row[0]);data.update(infohash=infohash,torrent_files=files,file_parse=parse_evidence,classification=candidate['classification'],last_decision=_stored(output))
             db.execute('UPDATE candidates SET data=?,updated_at=? WHERE candidate_key=?',(encoded(_stored(data)),utcnow(),key))
         return output
 
-    def _evaluate(self,candidate,scope,mode):
+    def _evaluate(self,candidate,scope,mode,*,locks=None):
         from .execution import Exclusions
         from .planner import Planner
         exclusions=Exclusions(self.service.repository)
         excluded={k for k in scope if exclusions.matches(dict(candidate,targets=[k]),facts=dict(candidate['facts'][k].raw) if k in candidate['facts'] else {})}
         proof=self.archive.candidate_evidence(candidate,scope) if self.archive and hasattr(self.archive,'candidate_evidence') else {}
         candidate=dict(candidate,same_video_verified=proof.get('same_video_verified',{}))
-        result=Planner(self.policy).evaluate(candidate,proof.get('current',self.current(scope)),scope,mode=mode,excluded=excluded,locked=self.locked,
+        result=Planner(self.policy).evaluate(candidate,proof.get('current',self.current(scope)),scope,mode=mode,excluded=excluded,locked=self.locked if locks is None else locks,
             same_assets_verified=proof.get('same_assets_verified',frozenset()),consumed=proof.get('consumed',frozenset()))
         if result['enrichments']:result['evidence_manifest']=proof['manifest']
         return result
@@ -510,7 +524,8 @@ class CandidatePipeline:
                 s['selected_indices']=[i for i in s['selected_indices'] if i<len(s['torrent_files'])]
         from .planner import active_snapshot
         expected=active_snapshot(dict(plan,snapshot=s));active=set(expected['targets'])
-        fresh=self._evaluate(candidate,sorted(active),round['mode'] if active==set(s['targets']) else 'episode')
+        expected={k:v for k,v in expected.items() if k not in ('decision_id','decision_digest')}
+        fresh=self._evaluate(candidate,sorted(active),round['mode'] if active==set(s['targets']) else 'episode',locks=round.get('locks'))
         if expected not in fresh['plans']:
             raise ValueError('CANDIDATE_POLICY_OR_CURRENT_CHANGED')
         return candidate

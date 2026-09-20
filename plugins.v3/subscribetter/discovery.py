@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from enum import Enum
 from hashlib import sha256
 import asyncio
 import ipaddress
@@ -59,8 +60,14 @@ SECRET_QUERY = re.compile(r"(?:token|key|secret|password|passwd|cookie|authoriza
 DOUBAN_SUBJECT = re.compile(r"^/subject/(\d+)/?$")
 
 
-def _digest(value) -> str:
-    return sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+def _digest(value, *, default=None) -> str:
+    return sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=default).encode()).hexdigest()
+
+
+def _provider_value(value):
+    if isinstance(value, Enum):
+        return value.value
+    raise TypeError("UNSUPPORTED_PROVIDER_VALUE")
 
 
 def _url(value: str, *, base=False) -> str:
@@ -797,7 +804,7 @@ class DiscoveryService:
         else:
             rating = {"provider": source_id, "field": "tmdb_info.vote_average", "value": rating_value}
         if rating is not None:
-            rating.update(observed_at=utcnow(), evidence_ref="provider-payload:" + _digest(details))
+            rating.update(observed_at=utcnow(), evidence_ref="provider-payload:" + _digest(details, default=_provider_value))
         try:
             classification = self.recognizer.classify(media)
         except Exception:
@@ -965,34 +972,48 @@ class DiscoveryService:
                 result.append(value)
             return result
 
-    def statistics(self):
+    def statistics(self, *, source_id=None):
+        """Operational cohort includes hidden history; stage evidence is distinct."""
+        cohort="(? IS NULL OR source_id=?)"
+        args=(source_id,source_id)
         with self.repository.connection() as db:
-            records = {row[0]: row[1] for row in db.execute("SELECT state,count(*) FROM discovery_records WHERE visible=1 GROUP BY state")}
-            targets = {row[0]: row[1] for row in db.execute("SELECT state,count(*) FROM discovery_targets GROUP BY state")}
-            record_total, target_total = sum(records.values()), sum(targets.values())
-            recognized = db.execute("SELECT count(*) FROM discovery_records WHERE visible=1 AND json_type(data,'$.identity')='object'").fetchone()[0]
-            intent_ack = sum(targets.get(state, 0) for state in ("SUBMITTED", "ALREADY_MANAGED"))
-            download = db.execute("SELECT count(DISTINCT dt.record_id||':'||dt.target_key) FROM discovery_targets dt JOIN plans p ON p.task_id=dt.task_id JOIN plan_actions a ON a.plan_id=p.id WHERE a.kind='DOWNLOAD' AND a.state='SUCCEEDED'").fetchone()[0]
-            delivered = db.execute("SELECT count(DISTINCT dt.record_id||':'||dt.target_key) FROM discovery_targets dt JOIN plans p ON p.task_id=dt.task_id JOIN delivery_bundles b ON b.plan_id=p.id WHERE b.state='CONFIRMED'").fetchone()[0]
-            ingested = db.execute("""SELECT count(*) FROM discovery_targets dt
-                WHERE dt.task_id IS NOT NULL
-                  AND EXISTS (SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id
-                    AND json_array(json_extract(tu.target_key,'$[0]'),json_extract(tu.target_key,'$[1]'),
-                                   json_extract(tu.target_key,'$[2]'),json_extract(tu.target_key,'$[3]'),
-                                   json_extract(tu.target_key,'$[4]'))=dt.target_key)
-                  AND NOT EXISTS (SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id
-                    AND json_array(json_extract(tu.target_key,'$[0]'),json_extract(tu.target_key,'$[1]'),
-                                   json_extract(tu.target_key,'$[2]'),json_extract(tu.target_key,'$[3]'),
-                                   json_extract(tu.target_key,'$[4]'))=dt.target_key
-                    AND NOT EXISTS (SELECT 1 FROM ingest_receipts i
-                                    WHERE i.target_key=tu.target_key AND i.generation=tu.generation))""").fetchone()[0]
-        stages = {"recognition": {"numerator": recognized, "denominator": record_total},
-                  "intent_ack": {"numerator": intent_ack, "denominator": target_total},
-                  "download_acceptance": {"numerator": download, "denominator": target_total},
-                  "delivery_completion": {"numerator": delivered, "denominator": target_total},
-                  "ingest": {"numerator": ingested, "denominator": target_total}}
-        return {"records": records, "record_denominator": record_total,
-                "targets": targets, "target_denominator": target_total, "stages": stages}
+            records={r[0]:r[1] for r in db.execute(f"SELECT state,count(*) FROM discovery_records WHERE {cohort} GROUP BY state",args)}
+            recognized=db.execute(f"SELECT count(*) FROM discovery_records WHERE {cohort} AND json_type(data,'$.identity')='object'",args).fetchone()[0]
+            window=db.execute(f"SELECT min(first_seen),max(last_seen),coalesce(max(id),0) FROM discovery_records WHERE {cohort}",args).fetchone()
+            revisions=[r[0] for r in db.execute(f"SELECT DISTINCT filter_revision FROM discovery_records WHERE {cohort} ORDER BY filter_revision LIMIT 101",args)]
+            cte=f"WITH cohort AS (SELECT * FROM discovery_records WHERE {cohort}), target AS (SELECT dt.* FROM discovery_targets dt JOIN cohort c ON c.id=dt.record_id) "
+            targets={r[0]:r[1] for r in db.execute(cte+"SELECT state,count(*) FROM target GROUP BY state",args)}
+            ack=sum(targets.get(k,0) for k in ('SUBMITTED','ALREADY_MANAGED'))
+            download=db.execute(cte+"""SELECT count(*) FROM target dt WHERE EXISTS(
+                SELECT 1 FROM plans p JOIN plan_actions a ON a.plan_id=p.id
+                JOIN managed_downloads m ON m.downloader=json_extract(p.snapshot,'$.downloader')
+                  AND m.infohash=json_extract(p.snapshot,'$.infohash') AND m.save_path=json_extract(p.snapshot,'$.save_path')
+                WHERE p.task_id=dt.task_id AND a.kind='ADD' AND a.state='SUCCEEDED'
+                  AND m.add_action=a.plan_id AND m.client_id IS NOT NULL AND m.state NOT IN ('ADD_INTENT','UNKNOWN')
+                  AND EXISTS(SELECT 1 FROM action_receipts r WHERE r.action_id=a.id AND r.outcome='SUCCEEDED')
+                  AND EXISTS(SELECT 1 FROM json_each(a.targets) t WHERE json_array(
+                    json_extract(t.key,'$[0]'),json_extract(t.key,'$[1]'),json_extract(t.key,'$[2]'),
+                    json_extract(t.key,'$[3]'),json_extract(t.key,'$[4]'))=dt.target_key))""",args).fetchone()[0]
+            delivered=db.execute(cte+"""SELECT count(*) FROM target dt WHERE EXISTS(
+                SELECT 1 FROM plans p JOIN plan_actions a ON a.plan_id=p.id
+                WHERE p.task_id=dt.task_id AND a.kind='PUBLISH' AND a.state IN ('HANDED_OFF','INGEST_CONFIRMED')
+                  AND EXISTS(SELECT 1 FROM action_receipts r WHERE r.action_id=a.id AND r.outcome IN ('HANDED_OFF','INGEST_CONFIRMED'))
+                  AND EXISTS(SELECT 1 FROM json_each(a.targets) t WHERE json_array(
+                    json_extract(t.key,'$[0]'),json_extract(t.key,'$[1]'),json_extract(t.key,'$[2]'),
+                    json_extract(t.key,'$[3]'),json_extract(t.key,'$[4]'))=dt.target_key))""",args).fetchone()[0]
+            ingested=db.execute(cte+"""SELECT count(*) FROM target dt
+                WHERE EXISTS(SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id)
+                  AND NOT EXISTS(SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id
+                    AND NOT EXISTS(SELECT 1 FROM ingest_receipts i WHERE i.target_key=tu.target_key
+                       AND i.generation=tu.generation))""",args).fetchone()[0]
+        record_total=sum(records.values());target_total=sum(targets.values())
+        stages={name:dict(numerator=n,denominator=d,eligible_denominator=e) for name,n,d,e in (
+            ('recognition',recognized,record_total,record_total),('intent_ack',ack,target_total,target_total),
+            ('download_acceptance',download,target_total,ack),('delivery_completion',delivered,target_total,download),
+            ('ingest',ingested,target_total,delivered))}
+        return dict(records=records,targets=targets,record_denominator=record_total,target_denominator=target_total,stages=stages,
+            cohort=dict(source_id=source_id,first_seen=window[0],last_seen=window[1],high_watermark=str(window[2]),
+                        filter_revisions=revisions[:100],revisions_truncated=len(revisions)>100,includes_hidden=True))
 
     def cleanup(self, record_ids):
         ids = sorted(set(record_ids))

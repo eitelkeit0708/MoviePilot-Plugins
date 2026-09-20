@@ -111,7 +111,12 @@ def late_assets_chain(bad_readback=False):
   with f.repo.connection() as db:opps=[dict(row) for row in db.execute('SELECT id,mode,state,scope FROM opportunities')]
   candidate=runtime.pipeline.rounds['release']['candidate'];proof=g.archive.candidate_evidence(candidate,[key])
   if out[-1]['state']=='SUBTITLE_QUEUED':
-   snap=evaluated[-1]['plans'][0];auth=runtime.authority
+   # The improvement was observed under the completed source opportunity.
+   # The real next tick evaluates again under the newly admitted opportunity;
+   # its immutable decision receipt must belong to that exact opportunity.
+   with patch.dict(runtime.pipeline.evaluate.__func__.__globals__,{'torrent_table':lambda content:(snapshot['infohash'],[(x['path'],x['size']) for x in snapshot['torrent_files']])}):
+    fresh=runtime.evaluate(f.repo.setting('runtime-input:'+out[-1]['opportunity_id']),'release')
+   snap=fresh['plans'][0];auth=runtime.authority
    runtime.scheduler.observe(out[-1]['opportunity_id'],key,'release',snap['targets'][key]['quality'],eligible=True)
    auth.prepare('late-sidecar',out[-1]['opportunity_id'],snap);auth.claim('late-sidecar',auth.vector([key]),now=f.s.instant()+timedelta(seconds=100))
    with f.repo.connection(write=True) as db:
@@ -145,7 +150,7 @@ class RuntimeFix2Tests(unittest.TestCase):
  def test_late_sidecar_with_original_torrent_subtitle_reaches_organizer(self):
   result=late_assets_chain()
   self.assertEqual(['WAITING_ASSETS','SUBTITLE_QUEUED'],[x['state'] for x in result['stages']])
-  self.assertEqual([[1,2]],result['selected_indices']);self.assertEqual('COMPLETED',result['source_authorization'])
+  self.assertEqual([[1,2],[1,2]],result['selected_indices']);self.assertEqual('COMPLETED',result['source_authorization'])
   actual=result['execution'];self.assertEqual('RUNNING',actual['state'],actual)
   self.assertEqual('COMPLETE',actual['organization']['state']);self.assertEqual(['movie.late.srt','movie.srt'],actual['outputs'])
   self.assertEqual([11],actual['wanted']);self.assertNotIn(('FORBIDDEN',),actual['calls'])

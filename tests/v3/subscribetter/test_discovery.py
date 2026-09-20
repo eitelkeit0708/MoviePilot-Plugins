@@ -1,5 +1,6 @@
 """W09 unit evidence: bounded work discovery feeding the existing ownership intent path."""
 from datetime import datetime, timezone
+from enum import Enum
 from contextlib import asynccontextmanager
 import asyncio
 import importlib.util
@@ -35,6 +36,11 @@ def load_modules():
         spec.loader.exec_module(module)
         loaded.append(module)
     return loaded
+
+
+class ProviderMediaType(Enum):
+    MOVIE = "电影"
+    TV = "电视剧"
 
 
 class Clock:
@@ -600,11 +606,27 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(revision, changed.records()[0]["filter_revision"])
         self.assertEqual("SUBMITTED", changed.records()[0]["state"])
 
+    def test_movie_provider_enum_rating_retains_payload_evidence(self):
+        details={"vote_average":8.25,"media_type":ProviderMediaType.MOVIE,
+                 "nested":[{"type":ProviderMediaType.MOVIE,"title":"虚构影片"}]}
+        media=types.SimpleNamespace(identity=("themoviedb","42"),type=ProviderMediaType.MOVIE,
+                                    title="Fixture",year="2026",category="movie",tmdb_info=details)
+        owner=Owner();service=self.service(self.config(request_budget=ONE_BUDGET),media=media,owner=owner)
+        result=self.wait(service.run())
+        self.assertEqual("SUCCESS",result["sources"]["weekly"]["state"],result)
+        self.assertEqual("SUBMITTED",service.records()[0]["state"])
+        expected={"vote_average":8.25,"media_type":"电影","nested":[{"type":"电影","title":"虚构影片"}]}
+        self.assertEqual("provider-payload:"+self.d._digest(expected),service.records()[0]["rating"]["evidence_ref"])
+        self.assertEqual(8.25,service.records()[0]["rating"]["value"])
+        self.assertIs(ProviderMediaType.MOVIE,details["media_type"])
+        self.assertIs(ProviderMediaType.MOVIE,details["nested"][0]["type"])
+        self.assertEqual(1,len(owner.calls))
+
     def test_provider_rating_known_seasons_and_partial_receipts(self):
         media = types.SimpleNamespace(
             identity=("themoviedb", "1396"), type=types.SimpleNamespace(value="电视剧"),
             title="Fixture Series", year="2008", category="tv",
-            tmdb_info={"vote_average": 8.951, "seasons": [
+            tmdb_info={"vote_average": 8.951, "media_type":ProviderMediaType.TV, "seasons": [
                 {"season_number": 0, "episode_count": 2, "air_date": "2008-01-01"},
                 {"season_number": 1, "episode_count": 7, "air_date": "2008-01-20"},
                 {"season_number": 3, "episode_count": 4, "air_date": "2010-01-01"},
@@ -627,6 +649,30 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn(5, [row["season"] for row in records[0]["targets"]])
         future = next(row for row in records[0]["targets"] if row["season"] == 5)
         self.assertEqual(("DEFERRED", "SEASON_NOT_AIRED"), (future["state"], future["reason"]))
+
+    def test_provider_evidence_keeps_json_digest_and_rejects_unknown_objects(self):
+        plain={"vote_average":8.25,"media_type":"电影","nested":[True,None,42,"虚构"]}
+        encoded={**plain,"media_type":ProviderMediaType.MOVIE}
+        expected=self.d._digest(plain)
+        for payload in (plain,encoded,dict(reversed(list(encoded.items())))):
+            self.assertEqual(expected,self.d._digest(payload,default=self.d._provider_value))
+        with self.assertRaises(TypeError):self.d._digest(encoded)
+        class Unsupported:
+            def __str__(self):raise AssertionError("secret-bearing str must not be called")
+            def __repr__(self):raise AssertionError("secret-bearing repr must not be called")
+        class BadEnum(Enum):
+            VALUE=Unsupported()
+        for value in (Unsupported(),BadEnum.VALUE,{"unordered"},datetime.now(timezone.utc)):
+            with self.subTest(kind=type(value).__name__),self.assertRaisesRegex(TypeError,"UNSUPPORTED_PROVIDER_VALUE"):
+                self.d._digest({"nested":[value]},default=self.d._provider_value)
+        owner=Owner()
+        media=types.SimpleNamespace(identity=("themoviedb","42"),type=ProviderMediaType.MOVIE,
+                                    title="Fixture",year="2026",category="movie",
+                                    tmdb_info={"vote_average":8.25,"unexpected":Unsupported()})
+        service=self.service(self.config(request_budget=ONE_BUDGET),media=media,owner=owner)
+        result=self.wait(service.run())
+        self.assertEqual({"state":"FAILED","reason":"SOURCE_FAILED"},result["sources"]["weekly"])
+        self.assertEqual([],owner.calls)
 
     def test_unknown_score_type_conflict_and_inventory_uncertainty_defer(self):
         base = dict(identity=("themoviedb", "42"), title="24", year="2001", category="tv",
@@ -796,7 +842,7 @@ class DiscoveryTests(unittest.TestCase):
         target = self.repo_mod.Target("电影", "themoviedb", "schema-fixture")
         task = self.repo.submit("schema-fixture", target, {"name": "Fixture"}, "admin")
         with self.repo.connection(write=True) as db:
-            for table in ("archive_scan_baselines", "migration_history", "migration_receipts", "discovery_targets", "discovery_records", "discovery_sources"):
+            for table in ("management_operations", "management_previews", "candidate_decisions", "archive_scan_baselines", "migration_history", "migration_receipts", "discovery_targets", "discovery_records", "discovery_sources"):
                 db.execute("DROP TABLE " + table)
             db.execute("DROP INDEX archive_target_identity")
             db.execute("PRAGMA user_version=8")
@@ -804,7 +850,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(task["id"], migrated.get_task(task["id"])["id"])
         db = sqlite3.connect(self.repo.path)
         try:
-            self.assertEqual(11, db.execute("PRAGMA user_version").fetchone()[0])
+            self.assertEqual(12, db.execute("PRAGMA user_version").fetchone()[0])
             self.assertEqual(0, db.execute("SELECT count(*) FROM discovery_records").fetchone()[0])
             self.assertTrue(db.execute("SELECT 1 FROM sqlite_master WHERE type='index' AND name='archive_target_identity'").fetchone())
         finally:

@@ -637,9 +637,7 @@ class SubscriBetter(_PluginBase):
 
     def discovery_cleanup(self, request: DiscoveryRecordsRequest, user: TokenPayload = Depends(verify_token)) -> dict:
         self._authorize(user)
-        with self.runtime_lock:self._writes_enabled()
-        if not self.discovery:raise HTTPException(409,"Discovery configuration unavailable")
-        return {"changed":self.discovery.cleanup(request.record_ids)}
+        raise HTTPException(409,'PREVIEW_REQUIRED')
 
     def get_api(self):
         definitions = [("/diagnostics", "GET", self.diagnostics, Diagnostics),
@@ -663,6 +661,15 @@ class SubscriBetter(_PluginBase):
         routes=[{"path": path, "methods": [method], "endpoint": endpoint, "response_model": model,
                  "auth": "bear", "summary": endpoint.__name__} for path, method, endpoint, model in definitions]
         if getattr(self,'management',None):routes.extend(self.management.routes())
+        from .ui import Views, ParseView, ReplayView, DiscoveryRun, DiscoveryTest, Changed
+        views=Views(self);managed=views.routes();replaced={r['path'] for r in managed}
+        routes=[r for r in routes if r['path'] not in replaced]
+        models={'/parse':ParseView,'/parse/replay':ReplayView,'/discovery/test':DiscoveryTest,'/discovery/run':DiscoveryRun,'/discovery/sources/retry':Changed,'/discovery/reprocess':Changed}
+        from .management import PrivateRoute
+        for route in routes:
+            if route['path'] in models:
+                route.update(response_model=models[route['path']],endpoint=views.boundary(route['endpoint']),route_class_override=PrivateRoute)
+        routes.extend(managed)
         return routes
 
     def get_form(self):

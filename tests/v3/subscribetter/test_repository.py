@@ -67,7 +67,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual("PENDING", actions[0]["state"])
         self.assertNotIn("cookie", row["snapshot"])
         with closing(sqlite3.connect(self.path)) as db:
-            self.assertEqual(11, db.execute("PRAGMA user_version").fetchone()[0])
+            self.assertEqual(12, db.execute("PRAGMA user_version").fetchone()[0])
             self.assertGreater(db.execute("SELECT count(*) FROM audit").fetchone()[0], 0)
         self.assertNotIn(b"NEVER_STORE", self.path.read_bytes())
 

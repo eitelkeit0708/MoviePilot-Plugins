@@ -139,7 +139,7 @@ class Authority:
         snapshot = json.loads(encoded(snapshot))
         required = {'candidate_key', 'infohash', 'downloader', 'save_path', 'policy_revision', 'parse_revision',
                     'current', 'targets', 'torrent_files', 'selected_indices', 'verified'}
-        if set(snapshot) not in (required,required|{'local_assets','source_plan'}):
+        if set(snapshot)-{'decision_id','decision_digest'} not in (required,required|{'local_assets','source_plan'}):
             raise ValueError('complete frozen execution snapshot required')
         if 'local_assets' in snapshot:
             identifier(snapshot['source_plan'])
@@ -175,6 +175,13 @@ class Authority:
         if all(t['action'] == 'UNCHANGED' for t in targets.values()):
             raise ValueError('plan has no improvement')
         with self.repository.connection(write=True) as db:
+            if 'decision_id' in snapshot or 'decision_digest' in snapshot:
+                evidence=db.execute('SELECT digest,simulation,candidate_key,data,opportunity_id FROM candidate_decisions WHERE id=?',(snapshot.get('decision_id'),)).fetchone()
+                if not evidence or evidence['simulation'] or evidence['digest']!=snapshot.get('decision_digest') or evidence['candidate_key']!=snapshot['candidate_key']:
+                    raise ValueError('DECISION_EVIDENCE_CONFLICT')
+                from .ai import digest
+                if evidence['opportunity_id'] not in (None,opportunity_id) or digest({k:v for k,v in snapshot.items() if k not in ('decision_id','decision_digest')}) not in json.loads(evidence['data'])['plan_digests']:
+                    raise ValueError('DECISION_PLAN_MISMATCH')
             if snapshot.get('local_assets'):
                 source=db.execute('SELECT * FROM plans WHERE id=?',(snapshot['source_plan'],)).fetchone()
                 if not source:raise ValueError('LOCAL_ASSET_SOURCE_PLAN_REQUIRED')
@@ -345,6 +352,9 @@ class Authority:
         """Same resource, unchanged target decision; no upgrade clock or budget."""
         old=self.plan(old_id);before=old['snapshot']
         if snapshot.get('source_plan')!=old_id or 'local_assets' in before or not snapshot.get('local_assets') or any(snapshot[k]!=v for k,v in before.items() if k!='selected_indices') or snapshot['selected_indices']!=before['selected_indices']+[a['file']['index'] for a in snapshot['local_assets']]:raise ValueError('ASSET_EXTENSION_LINEAGE_REQUIRED')
+        if 'decision_id' in snapshot:
+            from .evidence import append
+            snapshot=dict(snapshot,**append(self.repository,snapshot['candidate_key'],snapshot['targets'],dict(plans=[snapshot]),task_id=old['task_id'],opportunity_id=old['opportunity_id'],observed={'source_plan':old_id}))
         self.prepare(new_id,old['opportunity_id'],snapshot)
         with self.repository.connection(write=True) as db:
             self._task_active(db,old);self._revisions(db,before);self._match(db,expected,owner=old_id)
@@ -887,7 +897,8 @@ class Planner:
                 if baseline.get('sidecar_missing') is True and candidate.get('same_video_verified', {}).get(key) is True:
                     action = 'SIDECAR_SUPPLEMENT'
             result['decisions'][key] = {'status': status, 'action': action, 'reason': decision.reason,
-                                         'evidence_keys': list(decision.evidence_keys), 'rank': list(decision.rank), 'evidence_source': facts.evidence}
+                                         'evidence_keys': list(decision.evidence_keys), 'rank': list(decision.rank), 'evidence_source': facts.evidence,
+                                         'comparisons':list(decision.comparisons)}
         decisions = result['decisions']
         selected, covered = set(), set()
         video_coverage = {key for item in table if item['role'] == 'video' for key in item['targets']}

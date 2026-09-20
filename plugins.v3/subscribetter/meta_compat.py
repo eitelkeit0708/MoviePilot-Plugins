@@ -12,6 +12,7 @@ class MetaPatch:
         self.state = "OFF"
         self.originals = {}
         self.wrappers = {}
+        self.result_types = ()
         self.lock = RLock()
         self.last_reason = None
 
@@ -53,6 +54,11 @@ class MetaPatch:
                         any(p.default is not None for p in args[1:])):
                     self.state = "SIGNATURE_UNSUPPORTED"
                     return False
+            result_types = tuple(getattr(self.host, name, None) for name in ("MetaVideo", "MetaAnime"))
+            if any(not isinstance(kind, type) for kind in result_types):
+                self.state = "RESULT_TYPE_UNSUPPORTED"
+                return False
+            self.result_types = tuple(dict.fromkeys(result_types))
             self.originals = {name: getattr(self.host, name) for name in expected}
             def python(title, subtitle=None, custom_words=None):
                 native = self.originals["_build_python_meta_info"](title, subtitle, custom_words)
@@ -75,16 +81,25 @@ class MetaPatch:
         if not self._owns():
             self.active, self.state = False, "CONFLICT"
             return native
+        if type(native) not in self.result_types:
+            return self._unsupported_result(native)
         try:
             result = self.corrector.correct(native, title, subtitle, custom_words, context_known=context_known)
             self.last_reason = result.reasons[-1] if result.reasons else None
             if result.status == "ERROR":
                 self.active, self.state = False, "RESULT_UNSUPPORTED"
                 return native
+            if type(result.meta) is not type(native):
+                return self._unsupported_result(native)
             return result.meta
         except Exception:
             self.last_reason = "CORRECTION_FAILED"
             return native
+
+    def _unsupported_result(self, native):
+        self.last_reason = "RESULT_SHAPE_UNSUPPORTED"
+        self.active, self.state = False, "RESULT_UNSUPPORTED"
+        return native
 
     def uninstall(self):
         with _INSTALL_LOCK, self.lock:
