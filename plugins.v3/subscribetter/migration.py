@@ -83,6 +83,7 @@ def safe(value,secrets=()):
         return _stored(value)
     if isinstance(value,list):return [safe(x,secrets) for x in value]
     if isinstance(value,dict):return {safe(str(k),secrets):safe(v,secrets) for k,v in value.items()}
+    if any(contains_private(value,s) for s in secrets if s):return '[PRIVATE]'
     return value
 
 
@@ -103,7 +104,7 @@ def history_row(row,ordinal,reference,timezone,secrets):
         source_timezone=timezone,time_basis='LEGACY_REPORTED',state='LEGACY_UNVERIFIED',diagnostics=safe(diagnostics,secrets))
 
 
-def normalize(raw,store,timezone=None):
+def normalize(raw,store,timezone=None,private_context=()):
     def pairs(items):
         result={}
         for key,value in items:
@@ -118,6 +119,7 @@ def normalize(raw,store,timezone=None):
     if not isinstance(ai,dict) or not isinstance(old,dict) or not isinstance(rows,list) or len(rows)>10000 or any(not isinstance(x,dict) for x in rows):raise ValueError('LEGACY_EXPORT_SHAPE')
     secrets=[str(ai.get(k) or '') for k in ('openai_url','openai_key')]+[str(old.get(k) or '') for k in ('migrate_from_url','migrate_api_token')]
     secrets.extend(k.strip() for k in str(ai.get('openai_key') or '').split(',') if k.strip())
+    secrets.extend(store.resolve(ref) for ref in private_context)
     fields=[];diagnostics=[];patch={};private_refs={};policy_candidates={}
     for source,values,mapping in (('ai',ai,AI_FIELDS),('discovery',old,DISCOVERY_FIELDS)):
         for key in sorted(set(values)|set(mapping)):
@@ -264,24 +266,30 @@ class Migration:
 
     def receipt(self,identity):
         row=self._load(identity);data=row['data']
-        return dict(receipt_id=row['id'],kind=row['kind'],revision=row['revision'],digest=row['digest'],state=row['state'],
+        result=dict(receipt_id=row['id'],kind=row['kind'],revision=row['revision'],digest=row['digest'],state=row['state'],
             **{k:data[k] for k in ('snapshot_ref','source_instance','source_version','fields','diagnostics','private_refs',
                 'requested_features','memory_cache_restored','history_count','cursor','features','steps','next_changes',
                 'read_scope','result_receipt_id','proposed_config','policy_candidates','configuration_receipt','base_digest','config_digest','owner_checks') if k in data})
+        if any(contains_private(result,self.secrets.resolve(ref)) for ref in data.get('private_context',[])):
+            raise ValueError('PRIVATE_VALUE_IN_MIGRATION')
+        return result
 
     def _new(self,identity,kind,checksum,state,data):
         with self.repository.connection(write=True) as db:
             db.execute('INSERT OR IGNORE INTO migration_receipts VALUES(?,?,?,?,?,?,?)',(identity,kind,1,checksum,state,json.dumps(data),utcnow()))
         return self.receipt(identity)
 
-    def preview_import(self,raw,source_instance,source_version,timezone,actor):
+    def preview_import(self,raw,source_instance,source_version,timezone,actor,*,private_context=()):
         reference=self.secrets.put_snapshot(raw)
-        data,preview,secrets=normalize(raw,self.secrets,timezone)
-        checksum=digest([reference,source_instance,source_version,timezone,1]);identity='import-'+checksum[:32]
+        context=sorted(set(private_context))
+        data,preview,secrets=normalize(raw,self.secrets,timezone,context)
+        # Existing offline identities remain stable; the same bytes under a
+        # different SOURCE privacy context must never reuse a weaker receipt.
+        checksum=digest([reference,source_instance,source_version,timezone,1]+([context] if context else []));identity='import-'+checksum[:32]
         # Full raw, prompts, keys and unknown fields remain byte-exact privately.
         # Receipt only exposes mapped values after redaction; config is internal.
         preview.update(snapshot_ref=reference,source_instance=source_instance,source_version=source_version,timezone=timezone,
-            base_digest=self.configuration.view()['digest'],cursor=0,config_applied=False,operations={},actor=actor)
+            base_digest=self.configuration.view()['digest'],cursor=0,config_applied=False,operations={},actor=actor,private_context=context)
         proposal=merge(self.configuration.view()['config'],preview['config'])
         proposal=merge(proposal,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'chat_enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
         preview['proposed_config']=self.configuration.validate(proposal)
@@ -311,6 +319,7 @@ class Migration:
         row=self._load(identity,'SOURCE');data=row['data']
         if operation in data['operations']:
             if data['operations'][operation]!=checksum:raise ValueError('OPERATION_CONFLICT')
+            self.receipt(data['result_receipt_id'])  # Resolve the derived privacy context on replay too.
             return self.receipt(identity)
         if row['revision']!=revision or row['digest']!=checksum or data['config_digest']!=self.configuration.view()['digest']:raise ValueError('STALE_SOURCE_PREVIEW')
         scope=data['read_scope'];bodies=await read(self.secrets.resolve(data['endpoint_ref']).rstrip('/'),
@@ -323,7 +332,8 @@ class Migration:
             if not isinstance(config,dict) or not isinstance(history,list) or config.get('success') is False:raise ValueError()
         except (ValueError,TypeError):raise ValueError('LEGACY_READ_SHAPE') from None
         preview=self.preview_import(json.dumps({'discovery':config,'history':history},ensure_ascii=False).encode(),
-                                    scope['instance_id'],'unknown; adapter contract 1.0.7',None,actor)
+                                    scope['instance_id'],'unknown; adapter contract 1.0.7',None,actor,
+                                    private_context=[data['endpoint_ref'],data['credential_ref']])
         data['private_refs']=dict(config_response=refs[0],history_response=refs[1])
         data['result_receipt_id']=preview['receipt_id'];data['operations'][operation]=checksum;row['state']='READ_DONE'
         return self._save(row)
@@ -336,7 +346,7 @@ class Migration:
         if len(data['operations'])>=1000:raise ValueError('OPERATION_LIMIT')
         if row['revision']!=revision or row['digest']!=checksum or cursor!=data['cursor']:raise ValueError('STALE_IMPORT')
         if type(limit)is not int or not 1<=limit<=100:raise ValueError('IMPORT_PAGE_LIMIT')
-        raw=self.secrets.read_snapshot(data['snapshot_ref']);original,_,secrets=normalize(raw,self.secrets,data['timezone'])
+        raw=self.secrets.read_snapshot(data['snapshot_ref']);original,_,secrets=normalize(raw,self.secrets,data['timezone'],data.get('private_context',[]))
         marker='legacy-config-import:'+digest([data['config'],data['base_digest']])
         if (not data['config_applied'] and not self.repository.setting(marker)
                 and self.configuration.view()['digest']!=data['base_digest']):raise ValueError('IMPORT_CONFIG_CHANGED')
@@ -361,8 +371,11 @@ class Migration:
 
     def history(self,identity,limit,offset):
         if not 1<=limit<=100 or offset<0:raise ValueError('HISTORY_PAGE_LIMIT')
-        self._load(identity,'IMPORT')
-        with self.repository.connection() as db:return [json.loads(r[0]) for r in db.execute('SELECT data FROM migration_history WHERE receipt_id=? ORDER BY ordinal LIMIT ? OFFSET ?',(identity,limit,offset))]
+        row=self._load(identity,'IMPORT')
+        with self.repository.connection() as db:rows=[json.loads(r[0]) for r in db.execute('SELECT data FROM migration_history WHERE receipt_id=? ORDER BY ordinal LIMIT ? OFFSET ?',(identity,limit,offset))]
+        if any(contains_private(rows,self.secrets.resolve(ref)) for ref in row['data'].get('private_context',[])):
+            raise ValueError('PRIVATE_VALUE_IN_MIGRATION')
+        return rows
 
     def feature(self,module,route_scope,config=None):
         if module not in MODULES:raise ValueError('UNKNOWN_FEATURE')

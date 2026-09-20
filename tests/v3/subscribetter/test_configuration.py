@@ -442,6 +442,76 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(configured['config']['enabled']);self.assertTrue(configured['config']['dry_run'])
         self.assertEqual(overrides,configured['config']['policy']['overrides'])
 
+    def test_fix2_source_private_context_survives_import_retry_restart_and_receipt_reuse(self):
+        import asyncio
+        token='REMOTE_TOKEN_SENTINEL_42'
+        endpoint=self.store.put('https://old.invalid');credential=self.store.put(token)
+        bodies=[b'{}',json.dumps([{'title':token,'tmdbid':'7'},{'title':'Film '+token,'tmdbid':'8'}]).encode()]
+        combined=json.dumps({'discovery':{},'history':json.loads(bodies[1])},ensure_ascii=False).encode()
+        weaker=self.migration.preview_import(combined,'DoubanRankPlusOptimized','unknown; adapter contract 1.0.7',None,'admin')
+        source=self.migration.preview_source(endpoint,credential,'DoubanRankPlusOptimized',[],'admin')
+        calls=[]
+        async def read(*args):calls.append(args);return bodies
+        source=asyncio.run(self.migration.read_source(source['receipt_id'],source['revision'],source['digest'],'read','admin',read=read))
+        receipt=self.migration.receipt(source['result_receipt_id'])
+        # Import through the actual SOURCE credential path; remote config deliberately omits the token.
+        page=self.migration.import_page(receipt['receipt_id'],receipt['revision'],receipt['digest'],0,1,'page-one','admin')
+        self.assertNotIn(token,json.dumps(self.migration.history(receipt['receipt_id'],100,0)))
+        self.assertNotEqual(weaker['receipt_id'],receipt['receipt_id'])
+        self.assertEqual(combined,self.store.read_snapshot(receipt['snapshot_ref']))
+        for body in bodies:self.assertIn(body,self.store.blobs.values())
+        restarted=self.m.Migration(self.repo,self.config,self.store,lambda:copy.deepcopy(self.inventory))
+        self.assertEqual(page,restarted.import_page(receipt['receipt_id'],receipt['revision'],receipt['digest'],0,1,'page-one','admin'))
+        source_replay=asyncio.run(restarted.read_source(source['receipt_id'],1,source['digest'],'read','admin',read=read))
+        self.assertEqual(source,source_replay);self.assertEqual(1,len(calls))
+        done=restarted.import_page(page['receipt_id'],page['revision'],page['digest'],1,1,'page-two','admin')
+        history=restarted.history(receipt['receipt_id'],100,0)
+        self.assertEqual(['[PRIVATE]','Film [PRIVATE]'],[r['raw']['title'] for r in history])
+        with self.repo.connection() as db:
+            ordinary='\n'.join(db.iterdump())
+            context=json.loads(db.execute('SELECT data FROM migration_receipts WHERE id=?',(receipt['receipt_id'],)).fetchone()[0])['private_context']
+            self.assertEqual(sorted([endpoint,credential]),context)
+        self.assertNotIn(token,ordinary)
+        self.assertNotIn(token,json.dumps([source,receipt,page,done,history,self.config.view()]))
+        # The same original under the same private context deduplicates; a different context cannot reuse it.
+        again=restarted.preview_import(combined,'DoubanRankPlusOptimized','unknown; adapter contract 1.0.7',None,'admin',
+            private_context=[endpoint,credential])
+        self.assertEqual(receipt['receipt_id'],again['receipt_id'])
+        other=restarted.preview_import(combined,'DoubanRankPlusOptimized','unknown; adapter contract 1.0.7',None,'admin',
+            private_context=[endpoint,self.store.put('DIFFERENT_REMOTE_TOKEN')])
+        self.assertNotEqual(receipt['receipt_id'],other['receipt_id'])
+        # Context is resolved anew after restart; a missing reference fails before the next page mutates anything.
+        self.assertNotIn('private_context',receipt)
+        del self.store.values[credential]
+        with self.assertRaises((ValueError,KeyError)):restarted.history(receipt['receipt_id'],100,0)
+        with self.assertRaises((ValueError,KeyError)):restarted.receipt(receipt['receipt_id'])
+        with self.assertRaises((ValueError,KeyError)):
+            restarted.import_page(receipt['receipt_id'],receipt['revision'],receipt['digest'],0,1,'page-one','admin')
+        with self.assertRaises((ValueError,KeyError)):
+            asyncio.run(restarted.read_source(source['receipt_id'],1,source['digest'],'read','admin',read=read))
+        self.assertEqual(1,len(calls))
+        with self.assertRaises((ValueError,KeyError)):
+            restarted.import_page(done['receipt_id'],done['revision'],done['digest'],2,1,'missing-context','admin')
+
+    def test_fix2_numeric_private_scalars_redact_history_and_reject_operational_config(self):
+        token='92746581023456789'
+        raw=json.dumps({'ai':{'openai_key':token},'history':[{'tmdbid':int(token),'title':'Film','year':2026,'vote':8.5}]}).encode()
+        preview=self.migration.preview_import(raw,'fiction','1',None,'admin')
+        self.assertEqual(raw,self.store.read_snapshot(preview['snapshot_ref']))
+        receipt=self.migration.import_page(preview['receipt_id'],preview['revision'],preview['digest'],0,100,'numeric','admin')
+        history=self.migration.history(preview['receipt_id'],100,0)
+        self.assertEqual('[PRIVATE]',history[0]['raw']['tmdbid']);self.assertEqual({},history[0]['identities'])
+        self.assertEqual((2026,8.5),(history[0]['raw']['year'],history[0]['raw']['vote']))
+        with self.repo.connection() as db:
+            ordinary='\n'.join(db.iterdump())
+        self.assertNotIn(token,ordinary);self.assertNotIn(token,json.dumps([preview,receipt,history,self.config.view()]))
+        self.assertTrue(self.c.contains_private({'n':12.5},'12.5'))
+        self.assertEqual('[PRIVATE]',self.m.safe(12.5,['12.5']))
+        self.assertEqual('[PRIVATE]',self.m.safe(True,['true']))
+        self.assertEqual('[PRIVATE]',self.m.safe(None,['null']))
+        config=self.c.Config().model_dump();config['ai_assist'].update(credential_refs=[self.store.put('43')],timeout=43)
+        with self.assertRaisesRegex(ValueError,'PRIVATE_VALUE_IN_CONFIGURATION'):self.config.validate(config)
+
     def test_fix1_private_values_never_enter_identity_receipt_config_or_sqlite(self):
         raw=json.dumps({'ai':{'openai_key':'KEY_SENTINEL'},
             'history':[{'title':'Film','tmdbid':'KEY_SENTINEL','doubanid':'url?token=KEY_SENTINEL'}]}).encode()

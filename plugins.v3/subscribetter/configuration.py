@@ -343,6 +343,7 @@ def content(config):
 
 def contains_private(value,secret):
     if isinstance(value,str):return bool(secret) and secret in value
+    if value is None or type(value) in (bool,int,float):return contains_private(json.dumps(value),secret)
     if isinstance(value,dict):return any(contains_private(k,secret) or contains_private(v,secret) for k,v in value.items())
     if isinstance(value,list):return any(contains_private(v,secret) for v in value)
     return False
