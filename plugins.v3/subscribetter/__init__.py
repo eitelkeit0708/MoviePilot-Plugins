@@ -181,9 +181,10 @@ class SubscriBetter(_PluginBase):
                 self.secret_store=SecretStore(self.get_data_path())
                 self.configuration=Configuration(self.repository,self.__class__.__name__,self.secret_store,
                     self.update_config,lambda config:host_references(config,self))
+                self.config=Config.model_validate(self.configuration.view()['config'])
+                self.migration=Migration(self.repository,self.configuration,self.secret_store,lambda:collect_host(self))
                 self.config=self.configuration.initialize(config or {})
                 self.errors.extend(self.configuration.errors)
-                self.migration=Migration(self.repository,self.configuration,self.secret_store,lambda:collect_host(self))
                 self.management=Management(self)
                 self.scheduler = Scheduler(self.repository)
                 self.authority = Authority(self.repository)

@@ -44,6 +44,63 @@ class ConfigurationTests(unittest.TestCase):
         self.config.initialize(preview['config'])
         return self.config.view()
 
+    def test_fix1_cutover_binds_desired_config_and_keeps_baseline_across_restart(self):
+        current=self.config.view()
+        desired=self.config.preview({'enabled':True,'dry_run':False,'discovery':{'enabled':True,
+            'rsshub_base_url':'https://rss.invalid','sources':[{'id':'weekly','kind':'rsshub','route_key':'movie_weekly_best'}]}},
+            current['revision'],current['digest'],'admin')
+        feature=dict(module='discovery',instance_id='SubscriBetter',config_digest=load('discovery')._digest(desired['config']['discovery']),route_scope='weekly')
+        own=dict(id='SubscriBetter',source='SubscriBetter',prefix='fixture.New',config=current['config'],active=True,loaded=True,version='1')
+        old=dict(id='Old',source='DoubanRankPlusOptimized',prefix='fixture.Old',config={'enabled':True,'ranks':['movie-weekly']},
+            active=True,loaded=True,version='1.0.7',api_paths=['/delete_history','/migrate-config','/migrate-history'],commands=[])
+        service=dict(instance_id='Old',id='legacy',callable=True,handler='fixture.Old.__start_task')
+        self.inventory.update(plugins=[own,old],services=[service],jobs=[dict(id='Old_legacy')])
+        p=self.migration.preview_cutover([feature],[dict(instance_id='Old',module='discovery',config_digest=self.c.digest(old['config']),
+            whole_instance=True,all_capabilities=['discovery'])],'admin',desired['receipt_id'])
+        baseline=p['steps'][0]['before_digest']
+        self.config.initialize(desired['config']);self.assertFalse(self.config.ready)
+        self.assertEqual(current['digest'],self.config.view()['digest'])
+        old['config']['enabled']=False
+        p=self.migration.advance(p['receipt_id'],p['revision'],p['digest'],'activate','config-only','admin')
+        self.assertEqual('WAIT_OWNER',p['state'])
+        self.inventory.update(services=[],jobs=[])
+        p=self.migration.advance(p['receipt_id'],p['revision'],p['digest'],'activate','old-stopped','admin')
+        self.assertEqual('READY_CONFIG',p['state']);self.assertFalse(self.config.view()['config']['enabled'])
+        self.config=self.c.Configuration(self.repo,'SubscriBetter',self.store,self.saved.append)
+        self.migration=self.m.Migration(self.repo,self.config,self.store,lambda:copy.deepcopy(self.inventory))
+        # Drift after old cessation must still prevent native Save from applying.
+        self.inventory['services']=[service]
+        self.config.initialize(desired['config']);self.assertFalse(self.config.ready)
+        self.inventory['services']=[]
+        self.config.initialize(desired['config']);self.assertTrue(self.config.ready)
+        own['config']=self.config.view()['config']
+        self.inventory.update(services=[dict(instance_id='SubscriBetter',id='SubscriBetter_discovery',callable=True)],
+            jobs=[dict(id='SubscriBetter_SubscriBetter_discovery')])
+        p=self.migration.advance(p['receipt_id'],p['revision'],p['digest'],'activate','new-readback','admin')
+        self.assertEqual('ACTIVE',p['state']);self.assertEqual(baseline,p['steps'][0]['before_digest'])
+        self.assertIsNotNone(self.migration.unique_owner(**feature))
+        p=self.migration.advance(p['receipt_id'],p['revision'],p['digest'],'rollback','stop-new','admin')
+        self.assertEqual('ROLLBACK_FENCED',p['state']);self.assertIsNone(self.migration.unique_owner(**feature))
+        self.apply({'discovery':{'enabled':False}});self.assertTrue(self.config.ready)
+        own['config']=self.config.view()['config']
+        p=self.migration.advance(p['receipt_id'],p['revision'],p['digest'],'rollback_readback','restore-old','admin')
+        self.assertEqual({'enabled':True},p['next_changes'][0]['changes'])
+
+    def test_fix1_cutover_unrelated_edit_cannot_reuse_reviewed_transition(self):
+        current=self.config.view()
+        desired=self.config.preview({'enabled':True,'dry_run':False},current['revision'],current['digest'],'admin')
+        feature=self.migration.feature('name_assistance','internal',desired['config'])
+        self.inventory['plugins']=[dict(id='SubscriBetter',source='SubscriBetter',prefix='fixture.New',config=current['config'],active=True,loaded=True,version='1')]
+        p=self.migration.preview_cutover([feature],[],'admin',desired['receipt_id'])
+        other=self.config.preview({'enabled':True,'dry_run':False,'ai_assist':{'timeout':42}},current['revision'],current['digest'],'admin')
+        self.config.initialize(other['config']);self.assertFalse(self.config.ready)
+        self.assertEqual(current['digest'],self.config.view()['digest'])
+        self.apply({'ai_assist':{'timeout':43}})
+        with self.assertRaisesRegex(ValueError,'CUTOVER_CONFIG_CHANGED'):
+            self.migration.advance(p['receipt_id'],p['revision'],p['digest'],'activate','stale','admin')
+        self.config.initialize(desired['config']);self.assertFalse(self.config.ready)
+        self.assertEqual(43,self.config.view()['config']['ai_assist']['timeout'])
+
     def test_native_save_requires_preflight_and_preserves_last_valid_nested_values(self):
         self.apply({'ai_assist': {'timeout': 41, 'positive_ttl': 0}, 'candidates': {'site_ids': [7]}})
         before = self.config.view()
@@ -127,7 +184,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIsNone(self.migration.unique_owner(**feature))
 
     def test_legacy_all_named_fields_raw_snapshot_private_and_reimport_after_edit(self):
-        ai = dict(enabled=True,recognize=True,openai_url='https://private.invalid/custom',openai_key='KEY_SENTINEL,second',
+        ai = dict(enabled=True,recognize=True,openai_url='https://private.invalid/custom',openai_key='KEY_SENTINEL,SECOND_KEY_SENTINEL',
             model='explicit',request_profile='generic',compatible=True,proxy=True,customize_prompt='  custom prompt\n',
             previous_customize_prompt=' backup\n',restore_prompt=True,clear_cache=True,timeout=44,max_attempts=3,
             max_concurrency=4,positive_ttl=0,negative_ttl=7,cache_size=27,notify=True,chat_enabled=True,
@@ -158,7 +215,7 @@ class ConfigurationTests(unittest.TestCase):
             'timeout':44,'max_attempts':3,'max_concurrency':4,'positive_ttl':0,'negative_ttl':7,'cache_size':27,
             'notifications':True,'chat_enabled':False,'name_recognize_bridge':False}.items():
             with self.subTest(legacy_ai=key):self.assertEqual(expected,config['ai_assist'][key])
-        self.assertEqual(['KEY_SENTINEL','second'],[self.store.resolve(r) for r in config['ai_assist']['credential_refs']])
+        self.assertEqual(['KEY_SENTINEL','SECOND_KEY_SENTINEL'],[self.store.resolve(r) for r in config['ai_assist']['credential_refs']])
         self.assertEqual(ai['openai_url'],self.store.resolve(config['ai_assist']['endpoint_ref']))
         for key,expected in {'cron':'0 8 * * *','minimum_rating':8.1,'minimum_release_year':2020,
             'season_scope':'all_known','media_type_allowlist':[],'rating_source':'recognized_provider'}.items():
@@ -226,8 +283,9 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual('user after crash',self.config.view()['config']['ai_assist']['model'])
 
     def test_cutover_selected_legacy_readbacks_unknown_clone_and_restart(self):
-        self.apply({'enabled':True,'dry_run':False,'ai_assist':{'enabled':True,'endpoint_ref':self.store.put('https://api.invalid'),
-            'credential_refs':[self.store.put('fiction')],'model':'fixture','name_recognize_bridge':True}})
+        current=self.config.view()
+        desired=self.config.preview({'enabled':True,'dry_run':False,'ai_assist':{'enabled':True,'endpoint_ref':self.store.put('https://api.invalid'),
+            'credential_refs':[self.store.put('fiction')],'model':'fixture','name_recognize_bridge':True}},current['revision'],current['digest'],'admin')
         config=self.config.view()['config']
         own=dict(id='SubscriBetter',source='SubscriBetter',prefix='fixture.New',config=config,active=True,loaded=True,version='1')
         old=dict(id='Old',source='ChatGPTPlusUltra',prefix='fixture.Old',active=True,loaded=True,version='1.4.2',
@@ -235,8 +293,8 @@ class ConfigurationTests(unittest.TestCase):
         self.inventory.update(plugins=[own,old],event_types={'name_bridge':'name'},handlers=[
             dict(event_type='name',handler_identifier='fixture.New.ai_name',status='enabled'),
             dict(event_type='name',handler_identifier='fixture.Old.recognize',status='enabled')])
-        feature=self.migration.feature('name_bridge',{'event':'NameRecognize'})
-        p=self.migration.preview_cutover([feature],[dict(instance_id='Old',module='name_bridge',config_digest=self.c.digest(old['config']))],'admin')
+        feature=self.migration.feature('name_bridge',{'event':'NameRecognize'},desired['config'])
+        p=self.migration.preview_cutover([feature],[dict(instance_id='Old',module='name_bridge',config_digest=self.c.digest(old['config']))],'admin',desired['receipt_id'])
         self.assertNotIn('PRIVATE',json.dumps(p));self.assertEqual({'recognize':False},p['steps'][0]['changes'])
         waiting=self.migration.advance(p['receipt_id'],1,p['digest'],'activate','wait','admin')
         self.assertEqual('WAIT_HOST_SAVE',waiting['state']);self.assertIsNone(self.migration.unique_owner(**feature))
@@ -248,6 +306,10 @@ class ConfigurationTests(unittest.TestCase):
         self.assertIsNone(restarted.unique_owner(**feature))
         self.inventory['handlers'][1]['status']='disabled'
         active=restarted.advance(p['receipt_id'],pending['revision'],p['digest'],'activate','readback','admin')
+        self.assertEqual('READY_CONFIG',active['state'])
+        self.config.initialize(desired['config']);self.assertTrue(self.config.ready)
+        own['config']=self.config.view()['config']
+        active=restarted.advance(p['receipt_id'],active['revision'],p['digest'],'activate','new-config','admin')
         self.assertEqual('ACTIVE',active['state']);self.assertTrue(old['config']['chat_enabled'])
         self.inventory['handlers'].append(dict(event_type='name',handler_identifier='unknown.Clone.respond',status='enabled'))
         self.assertIsNone(restarted.unique_owner(**feature))
@@ -295,9 +357,10 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertEqual(0,db.execute('SELECT count(*) FROM '+name).fetchone()[0])
 
     def test_legacy_whole_instance_requires_known_capabilities_and_stopped_jobs(self):
-        self.apply({'enabled':True,'dry_run':False,'discovery':{'enabled':True,'rsshub_base_url':'https://rss.invalid',
-            'sources':[{'id':'weekly','kind':'rsshub','route_key':'movie_weekly_best'}]}})
-        feature=self.migration.feature('discovery','weekly')
+        current=self.config.view()
+        desired=self.config.preview({'enabled':True,'dry_run':False,'discovery':{'enabled':True,'rsshub_base_url':'https://rss.invalid',
+            'sources':[{'id':'weekly','kind':'rsshub','route_key':'movie_weekly_best'}]}},current['revision'],current['digest'],'admin')
+        feature=self.migration.feature('discovery','weekly',desired['config'])
         own=dict(id='SubscriBetter',source='SubscriBetter',prefix='fixture.New',config=self.config.view()['config'],active=True,loaded=True,version='1')
         old=dict(id='Old',source='DoubanRankPlusOptimized',prefix='fixture.Old',config={'enabled':True,'ranks':['movie-weekly'],'cron':''},
             active=True,loaded=True,version='1.0.7',api_paths=['/delete_history','/migrate-config','/migrate-history'],commands=[])
@@ -306,18 +369,22 @@ class ConfigurationTests(unittest.TestCase):
         self.inventory.update(plugins=[own,old],services=[own_service,old_service],
             jobs=[dict(id='SubscriBetter_SubscriBetter_discovery',status='normal'),dict(id='Old_legacy',status='normal')])
         choice=dict(instance_id='Old',module='discovery',config_digest=self.c.digest(old['config']))
-        with self.assertRaises(ValueError):self.migration.preview_cutover([feature],[choice],'admin')
+        with self.assertRaises(ValueError):self.migration.preview_cutover([feature],[choice],'admin',desired['receipt_id'])
         choice.update(whole_instance=True,all_capabilities=['discovery'])
         old['commands']=['unselected']
-        with self.assertRaises(ValueError):self.migration.preview_cutover([feature],[choice],'admin')
+        with self.assertRaises(ValueError):self.migration.preview_cutover([feature],[choice],'admin',desired['receipt_id'])
         old['commands']=[]
-        p=self.migration.preview_cutover([feature],[choice],'admin')
+        p=self.migration.preview_cutover([feature],[choice],'admin',desired['receipt_id'])
         self.assertEqual({'enabled':False},p['steps'][0]['changes'])
         old['config']['enabled']=False
         waiting=self.migration.advance(p['receipt_id'],p['revision'],p['digest'],'activate','partial','admin')
         self.assertEqual('WAIT_OWNER',waiting['state']);self.assertIsNone(self.migration.unique_owner(**feature))
         self.inventory['services']=[own_service];self.inventory['jobs'].pop()
         active=self.migration.advance(p['receipt_id'],waiting['revision'],p['digest'],'activate','fresh','admin')
+        self.assertEqual('READY_CONFIG',active['state'])
+        self.config.initialize(desired['config']);self.assertTrue(self.config.ready)
+        own['config']=self.config.view()['config']
+        active=self.migration.advance(p['receipt_id'],active['revision'],p['digest'],'activate','new-config','admin')
         self.assertEqual('ACTIVE',active['state'])
         self.inventory['plugins'].append(dict(own,id='Clone'))
         self.assertIsNone(self.migration.unique_owner(**feature))
@@ -375,31 +442,91 @@ class ConfigurationTests(unittest.TestCase):
         self.assertFalse(configured['config']['enabled']);self.assertTrue(configured['config']['dry_run'])
         self.assertEqual(overrides,configured['config']['policy']['overrides'])
 
+    def test_fix1_private_values_never_enter_identity_receipt_config_or_sqlite(self):
+        raw=json.dumps({'ai':{'openai_key':'KEY_SENTINEL'},
+            'history':[{'title':'Film','tmdbid':'KEY_SENTINEL','doubanid':'url?token=KEY_SENTINEL'}]}).encode()
+        p=self.migration.preview_import(raw,'fixture','1',None,'admin')
+        self.assertEqual(raw,self.store.read_snapshot(p['snapshot_ref']))
+        self.migration.import_page(p['receipt_id'],p['revision'],p['digest'],0,100,'private-page','admin')
+        history=self.migration.history(p['receipt_id'],100,0)
+        self.assertEqual({},history[0]['identities'])
+        with self.repo.connection() as db:
+            ordinary=''.join(str(tuple(r)) for table in ('settings','migration_receipts','migration_history') for r in db.execute('SELECT * FROM '+table))
+        for value in (p,self.migration.receipt(p['receipt_id']),history,self.config.view(),ordinary):
+            self.assertNotIn('KEY_SENTINEL',json.dumps(value))
+        raw=json.dumps({'ai':{'customize_prompt':'Use TOKEN_SENTINEL for reference'},
+            'discovery':{'migrate_api_token':'TOKEN_SENTINEL'}}).encode()
+        with self.assertRaisesRegex(ValueError,'PRIVATE_VALUE_IN_MIGRATION'):
+            self.migration.preview_import(raw,'fixture-two','1',None,'admin')
+        self.assertIn(raw,self.store.blobs.values())
+        with self.repo.connection() as db:
+            ordinary=''.join(str(tuple(r)) for table in ('settings','migration_receipts','migration_history') for r in db.execute('SELECT * FROM '+table))
+        self.assertNotIn('TOKEN_SENTINEL',ordinary)
+
     def test_narrow_reader_only_gets_two_fixed_paths_and_sanitizes_safety_failure(self):
         import asyncio
         from unittest.mock import patch,AsyncMock
-        class Response:
-            status=200;headers={}
-            def __init__(self):self.sent=False
-            def __enter__(self):return self
-            def __exit__(self,*args):pass
-            def read(self,limit):
-                if self.sent:return b''
-                self.sent=True;return b'{}'
-        class Opener:
+        import httpx
+        class Body(httpx.AsyncByteStream):
+            async def __aiter__(self):yield b'{}'
+        class Transport(httpx.AsyncBaseTransport):
             def __init__(self):self.requests=[]
-            def open(self,request,timeout):self.requests.append((request,timeout));return Response()
-        opener=Opener();fetcher=load('discovery').HostRSSFetcher
-        with patch.object(fetcher,'_safe',new=AsyncMock()) as safety,patch('urllib.request.build_opener',return_value=opener):
+            async def handle_async_request(self,request):
+                self.requests.append(request);return httpx.Response(200,request=request,stream=Body())
+        transport=Transport();fetcher=load('discovery').HostRSSFetcher
+        with patch.object(fetcher,'_safe',new=AsyncMock()) as safety,patch('httpx.AsyncHTTPTransport',return_value=transport), \
+                patch('urllib.request.build_opener',side_effect=AssertionError('synchronous legacy HTTP forbidden')):
             result=asyncio.run(self.m.read_legacy_source('https://old.invalid','FICT TOKEN','DoubanRankPlusOptimized',[]))
-        self.assertEqual([b'{}',b'{}'],result);self.assertEqual(2,len(opener.requests))
-        for (request,timeout),route in zip(opener.requests,('migrate-config','migrate-history')):
-            self.assertEqual('GET',request.get_method())
-            self.assertEqual('https://old.invalid/api/v1/plugin/DoubanRankPlusOptimized/'+route+'?migrate_api_token=FICT+TOKEN',request.full_url)
-            self.assertLessEqual(timeout,15)
+        self.assertEqual([b'{}',b'{}'],result);self.assertEqual(2,len(transport.requests))
+        for request,route in zip(transport.requests,('migrate-config','migrate-history')):
+            self.assertEqual('GET',request.method)
+            self.assertEqual('https://old.invalid/api/v1/plugin/DoubanRankPlusOptimized/'+route+'?migrate_api_token=FICT+TOKEN',str(request.url))
+            self.assertLessEqual(request.extensions['timeout']['read'],15)
         with patch.object(fetcher,'_safe',new=AsyncMock(side_effect=RuntimeError('PRIVATE URL TOKEN'))):
             with self.assertRaisesRegex(ValueError,'^LEGACY_READ_FAILED$'):
                 asyncio.run(self.m.read_legacy_source('https://old.invalid','FICT TOKEN','DoubanRankPlusOptimized',[]))
+
+    def test_fix1_legacy_deadline_includes_safety_before_dispatch(self):
+        import asyncio
+        from unittest.mock import patch
+        async def safety(*args):await asyncio.sleep(.1)
+        with patch.object(load('discovery').HostRSSFetcher,'_safe',new=safety), \
+                patch.object(self.m,'LEGACY_READ_SECONDS',.02), \
+                patch('httpx.AsyncHTTPTransport',side_effect=AssertionError('no HTTP after deadline')) as transport, \
+                patch('urllib.request.build_opener',side_effect=AssertionError('synchronous legacy HTTP forbidden')):
+            with self.assertRaisesRegex(ValueError,'^LEGACY_READ_FAILED$'):
+                asyncio.run(self.m.read_legacy_source('https://old.invalid','FICTION','DoubanRankPlusOptimized',[]))
+            transport.assert_not_called()
+
+    def test_fix1_legacy_async_timeout_and_cancel_close_stream_without_late_get(self):
+        import asyncio
+        import httpx
+        from unittest.mock import patch,AsyncMock
+        async def scenario(cancel):
+            entered=asyncio.Event();release=asyncio.Event();requests=[];closed=[]
+            class Body(httpx.AsyncByteStream):
+                async def __aiter__(self):
+                    entered.set();await release.wait();yield b'{}'
+                async def aclose(self):closed.append('response')
+            class Transport(httpx.AsyncBaseTransport):
+                async def handle_async_request(self,request):
+                    requests.append(request);return httpx.Response(200,request=request,stream=Body())
+                async def aclose(self):closed.append('transport')
+            with patch.object(load('discovery').HostRSSFetcher,'_safe',new=AsyncMock()), \
+                    patch('httpx.AsyncHTTPTransport',return_value=Transport()),patch.object(self.m,'LEGACY_READ_SECONDS',.05,create=True), \
+                    patch('urllib.request.build_opener',side_effect=AssertionError('synchronous legacy HTTP forbidden')):
+                task=asyncio.create_task(self.m.read_legacy_source('https://old.invalid','FICTION','DoubanRankPlusOptimized',[]))
+                await asyncio.wait_for(entered.wait(),.5)
+                if cancel:task.cancel()
+                try:await task
+                except asyncio.CancelledError:self.assertTrue(cancel)
+                except ValueError as error:self.assertFalse(cancel);self.assertEqual('LEGACY_READ_FAILED',str(error))
+                else:self.fail('slow stream must not complete')
+                self.assertEqual(1,len(requests));self.assertEqual(['response','transport'],closed)
+                release.set();await asyncio.sleep(.06)
+                self.assertEqual(1,len(requests));self.assertEqual(['response','transport'],closed)
+        for cancel in (False,True):
+            with self.subTest(cancel=cancel):asyncio.run(scenario(cancel))
 
 
 class ConfigurationAPITests(unittest.TestCase):
@@ -420,6 +547,37 @@ class ConfigurationAPITests(unittest.TestCase):
             route=dict(route);route.pop('auth',None)
             app.router.add_api_route(**route)
         self.client=TestClient(app);self.addCleanup(self.client.close);self.headers={'Authorization':'Bearer unit-admin'}
+
+    def test_fix1_typed_desired_cutover_native_init_guard_and_no_overlap(self):
+        import sys
+        from unittest.mock import patch
+        current=self.plugin.configuration.view()
+        preview=self.client.post('/configuration/preview',headers=self.headers,json=dict(revision=current['revision'],digest=current['digest'],
+            patch={'enabled':True,'dry_run':False,'discovery':{'enabled':True,'rsshub_base_url':'https://rss.invalid',
+            'sources':[{'id':'weekly','kind':'rsshub','route_key':'movie_weekly_best'}]}})).json()
+        feature=dict(module='discovery',instance_id='SubscriBetter',config_digest=preview['feature_digests']['discovery'],route_scope='weekly')
+        own=dict(id='SubscriBetter',source='SubscriBetter',prefix='fixture.New',config=current['config'],active=True,loaded=True,version='1')
+        inventory=dict(generation=1,plugins=[own],handlers=[],services=[],jobs=[])
+        self.plugin.migration.inventory=lambda:copy.deepcopy(inventory)
+        response=self.client.post('/migration/cutover/preview',headers=self.headers,json=dict(configuration_receipt=preview['receipt_id'],features=[feature],selected=[]))
+        self.assertEqual(200,response.status_code,response.text);receipt=response.json()
+        self.assertEqual([],receipt['owner_checks'][0]['overlaps'])
+        self.assertEqual(preview['receipt_id'],receipt['configuration_receipt'])
+        with patch.object(self.mod,'collect_host',side_effect=lambda _:copy.deepcopy(inventory)):
+            self.plugin.init_plugin(preview['config'])
+            self.assertFalse(self.plugin._ordinary_work_active());self.assertFalse(self.plugin.config.enabled)
+            body={k:receipt[k] for k in ('receipt_id','revision','digest')}
+            body.update(operation_id='old-absent',confirm=True,action='activate')
+            response=self.client.post('/migration/cutover',headers=self.headers,json=body)
+            self.assertEqual(200,response.status_code,response.text);receipt=response.json()
+            self.assertEqual('READY_CONFIG',receipt['state'])
+            self.plugin.init_plugin(preview['config']);self.assertTrue(self.plugin.configuration.ready)
+            own['config']=self.plugin.configuration.view()['config']
+            inventory.update(services=[dict(instance_id='SubscriBetter',id='SubscriBetter_discovery',callable=True)],
+                jobs=[dict(id='SubscriBetter_SubscriBetter_discovery')])
+            body.update(revision=receipt['revision'],operation_id='new-config-readback')
+            response=self.client.post('/migration/cutover',headers=self.headers,json=body)
+            self.assertEqual(200,response.status_code,response.text);self.assertEqual('ACTIVE',response.json()['state'])
 
     def test_typed_authenticated_safe_api_and_get_readonly(self):
         self.assertEqual(401,self.client.get('/configuration').status_code)
@@ -455,6 +613,39 @@ class ConfigurationAPITests(unittest.TestCase):
         self.assertEqual({'themoviedb':'0007'},history.json()['rows'][0]['identities'])
         oversized=self.client.post('/migration/preview',headers=self.headers,content=b'X'*3000001)
         self.assertEqual(413,oversized.status_code)
+
+    def test_fix1_management_import_failure_fences_before_config_and_until_native_init(self):
+        import sys
+        from unittest.mock import patch
+        state=self.plugin.configuration.view()
+        preview=self.plugin.configuration.preview({'enabled':True,'dry_run':False},state['revision'],state['digest'],'admin')
+        self.plugin.init_plugin(preview['config'])
+        self.plugin.configuration.secrets=self.store;self.plugin.migration.secrets=self.store
+        self.assertTrue(self.plugin._ordinary_work_active())
+        receipt=self.plugin.migration.preview_import(json.dumps({'ai':{'model':'legacy'},'history':[{'title':'Old'}]}).encode(),
+            'fixture','1',None,'admin')
+        invalid={k:receipt[k] for k in ('receipt_id','revision','digest')}
+        invalid.update(operation_id='invalid',confirm=True,cursor=0,limit=100,revision=999)
+        self.assertEqual(409,self.client.post('/migration/import',headers=self.headers,json=invalid).status_code)
+        self.assertTrue(self.plugin._ordinary_work_active());self.assertNotIn('IMPORTED_CONFIG_RELOAD_REQUIRED',self.plugin.errors)
+        observed=[]
+        def failure(*args):
+            observed.append((self.plugin.configuration.ready,self.plugin._ordinary_work_active()))
+            raise ValueError('bounded projection failure')
+        body={k:receipt[k] for k in ('receipt_id','revision','digest')}
+        body.update(operation_id='fail-after-config',confirm=True,cursor=0,limit=100)
+        with patch.object(sys.modules[type(self.plugin.migration).__module__],'history_row',side_effect=failure):
+            response=self.client.post('/migration/import',headers=self.headers,json=body)
+        self.assertEqual(409,response.status_code)
+        self.assertEqual([(False,False)],observed)
+        self.assertFalse(self.plugin._ordinary_work_active());self.assertFalse(self.plugin.configuration.ready)
+        self.assertFalse(self.plugin.configuration.view()['config']['enabled'])
+        self.assertTrue(self.plugin.config.enabled,'old object remains, but cannot dispatch')
+        self.assertIsNotNone(self.plugin.ownership);self.assertIsNotNone(self.plugin.guard)
+        self.assertEqual(200,self.client.post('/migration/import',headers=self.headers,json=body).status_code)
+        self.assertFalse(self.plugin.configuration.ready)
+        self.plugin.init_plugin(self.plugin.configuration.view()['config'])
+        self.assertTrue(self.plugin.configuration.ready);self.assertFalse(self.plugin._ordinary_work_active())
 
 
 if __name__ == '__main__': unittest.main()

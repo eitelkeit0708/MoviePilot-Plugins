@@ -34,41 +34,43 @@ def capabilities(plugin):
     return digest({k:plugin.get(k) for k in ('source','version','prefix','api_paths','commands')})
 
 
-async def read_legacy_source(base,token,instance,ranges):
-    """Only two known read-only V2 routes; no redirect, proxy or URL logging.
+LEGACY_READ_SECONDS=15
 
-    The SDK checks the authorized origin. urllib has no HTTP request logger;
-    its bounded worker may finish DNS after the coroutine deadline, like other
-    system resolvers. It never writes plugin/native/model state.
+
+async def read_legacy_source(base,token,instance,ranges):
+    """Own both fixed GET streams under one safety/dispatch/body deadline.
+
+    Direct public transport avoids AsyncClient's query-bearing request log.
+    Cancellation closes response and transport before this coroutine returns.
     """
     import asyncio
-    import time
-    from urllib.request import build_opener,ProxyHandler,HTTPRedirectHandler,Request
+    from contextlib import aclosing
+    import httpx
     from .discovery import HostRSSFetcher
-    class NoRedirect(HTTPRedirectHandler):
-        def redirect_request(self,*args,**kwargs):return None
     checker=HostRSSFetcher(base,allowed_private_ranges=ranges)
-    def read():
-        deadline=time.monotonic()+15;result=[]
-        opener=build_opener(ProxyHandler({}),NoRedirect())
-        for route in ('migrate-config','migrate-history'):
-            url=base+'/api/v1/plugin/'+instance+'/'+route+'?'+urlencode({'migrate_api_token':token})
-            request=Request(url,headers={'Accept-Encoding':'identity'},method='GET')
-            with opener.open(request,timeout=max(.1,deadline-time.monotonic())) as response:
-                if response.status!=200 or response.headers.get('Content-Encoding','identity').lower()!='identity':raise ValueError('LEGACY_READ_HTTP')
-                body=bytearray()
-                while True:
-                    if time.monotonic()>deadline:raise ValueError('LEGACY_READ_TIMEOUT')
-                    block=response.read(min(65536,2097153-len(body)))
-                    if not block:break
-                    body.extend(block)
-                    if len(body)>2097152:raise ValueError('LEGACY_READ_LIMIT')
-                result.append(bytes(body))
-        return result
+    deadline=asyncio.get_running_loop().time()+LEGACY_READ_SECONDS
     try:
-        async with asyncio.timeout(15):
+        async with asyncio.timeout_at(deadline):
             await checker._safe(base,base)
-            return await asyncio.to_thread(read)
+            result=[]
+            async with httpx.AsyncHTTPTransport(verify=True,trust_env=False,proxy=None,retries=0) as transport:
+                for route in ('migrate-config','migrate-history'):
+                    remaining=deadline-asyncio.get_running_loop().time()
+                    if remaining<=0:raise ValueError('LEGACY_READ_TIMEOUT')
+                    url=base+'/api/v1/plugin/'+instance+'/'+route+'?'+urlencode({'migrate_api_token':token})
+                    request=httpx.Request('GET',url,headers={'Accept-Encoding':'identity'},
+                        extensions={'timeout':{k:remaining for k in ('connect','read','write','pool')}})
+                    response=await transport.handle_async_request(request)
+                    async with aclosing(response):
+                        if response.status_code!=200 or response.headers.get('Content-Encoding','identity').lower()!='identity':
+                            raise ValueError('LEGACY_READ_HTTP')
+                        body=bytearray()
+                        async for block in response.aiter_raw():
+                            body.extend(block)
+                            if len(body)>2097152:raise ValueError('LEGACY_READ_LIMIT')
+                            if asyncio.get_running_loop().time()>=deadline:raise ValueError('LEGACY_READ_TIMEOUT')
+                        result.append(bytes(body))
+                return result
     except Exception:raise ValueError('LEGACY_READ_FAILED') from None
 
 
@@ -88,7 +90,8 @@ def history_row(row,ordinal,reference,timezone,secrets):
     identities={};diagnostics=[]
     for field,source in (('tmdbid','themoviedb'),('doubanid','douban')):
         raw=row.get(field);value=str(raw).strip() if raw is not None else ''
-        if value.casefold() not in {'','0','none','null'}:identities[source]=value
+        if (value.isascii() and value.isdecimal() and len(value)<=32 and int(value)>0
+                and not any(contains_private(value,s) for s in secrets if s)):identities[source]=value
         else:diagnostics.append(field+':INVALID_OR_MISSING_ID')
     if not timezone:diagnostics.append('TIMEZONE_UNKNOWN')
     if row.get('year') in (0,'0','',None):diagnostics.append('YEAR_UNKNOWN')
@@ -245,6 +248,7 @@ def collect_host(plugin):
 class Migration:
     def __init__(self,repository,configuration,secrets,inventory):
         self.repository,self.configuration,self.secrets,self.inventory=repository,configuration,secrets,inventory
+        configuration.before_apply=self.guard_configuration
 
     def _load(self,identity,kind=None):
         with self.repository.connection() as db:row=db.execute('SELECT * FROM migration_receipts WHERE id=?',(identity,)).fetchone()
@@ -263,7 +267,7 @@ class Migration:
         return dict(receipt_id=row['id'],kind=row['kind'],revision=row['revision'],digest=row['digest'],state=row['state'],
             **{k:data[k] for k in ('snapshot_ref','source_instance','source_version','fields','diagnostics','private_refs',
                 'requested_features','memory_cache_restored','history_count','cursor','features','steps','next_changes',
-                'read_scope','result_receipt_id','proposed_config','policy_candidates') if k in data})
+                'read_scope','result_receipt_id','proposed_config','policy_candidates','configuration_receipt','base_digest','config_digest','owner_checks') if k in data})
 
     def _new(self,identity,kind,checksum,state,data):
         with self.repository.connection(write=True) as db:
@@ -281,6 +285,10 @@ class Migration:
         proposal=merge(self.configuration.view()['config'],preview['config'])
         proposal=merge(proposal,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'chat_enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
         preview['proposed_config']=self.configuration.validate(proposal)
+        # Check the entire ordinary projection, including internal config patch
+        # and external provenance metadata, against every known imported secret.
+        # Do not redact an operational prompt into different executable content.
+        if any(contains_private(preview,s) for s in secrets if s):raise ValueError('PRIVATE_VALUE_IN_MIGRATION')
         return self._new(identity,'IMPORT',checksum,'PREVIEW',preview)
 
     def preview_source(self,endpoint_ref,credential_ref,instance,ranges,actor):
@@ -320,7 +328,7 @@ class Migration:
         data['result_receipt_id']=preview['receipt_id'];data['operations'][operation]=checksum;row['state']='READ_DONE'
         return self._save(row)
 
-    def import_page(self,identity,revision,checksum,cursor,limit,operation,actor):
+    def import_page(self,identity,revision,checksum,cursor,limit,operation,actor,begin=None):
         row=self._load(identity,'IMPORT');data=row['data'];signature=digest([cursor,limit,checksum])
         if operation in data['operations']:
             if data['operations'][operation]!=signature:raise ValueError('OPERATION_CONFLICT')
@@ -329,6 +337,11 @@ class Migration:
         if row['revision']!=revision or row['digest']!=checksum or cursor!=data['cursor']:raise ValueError('STALE_IMPORT')
         if type(limit)is not int or not 1<=limit<=100:raise ValueError('IMPORT_PAGE_LIMIT')
         raw=self.secrets.read_snapshot(data['snapshot_ref']);original,_,secrets=normalize(raw,self.secrets,data['timezone'])
+        marker='legacy-config-import:'+digest([data['config'],data['base_digest']])
+        if (not data['config_applied'] and not self.repository.setting(marker)
+                and self.configuration.view()['digest']!=data['base_digest']):raise ValueError('IMPORT_CONFIG_CHANGED')
+        if begin:begin()
+        self.configuration.ready=False
         if not data['config_applied']:
             self.configuration.import_disabled(data['config'],data['base_digest'],actor)
             data['config_applied']=True;data['imported_config_digest']=self.configuration.view()['digest']
@@ -351,9 +364,9 @@ class Migration:
         self._load(identity,'IMPORT')
         with self.repository.connection() as db:return [json.loads(r[0]) for r in db.execute('SELECT data FROM migration_history WHERE receipt_id=? ORDER BY ordinal LIMIT ? OFFSET ?',(identity,limit,offset))]
 
-    def feature(self,module,route_scope):
+    def feature(self,module,route_scope,config=None):
         if module not in MODULES:raise ValueError('UNKNOWN_FEATURE')
-        config=self.configuration.view()['config'];key='discovery' if module=='discovery' else 'ai_assist'
+        config=config if config is not None else self.configuration.view()['config'];key='discovery' if module=='discovery' else 'ai_assist'
         if module=='discovery':
             if not isinstance(route_scope,str) or route_scope not in {s['id'] for s in config[key]['sources']}:raise ValueError('SOURCE_SCOPE_UNKNOWN')
         elif module=='name_bridge':
@@ -369,8 +382,8 @@ class Migration:
         ai=config.get('ai_assist',{})
         return ai.get('enabled') is True and ai.get({'name_bridge':'name_recognize_bridge','name_assistance':'name_assistance_enabled','chat':'chat_enabled'}[feature['module']]) is True
 
-    def owner_snapshot(self,module,instance_id,config_digest,route_scope):
-        expected=self.feature(module,route_scope)
+    def owner_snapshot(self,module,instance_id,config_digest,route_scope,*,desired=None,require_new=True):
+        expected=self.feature(module,route_scope,desired)
         if expected!=dict(module=module,instance_id=instance_id,config_digest=config_digest,route_scope=route_scope):raise ValueError('FEATURE_CONFIG_CHANGED')
         inventory=self.inventory();plugins=inventory['plugins'];own=next((p for p in plugins if p['id']==instance_id),None)
         if not own:raise ValueError('OWN_INSTANCE_MISSING')
@@ -419,14 +432,24 @@ class Migration:
             if any(s['instance_id']!=instance_id and sources.get(s['instance_id']) not in
                    {'SubscriBetter','DoubanRankPlusOptimized','CloudDriveDisk','P115Disk','ChatGPTPlusUltra'} for s in inventory['services']):
                 unknown.append('unclassified_scheduled_plugin')
+        if not require_new:
+            unknown=[x for x in unknown if x not in {'own_config_changed','own_feature_inactive','own_handler_missing','own_schedule_missing'}]
         projected=[{k:v for k,v in p.items() if k!='config'}|{'config_digest':digest(p['config'])} for p in plugins]
         return dict(fingerprint=digest([expected,inventory['generation'],projected,inventory['handlers'],inventory['services'],inventory['jobs']]),
                     overlaps=sorted(set(overlaps)),unclassified=sorted(set(unknown)))
 
-    def preview_cutover(self,features,selected,actor):
+    def preview_cutover(self,features,selected,actor,configuration_receipt=None):
         if not features or len(features)>100 or len(selected)>30:raise ValueError('CUTOVER_SCOPE_LIMIT')
+        if selected and not configuration_receipt:raise ValueError('CUTOVER_CONFIG_PREVIEW_REQUIRED')
+        current=self.configuration.view();desired=current['config'];binding=None
+        if configuration_receipt:
+            binding=self._load(configuration_receipt,'CONFIG')
+            if (binding['state']!='PREVIEW' or binding['data']['base_digest']!=current['digest']
+                    or binding['data']['base_revision']!=current['revision']):raise ValueError('STALE_CONFIGURATION')
+            desired=binding['data']['config']
+            if current['config']['enabled'] and not current['config']['dry_run']:raise ValueError('CUTOVER_NEW_MUST_BE_DISABLED')
         for feature in features:
-            if feature!=self.feature(feature['module'],feature['route_scope']):raise ValueError('FEATURE_CONFIG_CHANGED')
+            if feature!=self.feature(feature['module'],feature['route_scope'],desired):raise ValueError('FEATURE_CONFIG_CHANGED')
         inventory=self.inventory();plugins={p['id']:p for p in inventory['plugins']};steps=[]
         for choice in selected:
             pid=choice['instance_id'];p=plugins.get(pid)
@@ -467,9 +490,34 @@ class Migration:
                         ranks=safe(p['config'].get('ranks',[])) if module=='discovery' else [],
                         rss_line_digests=[digest(line) for line in str(p['config'].get('rss_addrs','')).splitlines() if line.strip()] if module=='discovery' else []),
                     state='WAIT_HOST_SAVE',receipt_id=None,whole_instance=choice.get('whole_instance',False)))
-        checksum=digest([features,steps,self.configuration.view()['digest']]);identity='cutover-'+uuid4().hex
+        checks=[self.owner_snapshot(**f,desired=desired,require_new=False) for f in features]
+        checksum=digest([features,steps,current['digest'],configuration_receipt]);identity='cutover-'+uuid4().hex
         return self._new(identity,'CUTOVER',checksum,'PREVIEW',dict(features=features,steps=steps,operations={},
-            config_digest=self.configuration.view()['digest'],actor=actor,next_changes=[dict(instance_id=s['instance_id'],changes=s['changes'],expected_digest=s['before_digest']) for s in steps]))
+            config_digest=binding['digest'] if binding else current['digest'],base_digest=current['digest'],
+            configuration_receipt=configuration_receipt,proposed_config=desired,owner_checks=checks,actor=actor,next_changes=[dict(instance_id=s['instance_id'],changes=s['changes'],expected_digest=s['before_digest']) for s in steps]))
+
+    def guard_configuration(self,value):
+        if not value['enabled'] or value['dry_run']:return
+        current=self.configuration.view()
+        with self.repository.connection() as db:
+            rows=list(db.execute("SELECT state,data FROM migration_receipts WHERE kind='CUTOVER' AND state NOT IN ('ACTIVE','ROLLED_BACK')"))
+        for row in rows:
+            data=json.loads(row['data'])
+            if row['state'] in ('ROLLBACK_FENCED','ROLLBACK_RESTORE') and not any(self._enabled(f,value) for f in data['features']):continue
+            binding=data.get('configuration_receipt')
+            if not binding:continue
+            # A different receipt cannot bypass an unfinished reviewed cutover.
+            if value['configuration_receipt']!=binding:raise ValueError('CUTOVER_CONFIGURATION_CONFLICT')
+            if row['state']!='READY_CONFIG' or current['digest'] not in (data['base_digest'],data['config_digest']):
+                raise ValueError('CUTOVER_OLD_STOP_REQUIRED')
+            if value!=data['proposed_config']:raise ValueError('CUTOVER_CONFIGURATION_CONFLICT')
+            inventory=self.inventory();plugins={p['id']:p for p in inventory['plugins']}
+            if any(s['instance_id'] not in plugins or digest(plugins[s['instance_id']]['config'])!=s['after_digest']
+                    or capabilities(plugins[s['instance_id']])!=s['capability_digest'] for s in data['steps']):
+                raise ValueError('CUTOVER_OLD_STOP_REQUIRED')
+            for feature in data['features']:
+                fresh=self.owner_snapshot(**feature,desired=value,require_new=False)
+                if fresh['overlaps'] or fresh['unclassified']:raise ValueError('CUTOVER_OLD_STOP_REQUIRED')
 
     def advance(self,identity,revision,checksum,action,operation,actor):
         row=self._load(identity,'CUTOVER');data=row['data'];signature=digest([action,checksum])
@@ -514,8 +562,10 @@ class Migration:
             data['diagnostics']=['OLD_REGISTRATION_NOT_CONFIRMED'] if registration_pending else []
             if legacy_runtime_unknown:data['diagnostics'].append('LEGACY_RUNTIME_FLAGS_UNVERIFIED')
         elif action=='activate':
-            if row['state'] not in ('PREVIEW','WAIT_HOST_SAVE','WAIT_OWNER','ACTIVE'):raise ValueError('CUTOVER_NOT_ACTIVATABLE')
-            if self.configuration.view()['digest']!=data['config_digest']:raise ValueError('CUTOVER_CONFIG_CHANGED')
+            if row['state'] not in ('PREVIEW','WAIT_HOST_SAVE','WAIT_OWNER','READY_CONFIG','ACTIVE'):raise ValueError('CUTOVER_NOT_ACTIVATABLE')
+            current_digest=self.configuration.view()['digest']
+            if current_digest not in (data['config_digest'],data.get('base_digest')):raise ValueError('CUTOVER_CONFIG_CHANGED')
+            awaiting_config=bool(data.get('configuration_receipt') and current_digest!=data['config_digest'])
             inventory=self.inventory();plugins={p['id']:p for p in inventory['plugins']}
             pending=[]
             for step in data['steps']:
@@ -532,12 +582,12 @@ class Migration:
             if not pending:
                 fingerprints=[]
                 for f in data['features']:
-                    fresh=self.owner_snapshot(**f)
+                    fresh=self.owner_snapshot(**f,desired=data.get('proposed_config'),require_new=not awaiting_config)
                     if fresh['overlaps'] or fresh['unclassified']:
                         row['state']='WAIT_OWNER';data['diagnostics']=['OWNER_NOT_UNIQUE',*fresh['unclassified']];break
                     fingerprints.append(fresh['fingerprint'])
                 else:
-                    row['state']='ACTIVE';data['diagnostics']=[]
+                    row['state']='READY_CONFIG' if awaiting_config else 'ACTIVE';data['diagnostics']=[]
                     data['verified_at']=utcnow();data['verified_by']=actor
                     data['readback_fingerprints']=fingerprints
         else:raise ValueError('CUTOVER_ACTION_INVALID')

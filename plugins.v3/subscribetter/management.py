@@ -61,6 +61,7 @@ class ConfigPreviewRequest(Strict):
 
 
 class ConfigPreview(Strict):
+    feature_digests: dict[Literal['ai_assist','discovery'],Digest] = Field(default_factory=dict)
     valid: bool
     errors: list[str]
     config: Config | None
@@ -127,6 +128,7 @@ class SelectedOld(Strict):
 
 
 class CutoverPreviewRequest(Strict):
+    configuration_receipt: Id | None = None
     features: list[Feature] = Field(min_length=1,max_length=100)
     selected: list[SelectedOld] = Field(default_factory=list,max_length=30)
 
@@ -186,7 +188,17 @@ class ReadScope(Strict):
     timeout_seconds: int
 
 
+class OwnerSnapshot(Strict):
+    fingerprint: str | None = None
+    overlaps: list[str]
+    unclassified: list[str]
+
+
 class Receipt(Strict):
+    configuration_receipt: str | None = None
+    base_digest: Digest | None = None
+    config_digest: Digest | None = None
+    owner_checks: list[OwnerSnapshot] = Field(default_factory=list)
     receipt_id: str
     kind: str
     revision: int
@@ -244,12 +256,6 @@ class HistoryView(Strict):
     rows: list[HistoryRow]
     limit: int
     offset: int
-
-
-class OwnerSnapshot(Strict):
-    fingerprint: str | None = None
-    overlaps: list[str]
-    unclassified: list[str]
 
 
 class OwnerReceipt(Strict):
@@ -329,12 +335,11 @@ class Management:
     def import_page(self,request:ImportRequest,user:TokenPayload=Depends(verify_token))->Receipt:
         self._auth(user)
         with self.plugin.runtime_lock:
-            result=self._call(self.plugin.migration.import_page,request.receipt_id,request.revision,request.digest,request.cursor,request.limit,request.operation_id,str(user.username))
-            # Import changes safe persistent configuration only. Explicit host
-            # Save is required to initialize/register it; stop optional entrants now.
-            self.plugin.configuration.ready=False
-            self.plugin.errors=list(dict.fromkeys(self.plugin.errors+['IMPORTED_CONFIG_RELOAD_REQUIRED']))
-            return result
+            def begin():
+                self.plugin.configuration.ready=False
+                self.plugin.errors=list(dict.fromkeys(self.plugin.errors+['IMPORTED_CONFIG_RELOAD_REQUIRED']))
+            return self._call(self.plugin.migration.import_page,request.receipt_id,request.revision,request.digest,
+                request.cursor,request.limit,request.operation_id,str(user.username),begin)
 
     def source_preview(self,request:SourcePreviewRequest,user:TokenPayload=Depends(verify_token))->Receipt:
         self._auth(user)
@@ -358,7 +363,7 @@ class Management:
         self._auth(user)
         with self.plugin.runtime_lock:
             return self._call(self.plugin.migration.preview_cutover,[f.model_dump() for f in request.features],
-                [s.model_dump() for s in request.selected],str(user.username))
+                [s.model_dump() for s in request.selected],str(user.username),request.configuration_receipt)
 
     def cutover(self,request:CutoverRequest,user:TokenPayload=Depends(verify_token))->Receipt:
         self._auth(user)

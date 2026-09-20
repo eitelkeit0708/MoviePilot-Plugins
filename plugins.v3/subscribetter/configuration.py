@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from .ai import AIConfig, ChatRoute, digest
-from .discovery import DiscoveryConfig, SourceConfig, RequestBudget
+from .discovery import DiscoveryConfig, SourceConfig, RequestBudget, _digest as discovery_digest
 from .scheduler import ScheduleConfig
 from .candidates import SearchBudget
 from .policy import Policy, _lock_value
@@ -342,7 +342,7 @@ def content(config):
 
 
 def contains_private(value,secret):
-    if isinstance(value,str):return value==secret or (len(secret)>=8 and secret in value)
+    if isinstance(value,str):return bool(secret) and secret in value
     if isinstance(value,dict):return any(contains_private(k,secret) or contains_private(v,secret) for k,v in value.items())
     if isinstance(value,list):return any(contains_private(v,secret) for v in value)
     return False
@@ -364,7 +364,7 @@ class Configuration:
         self.repository,self.instance_id,self.secrets,self.save=repository,instance_id,secrets,save
         self.validate_references=validate_references
         self.key='configuration:'+instance_id
-        self.ready=False;self.errors=[]
+        self.ready=False;self.errors=[];self.before_apply=None
 
     def view(self):
         state=self.repository.setting(self.key)
@@ -397,9 +397,10 @@ class Configuration:
         with self.repository.connection(write=True) as db:
             db.execute('INSERT INTO migration_receipts VALUES(?,?,?,?,?,?,?)',(identity,'CONFIG',1,new_digest,'PREVIEW',json.dumps(data),utcnow()))
         return dict(valid=True,errors=[],config=value,receipt_id=identity,digest=new_digest,revision=revision,
+                    feature_digests={'ai_assist':digest(value['ai_assist']),'discovery':discovery_digest(value['discovery'])},
                     changed_fields=sorted(k for k in content(value) if value[k]!=current['config'].get(k)))
 
-    def initialize(self,raw,*,import_marker=None):
+    def initialize(self,raw,*,import_marker=None,activate=True):
         current=self.view();self.ready=False;self.errors=[]
         try:
             initial=self.repository.setting(self.key) is None
@@ -421,6 +422,7 @@ class Configuration:
                 if (not row or row['state']!='PREVIEW' or row['digest']!=new_digest
                         or data['base_revision']!=current['revision'] or data['base_digest']!=current['digest']
                         or value!=data['config']):raise ValueError('CONFIG_PREFLIGHT_REQUIRED')
+            if self.before_apply:self.before_apply(value)
             revision=current['revision']+int(initial or needs_preview)
             value['configuration_revision']=revision
             state=dict(revision=revision,digest=new_digest,config=value)
@@ -435,7 +437,7 @@ class Configuration:
                     db.execute('INSERT OR IGNORE INTO settings VALUES(?,?)',(import_marker,json.dumps({'config_digest':new_digest})))
                 db.execute('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
                     (self.key+':bootstrap_fence',json.dumps(bool(initial and value['enabled'] and not value['dry_run']))))
-            self.ready=True
+            self.ready=activate
             if initial and (value['enabled'] and not value['dry_run']):
                 self.ready=False;self.errors=['INITIAL_ACTIVE_CONFIG_REQUIRES_PREFLIGHT']
         except Exception:
@@ -457,6 +459,6 @@ class Configuration:
         patch=merge(patch,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'chat_enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
         preview=self.preview(patch,current['revision'],current['digest'],actor)
         if not preview['valid']:raise ValueError('IMPORT_CONFIG_INVALID')
-        self.initialize(preview['config'],import_marker=marker)
-        if not self.ready:raise ValueError('IMPORT_CONFIG_SAVE_FAILED')
+        self.initialize(preview['config'],import_marker=marker,activate=False)
+        if self.errors:raise ValueError('IMPORT_CONFIG_SAVE_FAILED')
         return self.view()
