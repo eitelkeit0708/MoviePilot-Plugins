@@ -53,6 +53,25 @@ class HostCandidateAdapter:
         return (source.value,str(mid)) if source and mid is not None else None
 
     @staticmethod
+    def source_identity(media, source):
+        """Return only provider IDs already carried by the recognized media payload."""
+        fields = {"douban": ("douban_id", "douban_info"),
+                  "themoviedb": ("tmdb_id", "tmdb_info")}.get(str(source).casefold())
+        if fields is None:
+            return {"state": "UNKNOWN", "media_id": None}
+        values = []
+        direct = value(media, fields[0])
+        details = value(media, fields[1])
+        if direct not in (None, ""):
+            values.append(str(direct))
+        if isinstance(details, dict) and details.get("id") not in (None, ""):
+            values.append(str(details["id"]))
+        values = sorted(set(values))
+        if len(values) == 1:
+            return {"state": "VERIFIED", "media_id": values[0]}
+        return {"state": "CONFLICT" if values else "UNKNOWN", "media_id": None}
+
+    @staticmethod
     def acquire(raw):
         from app.chain.download import DownloadChain
         content,_,_=DownloadChain().download_torrent(raw)

@@ -27,6 +27,17 @@ class CandidateTests(unittest.TestCase):
         self.assertFalse(self.m.identity_matches(('tmdb', '42'), ('tmdb', '43')))
         self.assertIsNone(self.m.identity_matches(('tmdb', '42'), None))
 
+    def test_host_provider_identity_uses_only_consistent_payload_ids(self):
+        adapter = self.m.HostCandidateAdapter()
+        self.assertEqual({'state': 'VERIFIED', 'media_id': '123'},
+                         adapter.source_identity(types.SimpleNamespace(douban_id='123',
+                                                                      douban_info={'id': '123'}), 'douban'))
+        self.assertEqual({'state': 'CONFLICT', 'media_id': None},
+                         adapter.source_identity(types.SimpleNamespace(douban_id='123',
+                                                                      douban_info={'id': '456'}), 'douban'))
+        self.assertEqual({'state': 'UNKNOWN', 'media_id': None},
+                         adapter.source_identity(types.SimpleNamespace(), 'douban'))
+
     def test_no_site_zero_requests_and_continue_unrelated_keyword(self):
         calls = []
         class Adapter:

@@ -1,5 +1,7 @@
 """W09 unit evidence: bounded work discovery feeding the existing ownership intent path."""
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+import asyncio
 import importlib.util
 import json
 from pathlib import Path
@@ -81,7 +83,22 @@ class Recognizer:
 
     @staticmethod
     def classify(media):
-        return {"state": "classified", "effective": getattr(media, "category", None), "policy_revision": 7}
+        category = getattr(media, "category", None)
+        return {"state": "complete", "effective": {"category_id": f"fixture.{category}"} if category else None,
+                "policy_revision": 7}
+
+    @staticmethod
+    def source_identity(media, source):
+        values = []
+        direct = getattr(media, {"douban": "douban_id", "themoviedb": "tmdb_id"}.get(source, ""), None)
+        details = getattr(media, {"douban": "douban_info", "themoviedb": "tmdb_info"}.get(source, ""), None)
+        if direct not in (None, ""):
+            values.append(str(direct))
+        if isinstance(details, dict) and details.get("id") not in (None, ""):
+            values.append(str(details["id"]))
+        values = sorted(set(values))
+        return {"state": "VERIFIED", "media_id": values[0]} if len(values) == 1 else {
+            "state": "CONFLICT" if len(values) > 1 else "UNKNOWN", "media_id": None}
 
 
 class Owner:
@@ -138,11 +155,17 @@ class DiscoveryTests(unittest.TestCase):
                     sources=[source], request_budget={"items": 10, "response_bytes": 16384,
                     "interval_min_seconds": 10, "interval_max_seconds": 10})
         data.update(changes)
+        for configured in data["sources"]:
+            configured.setdefault("destination_templates", {"movie": "/movie", "tv": "/tv", "anime": "/anime"})
+            configured.setdefault("destination_category_bindings", {
+                f"fixture.{destination}": destination for destination in configured["destination_templates"]})
         return self.d.DiscoveryConfig.model_validate(data)
 
     def service(self, config=None, *, fetch=None, media=None, owner=None, inventory=None,
                 authorized=None, excluded=None, inventory_refresh=None, recognizer=None,
                 meta_service=None, accepted=None):
+        if media is not None and not hasattr(media, "douban_id"):
+            media.douban_id = "35322132"
         return self.d.DiscoveryService(
             self.repo, owner or Owner(), meta_service or MetaService(), recognizer or Recognizer(media), config or self.config(),
             fetch=fetch or (lambda *_: self.d.FetchResult(SYNTHETIC_RSS)), clock=self.clock,
@@ -226,21 +249,30 @@ class DiscoveryTests(unittest.TestCase):
             self.d.parse_rss(SYNTHETIC_RSS, max_bytes=40)
 
     def test_host_fetcher_enforces_total_deadline_identity_encoding_and_close(self):
-        clock = Clock(0)
+        events = []
         class Response:
             status_code = 200
             headers = {"Content-Encoding": "identity"}
-            closed = False
-            def iter_content(self, _):
+            async def aiter_bytes(self, _):
                 yield b"<rss>"
-                clock.advance(6)
-                yield b"</rss>"
-            def close(self): self.closed = True
+                try:
+                    await asyncio.sleep(10)
+                finally:
+                    events.append("body-cancelled")
         response = Response()
         request = types.SimpleNamespace(call=None)
+        class Client:
+            async def __aenter__(self): events.append("client-entered"); return self
+            async def __aexit__(self, *_): events.append("client-closed")
         class Requests:
             def __init__(self, **kwargs): request.init = kwargs
-            def request(self, **kwargs): request.call = kwargs; return response
+            @asynccontextmanager
+            async def get_stream(self, url, **kwargs):
+                request.call = dict(url=url, **kwargs); events.append("entered")
+                try:
+                    yield response
+                finally:
+                    events.append("closed")
         class Security:
             @staticmethod
             def evaluate_url_safety(url, allowed_domains, strict=False, block_private=False,
@@ -252,17 +284,23 @@ class DiscoveryTests(unittest.TestCase):
         modules = {
             "app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
             "app.sdk.network": types.ModuleType("app.sdk.network"),
-            "app.sdk.config": types.ModuleType("app.sdk.config")}
-        modules["app.sdk.network"].RequestUtils = Requests
+            "app.sdk.config": types.ModuleType("app.sdk.config"),
+            "httpx2": types.ModuleType("httpx2")}
+        def client_factory(**kwargs): request.client = kwargs; return Client()
+        modules["httpx2"].AsyncClient, modules["httpx2"].Timeout = client_factory, lambda value: value
+        modules["app.sdk.network"].AsyncRequestUtils = Requests
         modules["app.sdk.network"].SecurityUtils = Security
         modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
         source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid/rss")
-        budget = self.d.RequestBudget(timeout=5.0, response_bytes=1024, items=1)
+        budget = types.SimpleNamespace(timeout=0.05, response_bytes=1024, items=1)
         with patch.dict(sys.modules, modules), self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
-            self.d.HostRSSFetcher(source.url, clock=clock)(source.url, source, budget)
+            self.d.HostRSSFetcher(source.url)(source.url, source, budget)
         self.assertEqual("identity", request.call["headers"]["Accept-Encoding"])
-        self.assertFalse(request.call["allow_redirects"])
-        self.assertTrue(response.closed)
+        self.assertEqual(["client-entered", "entered", "body-cancelled", "closed", "client-closed"], events)
+        self.assertFalse(request.client["trust_env"])
+        self.assertTrue(request.client["verify"])
+        self.assertTrue(request.client["http2"])
+        self.assertFalse(request.client["follow_redirects"])
         self.assertEqual(("https://feed.invalid/rss", ["feed.invalid"], True, True, None), request.security)
 
     def test_host_fetcher_exactly_allows_configured_private_ip(self):
@@ -281,6 +319,41 @@ class DiscoveryTests(unittest.TestCase):
             fetcher._safe("http://192.168.50.6:1200/proxy/rsshub/douban/list/movie_weekly_best",
                           "http://192.168.50.6:1200/proxy/rsshub")
         self.assertEqual([(["192.168.50.6:1200"], True, True, ["192.168.50.6/32"])], captured)
+
+    def test_fix2_fetcher_sync_bridge_joins_cleanup_inside_running_loop(self):
+        events = []
+        class Response:
+            status_code = 200
+            headers = {"Content-Encoding": "identity"}
+            async def aiter_bytes(self, _):
+                yield b"<rss/>"
+        class Client:
+            async def __aenter__(self): events.append("client-open"); return self
+            async def __aexit__(self, *_): events.append("client-close")
+        class Requests:
+            def __init__(self, **_): pass
+            @asynccontextmanager
+            async def get_stream(self, *_args, **_kwargs):
+                events.append("open")
+                try: yield Response()
+                finally: events.append("close")
+        class Security:
+            @staticmethod
+            def evaluate_url_safety(*_args, **_kwargs): return types.SimpleNamespace(allowed=True)
+        modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
+                   "app.sdk.network": types.ModuleType("app.sdk.network"),
+                   "app.sdk.config": types.ModuleType("app.sdk.config"),
+                   "httpx2": types.ModuleType("httpx2")}
+        modules["httpx2"].AsyncClient, modules["httpx2"].Timeout = lambda **_: Client(), lambda value: value
+        modules["app.sdk.network"].AsyncRequestUtils, modules["app.sdk.network"].SecurityUtils = Requests, Security
+        modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
+        source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid/rss")
+        async def invoke():
+            return self.d.HostRSSFetcher(source.url)(source.url, source, self.d.RequestBudget(timeout=1))
+        with patch.dict(sys.modules, modules):
+            result = asyncio.run(invoke())
+        self.assertEqual(b"<rss/>", result.body)
+        self.assertEqual(["client-open", "open", "close", "client-close"], events)
 
     def test_source_failures_are_isolated_and_retry_after_persists_by_origin(self):
         config = self.config(sources=[
@@ -482,6 +555,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_cross_source_dedup_stopped_precedence_and_common_exclusion_gate(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "700"),
                                       title="Fixture", year="2026", category="movie", tmdb_info={})
+        media.douban_id = "35322132"
         host = Host()
         owner = self.ownership_mod.Ownership(self.repo, host)
         config = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET, sources=[
@@ -581,29 +655,68 @@ class DiscoveryTests(unittest.TestCase):
     def test_fix1_shared_origin_spacing_rotates_without_starvation(self):
         config = self.config(sources=[
             {"id": "a", "kind": "rsshub", "route_key": "movie_weekly_best"},
-            {"id": "b", "kind": "rsshub", "route_key": "movie_showing"}], request_budget=ONE_BUDGET)
+            {"id": "b", "kind": "rsshub", "route_key": "movie_showing"},
+            {"id": "c", "kind": "rsshub", "route_key": "movie_real_time_hotest"},
+            {"id": "d", "kind": "rsshub", "route_key": "tv_real_time_hotest",
+             "request_budget": {**ONE_BUDGET, "retry_limit": 0}}], request_budget=ONE_BUDGET)
         calls = []
         service = self.service(config, fetch=lambda url, *_: (calls.append((url, self.clock())),
                                                                self.d.FetchResult(b"<rss><channel/></rss>"))[1])
-        first = service.run()
-        self.assertEqual(("SUCCESS", "RATELIMITED"),
-                         (first["sources"]["a"]["state"], first["sources"]["b"]["state"]))
+        with self.repo.connection(write=True) as db:
+            db.execute("UPDATE discovery_sources SET failures=1 WHERE source_id='d'")
+        for _ in range(6):
+            service.run()
+            self.clock.advance(10)
+        self.assertEqual(["movie_weekly_best", "movie_showing", "movie_real_time_hotest"] * 2,
+                         [urlsplit(url).path.rsplit("/", 1)[-1] for url, _ in calls])
+        self.assertEqual([0, 10, 20, 30, 40, 50], [int(at - 1_800_000_000) for _, at in calls])
+
+    def test_fix2_sdk_classification_uses_exact_arbitrary_category_binding(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"),
+                                      identity=("themoviedb", "42"), title="Series", year="2020",
+                                      category="arbitrary.category-42", tmdb_info={"seasons": [
+                                          {"season_number": 1, "air_date": "2020-01-01"}]})
+        destinations = []
+        config = self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                             request_budget=ONE_BUDGET, sources=[{
+                                 "id": "bound", "kind": "rsshub", "route_key": "tv_real_time_hotest",
+                                 "destination_templates": {"anime": "/anime"},
+                                 "destination_category_bindings": {"fixture.arbitrary.category-42": "anime"}}])
+        service = self.service(config, media=media, authorized=lambda _t, _s, destination:
+                               (destinations.append(destination), True)[1])
+        service.run()
+        self.assertEqual(["anime"], destinations)
+        self.assertEqual("SUBMITTED", service.records()[0]["state"])
+        unbound = self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                              request_budget=ONE_BUDGET, sources=[{
+                                  "id": "unbound", "kind": "rsshub", "route_key": "tv_real_time_hotest",
+                                  "destination_templates": {"tv": "/tv"},
+                                  "destination_category_bindings": {}}])
+        other = self.service(unbound, media=media)
         self.clock.advance(10)
-        second = service.run()
-        self.assertEqual(("RATELIMITED", "SUCCESS"),
-                         (second["sources"]["a"]["state"], second["sources"]["b"]["state"]))
-        self.assertEqual([0, 10], [int(at - 1_800_000_000) for _, at in calls])
+        other.run()
+        self.assertEqual("DESTINATION_CATEGORY_UNBOUND", other.records(source_id="unbound")[0]["reason"])
 
     def test_fix1_total_deadline_covers_redirect_and_delayed_empty_response(self):
-        clock, timeouts = Clock(0), []
+        timeouts, events = [], []
         class Response:
-            def __init__(self, status, headers): self.status_code, self.headers, self.closed = status, headers, False
-            def iter_content(self, _): return iter(())
-            def close(self): self.closed = True
+            def __init__(self, status, headers): self.status_code, self.headers = status, headers
+            async def aiter_bytes(self, _):
+                if False: yield b""
         responses = [Response(302, {"Location": "/final"}), Response(200, {"Content-Encoding": "identity"})]
+        class Client:
+            async def __aenter__(self): events.append(("client", "open")); return self
+            async def __aexit__(self, *_): events.append(("client", "close"))
         class Requests:
             def __init__(self, **kwargs): timeouts.append(kwargs["timeout"])
-            def request(self, **_): clock.advance(3); return responses.pop(0)
+            @asynccontextmanager
+            async def get_stream(self, url, **kwargs):
+                response = responses.pop(0); events.append(("open", url))
+                try:
+                    await asyncio.sleep(0.005 if response.status_code == 302 else 10)
+                    yield response
+                finally:
+                    events.append(("close", url))
         class Security:
             @staticmethod
             def evaluate_url_safety(url, allowed_domains, **kwargs):
@@ -611,14 +724,18 @@ class DiscoveryTests(unittest.TestCase):
                                               urlsplit(url).netloc == "feed.invalid:8443")
         modules = {"app": types.ModuleType("app"), "app.sdk": types.ModuleType("app.sdk"),
                    "app.sdk.network": types.ModuleType("app.sdk.network"),
-                   "app.sdk.config": types.ModuleType("app.sdk.config")}
-        modules["app.sdk.network"].RequestUtils, modules["app.sdk.network"].SecurityUtils = Requests, Security
+                   "app.sdk.config": types.ModuleType("app.sdk.config"),
+                   "httpx2": types.ModuleType("httpx2")}
+        modules["httpx2"].AsyncClient, modules["httpx2"].Timeout = lambda **_: Client(), lambda value: value
+        modules["app.sdk.network"].AsyncRequestUtils, modules["app.sdk.network"].SecurityUtils = Requests, Security
         modules["app.sdk.config"].settings = types.SimpleNamespace(PROXY={})
         source = self.d.SourceConfig(id="custom", kind="custom", url="https://feed.invalid:8443/rss")
         with patch.dict(sys.modules, modules), self.assertRaisesRegex(self.d.FetchError, "TIMEOUT"):
-            self.d.HostRSSFetcher(source.url, clock=clock)(source.url, source, self.d.RequestBudget(timeout=5))
-        self.assertEqual([5, 2], timeouts)
-        self.assertTrue(all(response.closed for response in responses) if responses else True)
+            self.d.HostRSSFetcher(source.url)(source.url, source,
+                                               types.SimpleNamespace(timeout=0.05, response_bytes=1024, items=1))
+        self.assertEqual(2, len(timeouts))
+        self.assertEqual(2, len([event for event in events if event[0] == "close"]))
+        self.assertEqual(("client", "close"), events[-1])
 
     def test_fix1_ipv6_allowlist_preserves_brackets_and_port(self):
         captured = []
@@ -704,14 +821,92 @@ class DiscoveryTests(unittest.TestCase):
         owner = self.ownership_mod.Ownership(self.repo, Host())
         def accepted(row, target, *_):
             if target.season == 1: raise RuntimeError("scheduler offline")
+        failed_inventory = set()
+        def inventory(target):
+            if target.season in failed_inventory: raise RuntimeError("inventory offline")
+            return {"state": "MISSING", "evidence_ref": "archive:missing"}
         service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
                                            request_budget=ONE_BUDGET, sources=[
-                                               {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]),
-                               media=media, owner=owner, accepted=accepted)
+                                                {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]),
+                               media=media, owner=owner, accepted=accepted, inventory=inventory)
         service.run(); rows = {row["season"]: row for row in service.records()[0]["targets"]}
         self.assertEqual(("DEFERRED", "SCHEDULE_SCOPE_FAILED"), (rows[1]["state"], rows[1]["reason"]))
         self.assertIsNotNone(rows[1]["task_id"])
         self.assertEqual("SUBMITTED", rows[2]["state"])
+        preserved = (rows[1]["task_id"], rows[1]["intent_key"], rows[1]["snapshot_digest"])
+        failed_inventory.add(1)
+        self.clock.advance(86400)
+        service.run(); retried = {row["season"]: row for row in service.records()[0]["targets"]}
+        self.assertEqual("INVENTORY_FAILED", retried[1]["reason"])
+        self.assertEqual(preserved, (retried[1]["task_id"], retried[1]["intent_key"], retried[1]["snapshot_digest"]))
+        self.assertEqual("SUBMITTED", retried[2]["state"])
+
+    def test_fix2_terminal_and_unknown_tv_metadata_are_reconsidered_daily(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"),
+                                      identity=("themoviedb", "77"), title="Series", year="2020",
+                                      category="tv", tmdb_info={"seasons": [
+                                          {"season_number": 1, "air_date": "2020-01-01"}]})
+        owner = Owner()
+        config = self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                             request_budget={**ONE_BUDGET, "retry_limit": 0}, sources=[
+                                 {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}])
+        service = self.service(config, media=media, owner=owner)
+        service.run()
+        media.tmdb_info["seasons"].append({"season_number": 2, "air_date": "2020-01-01"})
+        self.clock.advance(86400)
+        service.run()
+        self.assertEqual([1, 2], [call[1].season for call in owner.calls])
+        unknown_media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"),
+                                              identity=("themoviedb", "88"), title="Unknown", year="2020",
+                                              category="tv", tmdb_info={"seasons": []})
+        unknown_config = self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
+                                     request_budget={**ONE_BUDGET, "retry_limit": 0}, sources=[
+                                         {"id":"unknown","kind":"rsshub","route_key":"tv_real_time_hotest"}])
+        unknown_owner = Owner()
+        unknown = self.service(unknown_config, media=unknown_media, owner=unknown_owner)
+        self.clock.advance(10)
+        unknown.run()
+        self.assertEqual("SEASON_METADATA_UNKNOWN", unknown.records(source_id="unknown")[0]["reason"])
+        unknown_media.tmdb_info["seasons"].append({"season_number": 1, "air_date": "2020-01-01"})
+        self.clock.advance(86400)
+        unknown.run()
+        self.assertEqual([1], [call[1].season for call in unknown_owner.calls])
+
+    def test_fix2_cross_source_identity_requires_exact_provider_mapping(self):
+        declared = self.d.RSSItem("Same Name (1990)", "https://movie.douban.com/subject/123/",
+                                  "g", "", "declared", "declared-r", "123")
+        class YearMeta(MetaService):
+            def parse(self, *args, **kwargs):
+                meta = Meta("Same Name"); meta.year = 1990
+                return Correction(meta)
+        cases = [
+            ("verified", "123", "SUBMITTED", ""),
+            ("conflict", "456", "DEFERRED", "SOURCE_ID_CONFLICT"),
+            ("missing", None, "DEFERRED", "SOURCE_MAPPING_UNKNOWN")]
+        for index, (label, douban_id, state, reason) in enumerate(cases):
+            with self.subTest(label=label):
+                media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"),
+                                              identity=("themoviedb", "999"), tmdb_id=999,
+                                              douban_id=douban_id, title="Same Name", year="1990",
+                                              category="movie", tmdb_info={"id": 999})
+                config = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET,
+                                     sources=[{"id": label, "kind": "custom", "url": f"https://{label}.invalid/rss",
+                                               "source_type_hint": "Movie"}])
+                service = self.service(config, media=media, meta_service=YearMeta())
+                item = declared.__class__(**{**declared.__dict__, "item_key": label, "raw_revision": f"r{index}"})
+                self.assertEqual(state, service._observe(config.sources[0], item))
+                self.assertEqual(reason, service.records(source_id=label)[0]["reason"])
+        unresolved_media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"),
+                                                 identity=("themoviedb", "999"), tmdb_id=999,
+                                                 title="Same Name", year="1990", category="movie",
+                                                 tmdb_info={"id": 999})
+        unresolved_config = self.config(media_type_allowlist=["电影"], request_budget=ONE_BUDGET,
+                                        sources=[{"id": "unresolved", "kind": "custom",
+                                                  "url": "https://unresolved.invalid/rss", "source_type_hint": "Movie"}])
+        unresolved = self.service(unresolved_config, media=unresolved_media)
+        item = self.d.RSSItem("Same Name", "", "same-name", "", "unresolved", "unresolved-r")
+        unresolved._observe(unresolved_config.sources[0], item)
+        self.assertEqual("IDENTITY_EVIDENCE_INSUFFICIENT", unresolved.records(source_id="unresolved")[0]["reason"])
 
     def test_fix1_ingest_stat_requires_all_real_target_units(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), identity=("themoviedb", "9"),

@@ -4,11 +4,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
+import asyncio
 import ipaddress
 import json
 import math
 import random
 import re
+import threading
 from typing import Annotated, Callable, Literal
 from urllib.parse import parse_qsl, quote, unquote, urljoin, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
@@ -93,6 +95,7 @@ class SourceConfig(BaseModel):
     season_scope: Literal["identified", "all_known"] | None = None
     existing_media_action: Literal["record_only", "manage_authorized"] | None = None
     destination_templates: dict[Literal["movie", "tv", "anime"], str] = Field(default_factory=dict)
+    destination_category_bindings: dict[str, Literal["movie", "tv", "anime"]] = Field(default_factory=dict)
     media_category_id: int | None = Field(default=None, gt=0)
     legacy_rank_key: str | None = None
     legacy_original_text: str | None = None
@@ -108,6 +111,13 @@ class SourceConfig(BaseModel):
             raise ValueError("CUSTOM_URL_REQUIRED")
         if self.url is not None:
             self.url = _url(self.url)
+        if (len(self.destination_category_bindings) > 100 or
+                any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", key)
+                    for key in self.destination_category_bindings)):
+            raise ValueError("INVALID_DESTINATION_CATEGORY_BINDING")
+        if any(destination not in self.destination_templates
+               for destination in self.destination_category_bindings.values()):
+            raise ValueError("DESTINATION_TEMPLATE_UNBOUND")
         hinted = "电视剧" if self.source_type_hint == "TV" else "电影" if self.source_type_hint == "Movie" else None
         if hinted and self.media_type_allowlist and hinted not in self.media_type_allowlist:
             raise ValueError("TYPE_HINT_CONFLICT")
@@ -261,58 +271,100 @@ class HostRSSFetcher:
             raise FetchError("UNSAFE_URL")
 
     def __call__(self, url, source, budget):
-        from app.sdk.network import RequestUtils
+        coroutine = self._fetch(url, source, budget)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coroutine)
+        result, failure = [], []
+        def run():
+            try:
+                result.append(asyncio.run(coroutine))
+            except BaseException as error:
+                failure.append(error)
+        worker = threading.Thread(target=run, name="subscribetter-rss-fetch")
+        worker.start()
+        worker.join()
+        if failure:
+            raise failure[0]
+        return result[0]
+
+    async def _fetch(self, url, source, budget):
+        import httpx2
+        from app.sdk.network import AsyncRequestUtils
+        from app.sdk.config import settings
         configured = self.base_url if source.kind == "rsshub" else url
         origin = urlsplit(configured)
         current = url
-        deadline = self.clock() + budget.timeout
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + budget.timeout
         def remaining():
-            value = deadline - self.clock()
+            value = deadline - loop.time()
             if value <= 0:
                 raise FetchError("TIMEOUT")
             return value
-        for hop in range(self.redirects + 1):
-            timeout = remaining()
-            current_parts = urlsplit(_url(current))
-            if (current_parts.scheme, current_parts.hostname, current_parts.port) != (origin.scheme, origin.hostname, origin.port):
-                raise FetchError("REDIRECT_ORIGIN_CHANGED")
-            self._safe(current, configured)
-            try:
-                from app.sdk.config import settings
-                proxies = settings.PROXY if self.proxy else None
-                response = RequestUtils(timeout=timeout, proxies=proxies or {}).request(
-                    method="GET", url=current, headers={"Accept-Encoding": "identity"},
-                    allow_redirects=False, stream=True)
-            except Exception as error:
-                raise FetchError("NETWORK_ERROR") from error
-            if response is None:
-                raise FetchError("NETWORK_ERROR")
-            try:
-                remaining()
-                if response.status_code in {301, 302, 303, 307, 308}:
-                    if hop == self.redirects or not response.headers.get("Location"):
-                        raise FetchError("REDIRECT_LIMIT")
-                    current = urljoin(current, response.headers["Location"])
-                    continue
-                if response.status_code == 429:
-                    value = response.headers.get("Retry-After", "")
-                    raise FetchError("RATE_LIMITED", retry_after=int(value) if value.isdigit() else None)
-                if response.status_code != 200:
-                    raise FetchError("HTTP_ERROR")
-                if response.headers.get("Content-Encoding", "identity").casefold() not in {"", "identity"}:
-                    raise FetchError("CONTENT_ENCODING_UNSUPPORTED")
-                chunks, size = [], 0
-                for chunk in response.iter_content(8192):
-                    remaining()
-                    size += len(chunk)
-                    if size > budget.response_bytes:
-                        raise FetchError("RSS_TOO_LARGE")
-                    chunks.append(chunk)
-                remaining()
-                return FetchResult(b"".join(chunks), final_url=current)
-            finally:
-                response.close()
-        raise FetchError("REDIRECT_LIMIT")
+        configured_proxies = settings.PROXY if self.proxy else None
+        if isinstance(configured_proxies, str):
+            proxy = configured_proxies.strip() or None
+        elif isinstance(configured_proxies, dict):
+            proxy = configured_proxies.get("https") or configured_proxies.get("http")
+            proxy = proxy.strip() if isinstance(proxy, str) else None
+        else:
+            proxy = None
+        try:
+            client = httpx2.AsyncClient(http2=True, proxy=proxy, timeout=httpx2.Timeout(budget.timeout),
+                                        verify=True, trust_env=False, follow_redirects=False)
+        except Exception as error:
+            raise FetchError("NETWORK_ERROR") from error
+        try:
+            async with asyncio.timeout(budget.timeout):
+                async with client:
+                    for hop in range(self.redirects + 1):
+                        current_parts = urlsplit(_url(current))
+                        if (current_parts.scheme, current_parts.hostname, current_parts.port) != (origin.scheme, origin.hostname, origin.port):
+                            raise FetchError("REDIRECT_ORIGIN_CHANGED")
+                        self._safe(current, configured)
+                        timeout = remaining()
+                        try:
+                            transport = AsyncRequestUtils(client=client, timeout=timeout, follow_redirects=False)
+                            async with transport.get_stream(
+                                    current, raise_exception=True,
+                                    headers={"Accept-Encoding": "identity"}) as response:
+                                if response is None:
+                                    raise FetchError("NETWORK_ERROR")
+                                if response.status_code in {301, 302, 303, 307, 308}:
+                                    if hop == self.redirects or not response.headers.get("Location"):
+                                        raise FetchError("REDIRECT_LIMIT")
+                                    current = urljoin(current, response.headers["Location"])
+                                    continue
+                                if response.status_code == 429:
+                                    value = response.headers.get("Retry-After", "")
+                                    raise FetchError("RATE_LIMITED", retry_after=int(value) if value.isdigit() else None)
+                                if response.status_code != 200:
+                                    raise FetchError("HTTP_ERROR")
+                                if response.headers.get("Content-Encoding", "identity").casefold() not in {"", "identity"}:
+                                    raise FetchError("CONTENT_ENCODING_UNSUPPORTED")
+                                chunks, size = [], 0
+                                async for chunk in response.aiter_bytes(8192):
+                                    size += len(chunk)
+                                    if size > budget.response_bytes:
+                                        raise FetchError("RSS_TOO_LARGE")
+                                    chunks.append(chunk)
+                                remaining()
+                                return FetchResult(b"".join(chunks), final_url=current)
+                        except FetchError:
+                            raise
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as error:
+                            raise FetchError("NETWORK_ERROR") from error
+                    raise FetchError("REDIRECT_LIMIT")
+        except TimeoutError as error:
+            raise FetchError("TIMEOUT") from error
+        except FetchError:
+            raise
+        except Exception as error:
+            raise FetchError("NETWORK_ERROR") from error
 
 
 def _legacy_line(raw: str, index: int):
@@ -468,12 +520,22 @@ class DiscoveryService:
             if now < max(float(row[0] or 0), origin_due):
                 return "NOT_DUE"
             peers = [candidate for candidate in self.config.sources
-                     if candidate.enabled and candidate.id in selected and candidate.id != source.id
+                     if candidate.enabled and candidate.id in selected
                      and self._origin(source_url(self.config, candidate)) == self._origin(url)]
-            if origin_state.get("last_source") == source.id and peers:
-                placeholders = ",".join("?" for _ in peers)
-                if db.execute(f"SELECT 1 FROM discovery_sources WHERE source_id IN ({placeholders}) AND failures<=? AND next_due<=? LIMIT 1",
-                              (*[peer.id for peer in peers], budget.retry_limit, now)).fetchone():
+            eligible = []
+            for candidate in peers:
+                candidate_row = db.execute(
+                    "SELECT failures,next_due FROM discovery_sources WHERE source_id=?", (candidate.id,)).fetchone()
+                candidate_budget = candidate.request_budget or self.config.request_budget
+                if (candidate_row and candidate_row["failures"] <= candidate_budget.retry_limit
+                        and float(candidate_row["next_due"] or 0) <= now):
+                    eligible.append(candidate.id)
+            if eligible:
+                cursor = origin_state.get("last_source")
+                order = [candidate.id for candidate in peers]
+                start = (order.index(cursor) + 1) % len(order) if cursor in order else 0
+                rotated = order[start:] + order[:start]
+                if source.id != next(candidate_id for candidate_id in rotated if candidate_id in eligible):
                     return "ORIGIN_FAIRNESS"
             low, high = budget.interval_min_seconds, budget.interval_max_seconds
             wait = low if low == high else random.SystemRandom().uniform(low, high)
@@ -594,10 +656,13 @@ class DiscoveryService:
                              (source.id, item.item_key, item.raw_revision)).fetchone()
             if row:
                 db.execute("UPDATE discovery_records SET last_seen=?,visible=1 WHERE id=?", (now, row["id"]))
-                if row["state"] in {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "STOPPED", "RELEASED", "REJECTED"} and row["filter_revision"] == policy:
+                metadata_wait = self._metadata_wait(db, row, source)
+                if (row["state"] in {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "INGESTED",
+                                     "STOPPED", "RELEASED", "REJECTED"}
+                        and row["filter_revision"] == policy
+                        and (not metadata_wait or due < float(row["next_due"] or 0))):
                     return row["state"]
                 if row["filter_revision"] == policy and row["state"] in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"}:
-                    metadata_wait = bool(db.execute("SELECT 1 FROM discovery_targets WHERE record_id=? AND reason IN ('SEASON_NOT_AIRED','SEASON_AIR_DATE_UNKNOWN') LIMIT 1", (row["id"],)).fetchone())
                     if (row["retry_count"] > budget.retry_limit and not metadata_wait) or due < float(row["next_due"] or 0):
                         return row["state"]
                 elif row["filter_revision"] != policy:
@@ -608,13 +673,29 @@ class DiscoveryService:
                                     (source.id, item.item_key, item.raw_revision, json.dumps(asdict(item), ensure_ascii=False), policy, now, now))
                 record_id = cursor.lastrowid
         state = self._process(record_id, source, item, policy)
-        if state in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"}:
-            with self.repository.connection(write=True) as db:
-                metadata_wait = bool(db.execute("SELECT 1 FROM discovery_targets WHERE record_id=? AND reason IN ('SEASON_NOT_AIRED','SEASON_AIR_DATE_UNKNOWN') LIMIT 1", (record_id,)).fetchone())
+        with self.repository.connection(write=True) as db:
+            row = db.execute("SELECT * FROM discovery_records WHERE id=?", (record_id,)).fetchone()
+            metadata_wait = self._metadata_wait(db, row, source)
+            if state in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"} or metadata_wait:
                 delay = max(budget.interval_min_seconds, 86400) if metadata_wait else budget.interval_min_seconds
-                db.execute("UPDATE discovery_records SET retry_count=retry_count+1,next_due=? WHERE id=?",
-                           (due + delay, record_id))
+                increment = 1 if state in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"} else 0
+                db.execute("UPDATE discovery_records SET retry_count=retry_count+?,next_due=? WHERE id=?",
+                           (increment, due + delay, record_id))
         return state
+
+    def _metadata_wait(self, db, row, source):
+        if row["reason"] == "SEASON_METADATA_UNKNOWN":
+            return True
+        if db.execute("SELECT 1 FROM discovery_targets WHERE record_id=? AND reason IN "
+                      "('SEASON_NOT_AIRED','SEASON_AIR_DATE_UNKNOWN','SEASON_METADATA_UNKNOWN') LIMIT 1",
+                      (row["id"],)).fetchone():
+            return True
+        if (source.season_scope or self.config.season_scope) == "all_known":
+            try:
+                return json.loads(row["data"] or "{}").get("identity", {}).get("media_type") == "电视剧"
+            except (TypeError, ValueError):
+                return False
+        return False
 
     @staticmethod
     def _field(value, name, default=None):
@@ -652,8 +733,30 @@ class DiscoveryService:
             return self._set_record(record_id, "DEFERRED", "TYPE_UNKNOWN", data)
         if requested_type and media_type != requested_type:
             return self._set_record(record_id, "DEFERRED", "TYPE_HINT_CONFLICT", data)
-        if declared and source_id == "douban" and media_id != item.douban_subject_id:
-            return self._set_record(record_id, "DEFERRED", "SOURCE_ID_CONFLICT", data)
+        mapping = None
+        if declared:
+            if source_id == declared[0]:
+                if media_id != declared[1]:
+                    return self._set_record(record_id, "DEFERRED", "SOURCE_ID_CONFLICT", data)
+                try:
+                    secondary = self.recognizer.source_identity(media, declared[0])
+                except Exception:
+                    secondary = None
+                if (isinstance(secondary, dict) and
+                        (secondary.get("state") == "CONFLICT" or
+                         (secondary.get("state") == "VERIFIED"
+                          and str(secondary.get("media_id")) != declared[1]))):
+                    return self._set_record(record_id, "DEFERRED", "SOURCE_ID_CONFLICT", data)
+                mapping = {"state": "CANONICAL", "source": declared[0]}
+            else:
+                try:
+                    mapping = self.recognizer.source_identity(media, declared[0])
+                except Exception:
+                    mapping = None
+                if not isinstance(mapping, dict) or mapping.get("state") == "UNKNOWN":
+                    return self._set_record(record_id, "DEFERRED", "SOURCE_MAPPING_UNKNOWN", data)
+                if mapping.get("state") != "VERIFIED" or str(mapping.get("media_id")) != declared[1]:
+                    return self._set_record(record_id, "DEFERRED", "SOURCE_ID_CONFLICT", data)
         allowed = set(self.config.media_type_allowlist or ["电影", "电视剧"])
         if source.media_type_allowlist: allowed &= set(source.media_type_allowlist)
         if media_type not in allowed:
@@ -662,6 +765,8 @@ class DiscoveryService:
         year_value = int(year) if re.fullmatch(r"\d{4}", year) else None
         requested_year = item.year or self._field(correction.meta, "year")
         requested_year = int(requested_year) if str(requested_year or "").isdigit() else None
+        if not declared and requested_year is None:
+            return self._set_record(record_id, "DEFERRED", "IDENTITY_EVIDENCE_INSUFFICIENT", data)
         if requested_year and year_value is None:
             return self._set_record(record_id, "DEFERRED", "YEAR_UNKNOWN", data)
         if requested_year and requested_year != year_value:
@@ -684,9 +789,10 @@ class DiscoveryService:
         except Exception:
             return self._set_record(record_id, "DEFERRED", "CLASSIFICATION_UNAVAILABLE", data)
         data.update(identity={"media_type": media_type, "media_source": source_id, "media_id": media_id, "year": year_value},
-                    identity_evidence={"declared_source": declared[0] if declared else None,
-                                       "declared_id_digest": _digest(declared) if declared else None,
-                                       "requested_type": requested_type, "requested_year": requested_year},
+                     identity_evidence={"declared_source": declared[0] if declared else None,
+                                        "declared_id_digest": _digest(declared) if declared else None,
+                                        "requested_type": requested_type, "requested_year": requested_year,
+                                        "mapping_state": mapping.get("state") if mapping else None},
                     rating=rating, classification=classification)
         minimum_rating = source.minimum_rating if source.minimum_rating is not None else self.config.minimum_rating
         if minimum_rating is not None and rating is None:
@@ -723,11 +829,27 @@ class DiscoveryService:
             if not seasons:
                 return self._set_record(record_id, "DEFERRED", "SEASON_METADATA_UNKNOWN", data)
             targets = [Target(media_type, source_id, media_id, season) for season in seasons]
+        classification_effective = classification.get("effective") if isinstance(classification, dict) else None
+        category_id = classification_effective.get("category_id") if isinstance(classification_effective, dict) else None
+        save_key = (source.destination_category_bindings.get(category_id)
+                    if isinstance(classification, dict) and classification.get("state") == "complete"
+                    and isinstance(category_id, str) else None)
+        if (not save_key or not source.destination_templates.get(save_key)
+                or (media_type == "电影" and save_key != "movie")
+                or (media_type == "电视剧" and save_key not in {"tv", "anime"})):
+            save_key = None
         states = []
         for target in targets:
-            save_key = "movie" if media_type == "电影" else "anime" if data["classification"].get("effective") == "anime" else "tv"
             if target.season in deferred:
                 states.append(self._link(record_id, target, "DEFERRED", deferred[target.season], data, None)); continue
+            if save_key is None:
+                states.append(self._link(record_id, target, "DEFERRED", "DESTINATION_CATEGORY_UNBOUND", data, None)); continue
+            with self.repository.connection() as db:
+                prior = db.execute("SELECT state FROM discovery_targets WHERE record_id=? AND target_key=?",
+                                   (record_id, target.key)).fetchone()
+            if prior and prior["state"] in {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "INGESTED",
+                                             "STOPPED", "RELEASED"}:
+                states.append(prior["state"]); continue
             try:
                 state = self._process_target(record_id, target, source, media, year, data, save_key)
             except Exception:
@@ -804,7 +926,7 @@ class DiscoveryService:
     def _link(self, record_id, target, state, reason, data, row, intent="", snapshot_digest="", receipt_ref=None):
         task_id = row.get("id") if row and self.repository.get_task(row.get("id")) else None
         with self.repository.connection(write=True) as db:
-            db.execute("INSERT INTO discovery_targets(record_id,target_key,intent_key,snapshot_digest,task_id,season,episode_group,state,reason,receipt_ref) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(record_id,target_key) DO UPDATE SET intent_key=excluded.intent_key,snapshot_digest=excluded.snapshot_digest,task_id=excluded.task_id,state=excluded.state,reason=excluded.reason,receipt_ref=excluded.receipt_ref",
+            db.execute("INSERT INTO discovery_targets(record_id,target_key,intent_key,snapshot_digest,task_id,season,episode_group,state,reason,receipt_ref) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(record_id,target_key) DO UPDATE SET intent_key=CASE WHEN excluded.intent_key!='' THEN excluded.intent_key ELSE discovery_targets.intent_key END,snapshot_digest=CASE WHEN excluded.snapshot_digest!='' THEN excluded.snapshot_digest ELSE discovery_targets.snapshot_digest END,task_id=COALESCE(excluded.task_id,discovery_targets.task_id),state=excluded.state,reason=excluded.reason,receipt_ref=COALESCE(excluded.receipt_ref,discovery_targets.receipt_ref)",
                        (record_id, target.key, intent, snapshot_digest, task_id, target.season,
                         target.episode_group, state, reason, receipt_ref or (f"task:{row['id']}" if row and state in {"SUBMITTED", "ALREADY_MANAGED"} else None)))
         return state
