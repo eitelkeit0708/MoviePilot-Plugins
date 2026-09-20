@@ -1,4 +1,4 @@
-"""subscriBetter V3: durable ownership foundation; download/delivery workers are not enabled."""
+"""subscriBetter V3: durable ownership, runtime and host-native management."""
 from threading import RLock
 from typing import Annotated, Literal
 
@@ -69,7 +69,7 @@ class Diagnostics(BaseModel):
     generation: int
     errors: list[str]
     pending: int
-    foundation_only: bool = True
+    foundation_only: bool = False
     meta: dict = Field(default_factory=dict)
     ai: dict = Field(default_factory=dict)
 
@@ -672,19 +672,13 @@ class SubscriBetter(_PluginBase):
         routes.extend(managed)
         return routes
 
+    def get_render_mode(self):
+        return 'vue', 'dist/assets'
+
     def get_form(self):
-        return [{"component": "VForm", "content": [
-            {"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
-             "text": "关闭普通工作后，已有受管壳仍保持暂停与安全保护；解除保护须显式返回原生控制。"},
-            {"component": "VSwitch", "props": {"model": "enabled", "label": "启用普通订阅管理工作"}},
-            {"component": "VSwitch", "props": {"model": "dry_run", "label": "只读 / dry-run（保留现有安全隔离）"}},
-            {"component": "VSwitch", "props": {"model": "enhance_host_meta", "label": "增强宿主公共解析（普通工作启用且非 dry-run 时生效，影响未受管解析）"}},
-            {"component": "VCombobox", "props": {"model": "meta_protected_names", "label": "明确保护的完整片名", "multiple": True, "chips": True}},
-            {"component": "VSelect", "props": {"model": "auto_types", "label": "自动纳管启用后的新订阅", "multiple": True, "items": ["电影", "电视剧"]}},
-            {"component":"VAlert","props":{"type":"info"},"text":"AI 名称辅助与普通聊天独立配置，默认关闭；凭据仅用私密引用。可选名称事件桥接只读缓存并排队，首次可不返回结果。聊天须明确路由和唯一响应者切换回执，不提供订阅或删除能力；当前宿主不支持定点线程回复。"},
-            {"component":"VAlert","props":{"type":"info"},"text":"榜单作品发现使用 /discovery API 与结构化来源配置；PT 下载资源仍走候选管线。自动提交还要求唯一 owner 回执、档案范围和交付规则同时有效。"},
-        ]}], Config().model_dump()
+        # Host Config owns one strict preflight then emits the complete safe model.
+        return None, Config().model_dump()
 
     def get_page(self):
-        return [{"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
-                 "text": f"普通工作：{'运行' if self._ordinary_work_active() else '关闭或受阻'}；已有任务安全保护：{'运行' if self.lifecycle_active and self._safety_required() else '未运行'}。作品发现、PT候选、交付与入库分别保留状态和回执；管理接口仅管理员可用。"}]
+        # The override advertises the native Page; federation owns its bounded reads.
+        return []

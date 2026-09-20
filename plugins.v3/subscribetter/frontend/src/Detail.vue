@@ -1,0 +1,9 @@
+<script setup>
+import Record from './Record.vue';
+defineProps({data:Object});
+</script>
+<template>
+ <div v-if="data.task" class="sb-table-scroll"><table><caption>逐目标质量、在途交付权与冷却</caption><thead><tr><th>目标</th><th>当前质量事实</th><th>在途计划 / 发布屏障</th><th>最后入库 / 冷却截止</th></tr></thead><tbody><tr v-for="u in data.units.items" :key="u.target_key"><td>{{u.target_key}}<p class="sb-muted">代次 {{u.generation}} / 当前版本 {{u.current_revision}}</p></td><td><Record :value="u.current_facts"/></td><td>{{u.owner_plan_id??'没有当前交付权'}}<p>{{u.publish_phase}}</p></td><td>{{u.last_ingest_confirmed_at??'未确认入库'}}<p>{{u.cooldown_until??'未设置冷却截止'}}</p></td></tr></tbody></table><p v-if="!data.units.items.length">尚未形成可确认的目标单元；不推断完整或无缺集。</p></div>
+ <div v-if="data.bundle" class="sb-table-scroll"><table><caption>逐文件秒传 / CD2 与读取停止证据</caption><thead><tr><th>文件 / 内容</th><th>传输状态</th><th>尝试 / 确认 MISS</th><th>原始 CD2 上传 ID</th><th>读取停止证据</th></tr></thead><tbody><tr v-for="f in data.files.items" :key="f.id"><td>{{f.id}} · {{f.data.size??'未知'}} bytes<p class="sb-value">{{f.data.sha1??'尚无 Hash'}}</p></td><td>{{f.state}}<p>下次尝试 {{f.data.due??'未设置'}}</p></td><td>{{f.data.attempts??'未知'}} / {{f.data.misses??'未知'}}</td><td class="sb-value">{{f.data.upload_id??'尚未创建 CD2 上传'}}</td><td>远端读取已停止：{{f.data.reader_stopped===true?'已证实':'未证实'}}<p>本地读取已停止：{{f.data.local_reader_stopped===true?'已证实':'未单独证实'}}</p></td></tr></tbody></table><p v-if="data.bundle.state==='UNKNOWN'" class="sb-error">保留原始外部 ID。不得用超时、仅本地停止或客户端清理替代远端终态证明。</p></div>
+ <div v-if="data.version" class="sb-table-scroll"><table><caption>独立档案内容、附件与物理位置</caption><thead><tr><th>资产 / 文件索引</th><th>SHA-1 / 字节</th><th>位置状态</th><th>位置与两段映射依据</th></tr></thead><tbody><tr v-for="a in data.assets.items" :key="a.id"><td>{{a.id}} / {{a.data.file_index}}</td><td class="sb-value">{{a.data.sha1}}<p>{{a.data.size}} bytes</p></td><td>{{a.state}}</td><td><Record :value="a.data.location"/></td></tr></tbody></table></div>
+</template>

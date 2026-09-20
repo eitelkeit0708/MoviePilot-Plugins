@@ -211,7 +211,7 @@ class AIView(Strict):
 
 
 class Health(Strict):
-    foundation_only:Literal[True]=True
+    foundation_only:Literal[False]=False
     database:Literal['AVAILABLE']
     enabled:bool
     ordinary_work_active:bool
@@ -525,6 +525,12 @@ class Views:
         r['task_id']=u[0] if u else None
         return ArchiveDetail(target=ArchiveTarget(**self._archive(r)),versions=self.rows('archive_versions',where='target_key=?',args=(target_key,),order='id',limit=limit,offset=offset))
 
+    def archive_scan_items(self,scan_id:Id,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
+        self._auth(user);scan=self._one('archive_scans','id',scan_id)
+        return self._page('archive_scan_items',Row,lambda r:dict(id=r['item_id'],state='PROCESSED' if r['resolved'] else 'PENDING',revision='',
+            data=public(dict(scan_id=scan_id,item_id=r['item_id'],service=scan['service'],library=scan['library']))),
+            select='item_id,resolved IS NOT NULL AS resolved',where='scan_id=?',args=(scan_id,),order='item_id',limit=limit,offset=offset)
+
     def version(self,version_id:Id,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->VersionDetail:
         self._auth(user);r=self._one('archive_versions','id',version_id)
         data=json.loads(r['data']);r['data']=encoded({k:v for k,v in data.items() if k not in ('assets','source_assets','streams')})
@@ -664,6 +670,7 @@ class Views:
         services['emby']={'state':'AVAILABLE' if archive and callable(getattr(archive.sources,'emby_target_page',None)) else 'UNAVAILABLE','remote_health':'NOT_PROBED_BY_GET'}
         services['cloud']={'state':'AVAILABLE' if cloud else 'UNAVAILABLE','remote_health':'NOT_PROBED_BY_GET','methods':{name:callable(getattr(cloud,name,None)) for name in ('stat','rapid','start','pump','move','inventory')}}
         services['consumer']={'state':'AVAILABLE' if runtime and callable(getattr(runtime,'consumer',None)) and archive else 'UNAVAILABLE'}
+        services['local_rules']=[{k:rule[k] for k in ('id','revision','enabled')} for rule in getattr(worker,'rules',{}).values()]
         services['mapping_revision']=archive.mappings.revision if archive else None
         services['downloaders']={'state':'CONFIGURED' if p.config.destination_templates else 'UNCONFIGURED','remote_health':'NOT_PROBED_BY_GET'}
         services['owner_evidence']={'partial_legacy_ai_runtime_flags':'LEGACY_RUNTIME_FLAGS_UNVERIFIED','unverified_cutover_state':'WAIT_OWNER','force_approve':False}
@@ -1142,7 +1149,7 @@ class Views:
         routes=[dict(path=p,methods=['GET'],endpoint=f,response_model=m,auth='bear',route_class_override=PrivateRoute) for p,f,m in definitions]
         for path,fn,model in [('/management/previews/{preview_id}',self.preview_receipt,Preview),('/management/operations/{operation_id}',self.operation,ActionResult)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))
-        for path,fn in [('/health/local-scans/{rule_id:path}/{section}',self.local_scan),('/health/runtime-records',self.runtime_records),('/candidates/{candidate_key}/files/{section}',self.candidate_files),('/delivery/bundles/{bundle_id}/records/{section}',self.bundle_records),('/exclusions',self.exclusions),('/candidate-decisions/{decision_id}/plans',self.decision_plans)]:
+        for path,fn in [('/archive/scans/{scan_id}/items',self.archive_scan_items),('/health/local-scans/{rule_id:path}/{section}',self.local_scan),('/health/runtime-records',self.runtime_records),('/candidates/{candidate_key}/files/{section}',self.candidate_files),('/delivery/bundles/{bundle_id}/records/{section}',self.bundle_records),('/exclusions',self.exclusions),('/candidate-decisions/{decision_id}/plans',self.decision_plans)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=Page[Row],auth='bear',route_class_override=PrivateRoute))
         # Specific policy catalog precedes the category identifier route.
         routes.insert(0,dict(path='/policies/catalog',methods=['GET'],endpoint=self.policy_catalog,response_model=ActionResult,auth='bear',route_class_override=PrivateRoute))
