@@ -1,0 +1,565 @@
+"""Private legacy import and resumable selective cutover; never invokes host writes."""
+from copy import deepcopy
+import json
+from uuid import uuid4
+from urllib.parse import urlsplit, urlencode
+
+from .ai import digest, migrate_legacy, legacy_preview, owner_projection, owner_receipt
+from .configuration import merge, contains_private
+from .discovery import DiscoveryConfig, import_legacy, _digest as discovery_digest
+from .meta import _stored
+from .repository import utcnow, snapshot_config
+
+LEGACY_STATUSES=('未识别','已识别未分类','年份不符合','评分不符合','媒体库已存在','订阅已存在','已添加订阅')
+AI_FIELDS=dict(enabled='ai_assist.enabled',recognize='ai_assist.name_assistance_enabled',
+    openai_url='ai_assist.endpoint_ref',openai_key='ai_assist.credential_refs',model='ai_assist.model',
+    request_profile='ai_assist.profile',compatible='ai_assist.compatible',proxy='ai_assist.proxy',
+    customize_prompt='ai_assist.prompt',previous_customize_prompt='ai_assist.prompt_backup',
+    restore_prompt='action.prompt_restore',clear_cache='action.cache_clear',timeout='ai_assist.timeout',
+    max_attempts='ai_assist.max_attempts',max_concurrency='ai_assist.max_concurrency',positive_ttl='ai_assist.positive_ttl',
+    negative_ttl='ai_assist.negative_ttl',cache_size='ai_assist.cache_size',notify='ai_assist.notifications',
+    chat_enabled='ai_assist.chat_enabled',chat_history='historical.chat',statistics='historical.statistics')
+DISCOVERY_FIELDS=dict(enabled='discovery.enabled',ranks='discovery.sources',rss_addrs='discovery.sources',cron='discovery.cron',
+    onlyonce='action.run_once',proxy='discovery.sources.proxy',sleep_time='discovery.request_budget',
+    is_exit_ip_rate_limit='discovery.origin_cooldown',vote='discovery.minimum_rating',release_year='discovery.minimum_release_year',
+    is_only_movies='discovery.media_type_allowlist',is_seasons_all='discovery.season_scope',history_type='history_view',
+    clear='action.history_cleanup',clear_unrecognized='action.history_cleanup',delete_history='action.history_cleanup',
+    migrate_from_url='migration.read_only_source_ref',migrate_api_token='migration.credential_ref',migrate_once='action.import')
+HISTORY_FIELDS=('title','type','year','poster','overview','tmdbid','doubanid','unique','time','time_full','vote','status')
+ACTIONS={'restore_prompt','clear_cache','onlyonce','clear','clear_unrecognized','delete_history','migrate_once'}
+MODULES={'name_assistance','name_bridge','chat','discovery'}
+
+
+def capabilities(plugin):
+    return digest({k:plugin.get(k) for k in ('source','version','prefix','api_paths','commands')})
+
+
+async def read_legacy_source(base,token,instance,ranges):
+    """Only two known read-only V2 routes; no redirect, proxy or URL logging.
+
+    The SDK checks the authorized origin. urllib has no HTTP request logger;
+    its bounded worker may finish DNS after the coroutine deadline, like other
+    system resolvers. It never writes plugin/native/model state.
+    """
+    import asyncio
+    import time
+    from urllib.request import build_opener,ProxyHandler,HTTPRedirectHandler,Request
+    from .discovery import HostRSSFetcher
+    class NoRedirect(HTTPRedirectHandler):
+        def redirect_request(self,*args,**kwargs):return None
+    checker=HostRSSFetcher(base,allowed_private_ranges=ranges)
+    def read():
+        deadline=time.monotonic()+15;result=[]
+        opener=build_opener(ProxyHandler({}),NoRedirect())
+        for route in ('migrate-config','migrate-history'):
+            url=base+'/api/v1/plugin/'+instance+'/'+route+'?'+urlencode({'migrate_api_token':token})
+            request=Request(url,headers={'Accept-Encoding':'identity'},method='GET')
+            with opener.open(request,timeout=max(.1,deadline-time.monotonic())) as response:
+                if response.status!=200 or response.headers.get('Content-Encoding','identity').lower()!='identity':raise ValueError('LEGACY_READ_HTTP')
+                body=bytearray()
+                while True:
+                    if time.monotonic()>deadline:raise ValueError('LEGACY_READ_TIMEOUT')
+                    block=response.read(min(65536,2097153-len(body)))
+                    if not block:break
+                    body.extend(block)
+                    if len(body)>2097152:raise ValueError('LEGACY_READ_LIMIT')
+                result.append(bytes(body))
+        return result
+    try:
+        async with asyncio.timeout(15):
+            await checker._safe(base,base)
+            return await asyncio.to_thread(read)
+    except Exception:raise ValueError('LEGACY_READ_FAILED') from None
+
+
+def flag(value):return value.strip().lower() in {'true','1','yes','on'} if isinstance(value,str) else bool(value)
+
+
+def safe(value,secrets=()):
+    if isinstance(value,str):
+        for secret in sorted((s for s in secrets if s),key=len,reverse=True):value=value.replace(secret,'[PRIVATE]')
+        return _stored(value)
+    if isinstance(value,list):return [safe(x,secrets) for x in value]
+    if isinstance(value,dict):return {safe(str(k),secrets):safe(v,secrets) for k,v in value.items()}
+    return value
+
+
+def history_row(row,ordinal,reference,timezone,secrets):
+    identities={};diagnostics=[]
+    for field,source in (('tmdbid','themoviedb'),('doubanid','douban')):
+        raw=row.get(field);value=str(raw).strip() if raw is not None else ''
+        if value.casefold() not in {'','0','none','null'}:identities[source]=value
+        else:diagnostics.append(field+':INVALID_OR_MISSING_ID')
+    if not timezone:diagnostics.append('TIMEZONE_UNKNOWN')
+    if row.get('year') in (0,'0','',None):diagnostics.append('YEAR_UNKNOWN')
+    if row.get('vote') in (0,'0','',None):diagnostics.append('RATING_UNKNOWN')
+    if row.get('status') not in LEGACY_STATUSES:diagnostics.append('UNKNOWN_LEGACY_STATUS')
+    diagnostics.extend('UNMAPPED:'+str(k) for k in row if k not in HISTORY_FIELDS)
+    return dict(ordinal=ordinal,digest=digest(row),snapshot_ref=reference,raw_pointer='/history/'+str(ordinal),
+        raw=safe({k:row.get(k) for k in HISTORY_FIELDS},secrets),identities=identities,season=None,
+        source_timezone=timezone,time_basis='LEGACY_REPORTED',state='LEGACY_UNVERIFIED',diagnostics=safe(diagnostics,secrets))
+
+
+def normalize(raw,store,timezone=None):
+    def pairs(items):
+        result={}
+        for key,value in items:
+            if key in result:raise ValueError('DUPLICATE_LEGACY_KEY')
+            result[key]=value
+        return result
+    try:
+        data=json.loads(raw.decode('utf-8-sig'),object_pairs_hook=pairs,parse_constant=lambda _:(_ for _ in ()).throw(ValueError()))
+    except (ValueError,UnicodeError,RecursionError):raise ValueError('LEGACY_JSON_INVALID') from None
+    if not isinstance(data,dict) or set(data)-{'ai','discovery','history','native','policy','statistics','chat_history'}:raise ValueError('LEGACY_EXPORT_SHAPE')
+    ai=data.get('ai',{});old=data.get('discovery',{});rows=data.get('history',[])
+    if not isinstance(ai,dict) or not isinstance(old,dict) or not isinstance(rows,list) or len(rows)>10000 or any(not isinstance(x,dict) for x in rows):raise ValueError('LEGACY_EXPORT_SHAPE')
+    secrets=[str(ai.get(k) or '') for k in ('openai_url','openai_key')]+[str(old.get(k) or '') for k in ('migrate_from_url','migrate_api_token')]
+    secrets.extend(k.strip() for k in str(ai.get('openai_key') or '').split(',') if k.strip())
+    fields=[];diagnostics=[];patch={};private_refs={};policy_candidates={}
+    for source,values,mapping in (('ai',ai,AI_FIELDS),('discovery',old,DISCOVERY_FIELDS)):
+        for key in sorted(set(values)|set(mapping)):
+            fields.append(dict(source=source,field=key,target=mapping.get(key,'protected_raw'),
+                status='MISSING' if key not in values else 'ACTION_NOT_REPLAYED' if key in ACTIONS else 'UNMAPPED_RETAINED' if key not in mapping else 'MAPPED',
+                raw_pointer='/'+source+'/'+key))
+    if ai:
+        patch['ai_assist']=migrate_legacy(ai,store.put).model_dump()
+        if 'model' in ai:
+            if not isinstance(ai['model'],str):raise ValueError('LEGACY_MODEL_INVALID')
+            patch['ai_assist']['model']=ai['model']
+        # Raw key slots and original endpoint/prompt bytes remain in private raw
+        # snapshot; effective usable keys preserve order and duplicate diagnosis.
+        slots=[k.strip() for k in str(ai.get('openai_key') or '').split(',')]
+        if len(slots)!=len(set(slots)):diagnostics.append('DUPLICATE_KEY_SLOTS_RETAINED_RAW_EFFECTIVE_DEDUPLICATED')
+        private_refs['ai_endpoint']=patch['ai_assist']['endpoint_ref']
+        private_refs['ai_keys']=patch['ai_assist']['credential_refs']
+    if old:
+        imported=import_legacy(old)
+        discovery=dict(imported['config']);discovery.pop('proxy',None);discovery.pop('rate_limit_scope',None)
+        discovery['season_scope']='all_known' if flag(old.get('is_seasons_all',True)) else 'identified'
+        discovery['media_type_allowlist']=['电影'] if flag(old.get('is_only_movies')) else []
+        for key in ('minimum_release_year','minimum_rating'):
+            value=discovery.get(key)
+            try:discovery[key]=None if value in (None,'',0,'0') else int(value) if key.endswith('year') else float(value)
+            except (TypeError,ValueError):discovery[key]=None;diagnostics.append(key+':INVALID_REQUIRES_REVIEW')
+        interval=old.get('sleep_time')
+        if isinstance(interval,str):
+            try:
+                parts=[float(x.strip()) for x in interval.split(',')]
+                if len(parts)!=2:raise ValueError()
+                discovery['request_budget']={'interval_min_seconds':parts[0],'interval_max_seconds':parts[1]}
+            except ValueError:diagnostics.append('INTERVAL_INVALID_REQUIRES_REVIEW')
+        sources=[]
+        for source in imported['sources']:
+            source['enabled']=False
+            source['proxy']=flag(old.get('proxy'))
+            if source['id'].startswith('legacy-') and source['id'][7:].isdigit():
+                source['legacy_original_text']=str(old.get('rss_addrs','')).splitlines()[int(source['id'][7:])-1]
+            # Old paths are retained as disabled source syntax, never silently
+            # interpreted as authorized current destination template IDs.
+            sources.append(source)
+        discovery.update(sources=sources,enabled=False)
+        patch['discovery']=DiscoveryConfig.model_validate(discovery).model_dump()
+        patch['history_view']={'最新12条历史':'latest12','已识别历史':'recognized','未识别历史':'unrecognized','历史处理统计':'statistics','所有历史':'all'}.get(old.get('history_type'),'all')
+        diagnostics.extend(imported['diagnostics'])
+        if 'proxy' not in old:diagnostics.append('LEGACY_PROXY_NOT_EXPORTED_UNKNOWN')
+        if not old.get('cron'):diagnostics.append('CRON_LEGACY_DEFAULT_0_8')
+        for k in ('migrate_from_url','migrate_api_token'):
+            if old.get(k):private_refs[k]=store.put(str(old[k]))
+        diagnostics.append('RATE_LIMIT_CORRECTED_ORIGIN_COOLDOWN')
+    if 'native' in data:
+        if not isinstance(data['native'],list) or len(data['native'])>1000:raise ValueError('NATIVE_HISTORY_LIMIT')
+        for index,row in enumerate(data['native']):
+            if not isinstance(row,dict):raise ValueError('NATIVE_HISTORY_SHAPE')
+            for key in row:
+                fields.append(dict(source='native',field=key,target='protected_native_snapshot',raw_pointer=f'/native/{index}/{key}',
+                    status='HISTORICAL_ONLY' if key in ('episode_priority','best_version') else 'READBACK_REQUIRED' if key in snapshot_config(row) else 'UNMAPPED_RETAINED'))
+        diagnostics.append('NATIVE_ADOPTION_REQUIRES_SEPARATE_LIVE_READBACK')
+    if 'policy' in data:
+        from .policy import import_legacy_overrides
+        if not isinstance(data['policy'],list) or len(data['policy'])>100:raise ValueError('LEGACY_POLICY_SHAPE')
+        identities=[r.get('id') for r in data['policy'] if isinstance(r,dict) and isinstance(r.get('id'),str)]
+        for index,row in enumerate(data['policy']):
+            if not isinstance(row,dict):raise ValueError('LEGACY_POLICY_SHAPE')
+            identity=row.get('id');status='SUPPORTED_REQUIRES_BINDING';reason='TEXT_OR_METADATA_SEMANTICS_RETAINED'
+            try:
+                candidate=import_legacy_overrides([row])
+                if identities.count(identity)>1:raise ValueError('DUPLICATE_LEGACY_ID')
+                if any(contains_private(candidate,s) for s in secrets if s):raise ValueError('PRIVATE_PREDICATE')
+                policy_candidates.update(candidate)
+            except (ValueError,TypeError):
+                status='EXPLICIT_EQUIVALENT_REQUIRED';reason='UNSUPPORTED_FIELDS_MATCH_OR_PREDICATE'
+            for key in row:
+                fields.append(dict(source='policy',field=str(key),target='policy.overrides',status=status,
+                    raw_pointer=f'/policy/{index}/{key}',diagnostic=reason))
+        diagnostics.append('POLICY_CATEGORY_MAPPING_REQUIRED_NO_HOST_YAML_WRITE')
+    for f in fields:
+        values=ai if f['source']=='ai' else old if f['source']=='discovery' else {}
+        effective=patch
+        for component in f['target'].split('.'):
+            effective=effective.get(component) if isinstance(effective,dict) else None
+        if effective is not None and f['field'] in values and f['field'] not in ('openai_url','openai_key'):
+            f['effective_preview']=json.dumps(safe(effective,secrets),ensure_ascii=False)[:4096]
+            if values[f['field']]!=effective:f['diagnostic']='NORMALIZED_OR_DISABLED_SEE_RAW'
+        if f['field'] in ('statistics','chat_history') and f['field'] in values:f['diagnostic']='HISTORICAL_ONLY_NO_MEMORY_RESTORE'
+    for key in ('statistics','chat_history'):
+        if key in data:
+            fields.append(dict(source='historical',field=key,target='protected_raw',status='HISTORICAL_ONLY',
+                raw_pointer='/'+key,diagnostic='NO_CURRENT_SESSION_OR_USAGE_RESTORE'))
+    return data,dict(config=patch,fields=safe(fields,secrets),diagnostics=safe(diagnostics,secrets),private_refs=private_refs,
+        policy_candidates=policy_candidates,
+        requested_features={'ai':legacy_preview(ai),'discovery_enabled':flag(old.get('enabled'))},
+        memory_cache_restored=False,history_count=len(rows)),secrets
+
+
+def collect_host(plugin):
+    """Fresh public SDK metadata only. Configuration values never leave backend."""
+    from app.sdk.plugin import PluginManager
+    from app.sdk.events import eventmanager
+    from app.sdk.scheduler import list_scheduler_jobs
+    from app.schemas.types import ChainEventType,EventType
+    manager=PluginManager();generation=manager.get_plugin_runtime_generation();plugins=[];services=[]
+    runtime=manager.running_plugins
+    ids=set(manager.get_plugin_ids())|set(manager.get_plugin_instances())|set(manager.get_running_plugin_ids())
+    if len(ids)>500:raise ValueError('OWNER_INVENTORY_LIMIT')
+    for pid in sorted(ids):
+        instance=runtime.get(pid);cls=type(instance) if instance is not None else None
+        plugins.append(dict(id=pid,source=manager.get_plugin_source_id(pid),
+            prefix=cls.__module__+'.'+cls.__qualname__ if cls else '',active=manager.get_plugin_state(pid) is True,
+            version=str(getattr(instance,'plugin_version','')),config=manager.get_plugin_config(pid) or {},
+            loaded=instance is not None,
+            api_paths=sorted(a['path'] for a in manager.get_plugin_apis(pid)),
+            commands=sorted(str(c.get('cmd','')) for c in manager.get_plugin_commands(pid))))
+        for service in manager.get_plugin_services(pid):
+            callback=service.get('func')
+            services.append(dict(instance_id=pid,id=service.get('id'),callable=callable(callback),
+                handler=(callback.__module__+'.'+callback.__qualname__) if callable(callback) else '',
+                kwargs=safe(service.get('kwargs',{})),func_kwargs=safe(service.get('func_kwargs',{}))))
+    jobs=[{'id':str(getattr(j,'id','')),'status':str(getattr(j,'status',''))} for j in list_scheduler_jobs()]
+    handlers=eventmanager.visualize_handlers()
+    if len(handlers)>5000 or len(jobs)>5000:raise ValueError('OWNER_INVENTORY_LIMIT')
+    if generation!=manager.get_plugin_runtime_generation():raise ValueError('OWNER_RUNTIME_CHANGED')
+    return dict(generation=generation,plugins=plugins,services=services,jobs=jobs,handlers=handlers,
+                event_types={'name_bridge':ChainEventType.NameRecognize.value,'chat':EventType.UserMessage.value})
+
+
+class Migration:
+    def __init__(self,repository,configuration,secrets,inventory):
+        self.repository,self.configuration,self.secrets,self.inventory=repository,configuration,secrets,inventory
+
+    def _load(self,identity,kind=None):
+        with self.repository.connection() as db:row=db.execute('SELECT * FROM migration_receipts WHERE id=?',(identity,)).fetchone()
+        if not row or kind and row['kind']!=kind:raise ValueError('RECEIPT_NOT_FOUND')
+        return dict(row,data=json.loads(row['data']))
+
+    def _save(self,row):
+        with self.repository.connection(write=True) as db:
+            changed=db.execute('UPDATE migration_receipts SET revision=revision+1,state=?,data=?,updated_at=? WHERE id=? AND revision=?',
+                (row['state'],json.dumps(row['data']),utcnow(),row['id'],row['revision'])).rowcount
+            if changed!=1:raise ValueError('STALE_RECEIPT')
+        return self.receipt(row['id'])
+
+    def receipt(self,identity):
+        row=self._load(identity);data=row['data']
+        return dict(receipt_id=row['id'],kind=row['kind'],revision=row['revision'],digest=row['digest'],state=row['state'],
+            **{k:data[k] for k in ('snapshot_ref','source_instance','source_version','fields','diagnostics','private_refs',
+                'requested_features','memory_cache_restored','history_count','cursor','features','steps','next_changes',
+                'read_scope','result_receipt_id','proposed_config','policy_candidates') if k in data})
+
+    def _new(self,identity,kind,checksum,state,data):
+        with self.repository.connection(write=True) as db:
+            db.execute('INSERT OR IGNORE INTO migration_receipts VALUES(?,?,?,?,?,?,?)',(identity,kind,1,checksum,state,json.dumps(data),utcnow()))
+        return self.receipt(identity)
+
+    def preview_import(self,raw,source_instance,source_version,timezone,actor):
+        reference=self.secrets.put_snapshot(raw)
+        data,preview,secrets=normalize(raw,self.secrets,timezone)
+        checksum=digest([reference,source_instance,source_version,timezone,1]);identity='import-'+checksum[:32]
+        # Full raw, prompts, keys and unknown fields remain byte-exact privately.
+        # Receipt only exposes mapped values after redaction; config is internal.
+        preview.update(snapshot_ref=reference,source_instance=source_instance,source_version=source_version,timezone=timezone,
+            base_digest=self.configuration.view()['digest'],cursor=0,config_applied=False,operations={},actor=actor)
+        proposal=merge(self.configuration.view()['config'],preview['config'])
+        proposal=merge(proposal,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'chat_enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
+        preview['proposed_config']=self.configuration.validate(proposal)
+        return self._new(identity,'IMPORT',checksum,'PREVIEW',preview)
+
+    def preview_source(self,endpoint_ref,credential_ref,instance,ranges,actor):
+        import ipaddress
+        base=self.secrets.resolve(endpoint_ref).rstrip('/');parts=urlsplit(base)
+        if (parts.scheme not in ('http','https') or not parts.hostname or parts.username or parts.password
+                or parts.path or parts.query or parts.fragment or instance!='DoubanRankPlusOptimized'):
+            raise ValueError('LEGACY_READ_SCOPE_UNSUPPORTED')
+        self.secrets.resolve(credential_ref)
+        if len(ranges)>8:raise ValueError('LEGACY_PRIVATE_SCOPE_LIMIT')
+        ranges=[str(ipaddress.ip_network(r,strict=False)) for r in ranges]
+        scope=dict(origin=parts.scheme+'://'+parts.netloc,instance_id=instance,
+                   methods=['GET'],paths=['/api/v1/plugin/'+instance+'/migrate-config','/api/v1/plugin/'+instance+'/migrate-history'],
+                   private_ranges=ranges,redirects=0,requests=2,response_bytes=2097152,timeout_seconds=15)
+        checksum=digest([scope,endpoint_ref,credential_ref,self.configuration.view()['digest']])
+        return self._new('source-'+uuid4().hex,'SOURCE',checksum,'PREVIEW',dict(read_scope=scope,endpoint_ref=endpoint_ref,
+            credential_ref=credential_ref,operations={},actor=actor,config_digest=self.configuration.view()['digest']))
+
+    async def read_source(self,identity,revision,checksum,operation,actor,*,read=read_legacy_source):
+        row=self._load(identity,'SOURCE');data=row['data']
+        if operation in data['operations']:
+            if data['operations'][operation]!=checksum:raise ValueError('OPERATION_CONFLICT')
+            return self.receipt(identity)
+        if row['revision']!=revision or row['digest']!=checksum or data['config_digest']!=self.configuration.view()['digest']:raise ValueError('STALE_SOURCE_PREVIEW')
+        scope=data['read_scope'];bodies=await read(self.secrets.resolve(data['endpoint_ref']).rstrip('/'),
+            self.secrets.resolve(data['credential_ref']),scope['instance_id'],scope['private_ranges'])
+        if data['config_digest']!=self.configuration.view()['digest']:raise ValueError('SOURCE_CONFIG_CHANGED')
+        if len(bodies)!=2:raise ValueError('LEGACY_READ_SHAPE')
+        refs=[self.secrets.put_snapshot(b) for b in bodies]
+        try:
+            config,history=(json.loads(b) for b in bodies)
+            if not isinstance(config,dict) or not isinstance(history,list) or config.get('success') is False:raise ValueError()
+        except (ValueError,TypeError):raise ValueError('LEGACY_READ_SHAPE') from None
+        preview=self.preview_import(json.dumps({'discovery':config,'history':history},ensure_ascii=False).encode(),
+                                    scope['instance_id'],'unknown; adapter contract 1.0.7',None,actor)
+        data['private_refs']=dict(config_response=refs[0],history_response=refs[1])
+        data['result_receipt_id']=preview['receipt_id'];data['operations'][operation]=checksum;row['state']='READ_DONE'
+        return self._save(row)
+
+    def import_page(self,identity,revision,checksum,cursor,limit,operation,actor):
+        row=self._load(identity,'IMPORT');data=row['data'];signature=digest([cursor,limit,checksum])
+        if operation in data['operations']:
+            if data['operations'][operation]!=signature:raise ValueError('OPERATION_CONFLICT')
+            return self.receipt(identity)
+        if len(data['operations'])>=1000:raise ValueError('OPERATION_LIMIT')
+        if row['revision']!=revision or row['digest']!=checksum or cursor!=data['cursor']:raise ValueError('STALE_IMPORT')
+        if type(limit)is not int or not 1<=limit<=100:raise ValueError('IMPORT_PAGE_LIMIT')
+        raw=self.secrets.read_snapshot(data['snapshot_ref']);original,_,secrets=normalize(raw,self.secrets,data['timezone'])
+        if not data['config_applied']:
+            self.configuration.import_disabled(data['config'],data['base_digest'],actor)
+            data['config_applied']=True;data['imported_config_digest']=self.configuration.view()['digest']
+        rows=original.get('history',[]);end=min(cursor+limit,len(rows))
+        with self.repository.connection(write=True) as db:
+            current=db.execute('SELECT revision FROM migration_receipts WHERE id=?',(identity,)).fetchone()
+            if current[0]!=revision:raise ValueError('STALE_IMPORT')
+            for ordinal in range(cursor,end):
+                projected=history_row(rows[ordinal],ordinal,data['snapshot_ref'],data['timezone'],secrets)
+                db.execute('INSERT OR IGNORE INTO migration_history VALUES(?,?,?,?)',(identity,ordinal,projected['digest'],json.dumps(projected)))
+            data['cursor']=end;data['operations'][operation]=signature
+            state='IMPORTED' if end==len(rows) else 'IMPORTING'
+            db.execute('UPDATE migration_receipts SET revision=revision+1,state=?,data=?,updated_at=? WHERE id=? AND revision=?',
+                (state,json.dumps(data),utcnow(),identity,revision))
+            self.repository._audit(db,None,'LEGACY_IMPORT_PAGE:'+identity,str(actor)[:128])
+        return self.receipt(identity)
+
+    def history(self,identity,limit,offset):
+        if not 1<=limit<=100 or offset<0:raise ValueError('HISTORY_PAGE_LIMIT')
+        self._load(identity,'IMPORT')
+        with self.repository.connection() as db:return [json.loads(r[0]) for r in db.execute('SELECT data FROM migration_history WHERE receipt_id=? ORDER BY ordinal LIMIT ? OFFSET ?',(identity,limit,offset))]
+
+    def feature(self,module,route_scope):
+        if module not in MODULES:raise ValueError('UNKNOWN_FEATURE')
+        config=self.configuration.view()['config'];key='discovery' if module=='discovery' else 'ai_assist'
+        if module=='discovery':
+            if not isinstance(route_scope,str) or route_scope not in {s['id'] for s in config[key]['sources']}:raise ValueError('SOURCE_SCOPE_UNKNOWN')
+        elif module=='name_bridge':
+            if route_scope!={'event':'NameRecognize'}:raise ValueError('NAME_SCOPE_INVALID')
+        elif module=='chat':
+            if route_scope not in config[key]['chat_routes']:raise ValueError('CHAT_SCOPE_UNKNOWN')
+        elif route_scope!='internal':raise ValueError('ASSISTANCE_SCOPE_INVALID')
+        checksum=discovery_digest(config[key]) if module=='discovery' else digest(config[key])
+        return dict(module=module,instance_id=self.configuration.instance_id,config_digest=checksum,route_scope=route_scope)
+
+    def _enabled(self,feature,config):
+        if feature['module']=='discovery':return config.get('discovery',{}).get('enabled') is True
+        ai=config.get('ai_assist',{})
+        return ai.get('enabled') is True and ai.get({'name_bridge':'name_recognize_bridge','name_assistance':'name_assistance_enabled','chat':'chat_enabled'}[feature['module']]) is True
+
+    def owner_snapshot(self,module,instance_id,config_digest,route_scope):
+        expected=self.feature(module,route_scope)
+        if expected!=dict(module=module,instance_id=instance_id,config_digest=config_digest,route_scope=route_scope):raise ValueError('FEATURE_CONFIG_CHANGED')
+        inventory=self.inventory();plugins=inventory['plugins'];own=next((p for p in plugins if p['id']==instance_id),None)
+        if not own:raise ValueError('OWN_INSTANCE_MISSING')
+        config=self.configuration.view()['config'];key='discovery' if module=='discovery' else 'ai_assist'
+        overlaps=[];unknown=[]
+        checksum=discovery_digest(own['config'].get(key,{})) if module=='discovery' else digest(own['config'].get(key,{}))
+        if checksum!=config_digest:unknown.append('own_config_changed')
+        if (not self.configuration.ready or not own['active'] or own['config'].get('enabled') is not True or own['config'].get('dry_run') is not False
+                or not self._enabled(expected,own['config'])):unknown.append('own_feature_inactive')
+        if module in {'name_bridge','chat'}:
+            # Match the real enum values supplied in the public inventory.
+            from_event='NameRecognize' if module=='name_bridge' else 'UserMessage'
+            event=inventory.get('event_types',{}).get(module,from_event)
+            own_handler=own['prefix']+('.ai_name' if module=='name_bridge' else '.ai_message')
+            projected=owner_projection(inventory['handlers'],plugins,module,event,own_handler,expected)
+            overlaps.extend(projected['overlaps']);unknown.extend(projected['unclassified'])
+            # Legacy partial flags have no public runtime readback. Saved false
+            # plus an enabled responder cannot prove init applied the change.
+            # Do not inspect private flags or disable an unselected feature.
+            for p in plugins:
+                if p['source']!='ChatGPTPlusUltra' or not p['active']:continue
+                key='recognize' if module=='name_bridge' else 'chat_enabled'
+                if not flag(p['config'].get(key,p['config'].get('enabled') if module=='chat' else False)) and any(
+                        h.get('event_type')==event and h.get('status')=='enabled' and
+                        h.get('handler_identifier','').startswith(p['prefix']+'.') for h in inventory['handlers']):
+                    unknown.append('LEGACY_RUNTIME_FLAGS_UNVERIFIED:'+p['id'])
+        for p in plugins:
+            if p['id']==instance_id:continue
+            if p['source'] in ('ChatGPTPlusUltra','DoubanRankPlusOptimized') and any(
+                    k in p['config'] and type(p['config'][k])is not bool for k in ('enabled','recognize','chat_enabled')):
+                unknown.append(p['id']+':invalid_switch')
+            if p['source']=='SubscriBetter' and self._enabled(expected,p['config']):
+                if module!='chat' or route_scope in p['config'].get('ai_assist',{}).get('chat_routes',[]):overlaps.append(p['id'])
+            if module=='discovery' and p['source']=='DoubanRankPlusOptimized':
+                services=[s for s in inventory['services'] if s['instance_id']==p['id']]
+                jobs=[j for j in inventory['jobs'] if j['id'].startswith(p['id']+'_')]
+                if flag(p['config'].get('enabled')) or services or jobs:overlaps.append(p['id'])
+            if p.get('loaded') is False and flag(p['config'].get('enabled')) and p['source'] in ('SubscriBetter','ChatGPTPlusUltra','DoubanRankPlusOptimized'):unknown.append(p['id']+':unloaded')
+        if module=='discovery':
+            own_services=[s for s in inventory['services'] if s['instance_id']==instance_id and s['id']=='SubscriBetter_discovery' and s['callable']]
+            if not own_services or not any(j['id']==instance_id+'_SubscriBetter_discovery' for j in inventory['jobs']):unknown.append('own_schedule_missing')
+            # Unknown scheduler providers cannot be proved harmless by a name.
+            classified={p['id'] for p in plugins}
+            if any(s['instance_id'] not in classified for s in inventory['services']):unknown.append('unclassified_service')
+            sources={p['id']:p['source'] for p in plugins}
+            if any(s['instance_id']!=instance_id and sources.get(s['instance_id']) not in
+                   {'SubscriBetter','DoubanRankPlusOptimized','CloudDriveDisk','P115Disk','ChatGPTPlusUltra'} for s in inventory['services']):
+                unknown.append('unclassified_scheduled_plugin')
+        projected=[{k:v for k,v in p.items() if k!='config'}|{'config_digest':digest(p['config'])} for p in plugins]
+        return dict(fingerprint=digest([expected,inventory['generation'],projected,inventory['handlers'],inventory['services'],inventory['jobs']]),
+                    overlaps=sorted(set(overlaps)),unclassified=sorted(set(unknown)))
+
+    def preview_cutover(self,features,selected,actor):
+        if not features or len(features)>100 or len(selected)>30:raise ValueError('CUTOVER_SCOPE_LIMIT')
+        for feature in features:
+            if feature!=self.feature(feature['module'],feature['route_scope']):raise ValueError('FEATURE_CONFIG_CHANGED')
+        inventory=self.inventory();plugins={p['id']:p for p in inventory['plugins']};steps=[]
+        for choice in selected:
+            pid=choice['instance_id'];p=plugins.get(pid)
+            if not p or choice['config_digest']!=digest(p['config']):raise ValueError('OLD_CONFIG_CHANGED')
+            if any(k in p['config'] and type(p['config'][k])is not bool for k in ('enabled','recognize','chat_enabled')):raise ValueError('OLD_SWITCH_INVALID')
+            if any(flag(p['config'].get(k)) for k in ACTIONS):raise ValueError('OLD_ONE_SHOT_RELOAD_UNSAFE')
+            module=choice['module'];changes={};before={}
+            if p['source']=='ChatGPTPlusUltra' and p['version']=='1.4.2' and module in {'name_bridge','chat'}:
+                key='recognize' if module=='name_bridge' else 'chat_enabled';changes[key]=False;before[key]=p['config'].get(key,flag(p['config'].get('enabled')) if key=='chat_enabled' else False)
+            elif p['source']=='DoubanRankPlusOptimized' and p['version']=='1.0.7' and module=='discovery' and choice.get('whole_instance') is True:
+                # Fixed version's cron + manual discovery are its entire running
+                # capability. Unknown version/partial sources cannot use this exception.
+                if choice.get('all_capabilities')!=['discovery']:raise ValueError('SELECTIVE_DISABLE_UNSUPPORTED')
+                if (not isinstance(p['config'].get('ranks',[]),list) or any(not isinstance(x,str) for x in p['config'].get('ranks',[]))
+                        or not isinstance(p['config'].get('rss_addrs',''),str)):raise ValueError('OLD_SOURCE_SCOPE_INVALID')
+                paths={x.rsplit('/',1)[-1] for x in p.get('api_paths',[])}
+                own_handlers=[h for h in inventory['handlers'] if h['handler_identifier'].startswith(p['prefix']+'.')]
+                services=[s for s in inventory['services'] if s['instance_id']==pid]
+                if (paths!={'delete_history','migrate-config','migrate-history'} or p.get('commands')!=[] or own_handlers
+                        or any(not s['callable'] or not s['handler'].endswith('.__start_task') for s in services)):
+                    raise ValueError('SELECTIVE_DISABLE_UNSUPPORTED')
+                changes={'enabled':False};before={'enabled':p['config'].get('enabled',False)}
+            else:raise ValueError('SELECTIVE_DISABLE_UNSUPPORTED')
+            if module not in {f['module'] for f in features}:raise ValueError('OLD_FEATURE_NOT_SELECTED')
+            after=merge(p['config'],changes)
+            baseline_ref=self.secrets.put_snapshot(json.dumps(p['config'],ensure_ascii=False,sort_keys=True).encode())
+            existing=next((s for s in steps if s['instance_id']==pid),None)
+            if existing:
+                if module in existing['modules']:raise ValueError('DUPLICATE_SELECTED_FEATURE')
+                existing['modules'].append(module);existing['changes'].update(changes);existing['before'].update(before)
+                existing['after_digest']=digest(merge(p['config'],existing['changes']))
+                existing['restore_digest']=digest(merge(p['config'],existing['before']))
+            else:
+                steps.append(dict(instance_id=pid,modules=[module],changes=changes,before=before,before_digest=digest(p['config']),
+                    after_digest=digest(after),restore_digest=digest(merge(p['config'],before)),baseline_ref=baseline_ref,
+                    capability_digest=capabilities(p),
+                    scope=dict(all_discovery_sources=bool(choice.get('whole_instance')),
+                        ranks=safe(p['config'].get('ranks',[])) if module=='discovery' else [],
+                        rss_line_digests=[digest(line) for line in str(p['config'].get('rss_addrs','')).splitlines() if line.strip()] if module=='discovery' else []),
+                    state='WAIT_HOST_SAVE',receipt_id=None,whole_instance=choice.get('whole_instance',False)))
+        checksum=digest([features,steps,self.configuration.view()['digest']]);identity='cutover-'+uuid4().hex
+        return self._new(identity,'CUTOVER',checksum,'PREVIEW',dict(features=features,steps=steps,operations={},
+            config_digest=self.configuration.view()['digest'],actor=actor,next_changes=[dict(instance_id=s['instance_id'],changes=s['changes'],expected_digest=s['before_digest']) for s in steps]))
+
+    def advance(self,identity,revision,checksum,action,operation,actor):
+        row=self._load(identity,'CUTOVER');data=row['data'];signature=digest([action,checksum])
+        if operation in data['operations']:
+            if data['operations'][operation]!=signature:raise ValueError('OPERATION_CONFLICT')
+            return self.receipt(identity)
+        if len(data['operations'])>=1000:raise ValueError('OPERATION_LIMIT')
+        if row['revision']!=revision or row['digest']!=checksum:raise ValueError('STALE_CUTOVER')
+        if action=='rollback':
+            # Durable fence FIRST, before suggesting any host Save or old restore.
+            row['state']='ROLLBACK_FENCED';changes={}
+            for f in data['features']:
+                if f['module']=='discovery':changes=merge(changes,{'discovery':{'enabled':False}})
+                else:changes=merge(changes,{'ai_assist':{{'name_bridge':'name_recognize_bridge','chat':'chat_enabled','name_assistance':'name_assistance_enabled'}[f['module']]:False}})
+            data['next_changes']=[dict(instance_id=self.configuration.instance_id,changes=changes,expected_digest=self.configuration.view()['digest'])]
+        elif action=='rollback_readback':
+            if row['state'] not in ('ROLLBACK_FENCED','ROLLBACK_RESTORE'):raise ValueError('ROLLBACK_NOT_FENCED')
+            inventory=self.inventory();plugins={p['id']:p for p in inventory['plugins']};own=plugins.get(self.configuration.instance_id)
+            if not own or any(self._enabled(f,own['config']) for f in data['features']):raise ValueError('NEW_FEATURE_STILL_ENABLED')
+            patches=[];registration_pending=False;legacy_runtime_unknown=False
+            for step in data['steps']:
+                p=plugins.get(step['instance_id'])
+                if not p:raise ValueError('OLD_INSTANCE_MISSING')
+                if capabilities(p)!=step['capability_digest']:raise ValueError('OLD_CAPABILITIES_CHANGED')
+                if digest(p['config'])==step['restore_digest']:
+                    if flag(p['config'].get('enabled')):
+                        for module in step['modules']:
+                            if module=='discovery':
+                                services=[s for s in inventory['services'] if s['instance_id']==p['id'] and s['callable']]
+                                if not services or not any(j['id']==p['id']+'_'+s['id'] for j in inventory['jobs'] for s in services):registration_pending=True
+                            elif flag(step['before'].get('recognize' if module=='name_bridge' else 'chat_enabled')):
+                                # The same public flag gap applies to restoration:
+                                # an enabled decorator is not proof init restored
+                                # a selected internal runtime switch.
+                                legacy_runtime_unknown=True;registration_pending=True
+                                event=inventory.get('event_types',{}).get(module,'NameRecognize' if module=='name_bridge' else 'UserMessage')
+                                if not any(h['event_type']==event and h['status']=='enabled' and h['handler_identifier'].startswith(p['prefix']+'.') for h in inventory['handlers']):registration_pending=True
+                    step['state']='WAIT_REGISTRATION' if registration_pending else 'RESTORED';continue
+                if digest(p['config'])!=step['after_digest']:raise ValueError('ROLLBACK_CONFIG_CONFLICT')
+                patches.append(dict(instance_id=p['id'],changes=step['before'],expected_digest=step['after_digest']))
+            data['next_changes']=patches;row['state']='ROLLBACK_RESTORE' if patches or registration_pending else 'ROLLED_BACK'
+            data['diagnostics']=['OLD_REGISTRATION_NOT_CONFIRMED'] if registration_pending else []
+            if legacy_runtime_unknown:data['diagnostics'].append('LEGACY_RUNTIME_FLAGS_UNVERIFIED')
+        elif action=='activate':
+            if row['state'] not in ('PREVIEW','WAIT_HOST_SAVE','WAIT_OWNER','ACTIVE'):raise ValueError('CUTOVER_NOT_ACTIVATABLE')
+            if self.configuration.view()['digest']!=data['config_digest']:raise ValueError('CUTOVER_CONFIG_CHANGED')
+            inventory=self.inventory();plugins={p['id']:p for p in inventory['plugins']}
+            pending=[]
+            for step in data['steps']:
+                p=plugins.get(step['instance_id'])
+                if not p:raise ValueError('OLD_INSTANCE_MISSING')
+                if capabilities(p)!=step['capability_digest']:raise ValueError('OLD_CAPABILITIES_CHANGED')
+                observed=digest(p['config'])
+                if observed!=step['after_digest']:
+                    if observed==step['before_digest']:pending.append(step);continue
+                    raise ValueError('OLD_CONFIG_CHANGED')
+                step['state']='CONFIG_READBACK';step['receipt_id']=identity+':'+step['instance_id']
+            data['next_changes']=[dict(instance_id=s['instance_id'],changes=s['changes'],expected_digest=s['before_digest']) for s in pending]
+            row['state']='WAIT_HOST_SAVE'
+            if not pending:
+                fingerprints=[]
+                for f in data['features']:
+                    fresh=self.owner_snapshot(**f)
+                    if fresh['overlaps'] or fresh['unclassified']:
+                        row['state']='WAIT_OWNER';data['diagnostics']=['OWNER_NOT_UNIQUE',*fresh['unclassified']];break
+                    fingerprints.append(fresh['fingerprint'])
+                else:
+                    row['state']='ACTIVE';data['diagnostics']=[]
+                    data['verified_at']=utcnow();data['verified_by']=actor
+                    data['readback_fingerprints']=fingerprints
+        else:raise ValueError('CUTOVER_ACTION_INVALID')
+        data['operations'][operation]=signature
+        return self._save(row)
+
+    def unique_owner(self,module,instance_id,config_digest,route_scope):
+        expected=dict(module=module,instance_id=instance_id,config_digest=config_digest,route_scope=route_scope)
+        if not self.configuration.ready:return None
+        with self.repository.connection() as db:
+            rows=list(db.execute("SELECT id,state,data FROM migration_receipts WHERE kind='CUTOVER' ORDER BY updated_at DESC LIMIT 100"))
+        for row in rows:
+            data=json.loads(row['data'])
+            if expected not in data['features']:continue
+            if row['state']=='PREVIEW':continue
+            if row['state']!='ACTIVE' or data['config_digest']!=self.configuration.view()['digest']:return None
+            try:
+                inventory=self.inventory();plugins={p['id']:p for p in inventory['plugins']}
+                if any(s['instance_id'] not in plugins or digest(plugins[s['instance_id']]['config'])!=s['after_digest']
+                    or capabilities(plugins[s['instance_id']])!=s['capability_digest'] for s in data['steps']):return None
+                fresh=self.owner_snapshot(**expected)
+                if fresh['overlaps'] or fresh['unclassified']:return None
+                return owner_receipt(row['id'],**expected,fingerprint=fresh['fingerprint'],disabled=[s['receipt_id'] for s in data['steps']])
+            except Exception:return None
+        return None

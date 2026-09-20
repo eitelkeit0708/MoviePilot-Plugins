@@ -451,6 +451,8 @@ class PluginTests(unittest.TestCase):
         class Base:
             def get_data_path(self):
                 return self.data_path
+            def update_config(self,config):
+                self.saved_config=config
         for name, values in {
             "app": {}, "app.sdk": {}, "app.sdk.plugin": {"_PluginBase": Base},
             "app.sdk.events": {"eventmanager": manager},
@@ -480,6 +482,14 @@ class PluginTests(unittest.TestCase):
         self.plugin = self.mod.SubscriBetter()
         self.plugin.data_path = Path(self.tmp.name)
         self.plugin.init_plugin({})
+        # Existing lifecycle checks use the same safe preflight now required by
+        # native Save. New configuration tests exercise bypassed writes directly.
+        original=self.plugin.init_plugin
+        def validated_save(config):
+            current=self.plugin.configuration.view()
+            preview=self.plugin.configuration.preview(config or {},current['revision'],current['digest'],'unit-admin')
+            return original(preview['config'] if preview['valid'] else config)
+        self.plugin.init_plugin=validated_save
 
     def test_T150_reload_single_listener_default_safe_and_stale_job(self):
         self.assertFalse(self.plugin.get_state())
@@ -611,11 +621,17 @@ class PluginTests(unittest.TestCase):
             self.plugin.diagnostics(user=self.TokenPayload(super_user=False))
 
     def test_W09_discovery_config_api_and_host_scheduler_are_wired_default_unbound(self):
+        from unittest.mock import patch
+        cron = types.ModuleType("apscheduler.triggers.cron")
+        cron.CronTrigger = types.SimpleNamespace(from_crontab=lambda value: ("cron", value))
         config = {"enabled": True, "dry_run": False, "discovery": {
             "enabled": True, "rsshub_base_url": "http://rss.internal:1200/proxy/rsshub",
             "cron": "15 7 * * *", "sources": [
                 {"id": "weekly", "kind": "rsshub", "route_key": "movie_weekly_best"}]}}
-        self.plugin.init_plugin(config)
+        with patch.dict(sys.modules, {"apscheduler": types.ModuleType("apscheduler"),
+                                      "apscheduler.triggers": types.ModuleType("apscheduler.triggers"),
+                                      "apscheduler.triggers.cron": cron}):
+            self.plugin.init_plugin(config)
         self.assertNotIn("INVALID_DISCOVERY_CONFIG", self.plugin.errors)
         apis = {api["path"]: api for api in self.plugin.get_api()}
         paths = set(apis)

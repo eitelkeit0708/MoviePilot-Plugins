@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 9:
+            if revision > 10:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -174,6 +174,11 @@ class Repository:
                     "PRAGMA user_version=9",
                 ):
                     db.execute(statement)
+
+            if revision < 10:
+                db.execute("CREATE TABLE migration_receipts (id TEXT PRIMARY KEY, kind TEXT NOT NULL, revision INTEGER NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL, updated_at TEXT NOT NULL)")
+                db.execute("CREATE TABLE migration_history (receipt_id TEXT NOT NULL REFERENCES migration_receipts(id), ordinal INTEGER NOT NULL, digest TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(receipt_id,ordinal))")
+                db.execute("PRAGMA user_version=10")
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:

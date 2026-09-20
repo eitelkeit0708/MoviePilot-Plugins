@@ -53,6 +53,20 @@ class AITests(unittest.TestCase):
         self.addCleanup(runtime.close)
         return runtime
 
+    def test_internal_assistance_requires_fresh_owner_before_network_and_cache(self):
+        runtime=self.runtime();runtime.assistance_gate=lambda:False
+        self.assertEqual('owner_not_unique',runtime.extract('Example').reason)
+        self.assertEqual([],self.requests)
+        runtime.assistance_gate=lambda:True
+        self.assertIsNotNone(runtime.extract('Example').identity)
+        self.assertEqual(1,len(self.requests))
+        runtime.assistance_gate=lambda:False
+        self.assertEqual('owner_not_unique',runtime.extract('Example').reason)
+        self.assertEqual(1,len(self.requests))
+        def unavailable():raise RuntimeError('public snapshot unavailable')
+        runtime.assistance_gate=unavailable
+        self.assertEqual('owner_not_unique',runtime.extract('Example').reason)
+
     def test_strict_schema_and_grounded_source_boundaries(self):
         invalid = ['[]','null','42','"hello"','',None,'{','{"name":null,"year":null}',
                    '{"name":"Example","year":2024}', '{"name":"Example","year":"","season":0}',
@@ -263,7 +277,9 @@ class AITests(unittest.TestCase):
         PluginTests.setUpClass()
         plugin=PluginTests.mod.SubscriBetter();plugin.data_path=Path(self.tmp.name)/'plugin';plugin.data_path.mkdir()
         plugin.init_plugin({'enabled':True,'dry_run':False,'ai_assist':{'timeout':0}})
-        self.assertTrue(plugin.running);self.assertEqual(['INVALID_AI_CONFIG'],plugin.ai_errors)
+        self.assertFalse(plugin._ordinary_work_active())
+        self.assertIn('INVALID_OR_STALE_CONFIG',plugin.errors)
+        self.assertIsNotNone(plugin.ownership);self.assertIsNotNone(plugin.guard)
         self.assertIsNone(plugin.ai)
         plugin.init_plugin({'enabled':True,'dry_run':False})
         self.assertEqual([],plugin.ai_errors)

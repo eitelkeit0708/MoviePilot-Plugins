@@ -481,6 +481,45 @@ class SecretStore:
                 except FileNotFoundError: pass
                 os.close(directory)
 
+    def put_snapshot(self, value):
+        """Immutable byte-exact bounded imports in the same private directory."""
+        if not isinstance(value,bytes) or not 1<=len(value)<=2097152:
+            raise ValueError('PRIVATE_SNAPSHOT_SIZE')
+        key=hashlib.sha256(value).hexdigest();name='migration-'+key+'.raw'
+        with self.lock:
+            directory=self._directory()
+            try:
+                if name not in os.listdir(directory) and sum(x.startswith('migration-') and x.endswith('.raw') for x in os.listdir(directory))>=64:
+                    raise ValueError('PRIVATE_SNAPSHOT_CAPACITY')
+                try:fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory)
+                except FileExistsError:
+                    if self._snapshot(directory,name)!=value:raise ValueError('PRIVATE_SNAPSHOT_CONFLICT')
+                else:
+                    with os.fdopen(fd,'wb') as file:
+                        os.fchmod(file.fileno(),0o600);file.write(value);file.flush();os.fsync(file.fileno())
+                    os.fsync(directory)
+            finally:os.close(directory)
+        return 'snapshot:'+key
+
+    @staticmethod
+    def _snapshot(directory,name):
+        fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=directory)
+        with os.fdopen(fd,'rb') as file:
+            info=os.fstat(file.fileno())
+            if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode)!=0o600
+                    or info.st_nlink!=1 or info.st_uid!=os.geteuid() or not 1<=info.st_size<=2097152):
+                raise ValueError('UNSAFE_PRIVATE_SNAPSHOT')
+            value=file.read(2097153)
+        if hashlib.sha256(value).hexdigest()!=name[10:-4]:raise ValueError('PRIVATE_SNAPSHOT_CHANGED')
+        return value
+
+    def read_snapshot(self,reference):
+        if not isinstance(reference,str) or not re.fullmatch('snapshot:[a-f0-9]{64}',reference):raise ValueError('PRIVATE_SNAPSHOT_REFERENCE')
+        with self.lock:
+            directory=self._directory()
+            try:return self._snapshot(directory,'migration-'+reference[9:]+'.raw')
+            finally:os.close(directory)
+
 
 def legacy_preview(data):
     """Nonsecret intended feature settings; W10 separately authorizes activation."""
@@ -600,13 +639,14 @@ def host_owner_snapshot(plugin,module,instance_id,config_digest,route_scope):
 class AIService:
     def __init__(self,repository,config,client_factory,credential_resolver,*,generation,
                  current,instance_id='SubscriBetter',proxy=None,clock=time.time,
-                 owner_check=None,owner_snapshot=None,notify=None):
+                 owner_check=None,owner_snapshot=None,notify=None,assistance_gate=None):
         config=config.model_copy(deep=True)
         self.repository,self.config=repository,config
         self.factory,self.resolve=client_factory,credential_resolver
         self.generation,self.current,self.instance_id=generation,current,instance_id
         self.clock,self.proxy=clock,proxy
         self.owner_check,self.owner_snapshot,self.notify=owner_check,owner_snapshot,notify
+        self.assistance_gate=assistance_gate
         self.config_digest=digest(config.model_dump())
         self.scope=digest([instance_id,self.config_digest])
         self.lock=RLock();self.closed=False;self.epoch=0
@@ -679,6 +719,12 @@ class AIService:
     def extract(self,title,subtitle='',*,context=None,parser_revision='',team=None,gate=None,started=None):
         started=time.monotonic() if started is None else started;result=Result(generation=self.generation)
         if not self.live() or not self.config.name_assistance_enabled:return result
+        if self.assistance_gate is not None:
+            prior_gate=gate
+            def gate():
+                try:return bool(self.assistance_gate()) and (prior_gate is None or prior_gate())
+                except Exception:return False
+            if not gate():return Result(reason='owner_not_unique')
         if (not usable_title(title) or not isinstance(subtitle,(str,type(None))) or len(subtitle or '')>4096
                 or any(unicodedata.category(c)=='Cs' for c in (subtitle or ''))):
             result.reason='invalid_title';return result

@@ -20,18 +20,9 @@ from .execution import TransferGuard
 from .candidates import CandidateService, HostCandidateAdapter
 from .ai import AIConfig, AIService, SecretStore
 from .discovery import DiscoveryConfig, DiscoveryService, HostRSSFetcher, SourceConfig
-
-
-class Config(BaseModel):
-    model_config = ConfigDict(extra="forbid", strict=True)
-    enabled: bool = False
-    dry_run: bool = True
-    auto_types: list[Literal["电影", "电视剧"]] = Field(default_factory=list, max_length=2)
-    enhance_host_meta: bool = False
-    meta_protected_names: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=100)
-    delivery: dict = Field(default_factory=dict)
-    ai_assist: dict = Field(default_factory=dict)
-    discovery: dict = Field(default_factory=dict)
+from .configuration import Config, Configuration, host_references
+from .migration import Migration, collect_host
+from .management import Management
 
 
 class IntentRequest(BaseModel):
@@ -186,12 +177,14 @@ class SubscriBetter(_PluginBase):
             self.errors = []
             self.running = False
             try:
-                self.config = Config.model_validate(config or {})
-            except ValueError:
-                self.config = Config()
-                self.errors.append("INVALID_CONFIG")
-            try:
                 self.repository = Repository(self.get_data_path() / "subscribetter.sqlite3")
+                self.secret_store=SecretStore(self.get_data_path())
+                self.configuration=Configuration(self.repository,self.__class__.__name__,self.secret_store,
+                    self.update_config,lambda config:host_references(config,self))
+                self.config=self.configuration.initialize(config or {})
+                self.errors.extend(self.configuration.errors)
+                self.migration=Migration(self.repository,self.configuration,self.secret_store,lambda:collect_host(self))
+                self.management=Management(self)
                 self.scheduler = Scheduler(self.repository)
                 self.authority = Authority(self.repository)
                 self.candidates = CandidateService(self.repository, HostCandidateAdapter())
@@ -199,7 +192,7 @@ class SubscriBetter(_PluginBase):
                 self.meta_corrector = MetaCorrector(self.config.meta_protected_names)
                 self.meta_service = MetaService(self.repository, self.meta_corrector)
                 self.meta_patch = MetaPatch(self.meta_corrector)
-                if self.config.enabled and not self.config.dry_run and self.config.enhance_host_meta:
+                if self.configuration.ready and self.config.enabled and not self.config.dry_run and self.config.enhance_host_meta:
                     try:
                         from app.chain.system import SystemChain
                         self.meta_patch.install(SystemChain.get_server_local_version())
@@ -238,10 +231,12 @@ class SubscriBetter(_PluginBase):
                             proxy=settings.PROXY.get('https') or settings.PROXY.get('http')
                         generation=self.generation
                         self.ai=AIService(self.repository,ai_config,httpx.Client,
-                            SecretStore(self.get_data_path()).resolve,generation=generation,
+                            self.secret_store.resolve,generation=generation,
                             current=lambda:self._ordinary_work_active() and self.generation==generation,
                             instance_id=self.__class__.__name__,proxy=proxy,
-                            owner_check=self._ai_owner,owner_snapshot=self._ai_snapshot,notify=self._ai_notify)
+                            owner_check=self._ai_owner,owner_snapshot=self._ai_snapshot,notify=self._ai_notify,
+                            assistance_gate=lambda:self._ai_owner('name_assistance',self.__class__.__name__,
+                                self.ai.config_digest,'internal') is not None)
                         self.candidates.ai=self.ai
                         if ai_config.name_recognize_bridge:self.ai_listeners.append((ChainEventType.NameRecognize,self.ai_name))
                         if ai_config.chat_enabled:self.ai_listeners.append((EventType.UserMessage,self.ai_message))
@@ -269,7 +264,11 @@ class SubscriBetter(_PluginBase):
                 self.running = not self.errors
                 self.errors.extend(f"SHELL_PAUSE_FAILED:{sid}" for sid in self.ownership.ensure_paused())
             except Exception:
+                if not hasattr(self,'config'):self.config=Config()
                 self.errors.append("INITIALIZATION_FAILED")
+                try:
+                    if self.update_config(self.config.model_dump()) is False:self.errors.append('SAFE_CONFIG_RESTORE_FAILED')
+                except Exception:self.errors.append('SAFE_CONFIG_RESTORE_FAILED')
             # Guard listeners stay installed when ordinary work is disabled.
             for event, callback in self._listeners():
                 eventmanager.add_event_listener(event, callback, priority=1)
@@ -302,6 +301,7 @@ class SubscriBetter(_PluginBase):
 
     def _ordinary_work_active(self) -> bool:
         return bool(getattr(self, "lifecycle_active", False) and self.running and not self.errors
+                    and getattr(getattr(self,'configuration',None),'ready',False)
                     and self.config.enabled and not self.config.dry_run)
 
     def stop_service(self):
@@ -352,8 +352,7 @@ class SubscriBetter(_PluginBase):
         return provider(*args) if callable(provider) else None
 
     def _ai_snapshot(self,module,instance_id,config_digest,route_scope):
-        from .ai import host_owner_snapshot
-        return host_owner_snapshot(self,module,instance_id,config_digest,route_scope)
+        return self._discovery_snapshot(module,instance_id,config_digest,route_scope)
 
     def _discovery_snapshot(self,module,instance_id,config_digest,route_scope):
         provider=getattr(getattr(self,'migration',None),'owner_snapshot',None)
@@ -676,8 +675,10 @@ class SubscriBetter(_PluginBase):
             ("/discovery/records","GET",self.discovery_records,dict),
             ("/discovery/reprocess","POST",self.discovery_reprocess,dict),
             ("/discovery/history/cleanup","POST",self.discovery_cleanup,dict)])
-        return [{"path": path, "methods": [method], "endpoint": endpoint, "response_model": model,
+        routes=[{"path": path, "methods": [method], "endpoint": endpoint, "response_model": model,
                  "auth": "bear", "summary": endpoint.__name__} for path, method, endpoint, model in definitions]
+        if getattr(self,'management',None):routes.extend(self.management.routes())
+        return routes
 
     def get_form(self):
         return [{"component": "VForm", "content": [
