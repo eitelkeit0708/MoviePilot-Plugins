@@ -59,7 +59,7 @@ W10 绑定 `plugin.migration.unique_owner(module, instance_id, config_digest, ro
 
 `SecretStore(plugin.get_data_path())` 的 `put(value)`／`resolve(reference)` 使用独立的 `ai-secrets.json`：POSIX 0600、当前用户、单链接、逐层拒绝符号链接、目录文件锁、原子替换与 fsync；最多 32 个引用、64 KiB。Windows 无法靠 chmod 保证 POSIX 权限，因此拒绝真实写入。W10 的管理员入口负责写入／轮换／导入，必须从导出中排除此文件。普通配置和 SQLite 仅存储引用、摘要、受限状态与计数。
 
-HTTPX 禁止自动重定向、启用 TLS 校验、禁用环境代理继承，显式配置代理。DeepSeek 配置发送 thinking disabled，仅名称提取额外发送 JSON 格式与零温度；generic 不发送这些扩展。401 才有限轮换并停用确认无效的密钥；429 尊重 Retry-After，其他错误不轮换。响应 envelope 最多 64 KiB，输出文本最多 8192 字符。
+HTTPX 禁止自动重定向、启用 TLS 校验、禁用环境代理继承，显式配置代理。DeepSeek 配置发送 thinking disabled，仅名称提取额外发送 JSON 格式与零温度；generic 不发送这些扩展。401 才有限轮换并停用确认无效的密钥；429 尊重 Retry-After，其他错误不轮换。请求声明 Accept-Encoding: identity，读取正文前拒绝非 identity 编码；raw 响应 envelope 最多 64 KiB，不经过自动解压，输出文本最多 8192 字符。
 
 SQLite schema 8 保存代次、请求预算、冷却与计数。进程重启不会盲目重试未决派发；换配置也不会越过同实例仍在途的请求。未决项显示为 `outcome_unknown` / `previous_runtime_draining`，需要 W10 管理恢复依据，不能靠清缓存消除。正结果缓存是内存数据；重启保留冷却但不声称迁移旧内存缓存。负结果期限跨重启保留。
 

@@ -36,9 +36,13 @@ class AITests(unittest.TestCase):
                 reply = self.replies.pop(0) if self.replies else '{"name":"Example","year":""}'
                 if callable(reply): reply = reply(request)
                 if isinstance(reply, Exception): raise reply
-                return reply if isinstance(reply, httpx.Response) else httpx.Response(200, json={
+                response=reply if isinstance(reply, httpx.Response) else httpx.Response(200, json={
                     'choices':[{'message':{'content':reply},'finish_reason':'stop'}],
                     'usage':{'prompt_tokens':7,'completion_tokens':2}})
+                # Real streamed HTTP responses have not been consumed by a JSON
+                # fixture constructor; preserve that raw transport boundary here.
+                return (httpx.Response(response.status_code,headers=response.headers,stream=httpx.ByteStream(response.content))
+                        if response.is_stream_consumed else response)
             client = httpx.Client(transport=httpx.MockTransport(handler), **kwargs)
             self.clients.append(client)
             return client
@@ -101,10 +105,14 @@ class AITests(unittest.TestCase):
         self.assertEqual('accepted',c.extract('Example').reason)
         self.assertEqual(['Bearer fiction-key','Bearer fiction-key-2'],[r.headers['authorization'] for r in self.requests])
         self.replies.append(httpx.Response(429,headers={'Retry-After':'600'}))
-        self.assertEqual('rate_limit',c.extract('Example Two').reason)
+        with self.assertLogs(self.m.__name__,level='WARNING') as logs:
+            self.assertEqual('rate_limit',c.extract('Example Two').reason)
+        self.assertEqual(['subscriBetter AI unavailable: rate_limit'],[record.getMessage() for record in logs.records])
         c.close()
         d=self.runtime(credential_refs=['secret:'+'b'*32,'secret:'+'c'*32])
-        self.assertEqual('rate_limit',d.extract('Example Three').reason)
+        with self.assertLogs(self.m.__name__,level='WARNING') as logs:
+            self.assertEqual('rate_limit',d.extract('Example Three').reason)
+        self.assertEqual(['subscriBetter AI unavailable: rate_limit'],[record.getMessage() for record in logs.records])
         self.assertEqual(3,len(self.requests)); self.assertGreaterEqual(d.stats()['cooldown_remaining'],600)
 
     def test_coalesced_calls_and_clear_fence_keep_real_resources(self):
@@ -296,7 +304,10 @@ class AITests(unittest.TestCase):
             with self.subTest(status=status):
                 c=self.runtime(model='test-'+str(status),credential_refs=['secret:'+'b'*32,'secret:'+'c'*32])
                 self.replies.append(httpx.Response(status));before=len(self.requests)
-                self.assertEqual(code,c.extract('Example').reason);self.assertEqual(before+1,len(self.requests))
+                with self.assertLogs(self.m.__name__,level='WARNING') as logs:
+                    self.assertEqual(code,c.extract('Example').reason)
+                self.assertEqual(['subscriBetter AI unavailable: '+code],[record.getMessage() for record in logs.records])
+                self.assertEqual(before+1,len(self.requests))
         self.assertEqual(600,self.m.AIService.retry_after('600',1000))
         self.assertEqual(600,self.m.AIService.retry_after('Thu, 01 Jan 1970 00:26:40 GMT',1000))
 
@@ -360,8 +371,10 @@ class AITests(unittest.TestCase):
         c=self.runtime(notifications=True);notices=[]
         def notify(message):notices.append(message);raise RuntimeError('fiction-secret')
         c.notify=notify;self.replies.append(httpx.Response(401,text='fiction-secret'))
-        self.assertEqual('authentication',c.extract('Example').reason)
-        c.extract('Example Two')
+        with self.assertLogs(self.m.__name__,level='WARNING') as logs:
+            self.assertEqual('authentication',c.extract('Example').reason)
+            c.extract('Example Two')
+        self.assertEqual(['subscriBetter AI unavailable: authentication'],[record.getMessage() for record in logs.records])
         self.assertEqual(['AI service: authentication'],notices)
         text=self.m.safe_text('https://x.invalid/private/path?passkey=secret Authorization: Bearer hidden\n'+chr(27)+' sk-abc123456',('hidden',))
         self.assertNotIn('private/path',text);self.assertNotIn('hidden',text);self.assertNotIn('abc123456',text)
@@ -415,6 +428,59 @@ class AITests(unittest.TestCase):
         self.assertEqual('invalid_response',c.extract('Example').reason)
         self.assertLess(content.consumed,100)
 
+    def test_review_R1_compressed_response_rejected_before_read_or_decode(self):
+        import gzip
+        compressed=gzip.compress(b' '*(1024*1024))
+        self.assertLess(len(compressed),2048)
+        class Content(httpx.SyncByteStream):
+            consumed=0
+            def __iter__(self):
+                self.consumed+=1
+                yield compressed
+        content=Content();c=self.runtime()
+        self.replies.append(httpx.Response(200,headers={'Content-Encoding':'gzip'},stream=content))
+        self.assertEqual('invalid_response',c.extract('Example').reason)
+        self.assertEqual(0,content.consumed,'reject encoding before HTTPX can receive/decompress the gzip block')
+        self.assertEqual('identity',self.requests[-1].headers['accept-encoding'])
+        self.assertEqual({},c.stats()['usage'])
+
+    def test_review_R2_roman_sequel_case_never_changes_identity_guard(self):
+        for numeral in ('II','ii'):
+            with self.subTest(numeral=numeral):
+                title=f'Rocky.{numeral}.1979.1080p'
+                self.assertEqual((None,'sequel_or_subtitle_lost'),
+                    self.m.inspect_identity('{"name":"Rocky","year":"1979"}',title))
+                retained={'name':'Rocky '+numeral,'year':'1979'}
+                self.assertEqual(retained,self.m.inspect_identity(json.dumps(retained),title)[0])
+
+    def test_review_R3_clear_fences_dequeued_message_before_chat_admission(self):
+        route=dict(channel='Telegram',source='bot',userid='7',chat_id='99')
+        c=self.runtime(chat_enabled=True,chat_routes=[route]);sent=[]
+        c.owner_check=lambda *args:self.m.owner_receipt('receipt',*args,fingerprint='a'*64)
+        c.owner_snapshot=lambda *args:dict(fingerprint='a'*64,overlaps=[],unclassified=[])
+        dequeued=threading.Event();resume=threading.Event();original_chat=c.chat
+        def paused_chat(text,scope,**kwargs):
+            if text=='old question?':
+                dequeued.set();self.assertTrue(resume.wait(3))
+            return original_chat(text,scope,**kwargs)
+        c.chat=paused_chat
+        c.enqueue_chat(NS(event_data=dict(route,text='old question?')),lambda **kw:sent.append(kw))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            worker=pool.submit(c.drain,None)
+            try:
+                self.assertTrue(dequeued.wait(2));self.assertEqual(0,c.stats()['queued'])
+                c.enqueue_chat(NS(event_data=dict(route,text='#清除')),lambda **kw:sent.append(kw))
+            finally:resume.set()
+            worker.result()
+        self.assertEqual([],self.requests)
+        self.assertEqual(['会话已清除'],[message['title'] for message in sent])
+        self.assertEqual(0,c.stats()['chat_sessions'])
+        self.replies.append('new answer')
+        c.enqueue_chat(NS(event_data=dict(route,text='new question?')),lambda **kw:sent.append(kw))
+        c.drain(None)
+        self.assertEqual(1,len(self.requests));self.assertEqual('new answer',sent[-1]['title'])
+        self.assertEqual(['new question?','new answer'],[message['content'] for message in c.sessions[self.m.digest(route)]])
+
     def test_dribbling_response_checks_elapsed_deadline_per_received_chunk(self):
         from unittest.mock import patch
         elapsed=[0.0]
@@ -425,8 +491,9 @@ class AITests(unittest.TestCase):
                     self.consumed+=1;elapsed[0]+=2
                     yield b' '
         content=Content();c=self.runtime(timeout=1);self.replies.append(httpx.Response(200,stream=content))
-        with patch.object(self.m.time,'monotonic',lambda:elapsed[0]):
+        with patch.object(self.m.time,'monotonic',lambda:elapsed[0]), self.assertLogs(self.m.__name__,level='WARNING') as logs:
             self.assertEqual('timeout',c.extract('Example').reason)
+        self.assertEqual(['subscriBetter AI unavailable: timeout'],[record.getMessage() for record in logs.records])
         self.assertEqual(1,content.consumed)
 
     @unittest.skipUnless(os.name=='posix','POSIX credential filesystem enforcement requires Linux')

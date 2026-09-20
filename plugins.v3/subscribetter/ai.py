@@ -345,7 +345,7 @@ def inspect_identity(content, title, subtitle='', team=None):
             or right<len(source) and source[right].isascii() and source[right].isalnum()):
         return None,'partial_name'
     tail=after.strip(' ._-')
-    if re.match(r'[:：]\s*\S',after.strip()) or re.match(r'(?:[0-9]{1,3}|[IVX]{1,6})(?![A-Za-z0-9])',tail):
+    if re.match(r'[:：]\s*\S',after.strip()) or re.match(r'(?:[0-9]{1,3}|[IVX]{1,6})(?![A-Za-z0-9])',tail,re.I):
         return None,'sequel_or_subtitle_lost'
     # A bracket with an explicit independent Chinese title outranks a release
     # group/English filename. Alias selection never appends another alias marker.
@@ -807,10 +807,12 @@ class AIService:
                     result.attempts+=1;result.source='api';sent=True
                     with self.repository.connection(write=True) as db:
                         self._bump(db,'api_calls');self._bump(db,'name_api_calls' if media else 'chat_api_calls')
-                    with client.stream('POST','chat/completions',json=params,headers={'Authorization':'Bearer '+secret},timeout=max(0.001,remaining())) as response:
+                    with client.stream('POST','chat/completions',json=params,headers={'Authorization':'Bearer '+secret,'Accept-Encoding':'identity'},timeout=max(0.001,remaining())) as response:
                         response.raise_for_status()
+                        if response.headers.get('content-encoding','identity').strip().lower()!='identity':
+                            raise ValueError('encoded response is not supported')
                         envelope=bytearray()
-                        for chunk in response.iter_bytes():
+                        for chunk in response.iter_raw():
                             if remaining()<=0:raise httpx.ReadTimeout('response deadline')
                             if len(envelope)+len(chunk)>65536:raise ValueError('response envelope too large')
                             envelope.extend(chunk)
@@ -897,7 +899,7 @@ class AIService:
                 cache_size=len(self.cache),inflight=len(self.pending),queued=len(self.queue)+len(self.chat_queue),
                 active_http=self.active,chat_sessions=len(self.sessions),generation=self.generation,recovery=recovery)
 
-    def chat(self,text,route,*,send,started=None):
+    def chat(self,text,route,*,send,started=None,expected_session_epoch=None,expected_epoch=None):
         if not self.live() or not self.config.chat_enabled:return Result(reason='disabled')
         try:scope=ChatRoute.model_validate({k:route[k] for k in ('channel','source','userid','chat_id')}).model_dump()
         except (ValueError,KeyError,TypeError):return Result(reason='route_not_authorized')
@@ -911,6 +913,9 @@ class AIService:
         key=digest(scope)
         clear_message=None
         with self.lock:
+            if (expected_session_epoch is not None and expected_session_epoch!=self.session_epochs.get(key,0)
+                    or expected_epoch is not None and expected_epoch!=self.epoch):
+                return Result(reason='stale_session')
             if text=='#清除':
                 self.sessions.pop(key,None);self.session_epochs[key]=self.session_epochs.get(key,0)+1
                 for queued in [k for k,v in self.chat_queue.items() if v[1]==scope]:self.chat_queue.pop(queued,None)
@@ -923,6 +928,8 @@ class AIService:
         if clear_message is not None:
             if gate():send(clear_message)
             return Result(reason='cleared')
+        owner_gate=gate
+        gate=lambda:owner_gate() and generation==self.epoch and epoch==self.session_epochs.get(key,0)
         try:
             messages=[{'role':'system','content':'请使用中文回复。仅普通文字对话，不调用工具或执行订阅、下载、修改规则、删除操作。'}]+history+[{'role':'user','content':text}]
             request_key=digest(['chat',scope,messages,self.config_digest,epoch,uuid4().hex])
@@ -1008,11 +1015,11 @@ class AIService:
             self.chat(text,route,send=outgoing.append)
             with self.lock:
                 if outgoing and len(self.queue)+len(self.chat_queue)<self.config.queue_size:
-                    self.chat_queue[uuid4().hex]=(outgoing[0],route,send,time.monotonic(),self.epoch)
+                    self.chat_queue[uuid4().hex]=(outgoing[0],route,send,time.monotonic(),self.epoch,self.session_epochs.get(digest(route),0))
             return
         with self.lock:
             if len(self.queue)+len(self.chat_queue)<self.config.queue_size:
-                self.chat_queue[uuid4().hex]=(text,route,send,time.monotonic(),self.epoch)
+                self.chat_queue[uuid4().hex]=(text,route,send,time.monotonic(),self.epoch,self.session_epochs.get(digest(route),0))
 
     def drain(self,meta_service):
         """Bounded host scheduled work; caller must not hold plugin runtime_lock."""
@@ -1037,8 +1044,9 @@ class AIService:
         for _ in range(self.config.queue_size):
             with self.lock:
                 if not self.chat_queue or not self.live():return
-                _,(text,route,send,started,epoch)=self.chat_queue.popitem(last=False)
+                _,(text,route,send,started,epoch,session_epoch)=self.chat_queue.popitem(last=False)
             if epoch==self.epoch and time.monotonic()-started<self.config.timeout:
                 if isinstance(text,dict):
-                    if self._owned('chat',route):send(**text)
-                else:self.chat(text,route,send=lambda message:send(**message),started=started)
+                    if self._owned('chat',route) and epoch==self.epoch and session_epoch==self.session_epochs.get(digest(route),0):send(**text)
+                else:self.chat(text,route,send=lambda message:send(**message),started=started,
+                               expected_session_epoch=session_epoch,expected_epoch=epoch)
