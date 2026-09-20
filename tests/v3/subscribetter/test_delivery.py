@@ -338,6 +338,41 @@ class DeliveryTests(unittest.TestCase):
             values={Path(r[0]).name:json.loads(r[1])['state'] for r in db.execute('SELECT path,data FROM local_observations')}
         self.assertEqual({'movie.mkv':'PRESENT','movie.zh.srt':'MISSING'},values)
 
+    def test_review_i4_legacy_checkpoint_wrong_source_retries_then_recovers(self):
+        scan=self.m.LocalReconciler(self.repo,[self.rule])
+        original_source=dict(root=self.m.identity(self.local.lstat())[:3],mount='original')
+        with patch.object(self.m,'local_source_identity',return_value=original_source):
+            self.assertEqual('COMPLETE',scan.scan('r',force=True)['state'])
+        # Legacy schema-7 scan stored root_identity, before mount proof existed.
+        with self.repo.connection(write=True) as db:
+            old=json.loads(db.execute("SELECT data FROM reconcile_checkpoints WHERE scope='local:r'").fetchone()[0])
+            del old['source_identity']
+            db.execute("UPDATE reconcile_checkpoints SET data=? WHERE scope='local:r'",(json.dumps(old),))
+            observations=[tuple(r) for r in db.execute('SELECT * FROM local_observations ORDER BY path')]
+        original=self.root/'original';self.local.rename(original);self.local.mkdir()
+        wrong_source=dict(root=self.m.identity(self.local.lstat())[:3],mount='wrong-underlying')
+        checkpoints=[]
+        for interval in (61,62):
+            scan=self.m.LocalReconciler(self.repo,[dict(self.rule,rapid_interval=interval)])
+            with patch.object(self.m,'local_source_identity',side_effect=OSError('unavailable')):
+                self.assertEqual('INCOMPLETE',scan.scan('r',force=True)['state'])
+            with patch.object(self.m,'local_source_identity',return_value=wrong_source):
+                checkpoints.append(scan.scan('r',force=True))
+            self.assertEqual('SOURCE_UNVERIFIED',checkpoints[-1]['state'])
+            with self.repo.connection() as db:
+                self.assertEqual(observations,[tuple(r) for r in db.execute('SELECT * FROM local_observations ORDER BY path')])
+        self.local.rmdir();original.rename(self.local);(self.local/'movie.zh.srt').unlink()
+        with patch.object(self.m,'local_source_identity',return_value=original_source):
+            restored=scan.scan('r',force=True)
+        self.assertEqual('COMPLETE',restored['state'])
+        self.assertEqual(original_source,restored['source_identity'])
+        for checkpoint in checkpoints:
+            self.assertNotIn('source_identity',checkpoint)
+            self.assertEqual(old['root_identity'],checkpoint['root_identity'])
+        with self.repo.connection() as db:
+            values={Path(r[0]).name:json.loads(r[1])['state'] for r in db.execute('SELECT path,data FROM local_observations')}
+        self.assertEqual({'movie.mkv':'PRESENT','movie.zh.srt':'MISSING'},values)
+
     def test_review_i4_mount_identity_change_preserves_confirmed_source(self):
         scan=self.m.LocalReconciler(self.repo,[self.rule])
         with patch.object(self.m,'local_source_identity',create=True,return_value={'root':[1,2,3],'mount':'original'}):

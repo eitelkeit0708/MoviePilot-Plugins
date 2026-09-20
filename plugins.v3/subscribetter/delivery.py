@@ -789,10 +789,10 @@ class LocalReconciler:
             anchor=data.get('source_identity')
             # Existing schema-7 checkpoints already carry a root anchor. Do not
             # silently adopt a different root while upgrading its mount proof.
-            if anchor is None and data.get('root_identity') is not None:
-                anchor=dict(source,root=data['root_identity'])
-            if anchor is not None and anchor!=source:
-                data.update(state='SOURCE_UNVERIFIED',reason='ROOT_SOURCE_CHANGED',source_identity=anchor,observed_source=source)
+            legacy_root=data.get('root_identity')
+            if ((anchor is not None and anchor!=source) or
+                    (anchor is None and legacy_root is not None and legacy_root!=root_id)):
+                data.update(state='SOURCE_UNVERIFIED',reason='ROOT_SOURCE_CHANGED',observed_source=source)
                 db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',(scope,encoded(data)));return data
             anchor=anchor or source
             if data.get('state') in ('COMPLETE','SOURCE_UNVERIFIED') or data.get('revision')!=r['revision'] or data.get('failed_paths'):
