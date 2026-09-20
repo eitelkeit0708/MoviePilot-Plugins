@@ -1001,11 +1001,19 @@ class DiscoveryService:
                   AND EXISTS(SELECT 1 FROM json_each(a.targets) t WHERE json_array(
                     json_extract(t.key,'$[0]'),json_extract(t.key,'$[1]'),json_extract(t.key,'$[2]'),
                     json_extract(t.key,'$[3]'),json_extract(t.key,'$[4]'))=dt.target_key))""",args).fetchone()[0]
-            ingested=db.execute(cte+"""SELECT count(*) FROM target dt
-                WHERE EXISTS(SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id)
-                  AND NOT EXISTS(SELECT 1 FROM target_units tu WHERE tu.task_id=dt.task_id
-                    AND NOT EXISTS(SELECT 1 FROM ingest_receipts i WHERE i.target_key=tu.target_key
-                       AND i.generation=tu.generation))""",args).fetchone()[0]
+            # Historical units survive reviewed scope reductions. Quantify the current
+            # declared scope, including missing units, rather than all retained rows.
+            ingested=db.execute(cte+""", required AS (
+                SELECT dt.*,coalesce(
+                    (SELECT json_extract(value,'$.scope.units') FROM settings WHERE key='runtime-task:'||dt.task_id),
+                    (SELECT scope FROM task_lifecycle WHERE task_id=dt.task_id),
+                    (SELECT scope FROM opportunities WHERE task_id=dt.task_id ORDER BY created_at DESC,id DESC LIMIT 1)
+                ) AS required_scope FROM target dt)
+                SELECT count(*) FROM required dt WHERE json_array_length(required_scope)>0
+                  AND NOT EXISTS(SELECT 1 FROM json_each(dt.required_scope) unit
+                    WHERE NOT EXISTS(SELECT 1 FROM target_units tu JOIN ingest_receipts i
+                      ON i.target_key=tu.target_key AND i.generation=tu.generation
+                      WHERE tu.task_id=dt.task_id AND tu.target_key=unit.value))""",args).fetchone()[0]
         record_total=sum(records.values());target_total=sum(targets.values())
         stages={name:dict(numerator=n,denominator=d,eligible_denominator=e) for name,n,d,e in (
             ('recognition',recognized,record_total,record_total),('intent_ack',ack,target_total,target_total),

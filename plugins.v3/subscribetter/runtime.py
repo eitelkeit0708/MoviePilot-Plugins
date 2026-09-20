@@ -385,6 +385,9 @@ class Runtime:
         # Keep all observation rows/clocks and consumed budgets as history.
         db.execute('UPDATE opportunities SET scope=?,updated_at=? WHERE id=?',(encoded(keys),utcnow(),opportunity['id']))
         db.execute('DELETE FROM opportunity_targets WHERE opportunity_id=? AND target_key NOT IN (SELECT value FROM json_each(?))',(opportunity['id'],encoded(keys)))
+        # The reviewed subset is also the exact scope for future completion evidence.
+        # Existing anchors/expiry remain immutable; no historical unit is removed.
+        db.execute('UPDATE task_lifecycle SET scope=? WHERE task_id=?',(json.dumps(keys),task['id']))
         scope=dict(saved['scope'],units=keys,provider_units=saved['scope'].get('provider_units',saved['scope']['units']))
         effective=dict(saved['effective'],template=template)
         saved.update(scope=scope,effective=effective,config_digest=digest(effective),task_generation=task['generation']+1,locks=request['locks'])
@@ -403,6 +406,12 @@ class Runtime:
         except ValueError as error:raise ValueError('COLD_PLAN_CHANGED') from error
         return output
 
+    def refresh_plan(self,plan,saved):
+        cached=self.pipeline.rounds.get(plan['snapshot']['candidate_key'])
+        if cached is None or time.monotonic()-cached.get('acquired',0)>300:
+            if not saved:raise ValueError('ORIGINAL_RUNTIME_INPUT_REQUIRED')
+            self.recover(plan,saved)
+
     def search(self,saved,words):
         """Rotate configured sites within one shared request budget per round."""
         key='runtime-search:'+saved['opportunity_id'];state=self.repository.setting(key) or dict(cursor=0)
@@ -420,8 +429,7 @@ class Runtime:
         self.checkpoint(deadline)
         self.verify_input(saved)
         self.checkpoint(deadline)
-        cached=self.pipeline.rounds.get(plan['snapshot']['candidate_key'])
-        if cached is None or time.monotonic()-cached.get('acquired',0)>300:self.recover(plan,saved)
+        self.refresh_plan(plan,saved)
         self.checkpoint(deadline)
         self.pipeline.revalidate(plan)
         executor=self.pipeline.executor();owned=executor._owned(plan['snapshot'])
@@ -534,6 +542,7 @@ class Runtime:
                 affected=sorted(k for k,v in vector.items() if v['owner_plan_id']==old_id)
                 downloading=any(t['target_key'] in affected and t['state']=='ACTIVE' and t['transfer_phase']=='DOWNLOADING' for t in old['targets'])
                 if downloading:
+                    self.refresh_plan(old,self.repository.setting('runtime-input:'+old['opportunity_id']))
                     measured=self.pipeline.executor().sample(old_id,targets=affected)
                     now=parse(measured['sampled_at']);progress[old_id]=measured
             self.verify_input(saved)
@@ -570,6 +579,8 @@ class Runtime:
             failure_id=None
             executor=self.pipeline.executor();owned=executor._owned(plan['snapshot'])
             if owned and owned.get('client_id'):
+                self.refresh_plan(plan,saved)
+                self.checkpoint(deadline)
                 progress=executor.sample(plan['id'])
                 if progress['status']=='FAILED':
                     failure_id='runtime-failure:'+digest([plan['id'],'EXECUTION_FAILED'])

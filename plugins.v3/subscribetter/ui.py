@@ -456,10 +456,13 @@ class Views:
             elif table=='reconcile_checkpoints':select="scope,json_remove(data,'$.files','$.failed_paths','$.stack','$.directories') AS data,json_array_length(data,'$.failed_paths') AS failed_count,json_array_length(data,'$.stack') AS pending_directories,json_array_length(data,'$.directories') AS known_directories"
         return self._page(table,Row,self.row,where=where,args=args,order=order,limit=limit,offset=offset,source=source,select=select)
 
+    @staticmethod
+    def _task(r):return {k:public(r[k]) for k in Task.model_fields}
+
     def tasks(self,limit:Limit=25,offset:Offset=0,state:Literal['PENDING','ACTIVE','PASSIVE','PAUSED','STOPPED','RELEASING','RELEASED_NATIVE']|None=None,
               media_type:Literal['电影','电视剧']|None=None,sort:Literal['id','updated_at']='id',user:TokenPayload=Depends(verify_token))->Page[Task]:
         self._auth(user)
-        return self._page('tasks',Task,lambda r:{k:public(r[k]) for k in Task.model_fields},where='(? IS NULL OR state=?) AND (? IS NULL OR media_type=?)',args=(state,state,media_type,media_type),order=sort+',id',limit=limit,offset=offset)
+        return self._page('tasks',Task,self._task,where='(? IS NULL OR state=?) AND (? IS NULL OR media_type=?)',args=(state,state,media_type,media_type),order=sort+',id',limit=limit,offset=offset)
 
     def task(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->TaskDetail:
         self._auth(user);task=self._one('tasks','id',task_id)
@@ -467,14 +470,14 @@ class Views:
             life=db.execute('SELECT * FROM task_lifecycle WHERE task_id=?',(task_id,)).fetchone();snap=self.snapshot(db)
         effective=self.repository.setting('runtime-task:'+str(task_id))
         units=self._page('target_units',Unit,lambda r:{k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields},where='task_id=?',args=(task_id,),order='target_key',limit=limit,offset=offset)
-        return TaskDetail(task=Task(**{k:task[k] for k in Task.model_fields}),lifecycle=self.row(dict(life))['data'] if life else None,
+        return TaskDetail(task=Task(**self._task(task)),lifecycle=self.row(dict(life))['data'] if life else None,
             effective=public(effective) if effective else None,units=units,opportunities=self.rows('opportunities',where='task_id=?',args=(task_id,),order='created_at,id'),
             plans=self.rows('plans',where='task_id=?',args=(task_id,),order='created_at,id'),snapshot=snap)
 
     @staticmethod
     def _candidate(r):
-        d=public(json.loads(r['data']))
-        return dict(candidate_key=r['candidate_key'],site=d.get('site'),title=d.get('title'),source=d.get('source'),status=d.get('status'),first_seen=r['first_seen'],updated_at=r['updated_at'],evidence=d)
+        d=json.loads(r['data'])
+        return public(dict(candidate_key=r['candidate_key'],site=d.get('site'),title=d.get('title'),source=d.get('source'),status=d.get('status'),first_seen=r['first_seen'],updated_at=r['updated_at'],evidence=d))
 
     def candidates(self,limit:Limit=25,offset:Offset=0,site:int|None=Query(None,gt=0),status:Literal['OBSERVED','DEFER']|None=None,user:TokenPayload=Depends(verify_token))->Page[Candidate]:
         self._auth(user);return self._page('candidates',Candidate,self._candidate,select="candidate_key,first_seen,updated_at,json_remove(data,'$.torrent_files','$.file_parse','$.last_decision') AS data",where="(? IS NULL OR json_extract(data,'$.site')=?) AND (? IS NULL OR json_extract(data,'$.status')=?)",args=(site,site,status,status),order='first_seen,candidate_key',limit=limit,offset=offset)
@@ -489,7 +492,7 @@ class Views:
         return self._page('candidates',Row,lambda r:dict(id=str(r['key']),state='OBSERVED',revision='',data=public(json.loads(r['value']))),source='candidates c,json_each(c.data,?) f',select='f.key,f.value',where='c.candidate_key=?',args=('$.'+section,candidate_key),order='f.key',limit=limit,offset=offset)
 
     @staticmethod
-    def _decision(r):return dict(**{k:r[k] for k in ('id','candidate_key','task_id','opportunity_id','status','digest','created_at')},simulation=bool(r['simulation']),evidence=public(json.loads(r['data'])))
+    def _decision(r):return public(dict(**{k:r[k] for k in ('id','candidate_key','task_id','opportunity_id','status','digest','created_at')},simulation=bool(r['simulation']),evidence=json.loads(r['data'])))
 
     def decisions(self,limit:Limit=25,offset:Offset=0,candidate_key:Id|None=None,task_id:int|None=Query(None,gt=0),status:Literal['ACCEPT','REJECT','DEFER','ENRICH']|None=None,user:TokenPayload=Depends(verify_token))->Page[Decision]:
         self._auth(user);return self._page('candidate_decisions',Decision,self._decision,select="id,candidate_key,task_id,opportunity_id,status,simulation,digest,created_at,json_remove(data,'$.evaluation','$.observed.torrent_files','$.observed.file_parse','$.observed.last_decision') AS data",where='(? IS NULL OR candidate_key=?) AND (? IS NULL OR task_id=?) AND (? IS NULL OR status=?)',args=(candidate_key,candidate_key,task_id,task_id,status,status),order='created_at,id',limit=limit,offset=offset)
@@ -506,7 +509,7 @@ class Views:
         return self.rows('exclusions',where="(? IS NULL OR active=?) AND (? IS NULL OR json_extract(criteria,'$.candidate_key')=?)",args=(active,active,candidate_key,candidate_key),order='id',limit=limit,offset=offset)
 
     @staticmethod
-    def _archive(r):return dict(**{k:r[k] for k in ('target_key','state','revision','updated_at','task_id')},facts=public(json.loads(r['data'])))
+    def _archive(r):return public(dict(**{k:r[k] for k in ('target_key','state','revision','updated_at','task_id')},facts=json.loads(r['data'])))
 
     def archives(self,limit:Limit=25,offset:Offset=0,state:Literal['PRESENT','MISSING','UNKNOWN','INVALID','ERROR']|None=None,user:TokenPayload=Depends(verify_token))->Page[ArchiveTarget]:
         self._auth(user);return self._page('archive_targets',ArchiveTarget,self._archive,source='archive_targets a LEFT JOIN target_units u USING(target_key)',select='a.*,u.task_id',where='(? IS NULL OR a.state=?)',args=(state,state),order='a.target_key',limit=limit,offset=offset)
@@ -524,7 +527,7 @@ class Views:
 
     @staticmethod
     def _bundle(r):
-        d=json.loads(r['data']);return dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},reason=d.get('reason',''),file_count=len(d.get('files',[])),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending'))
+        d=json.loads(r['data']);return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},reason=d.get('reason',''),file_count=len(d.get('files',[])),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending')))
 
     def bundles(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,plan_id:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Bundle]:
         self._auth(user);return self._page('delivery_bundles',Bundle,self._bundle,where='(? IS NULL OR state=?) AND (? IS NULL OR plan_id=?)',args=(state,state,plan_id,plan_id),order='due,id',limit=limit,offset=offset)
@@ -559,7 +562,7 @@ class Views:
         return item
 
     @staticmethod
-    def _source(r):return dict(**{k:r[k] for k in Source.model_fields if k!='config'},config=public(json.loads(r['config'])))
+    def _source(r):return public(dict(**{k:r[k] for k in Source.model_fields if k!='config'},config=json.loads(r['config'])))
 
     def sources(self,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Source]:
         self._auth(user);return self._page('discovery_sources',Source,self._source,order='source_id',limit=limit,offset=offset)
@@ -570,7 +573,7 @@ class Views:
         return ActionResult(state='AVAILABLE',result=dict(routes=[dict(key=k,label=v[0],media_type=v[1],provenance=ROUTE_PROVENANCE) for k,v in ROUTES.items()]))
 
     @staticmethod
-    def _record(r):return dict(**{k:r[k] for k in DiscoveryRecord.model_fields if k not in ('evidence','raw','visible')},visible=bool(r['visible']),raw=public(json.loads(r['raw'])),evidence=public(json.loads(r['data'])))
+    def _record(r):return public(dict(**{k:r[k] for k in DiscoveryRecord.model_fields if k not in ('evidence','raw','visible')},visible=bool(r['visible']),raw=json.loads(r['raw']),evidence=json.loads(r['data'])))
 
     def records(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,source_id:Id|None=None,view:Literal['all','latest12','recognized','unrecognized']='all',user:TokenPayload=Depends(verify_token))->Page[DiscoveryRecord]:
         self._auth(user);where="visible=1 AND (? IS NULL OR state=?) AND (? IS NULL OR source_id=?)"

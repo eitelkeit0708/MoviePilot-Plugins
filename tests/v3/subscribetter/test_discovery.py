@@ -1192,6 +1192,9 @@ class DiscoveryTests(unittest.TestCase):
                 unit_keys.append(key)
                 with self.repo.connection(write=True) as db:
                     db.execute("INSERT INTO target_units(target_key,task_id,identity) VALUES(?,?,?)", (key, row["id"], key))
+            # Accepted runtime admissions declare a scope; retained unit rows alone
+            # cannot establish which episodes are still required after a reduction.
+            self.repo.setting('runtime-task:'+str(row['id']),{'scope':{'units':list(unit_keys)}})
         service = self.service(self.config(media_type_allowlist=["电视剧"], season_scope="all_known",
                                            request_budget=ONE_BUDGET, sources=[
                                                {"id":"weekly","kind":"rsshub","route_key":"tv_real_time_hotest"}]), media=media, owner=owner, accepted=accepted)
