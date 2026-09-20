@@ -536,13 +536,13 @@ class DeliveryTests(unittest.TestCase):
 
     def test_schema6_migration_preserves_every_old_row(self):
         with self.repo.connection(write=True) as db:
-            for table in ('delivery_bundles','reconcile_checkpoints','local_observations'):db.execute('DROP TABLE '+table)
+            for table in ('ai_usage','ai_requests','ai_runtime','delivery_bundles','reconcile_checkpoints','local_observations'):db.execute('DROP TABLE '+table)
             db.execute('PRAGMA user_version=6')
             names=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
             before={n:sorted([tuple(r) for r in db.execute('SELECT * FROM "'+n+'"')],key=repr) for n in names}
         self.r.Repository(self.repo.path)
         with self.repo.connection() as db:
-            self.assertEqual(7,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(8,db.execute('PRAGMA user_version').fetchone()[0])
             self.assertEqual(before,{n:sorted([tuple(r) for r in db.execute('SELECT * FROM "'+n+'"')],key=repr) for n in names})
 
     def test_tick_with_no_events_scans_and_advances_only_durable_bundle(self):

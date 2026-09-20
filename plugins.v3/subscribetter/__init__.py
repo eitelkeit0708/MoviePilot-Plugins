@@ -18,6 +18,7 @@ from .scheduler import Scheduler
 from .planner import Authority
 from .execution import TransferGuard
 from .candidates import CandidateService, HostCandidateAdapter
+from .ai import AIConfig, AIService, SecretStore
 
 
 class Config(BaseModel):
@@ -28,6 +29,7 @@ class Config(BaseModel):
     enhance_host_meta: bool = False
     meta_protected_names: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=100)
     delivery: dict = Field(default_factory=dict)
+    ai_assist: dict = Field(default_factory=dict)
 
 
 class IntentRequest(BaseModel):
@@ -73,6 +75,7 @@ class Diagnostics(BaseModel):
     pending: int
     foundation_only: bool = True
     meta: dict = Field(default_factory=dict)
+    ai: dict = Field(default_factory=dict)
 
 
 class ParseRequest(BaseModel):
@@ -131,6 +134,11 @@ class SubscriBetter(_PluginBase):
         if not hasattr(self, "runtime_lock"):
             self.runtime_lock = RLock()
         with self.runtime_lock:
+            if getattr(self,'ai',None):self.ai.close()
+            self.ai=None;self.ai_errors=[]
+            for event,callback in getattr(self,'ai_listeners',[]):
+                eventmanager.remove_event_listener(event,callback)
+            self.ai_listeners=[]
             if getattr(self,'delivery_worker',None):
                 from .host_delivery_contract import close_delivery
                 try:close_delivery(self.delivery_worker)
@@ -165,6 +173,29 @@ class SubscriBetter(_PluginBase):
                 self.adapter = NativeAdapter()
                 self.ownership = Ownership(self.repository, self.adapter)
                 self.guard = Guard(self.repository, self.adapter, self._auto_scope)
+                try:
+                    ai_config=AIConfig.model_validate(self.config.ai_assist)
+                    if ai_config.enabled:
+                        import httpx
+                        proxy=None
+                        if ai_config.proxy:
+                            from app.sdk.config import settings
+                            proxy=settings.PROXY.get('https') or settings.PROXY.get('http')
+                        generation=self.generation
+                        self.ai=AIService(self.repository,ai_config,httpx.Client,
+                            SecretStore(self.get_data_path()).resolve,generation=generation,
+                            current=lambda:self._ordinary_work_active() and self.generation==generation,
+                            instance_id=self.__class__.__name__,proxy=proxy,
+                            owner_check=self._ai_owner,owner_snapshot=self._ai_snapshot,notify=self._ai_notify)
+                        self.candidates.ai=self.ai
+                        if ai_config.name_recognize_bridge:self.ai_listeners.append((ChainEventType.NameRecognize,self.ai_name))
+                        if ai_config.chat_enabled:self.ai_listeners.append((EventType.UserMessage,self.ai_message))
+                        for event,callback in self.ai_listeners:eventmanager.add_event_listener(event,callback,priority=30)
+                except Exception:
+                    if self.ai:self.ai.close()
+                    for event,callback in self.ai_listeners:eventmanager.remove_event_listener(event,callback)
+                    self.ai_listeners=[]
+                    self.ai=None;self.candidates.ai=None;self.ai_errors.append('INVALID_AI_CONFIG')
                 if self.config.delivery:
                     try:
                         from .host_delivery_contract import build_delivery
@@ -222,6 +253,9 @@ class SubscriBetter(_PluginBase):
             self.lifecycle_active = False
             self.running = False
             self.generation += 1
+            if self.ai:self.ai.close()
+            for event,callback in self.ai_listeners:eventmanager.remove_event_listener(event,callback)
+            self.ai_listeners=[]
             if getattr(self,'delivery_worker',None):
                 from .host_delivery_contract import close_delivery
                 try:close_delivery(self.delivery_worker)
@@ -242,9 +276,38 @@ class SubscriBetter(_PluginBase):
         return []
 
     def get_service(self):
-        # The host owns scheduling; no private thread/client survives reload.
+        # The host owns scheduling; old clients close only after real I/O drains.
         return [{"id": "SubscriBetter_ownership", "name": "subscriBetter 订阅状态核对", "trigger": "interval",
-                 "func": self.reconcile, "kwargs": {"seconds": 60}, "func_kwargs": {"generation": self.generation}}]
+                 "func": self.reconcile, "kwargs": {"seconds": 60}, "func_kwargs": {"generation": self.generation}},
+                {"id":"SubscriBetter_ai","name":"subscriBetter AI 有界队列","trigger":"interval",
+                 "func":self.ai_tick,"kwargs":{"seconds":1,"max_instances":1},"func_kwargs":{"generation":self.generation}}]
+
+    def _ai_owner(self,*args):
+        provider=getattr(getattr(self,'migration',None),'unique_owner',None)
+        return provider(*args) if callable(provider) else None
+
+    def _ai_snapshot(self,module,instance_id,config_digest,route_scope):
+        from .ai import host_owner_snapshot
+        return host_owner_snapshot(self,module,instance_id,config_digest,route_scope)
+
+    def _ai_notify(self,message):
+        from app.schemas.types import MessageType
+        self.post_message(mtype=MessageType.Plugin,title=self.plugin_name,text=message)
+
+    def ai_name(self,event):
+        runtime=self.ai
+        if runtime:runtime.name_event(event,self.meta_service)
+
+    def ai_message(self,event):
+        runtime=self.ai
+        if runtime:runtime.enqueue_chat(event,self.post_message)
+
+    def ai_tick(self,generation=None):
+        # HTTP and message sends never hold the plugin ownership/lifecycle lock.
+        with self.runtime_lock:
+            if generation is not None and generation!=self.generation:return
+            runtime,meta=self.ai,self.meta_service
+        if runtime:runtime.drain(meta)
 
     def reconcile(self, generation: int | None = None):
         with self.runtime_lock:
@@ -328,7 +391,8 @@ class SubscriBetter(_PluginBase):
                            safety_required=safety_required, safety_active=self.lifecycle_active and safety_required,
                            dry_run=self.config.dry_run, generation=self.generation,
                            errors=list(dict.fromkeys(self.errors)), pending=pending,
-                           meta=self.meta_patch.diagnostics() if hasattr(self, "meta_patch") else {"state": "UNAVAILABLE"})
+                           meta=self.meta_patch.diagnostics() if hasattr(self, "meta_patch") else {"state": "UNAVAILABLE"},
+                           ai={"errors":self.ai_errors,"runtime":self.ai.stats() if self.ai else None})
 
     def parse_sample(self, request: ParseRequest, user: TokenPayload = Depends(verify_token)) -> dict:
         self._authorize(user)
@@ -433,6 +497,7 @@ class SubscriBetter(_PluginBase):
             {"component": "VSwitch", "props": {"model": "enhance_host_meta", "label": "增强宿主公共解析（普通工作启用且非 dry-run 时生效，影响未受管解析）"}},
             {"component": "VCombobox", "props": {"model": "meta_protected_names", "label": "明确保护的完整片名", "multiple": True, "chips": True}},
             {"component": "VSelect", "props": {"model": "auto_types", "label": "自动纳管启用后的新订阅", "multiple": True, "items": ["电影", "电视剧"]}},
+            {"component":"VAlert","props":{"type":"info"},"text":"AI 名称辅助与普通聊天独立配置，默认关闭；凭据仅用私密引用。可选名称事件桥接只读缓存并排队，首次可不返回结果。聊天须明确路由和唯一响应者切换回执，不提供订阅或删除能力；当前宿主不支持定点线程回复。"},
         ]}], Config().model_dump()
 
     def get_page(self):

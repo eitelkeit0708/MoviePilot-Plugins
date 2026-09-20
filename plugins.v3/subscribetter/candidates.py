@@ -111,8 +111,8 @@ class SearchBudget:
 
 
 class CandidateService:
-    def __init__(self, repository, adapter):
-        self.repository, self.adapter = repository, adapter
+    def __init__(self, repository, adapter, ai=None):
+        self.repository, self.adapter, self.ai = repository, adapter, ai
         self.runtime = {}  # Host credential-bearing objects never enter SQLite.
 
     def observe(self, raw, *, source='search'):
@@ -202,22 +202,38 @@ class CandidateService:
         if all(declared) and declared[0] == target.media_source and identity_matches((target.media_source,target.media_id),declared) is False:
             return {'status':'REJECT','reason':'PROVIDER_ID_CONFLICT'}
         correction = meta_service.parse('candidate:'+sha256(key.encode()).hexdigest(), value(raw,'title') or '', value(raw,'description'), custom_words, task_id=task_id)
+        assistance=None
+        if self.ai is not None:
+            correction,assistance=self.ai.assist(value(raw,'title') or '',value(raw,'description') or '',
+                correction,corrector=meta_service.corrector,custom_words=custom_words)
+        evidence=({k:getattr(assistance,k) for k in ('reason','source','attempts','usage','request_digest','generation')}
+                  if assistance is not None else None)
         if correction.status != 'OK':
-            return {'status':correction.status,'reason':'META_UNCONFIRMED','parse':correction.record()}
+            result={'status':correction.status,'reason':'META_UNCONFIRMED','parse':correction.record()}
+            if evidence is not None:result['ai']=evidence
+            self._save_recognition(key,result)
+            return result
         try:
+            if assistance is not None and assistance.identity:self.ai.count('candidate_submitted')
             media = self.adapter.recognize(correction.meta,declared if all(declared) else None)
         except Exception:
             return {'status':'ERROR','reason':'PROVIDER_UNAVAILABLE'}
         identity = self.adapter.identity(media) if media is not None else None
         matched = identity_matches((target.media_source,target.media_id),identity)
+        if assistance is not None and assistance.identity and matched is True:self.ai.count('identity_matched')
         result = {'status':'OK' if matched is True else 'REJECT' if matched is False else 'DEFER',
                   'reason':'IDENTITY_VERIFIED' if matched is True else 'IDENTITY_UNCONFIRMED',
                   'identity':identity,'parse':correction.record()}
+        if assistance is not None:
+            result['ai']=evidence
+        self._save_recognition(key,result)
+        return dict(result,media=media,meta=correction.meta)
+
+    def _save_recognition(self,key,result):
         with self.repository.connection(write=True) as db:
             row = db.execute('SELECT data FROM candidates WHERE candidate_key=?',(key,)).fetchone()
             data = json.loads(row[0]); data['recognition'] = _stored(result)
             db.execute('UPDATE candidates SET data=?,updated_at=? WHERE candidate_key=?',(encoded(data),utcnow(),key))
-        return dict(result,media=media,meta=correction.meta)
 
 
 def torrent_table(content):

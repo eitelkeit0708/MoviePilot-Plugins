@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 7:
+            if revision > 8:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -158,6 +158,11 @@ class Repository:
                 db.execute("CREATE TABLE reconcile_checkpoints (scope TEXT PRIMARY KEY, data TEXT NOT NULL)")
                 db.execute("CREATE TABLE local_observations (rule_id TEXT NOT NULL,path TEXT NOT NULL,epoch TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(rule_id,path))")
                 db.execute("PRAGMA user_version=7")
+            if revision < 8:
+                db.execute("CREATE TABLE ai_runtime (scope TEXT PRIMARY KEY, generation INTEGER NOT NULL, state TEXT NOT NULL)")
+                db.execute("CREATE TABLE ai_requests (scope TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, next_at REAL NOT NULL, reason TEXT NOT NULL, owner TEXT NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY(scope,digest))")
+                db.execute("CREATE TABLE ai_usage (scope TEXT NOT NULL, name TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(scope,name))")
+                db.execute("PRAGMA user_version=8")
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:
