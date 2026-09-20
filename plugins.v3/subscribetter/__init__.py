@@ -3,7 +3,7 @@ from threading import RLock
 from typing import Annotated, Literal
 
 from fastapi import Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.sdk.plugin import _PluginBase
 from app.sdk.events import eventmanager
 from app.sdk.security import verify_token
@@ -19,6 +19,7 @@ from .planner import Authority
 from .execution import TransferGuard
 from .candidates import CandidateService, HostCandidateAdapter
 from .ai import AIConfig, AIService, SecretStore
+from .discovery import DiscoveryConfig, DiscoveryService, HostRSSFetcher, SourceConfig
 
 
 class Config(BaseModel):
@@ -30,6 +31,7 @@ class Config(BaseModel):
     meta_protected_names: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=100)
     delivery: dict = Field(default_factory=dict)
     ai_assist: dict = Field(default_factory=dict)
+    discovery: dict = Field(default_factory=dict)
 
 
 class IntentRequest(BaseModel):
@@ -119,9 +121,31 @@ class RecoveryRequest(BaseModel):
     confirm_adoption: Literal[True]
 
 
+class DiscoverySourceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    source: dict | None = None
+
+    @model_validator(mode="after")
+    def one_source(self):
+        if (self.source_id is None) == (self.source is None):
+            raise ValueError("EXACTLY_ONE_SOURCE_REQUIRED")
+        return self
+
+
+class DiscoveryRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_ids: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")]] = Field(default_factory=list, max_length=100)
+
+
+class DiscoveryRecordsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    record_ids: list[Annotated[int, Field(gt=0)]] = Field(min_length=1, max_length=500)
+
+
 class SubscriBetter(_PluginBase):
     plugin_name = "subscriBetter"
-    plugin_desc = "V3 订阅接管、持久化回执与安全隔离；完整调度和交付正在实现。"
+    plugin_desc = "V3 统一订阅、榜单发现、调度、交付档案与安全隔离。"
     plugin_icon = "mdi-shield-check"
     plugin_version = "1.0.0"
     plugin_author = "eitelkeit0708"
@@ -136,6 +160,7 @@ class SubscriBetter(_PluginBase):
         with self.runtime_lock:
             if getattr(self,'ai',None):self.ai.close()
             self.ai=None;self.ai_errors=[]
+            self.discovery=None;self.discovery_errors=[]
             for event,callback in getattr(self,'ai_listeners',[]):
                 eventmanager.remove_event_listener(event,callback)
             self.ai_listeners=[]
@@ -174,6 +199,26 @@ class SubscriBetter(_PluginBase):
                 self.ownership = Ownership(self.repository, self.adapter)
                 self.guard = Guard(self.repository, self.adapter, self._auto_scope)
                 try:
+                    discovery_config = DiscoveryConfig.model_validate(self.config.discovery)
+                    generation = self.generation
+                    def fetch(url, source, budget):
+                        configured = discovery_config.rsshub_base_url if source.kind == "rsshub" else source.url
+                        return HostRSSFetcher(configured, proxy=source.proxy,
+                                              allowed_private_ranges=discovery_config.allowed_private_ranges)(url, source, budget)
+                    self.discovery = DiscoveryService(
+                        self.repository, self.ownership, self.meta_service, HostCandidateAdapter(), discovery_config,
+                        fetch=fetch, inventory=self._discovery_inventory,
+                        inventory_refresh=self._discovery_inventory_refresh,
+                        authorized=self._discovery_authorized,
+                        excluded=self._discovery_excluded,
+                        accepted=self._discovery_accept,
+                        current=lambda: self._ordinary_work_active() and self.generation == generation,
+                        owner_check=self._ai_owner, owner_snapshot=self._discovery_snapshot,
+                        instance_id=self.__class__.__name__, ai=self.ai)
+                except Exception:
+                    self.discovery = None
+                    self.discovery_errors.append("INVALID_DISCOVERY_CONFIG")
+                try:
                     ai_config=AIConfig.model_validate(self.config.ai_assist)
                     if ai_config.enabled:
                         import httpx
@@ -201,6 +246,9 @@ class SubscriBetter(_PluginBase):
                         from .host_delivery_contract import build_delivery
                         self.delivery_worker=build_delivery(self,self.config.delivery)
                     except Exception:self.errors.append('DELIVERY_CONFIGURATION_FAILED')
+                if self.discovery:
+                    self.discovery.authorized = self._discovery_authorized
+                    self.discovery.ai = self.ai
                 self.errors.extend(self.adapter.capabilities())
                 self.auto_baseline = set(self.repository.setting("auto_baseline") or [])
                 auto_types = sorted(self.config.auto_types) if self.config.enabled and not self.config.dry_run else []
@@ -277,10 +325,17 @@ class SubscriBetter(_PluginBase):
 
     def get_service(self):
         # The host owns scheduling; old clients close only after real I/O drains.
-        return [{"id": "SubscriBetter_ownership", "name": "subscriBetter 订阅状态核对", "trigger": "interval",
+        services = [{"id": "SubscriBetter_ownership", "name": "subscriBetter 订阅状态核对", "trigger": "interval",
                  "func": self.reconcile, "kwargs": {"seconds": 60}, "func_kwargs": {"generation": self.generation}},
                 {"id":"SubscriBetter_ai","name":"subscriBetter AI 有界队列","trigger":"interval",
                  "func":self.ai_tick,"kwargs":{"seconds":1,"max_instances":1},"func_kwargs":{"generation":self.generation}}]
+        if self.discovery and self.discovery.config.enabled and self.discovery.config.sources:
+            from apscheduler.triggers.cron import CronTrigger
+            services.append({"id":"SubscriBetter_discovery","name":"subscriBetter 榜单发现",
+                             "trigger":CronTrigger.from_crontab(self.discovery.config.cron),
+                             "func":self.discovery_tick,"kwargs":{"max_instances":1},
+                             "func_kwargs":{"generation":self.generation}})
+        return services
 
     def _ai_owner(self,*args):
         provider=getattr(getattr(self,'migration',None),'unique_owner',None)
@@ -289,6 +344,71 @@ class SubscriBetter(_PluginBase):
     def _ai_snapshot(self,module,instance_id,config_digest,route_scope):
         from .ai import host_owner_snapshot
         return host_owner_snapshot(self,module,instance_id,config_digest,route_scope)
+
+    def _discovery_snapshot(self,module,instance_id,config_digest,route_scope):
+        provider=getattr(getattr(self,'migration',None),'owner_snapshot',None)
+        if callable(provider):return provider(module,instance_id,config_digest,route_scope)
+        return {"fingerprint":"","overlaps":[],"unclassified":["owner_snapshot_unbound"]}
+
+    def _discovery_inventory(self,target):
+        worker=getattr(self,'delivery_worker',None)
+        if worker is None:
+            return {"state":"UNKNOWN","evidence_ref":None,"diagnostics":["ARCHIVE_UNAVAILABLE"]}
+        return worker.archive.discovery_inventory(target)
+
+    def _discovery_inventory_refresh(self,target,source):
+        worker=getattr(self,'delivery_worker',None)
+        provider=getattr(getattr(self,'migration',None),'inventory_refresh',None)
+        if worker is None or not callable(provider):
+            return {"state":"UNKNOWN","evidence_ref":None,"diagnostics":["INVENTORY_REFRESH_UNBOUND"]}
+        archive=worker.archive
+        request={"schema":1,"source_id":source.id,"target_key":target.key,
+                 "target":{"media_type":target.media_type,"media_source":target.media_source,
+                           "media_id":target.media_id,"season":target.season,
+                           "episode_group":target.episode_group},
+                 "library_scopes":sorted([rule['emby_service'],str(rule['library_id'])]
+                                          for rule in archive.mappings.rules),
+                 "limits":{"pages":2,"items":100}}
+        result=provider(request)
+        return result if isinstance(result,dict) else {"state":"UNKNOWN","evidence_ref":None,
+                                                       "diagnostics":["INVENTORY_REFRESH_INVALID"]}
+
+    def _discovery_authorized(self,target,source):
+        worker=getattr(self,'delivery_worker',None)
+        if worker is None or not any(rule.get('enabled') for rule in worker.rules.values()):return False
+        names=('movie',) if target.media_type=='电影' else ('tv','anime')
+        if not any(source.destination_templates.get(name) for name in names):return False
+        archive=worker.archive
+        libraries=getattr(archive.sources,'libraries',{})
+        return any(rule.get('media_source','themoviedb').casefold()==target.media_source
+                   and str(rule.get('library_id')) in libraries.get(rule.get('emby_service'),set())
+                   for rule in archive.mappings.rules)
+
+    def _discovery_accept(self,row,target,source,snapshot):
+        from .planner import TargetUnit
+        from .scheduler import ScheduleConfig
+        if target.media_type=='电影':
+            units=[TargetUnit(target)]
+        else:
+            provider=getattr(getattr(self,'migration',None),'discovery_scope',None)
+            if not callable(provider):raise ValueError('TV_SCOPE_UNBOUND')
+            result=provider({"schema":1,"source_id":source.id,"target_key":target.key,
+                             "provider_identity":[target.media_source,target.media_id],
+                             "season":target.season,"episode_group":target.episode_group})
+            episodes=result.get('episodes') if isinstance(result,dict) else None
+            if (not isinstance(episodes,list) or not episodes or len(episodes)>1000
+                    or any(type(value)is not int or value<=0 for value in episodes)
+                    or len(set(episodes))!=len(episodes)):
+                raise ValueError('TV_SCOPE_INVALID')
+            units=[TargetUnit(target,value) for value in sorted(episodes)]
+        opportunity='discovery-task:'+str(row['id'])
+        self.scheduler.open_opportunity(opportunity,row['id'],units,mode='CONTINUOUS',
+                                        config=ScheduleConfig(observation_enabled=False,failure_limit=3))
+        return {"opportunity_id":opportunity,"target_units":[unit.key for unit in units]}
+
+    def _discovery_excluded(self,target):
+        from .execution import Exclusions
+        return Exclusions(self.repository).matches_target(target)
 
     def _ai_notify(self,message):
         from app.schemas.types import MessageType
@@ -308,6 +428,13 @@ class SubscriBetter(_PluginBase):
             if generation is not None and generation!=self.generation:return
             runtime,meta=self.ai,self.meta_service
         if runtime:runtime.drain(meta)
+
+    def discovery_tick(self,generation=None,source_ids=None):
+        with self.runtime_lock:
+            runtime=self.discovery
+            if generation is not None and generation!=self.generation:return {"sources":{},"reason":"STALE_GENERATION"}
+            if not runtime or not runtime.config.enabled or not self._ordinary_work_active():return {"sources":{},"reason":"DISCOVERY_DISABLED"}
+        return runtime.run(source_ids)
 
     def reconcile(self, generation: int | None = None):
         with self.runtime_lock:
@@ -474,6 +601,46 @@ class SubscriBetter(_PluginBase):
             except ValueError as error:
                 raise HTTPException(409, str(error)) from None
 
+    def discovery_sources(self, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        return {"catalog": self.discovery.catalog() if self.discovery else [], "errors": self.discovery_errors}
+
+    def discovery_test(self, request: DiscoverySourceRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        if not self.discovery: raise HTTPException(409,"Discovery configuration unavailable")
+        try:
+            proposed = SourceConfig.model_validate(request.source) if request.source is not None else None
+            return self.discovery.test_source(request.source_id, proposed=proposed)
+        except ValueError as error:raise HTTPException(409,str(error)) from None
+
+    def discovery_run(self, request: DiscoveryRunRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        with self.runtime_lock:
+            self._writes_enabled()
+            generation=self.generation
+        return self.discovery_tick(generation,request.source_ids or None)
+
+    def discovery_records(self, limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
+                          state: str | None = None, source_id: str | None = None,
+                          view: Literal["all","latest12","recognized","unrecognized"] = "all",
+                          user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        if not self.discovery:return {"records":[],"statistics":{"records":{},"targets":{}}}
+        return {"records":self.discovery.records(limit=limit,offset=offset,state=state,source_id=source_id,view=view),
+                "statistics":self.discovery.statistics()}
+
+    def discovery_reprocess(self, request: DiscoveryRecordsRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        with self.runtime_lock:self._writes_enabled()
+        if not self.discovery:raise HTTPException(409,"Discovery configuration unavailable")
+        return {"changed":self.discovery.reprocess(request.record_ids)}
+
+    def discovery_cleanup(self, request: DiscoveryRecordsRequest, user: TokenPayload = Depends(verify_token)) -> dict:
+        self._authorize(user)
+        with self.runtime_lock:self._writes_enabled()
+        if not self.discovery:raise HTTPException(409,"Discovery configuration unavailable")
+        return {"changed":self.discovery.cleanup(request.record_ids)}
+
     def get_api(self):
         definitions = [("/diagnostics", "GET", self.diagnostics, Diagnostics),
                        ("/parse", "POST", self.parse_sample, dict),
@@ -485,21 +652,29 @@ class SubscriBetter(_PluginBase):
                        ("/tasks/{task_id}/release-preview", "GET", self.release_preview, ReleasePreview),
                        ("/tasks/{task_id}/release", "POST", self.release_native, TaskView),
                        ("/tasks/{task_id}/recover", "POST", self.recover_native, TaskView)]
+        definitions.extend([
+            ("/discovery/sources","GET",self.discovery_sources,dict),
+            ("/discovery/test","POST",self.discovery_test,dict),
+            ("/discovery/run","POST",self.discovery_run,dict),
+            ("/discovery/records","GET",self.discovery_records,dict),
+            ("/discovery/reprocess","POST",self.discovery_reprocess,dict),
+            ("/discovery/history/cleanup","POST",self.discovery_cleanup,dict)])
         return [{"path": path, "methods": [method], "endpoint": endpoint, "response_model": model,
                  "auth": "bear", "summary": endpoint.__name__} for path, method, endpoint, model in definitions]
 
     def get_form(self):
         return [{"component": "VForm", "content": [
             {"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
-             "text": "当前完成订阅接管基础，下载、排序和交付尚未启用。关闭普通工作后，已有受管壳仍保持暂停与安全保护，宿主可显示插件运行；解除保护须显式返回原生控制。"},
+             "text": "关闭普通工作后，已有受管壳仍保持暂停与安全保护；解除保护须显式返回原生控制。"},
             {"component": "VSwitch", "props": {"model": "enabled", "label": "启用普通订阅管理工作"}},
             {"component": "VSwitch", "props": {"model": "dry_run", "label": "只读 / dry-run（保留现有安全隔离）"}},
             {"component": "VSwitch", "props": {"model": "enhance_host_meta", "label": "增强宿主公共解析（普通工作启用且非 dry-run 时生效，影响未受管解析）"}},
             {"component": "VCombobox", "props": {"model": "meta_protected_names", "label": "明确保护的完整片名", "multiple": True, "chips": True}},
             {"component": "VSelect", "props": {"model": "auto_types", "label": "自动纳管启用后的新订阅", "multiple": True, "items": ["电影", "电视剧"]}},
             {"component":"VAlert","props":{"type":"info"},"text":"AI 名称辅助与普通聊天独立配置，默认关闭；凭据仅用私密引用。可选名称事件桥接只读缓存并排队，首次可不返回结果。聊天须明确路由和唯一响应者切换回执，不提供订阅或删除能力；当前宿主不支持定点线程回复。"},
+            {"component":"VAlert","props":{"type":"info"},"text":"榜单作品发现使用 /discovery API 与结构化来源配置；PT 下载资源仍走候选管线。自动提交还要求唯一 owner 回执、档案范围和交付规则同时有效。"},
         ]}], Config().model_dump()
 
     def get_page(self):
         return [{"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
-                 "text": f"普通工作：{'运行' if self._ordinary_work_active() else '关闭或受阻'}；已有任务安全保护：{'运行' if self.lifecycle_active and self._safety_required() else '未运行'}。管理接口仅管理员可用；完整调度与交付仍在实现。"}]
+                 "text": f"普通工作：{'运行' if self._ordinary_work_active() else '关闭或受阻'}；已有任务安全保护：{'运行' if self.lifecycle_active and self._safety_required() else '未运行'}。作品发现、PT候选、交付与入库分别保留状态和回执；管理接口仅管理员可用。"}]

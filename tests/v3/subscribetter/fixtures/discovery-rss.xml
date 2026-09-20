@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Synthetic W09 parser fixture shaped like the 2026-09-20 RSSHub capture; no live identity. -->
+<rss version="2.0"><channel>
+  <title>Controlled local works</title>
+  <item>
+    <title>Fictional Open Short</title>
+    <description>&lt;p&gt;Fictional Open Short&lt;/p&gt;&lt;p&gt;8.4&lt;/p&gt;&lt;p&gt;2013 / Animation&lt;/p&gt;</description>
+    <link>https://movie.douban.com/subject/99999999/</link>
+    <guid isPermaLink="false">controlled-fictional-open-short</guid>
+  </item>
+</channel></rss>

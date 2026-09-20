@@ -25,6 +25,10 @@ class Ownership:
     def submit(self, intent_key: str, target: Target, snapshot: dict, actor: str,
                native_id: int | None = None, adopt: bool = False) -> dict:
         with self.lock:
+            # One mutation boundary covers manual, migration and discovery callers.
+            from .execution import Exclusions
+            if Exclusions(self.repository).matches_target(target):
+                raise ValueError("EXCLUDED")
             if native_id is not None:
                 if not adopt:
                     raise ValueError("explicit adoption required")

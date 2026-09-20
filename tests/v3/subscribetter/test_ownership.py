@@ -608,6 +608,69 @@ class PluginTests(unittest.TestCase):
         with self.assertRaises(Exception):
             self.plugin.diagnostics(user=self.TokenPayload(super_user=False))
 
+    def test_W09_discovery_config_api_and_host_scheduler_are_wired_default_unbound(self):
+        config = {"enabled": True, "dry_run": False, "discovery": {
+            "enabled": True, "rsshub_base_url": "http://rss.internal:1200/proxy/rsshub",
+            "cron": "15 7 * * *", "sources": [
+                {"id": "weekly", "kind": "rsshub", "route_key": "movie_weekly_best"}]}}
+        self.plugin.init_plugin(config)
+        self.assertNotIn("INVALID_DISCOVERY_CONFIG", self.plugin.errors)
+        paths = {api["path"] for api in self.plugin.get_api()}
+        self.assertTrue({"/discovery/sources", "/discovery/test", "/discovery/run",
+                         "/discovery/records", "/discovery/reprocess",
+                         "/discovery/history/cleanup"} <= paths)
+        catalog = self.plugin.discovery_sources(user=self.TokenPayload())
+        weekly = next(row for row in catalog["catalog"] if row["route_key"] == "movie_weekly_best")
+        self.assertEqual("http://rss.internal:1200/proxy/rsshub/douban/list/movie_weekly_best?limit=50",
+                         weekly["full_url"])
+        from unittest.mock import patch
+        cron = types.ModuleType("apscheduler.triggers.cron")
+        cron.CronTrigger = types.SimpleNamespace(from_crontab=lambda value: ("cron", value))
+        with patch.dict(sys.modules, {"apscheduler": types.ModuleType("apscheduler"),
+                                      "apscheduler.triggers": types.ModuleType("apscheduler.triggers"),
+                                      "apscheduler.triggers.cron": cron}):
+            jobs = {job["id"]: job for job in self.plugin.get_service()}
+        self.assertIn("SubscriBetter_discovery", jobs)
+        result = jobs["SubscriBetter_discovery"]["func"](**jobs["SubscriBetter_discovery"]["func_kwargs"])
+        self.assertEqual("OWNER_UNBOUND", result["sources"]["weekly"]["reason"])
+
+    def test_W09_discovery_scope_and_inventory_refresh_contract_are_explicit(self):
+        archive=types.SimpleNamespace(
+            sources=types.SimpleNamespace(libraries={'emby':{'10'}}),
+            mappings=types.SimpleNamespace(rules=[{'emby_service':'emby','library_id':'10',
+                                                   'media_source':'themoviedb'}]))
+        self.plugin.delivery_worker=types.SimpleNamespace(archive=archive,rules={'rule':{'enabled':True}})
+        target=sys.modules['w01_plugin.repository'].Target('电视剧','themoviedb','1396',1)
+        source=self.mod.SourceConfig(id='tv',kind='custom',url='https://feed.invalid/rss',
+                                     destination_templates={'tv':'/downloads/tv'})
+        self.assertTrue(self.plugin._discovery_authorized(target,source))
+        self.assertFalse(self.plugin._discovery_authorized(target,source.model_copy(update={'destination_templates':{}})))
+        requests=[]
+        self.plugin.migration=types.SimpleNamespace(inventory_refresh=lambda request:
+            (requests.append(request),{'state':'MISSING','evidence_ref':'archive-probe:test'})[1])
+        result=self.plugin._discovery_inventory_refresh(target,source)
+        self.assertEqual('MISSING',result['state'])
+        self.assertEqual([['emby','10']],requests[0]['library_scopes'])
+        self.assertEqual(target.key,requests[0]['target_key'])
+
+    def test_W09_discovery_accept_opens_shared_scheduler_scope(self):
+        self.plugin.init_plugin({'enabled':True,'dry_run':False})
+        movie=sys.modules['w01_plugin.repository'].Target('电影','themoviedb','253774')
+        row=self.plugin.ownership.submit('fixture-movie',movie,{'name':'Caminandes'},'fixture')
+        source=self.mod.SourceConfig(id='controlled',kind='custom',url='https://feed.invalid/rss',
+                                     destination_templates={'movie':'/test-data/downloads/open-film'})
+        receipt=self.plugin._discovery_accept(row,movie,source,row['snapshot'])
+        self.assertEqual('CONTINUOUS',self.plugin.scheduler.opportunity(receipt['opportunity_id'])['mode'])
+        tvplugin=self.mod.SubscriBetter();tvplugin.data_path=Path(self.tmp.name)/'tv'
+        tvplugin.init_plugin({'enabled':True,'dry_run':False});self.addCleanup(tvplugin.stop_service)
+        tv=sys.modules['w01_plugin.repository'].Target('电视剧','themoviedb','1396',1)
+        tvrow=tvplugin.ownership.submit('fixture-tv',tv,{'name':'Fixture TV'},'fixture')
+        with self.assertRaisesRegex(ValueError,'TV_SCOPE_UNBOUND'):
+            tvplugin._discovery_accept(tvrow,tv,source.model_copy(update={'destination_templates':{'tv':'/tv'}}),tvrow['snapshot'])
+        tvplugin.migration=types.SimpleNamespace(discovery_scope=lambda request:{'episodes':[1,3]})
+        receipt=tvplugin._discovery_accept(tvrow,tv,source.model_copy(update={'destination_templates':{'tv':'/tv'}}),tvrow['snapshot'])
+        self.assertEqual(2,len(receipt['target_units']))
+
     def test_enabled_authenticated_submission_and_disabled_guard(self):
         self.plugin.init_plugin({"enabled": True, "dry_run": False})
         request = self.mod.IntentRequest(intent_key="working", media_type="电视剧", media_source="themoviedb", media_id="123", season=0, name="Fictional")

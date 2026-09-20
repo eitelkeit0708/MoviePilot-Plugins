@@ -543,6 +543,51 @@ class Archive:
                                    evidence_ref=data.get('evidence_ref'), diagnostics=diagnostics)
             return result
 
+    def discovery_inventory(self, target):
+        """Project indexed archive facts to a work/season without inventing episodes."""
+        if not isinstance(target, Target):
+            raise ValueError('TARGET_REQUIRED')
+        if target.media_type == '电影':
+            key = TargetUnit(target).key
+            value = self.current([key])[key]
+            return {name: value.get(name) for name in ('state', 'evidence_ref', 'diagnostics')}
+        with self.repository.connection() as db:
+            rows = db.execute(
+                "SELECT target_key FROM archive_targets WHERE json_valid(target_key) "
+                "AND json_extract(target_key,'$[0]')=? AND json_extract(target_key,'$[1]')=? "
+                "AND json_extract(target_key,'$[2]')=? AND json_extract(target_key,'$[3]')=? "
+                "AND json_extract(target_key,'$[4]')=? ORDER BY target_key LIMIT 10001",
+                (target.media_type, target.media_source, target.media_id, target.season, target.episode_group),
+            ).fetchall()
+        keys = [row['target_key'] for row in rows]
+        if not keys:
+            return {'state': 'UNKNOWN', 'evidence_ref': None, 'diagnostics': ['UNOBSERVED_SEASON']}
+        if len(keys) > 10000:
+            return {'state': 'UNKNOWN', 'evidence_ref': None, 'diagnostics': ['SEASON_INVENTORY_LIMIT']}
+        facts = self.current(keys)
+        states = {value['state'] for value in facts.values()}
+        evidence = 'archive-season:' + digest([[key, facts[key].get('evidence_ref')] for key in keys])
+        if states == {'MISSING'}:
+            return {'state': 'MISSING', 'evidence_ref': evidence, 'diagnostics': []}
+        if 'PRESENT' not in states:
+            diagnostics = sorted({code for value in facts.values() for code in value.get('diagnostics', [])})
+            return {'state': 'UNKNOWN', 'evidence_ref': evidence,
+                    'diagnostics': diagnostics or ['SEASON_INVENTORY_UNCERTAIN']}
+        if states != {'PRESENT'}:
+            return {'state': 'PARTIAL', 'evidence_ref': evidence,
+                    'diagnostics': ['PARTIAL_SEASON_ARCHIVE']}
+        with self.repository.connection() as db:
+            lifecycle = db.execute(
+                "SELECT l.scope,l.scope_closed FROM task_lifecycle l JOIN tasks t ON t.id=l.task_id "
+                "WHERE t.target_key=?", (target.key,)).fetchone()
+            receipts = {row[0] for row in db.execute(
+                "SELECT DISTINCT target_key FROM ingest_receipts WHERE target_key IN (%s)" %
+                ','.join('?' for _ in keys), keys)}
+        if lifecycle and lifecycle['scope_closed'] and set(json.loads(lifecycle['scope'])) == set(keys) and receipts == set(keys):
+            return {'state': 'INGESTED', 'evidence_ref': evidence, 'diagnostics': []}
+        return {'state': 'PARTIAL', 'evidence_ref': evidence,
+                'diagnostics': ['SEASON_COMPLETENESS_UNPROVEN']}
+
     @staticmethod
     def _live_versions(db, key):
         return db.execute("SELECT v.* FROM archive_versions v WHERE v.target_key=? AND v.active=1 AND NOT EXISTS(SELECT 1 FROM archive_assets a JOIN archive_locations l ON l.id=a.location_id WHERE a.version_id=v.id AND l.state!='PRESENT') ORDER BY v.id", (key,))

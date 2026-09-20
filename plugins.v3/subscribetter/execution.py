@@ -175,6 +175,28 @@ class Exclusions:
             return True
         return False
 
+    def matches_target(self, target):
+        """Match work scope against exact task or episode-unit exclusions."""
+        if self.matches({'targets': [target.key]}):
+            return True
+        expected = json.loads(target.key)
+        with self.repository.connection() as db:
+            rows = db.execute('SELECT criteria,expires_at FROM exclusions WHERE active=1').fetchall()
+        for row in rows:
+            if row['expires_at'] and parse(row['expires_at']) <= instant():
+                continue
+            criteria = json.loads(row['criteria'])
+            if set(criteria) != {'targets'}:
+                continue
+            for key in criteria['targets']:
+                try:
+                    unit = json.loads(key)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(unit, list) and len(unit) == 6 and unit[:5] == expected:
+                    return True
+        return False
+
 
 class StrictExecutor:
     def __init__(self, repository, client_factory, *, revalidate, verify_torrent=torrent_table):

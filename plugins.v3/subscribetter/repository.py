@@ -73,7 +73,7 @@ class Repository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.connection(write=True) as db:
             revision = db.execute("PRAGMA user_version").fetchone()[0]
-            if revision > 8:
+            if revision > 9:
                 raise RuntimeError("unsupported future database revision")
             if revision == 0:
                 statements = (
@@ -163,6 +163,17 @@ class Repository:
                 db.execute("CREATE TABLE ai_requests (scope TEXT NOT NULL, digest TEXT NOT NULL, state TEXT NOT NULL, attempts INTEGER NOT NULL, next_at REAL NOT NULL, reason TEXT NOT NULL, owner TEXT NOT NULL, updated_at REAL NOT NULL, PRIMARY KEY(scope,digest))")
                 db.execute("CREATE TABLE ai_usage (scope TEXT NOT NULL, name TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(scope,name))")
                 db.execute("PRAGMA user_version=8")
+            if revision < 9:
+                for statement in (
+                    "CREATE TABLE discovery_sources (source_id TEXT PRIMARY KEY, config_revision TEXT NOT NULL, config TEXT NOT NULL, last_state TEXT NOT NULL, last_reason TEXT NOT NULL, failures INTEGER NOT NULL, next_due REAL NOT NULL, last_success TEXT, last_failure TEXT, updated_at TEXT NOT NULL)",
+                    "CREATE TABLE discovery_records (id INTEGER PRIMARY KEY, source_id TEXT NOT NULL REFERENCES discovery_sources(source_id), item_key TEXT NOT NULL, raw_revision TEXT NOT NULL, raw TEXT NOT NULL, state TEXT NOT NULL, reason TEXT NOT NULL, retry_count INTEGER NOT NULL, next_due REAL NOT NULL, filter_revision TEXT NOT NULL, data TEXT NOT NULL, visible INTEGER NOT NULL, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, UNIQUE(source_id,item_key,raw_revision))",
+                    "CREATE INDEX discovery_due ON discovery_records(state,next_due,id)",
+                    "CREATE INDEX discovery_history ON discovery_records(source_id,visible,id)",
+                    "CREATE TABLE discovery_targets (record_id INTEGER NOT NULL REFERENCES discovery_records(id), target_key TEXT NOT NULL, intent_key TEXT NOT NULL, snapshot_digest TEXT NOT NULL, task_id INTEGER REFERENCES tasks(id), season INTEGER, episode_group TEXT NOT NULL, state TEXT NOT NULL, reason TEXT NOT NULL, receipt_ref TEXT, PRIMARY KEY(record_id,target_key))",
+                    "CREATE INDEX archive_target_identity ON archive_targets(json_extract(target_key,'$[0]'),json_extract(target_key,'$[1]'),json_extract(target_key,'$[2]'),json_extract(target_key,'$[3]'),json_extract(target_key,'$[4]'))",
+                    "PRAGMA user_version=9",
+                ):
+                    db.execute(statement)
 
     @contextmanager
     def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:
@@ -251,6 +262,10 @@ class Repository:
     def by_native_id(self, native_id: int) -> dict | None:
         with self.connection() as db:
             return self._task(db.execute("SELECT * FROM tasks WHERE native_id=?", (native_id,)).fetchone())
+
+    def by_target(self, target: Target) -> dict | None:
+        with self.connection() as db:
+            return self._task(db.execute("SELECT * FROM tasks WHERE target_key=?", (target.key,)).fetchone())
 
     def set_state(self, task_id: int, state: str, actor: str) -> dict:
         if state not in {"PAUSED", "PASSIVE", "STOPPED"}:

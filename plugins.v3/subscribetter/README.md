@@ -1,4 +1,14 @@
-# subscriBetter V3：内置名称辅助与普通聊天
+# subscriBetter V3：统一订阅、作品发现与名称辅助
+
+## 作品发现
+
+`Config.discovery` 使用结构化 `DiscoveryConfig`。配置自建 RSSHub `rsshub_base_url` 后，可从 `/discovery/sources` 查看 13 条固定豆瓣影视相对路由及完整 URL；没有公共 RSSHub fallback。自定义 RSS 每行迁移为一个 `kind=custom` source。管理员可用 `/discovery/test` 仅取源/解析，`/discovery/run` 显式运行，`/discovery/records` 查看 `all/latest12/recognized/unrecognized` 历史及分阶段统计，另有 POST reprocess 和 history/cleanup。作品发现与 PT 下载资源是两个不同的数据域。
+
+来源请求使用严格同源重定向、identity encoding、总时限、响应字节/项目/文本/XML 深度限制，以及固定 SDK `SecurityUtils.evaluate_url_safety`。字面私网 IP 只授权该地址；私网域名需要配置 `allowed_private_ranges`。RSS 标题、描述、排名、年份和分数只是原始声明；身份、年份、TMDB 分数及明确季号来自实际识别/provider 返回。多季只使用明确、已播、正数 season_number，不从 season 数量构造范围。
+
+每个来源在取源前都必须通过 W10 的 `migration.unique_owner(...)` 和 `migration.owner_snapshot(...)` 精确回执。新电影在原生壳 ACK 后直接用共享 `Scheduler.open_opportunity` 建立连续机会。电视剧还要求 W10 绑定 `migration.discovery_scope(request) -> {'episodes': [明确正整数集号...]}`；未绑定或范围不完整时保持 DEFERRED，绝不由 episode_count 造集号。全新目标档案为 UNKNOWN 时可绑定 `migration.inventory_refresh(request)` 做选定媒体库内的有界定向刷新，返回带 `evidence_ref` 的 `UNKNOWN/MISSING/PRESENT/PARTIAL/INGESTED`。已有档案由 `Archive.discovery_inventory(Target)` 直接投影；部分季在默认 `record_only` 下只链接事实，不接管下载。
+
+自动提交还要求来源有对应电影/剧集保存目录、至少一个启用交付规则，以及同 provider 的已选 Emby service/library mapping。所有成功目标仍只调用共享 `Ownership.submit`，使用同一 `tasks/intents/outbox`、STOPPED/RELEASED 和排除边界；没有第二个下载队列。显示历史清理只隐藏记录，保留目标、任务和回执。
 
 AI 默认关闭。内部候选流程先执行完整 Meta 修正，只有名称缺失或可解释的名称冲突才调用名称辅助；随后仍用真实媒体源返回的 ID 验证身份。模型只能提供两个字符串 `name`、`year`，不能提供季集、类型、媒体 ID、下载选择或订阅执行权。确定性解析已明确时不调用模型，范围冲突和用户规则也不会被模型覆盖。
 

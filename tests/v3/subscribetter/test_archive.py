@@ -122,6 +122,27 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual({v.version_id for v in before['versions']}, {v.version_id for v in after['versions']})
         self.assertEqual([], self.repo.list_tasks())
 
+    def test_discovery_inventory_projects_only_observed_tv_units(self):
+        target=self.r.Target('电视剧','themoviedb','1396',1)
+        keys=[self.a.TargetUnit(target,episode).key for episode in (1,3)]
+        with self.repo.connection(write=True) as db:
+            for key in keys:
+                db.execute("INSERT INTO archive_targets VALUES(?,'UNKNOWN','',?,?)",
+                           (key,json.dumps({'mapping_revision':self.archive.mappings.revision}),self.r.utcnow()))
+        seen=[]
+        def current(requested):
+            seen.extend(requested)
+            return {key:{'state':'PRESENT','evidence_ref':'archive:'+str(index),'diagnostics':[]}
+                    for index,key in enumerate(requested)}
+        with patch.object(self.archive,'current',side_effect=current):
+            value=self.archive.discovery_inventory(target)
+        self.assertEqual(keys,seen)
+        self.assertEqual('PARTIAL',value['state'])
+        self.assertEqual(['SEASON_COMPLETENESS_UNPROVEN'],value['diagnostics'])
+        absent=self.archive.discovery_inventory(self.r.Target('电视剧','themoviedb','1396',2))
+        self.assertEqual('UNKNOWN',absent['state'])
+        self.assertEqual(['UNOBSERVED_SEASON'],absent['diagnostics'])
+
     def test_incomplete_scan_keeps_versions_error_never_missing_then_confirmed_absence(self):
         self.media('second', 'copy.strm', 'b' * 40)
         self.archive.reconcile('test', '10')
@@ -392,14 +413,14 @@ class ArchiveTests(unittest.TestCase):
         self.publication()
         self.archive.confirm_ingest('pub',self.manifest,self.consumer)
         with self.repo.connection(write=True) as db:
-            for table in ('ai_usage','ai_requests','ai_runtime','delivery_bundles','local_observations','reconcile_checkpoints','archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
+            for table in ('discovery_targets','discovery_records','discovery_sources','ai_usage','ai_requests','ai_runtime','delivery_bundles','local_observations','reconcile_checkpoints','archive_assets','archive_sources','archive_scan_items','archive_scans','archive_locations','archive_contents','archive_versions','archive_targets'):
                 db.execute('DROP TABLE '+table)
             db.execute('PRAGMA user_version=5')
             tables=[r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")]
             before={t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables}
         migrated=self.r.Repository(self.repo.path)
         with migrated.connection() as db:
-            self.assertEqual(8,db.execute('PRAGMA user_version').fetchone()[0])
+            self.assertEqual(9,db.execute('PRAGMA user_version').fetchone()[0])
             self.assertEqual(before,{t:[tuple(r) for r in db.execute('SELECT * FROM '+t)] for t in tables})
             self.assertEqual([],list(db.execute('PRAGMA foreign_key_check')))
 
