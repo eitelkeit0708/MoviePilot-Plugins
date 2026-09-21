@@ -274,6 +274,7 @@ class DiscoveryStage(Strict):
     state:str
     reason:str=''
     items:int|None=None
+    history:dict[str,JsonValue]|None=None
 
 
 class DiscoveryRun(Strict):

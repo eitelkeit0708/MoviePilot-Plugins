@@ -8074,6 +8074,20 @@
             }
           ],
           "title": "Items"
+        },
+        "history": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "History"
         }
       },
       "additionalProperties": false,

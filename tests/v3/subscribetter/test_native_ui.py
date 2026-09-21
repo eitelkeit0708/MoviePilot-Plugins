@@ -16,6 +16,16 @@ class NativeUITests(unittest.TestCase):
     def setUp(self):
         test_management.ManagementAPITests.setUp(self)
 
+    def test_discovery_history_is_serializable_through_public_response_model(self):
+        from unittest.mock import AsyncMock, patch
+        history={'items':1,'states':['DEFERRED'],
+                 'errors':[{'record_id':2,'reason':'HISTORY_REPROCESS_FAILED'}]}
+        result={'sources':{'weekly':{'state':'PARTIAL','reason':'ITEM_BUDGET','items':0,'history':history}}}
+        with patch.object(self.plugin,'_writes_enabled'), patch.object(self.plugin,'discovery_tick',AsyncMock(return_value=result)):
+            response=self.client.post('/discovery/run',headers=self.headers,json={'source_ids':['weekly']})
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['sources']['weekly']['history'],history)
+
     def test_removed_chat_has_no_registration_routes_or_schema(self):
         from unittest.mock import patch
         from test_planner import load
