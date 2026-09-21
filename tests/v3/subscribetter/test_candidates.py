@@ -140,6 +140,68 @@ class CandidateTests(unittest.TestCase):
         result=service.recognize(row['candidate_key'],self.r.Target('电视剧','tmdb','42',1),None)
         self.assertEqual('REJECT',result['status']);self.assertEqual([],calls)
 
+    def test_cross_provider_mapping_preserves_canonical_identity_and_requires_consistent_typed_evidence(self):
+        import json
+        calls=[]
+        media=types.SimpleNamespace()
+        adapter=types.SimpleNamespace(
+            recognize=lambda meta,declared:calls.append(declared) or media,
+            identity=lambda subject:subject.identity,
+            source_identity=self.m.HostCandidateAdapter.source_identity)
+        service=self.m.CandidateService(self.repo,adapter)
+        row=service.observe(dict(site=1,torrent_id='mapped',title='Same title',description=''))
+        meta=types.SimpleNamespace(parse=lambda *a,**kw:types.SimpleNamespace(
+            status='OK',meta=object(),record=lambda:dict(status='OK')))
+        cases=[
+            ('mapped',('themoviedb','42'),'电影','123','123','OK'),
+            ('unknown',('themoviedb','42'),'电影',None,None,'DEFER'),
+            ('conflict',('themoviedb','42'),'电影','123','456','REJECT'),
+            ('other',('themoviedb','42'),'电影','456','456','REJECT'),
+            ('wrong-type',('themoviedb','42'),'电视剧','123','123','REJECT'),
+            ('missing-type',('themoviedb','42'),None,'123','123','DEFER'),
+            ('same-source-conflict',('douban','456'),'电影','123','123','REJECT'),
+            ('same-source-wrong-type',('douban','123'),'电视剧',None,None,'REJECT'),
+        ]
+        for name,identity,kind,direct,detail,expected in cases:
+            with self.subTest(name=name):
+                media=types.SimpleNamespace(identity=identity,type=kind,douban_id=direct,
+                                            douban_info={'id':detail} if detail else {})
+                result=service.recognize(row['candidate_key'],self.r.Target('电影','douban','123'),meta)
+                self.assertEqual(expected,result['status'])
+                self.assertEqual(identity,result['identity'])
+                if expected=='OK':
+                    self.assertEqual(dict(state='VERIFIED',source='douban',media_id='123',media_type='电影'),result['identity_mapping'])
+                    with self.repo.connection() as db:
+                        saved=json.loads(db.execute('SELECT data FROM candidates WHERE candidate_key=?',(row['candidate_key'],)).fetchone()[0])
+                    self.assertEqual(list(identity),saved['recognition']['identity'])
+                    self.assertEqual(result['identity_mapping'],saved['recognition']['identity_mapping'])
+        self.assertEqual([('douban',None)]*len(cases),calls)
+        media=types.SimpleNamespace(identity=('douban','123'),type=types.SimpleNamespace(value='电影'),
+                                    tmdb_id=42,tmdb_info={'id':42})
+        declared=service.observe(dict(site=1,torrent_id='declared',title='Candidate title',
+                                      media_source='douban',media_id='123'))
+        result=service.recognize(declared['candidate_key'],self.r.Target('电影','themoviedb','42'),meta)
+        self.assertEqual('OK',result['status'])
+        self.assertEqual(('douban','123'),result['identity'])
+        self.assertEqual(('douban','123'),calls[-1])
+        self.assertEqual('42',result['identity_mapping']['media_id'])
+
+    def test_host_provider_only_recognition_preserves_none_id_and_candidate_meta(self):
+        import sys
+        from unittest.mock import patch
+        calls=[]
+        meta=types.SimpleNamespace(name='Candidate title',year=2026)
+        chain=types.SimpleNamespace(run_module=lambda method,**kw:calls.append((method,kw)))
+        with patch.dict(sys.modules,{
+            'app.chain.media':types.SimpleNamespace(MediaChain=lambda:chain),
+            'app.sdk.media':types.SimpleNamespace(normalize_media_source=lambda source:source),
+            'app.schemas.types':types.SimpleNamespace(MediaType=lambda kind:kind)}):
+            self.m.HostCandidateAdapter.recognize(meta,('douban',None))
+            self.m.HostCandidateAdapter.recognize(meta,('douban','123'))
+        self.assertEqual([None,'123'],[kw['media_id'] for _,kw in calls])
+        self.assertTrue(all(method=='recognize_media' and kw['media_source']=='douban'
+                            and kw['meta'] is meta for method,kw in calls))
+
     def test_actual_pipeline_to_policy_and_fresh_revalidation(self):
         self.assertTrue(hasattr(self.m,'CandidatePipeline'),'actual candidate pipeline missing')
         from torrentool.api import Bencode
@@ -169,7 +231,7 @@ class CandidateTests(unittest.TestCase):
             evidence=dict(db.execute('SELECT * FROM candidate_decisions WHERE id=?',(result['decision_id'],)).fetchone())
         self.assertEqual('ACCEPT',evidence['status']);self.assertEqual(result['decision_digest'],evidence['digest'])
         self.assertEqual(result['decision_id'],result['plans'][0]['decision_id'])
-        self.assertIsNone(service.adapter.declared)
+        self.assertEqual(('tmdb',None),service.adapter.declared)
         pipeline.revalidate({'snapshot':result['plans'][0]})
         task=self.repo.submit('intent',target,{},'admin',42,True);self.repo.complete_handoff(task['id'],task['generation'])
         scheduler=load('scheduler');scheduler.Scheduler(self.repo).open_opportunity('round',task['id'],[planner.TargetUnit(target,1)],mode='ONESHOT',config=scheduler.ScheduleConfig(observation_enabled=False))

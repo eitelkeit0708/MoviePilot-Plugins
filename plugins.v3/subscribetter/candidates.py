@@ -59,7 +59,7 @@ class HostCandidateAdapter:
         return MediaChain().run_module('recognize_media',meta=meta,
             mtype=MediaType(media_type) if media_type else None,
             media_source=normalize_media_source(declared[0]) if declared else None,
-            media_id=str(declared[1]) if declared else None,episode_group=None)
+            media_id=str(declared[1]) if declared and declared[1] is not None else None,episode_group=None)
 
     @staticmethod
     def identity(media):
@@ -280,16 +280,26 @@ class CandidateService:
         check()
         try:
             if assistance is not None and assistance.identity:self.ai.count('candidate_submitted')
-            media = self.adapter.recognize(correction.meta,declared if all(declared) else None)
+            media = self.adapter.recognize(correction.meta,declared if all(declared) else (target.media_source,None))
         except Exception:
             return {'status':'ERROR','reason':'PROVIDER_UNAVAILABLE'}
         check()
         identity = self.adapter.identity(media) if media is not None else None
         matched = identity_matches((target.media_source,target.media_id),identity)
+        mapping=None
+        media_type=value(value(media,'type'),'value',value(media,'type'))
+        if matched is False and identity[0]!=target.media_source:
+            mapping=HostCandidateAdapter.source_identity(media,target.media_source)
+            mapping=dict(mapping,source=target.media_source,media_type=media_type)
+            matched=(mapping['media_id']==target.media_id if mapping['state']=='VERIFIED'
+                     else False if mapping['state']=='CONFLICT' else None)
+            if matched is True and not media_type:matched=None
+        if media_type and media_type!=target.media_type:matched=False
         if assistance is not None and assistance.identity and matched is True:self.ai.count('identity_matched')
         result = {'status':'OK' if matched is True else 'REJECT' if matched is False else 'DEFER',
                   'reason':'IDENTITY_VERIFIED' if matched is True else 'IDENTITY_UNCONFIRMED',
                   'identity':identity,'parse':correction.record()}
+        if mapping is not None:result['identity_mapping']=mapping
         if assistance is not None:
             result['ai']=evidence
         self._save_recognition(key,result)
