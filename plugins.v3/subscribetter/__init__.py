@@ -261,7 +261,9 @@ class SubscriBetter(_PluginBase):
                     self.discovery.authorized = self._discovery_authorized
                     self.discovery.ai = self.ai
                 self.runtime=Runtime(self)
-                if self.discovery:self.discovery.owner=self.runtime
+                if self.discovery:
+                    self.discovery.owner=self.runtime
+                    self.discovery.identity_bridge=self._discovery_identity
                 self.errors.extend(self.adapter.capabilities())
                 self.auto_baseline = set(self.repository.setting("auto_baseline") or [])
                 auto_types = sorted(self.config.auto_types) if self.config.enabled and not self.config.dry_run else []
@@ -374,6 +376,24 @@ class SubscriBetter(_PluginBase):
         if runtime is None:
             return {"state":"UNKNOWN","evidence_ref":None,"diagnostics":["ARCHIVE_UNAVAILABLE"]}
         return runtime.inventory_view(target)
+
+    def _discovery_identity(self, source, media):
+        import time
+        from .site_identity_bridge import resolve_site_identity
+        runtime = self.runtime
+        runtime.check()
+        template_id = source.destination_templates.get('movie')
+        templates = [t for t in runtime.config.destination_templates if t.id == template_id]
+        if len(templates) != 1 or not templates[0].sites:
+            return {'state':'UNKNOWN', 'evidence':{'reason':'SOURCE_TEMPLATE_UNBOUND'}}
+        budget = runtime.budget({'effective':{'candidates':runtime.config.candidates.model_dump()}})
+        # Separate transient candidates avoid sharing another tick's deadline/raw credentials.
+        candidates = CandidateService(self.repository, self.candidates.adapter)
+        candidates.checkpoint = runtime.check
+        deadline = time.monotonic() + (source.request_budget or self.discovery.config.request_budget).timeout
+        return resolve_site_identity(candidates, self.meta_service, media=media,
+            douban_id=str(self.candidates.adapter.identity(media)[1]), selected_sites=templates[0].sites,
+            budget=budget, deadline=deadline, checkpoint=runtime.check)
 
     def _discovery_inventory_refresh(self,target,source):
         runtime=getattr(self,'runtime',None)

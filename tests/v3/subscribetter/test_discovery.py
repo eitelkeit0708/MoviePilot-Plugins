@@ -192,6 +192,39 @@ class DiscoveryTests(unittest.TestCase):
             current=lambda: True, owner_check=owner_check or owner_receipt, accepted=accepted,
             owner_snapshot=lambda *_: OWNER_SNAPSHOT, instance_id="SubscriBetter")
 
+    def test_site_identity_bridge_preserves_source_and_admission_gates(self):
+        for outcome in ('VERIFIED', 'CONFLICT', 'UNKNOWN', 'inventory_unknown', 'wrong_id'):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as directory:
+                self.repo = self.repo_mod.Repository(Path(directory) / 'state.sqlite3')
+                original = types.SimpleNamespace(type='电影', identity=('douban','35322132'),
+                    douban_id='35322132', title='Fixture', year='2026', category='movie', tmdb_info={})
+                mapped = types.SimpleNamespace(type='电影', identity=('themoviedb','42'),
+                    title='Fixture', year='2026', category='movie', tmdb_info={'vote_average':8.0})
+                owner, seen = Owner(), []
+                def inventory(target):
+                    seen.append(target.media_source)
+                    return {'state':'UNKNOWN' if outcome=='inventory_unknown' or target.media_source=='douban' else 'MISSING',
+                            'evidence_ref':'fixture'}
+                service = self.service(media=original, owner=owner, inventory=inventory)
+                def bridge(source, media):
+                    self.assertIs(media, original)
+                    return {'state':outcome if outcome in {'UNKNOWN','CONFLICT'} else 'VERIFIED', 'media':mapped,
+                        'evidence':{'media_type':'电影','douban_id':'wrong' if outcome=='wrong_id' else '35322132',
+                                    'canonical':['themoviedb','42'],'rule':'site-description-imdb-v1'}}
+                service.identity_bridge = bridge
+                self.wait(service.run())
+                records=service.records()
+                record=next(r for r in records if r['raw']['douban_subject_id']=='35322132')
+                if outcome=='VERIFIED':
+                    self.assertEqual(record['identity']['media_source'],'themoviedb')
+                    self.assertEqual(record['site_identity']['raw_revision'],record['raw_revision'])
+                    self.assertEqual(record['identity_evidence']['declared_source'],'douban')
+                    self.assertTrue(owner.calls)
+                    self.assertIn('themoviedb',seen)
+                else:
+                    self.assertFalse(owner.calls)
+                self.assertFalse(hasattr(mapped,'douban_id'))
+
     def test_catalog_basepath_and_no_public_fallback(self):
         self.assertEqual(13, len(self.d.ROUTES))
         config = self.config()

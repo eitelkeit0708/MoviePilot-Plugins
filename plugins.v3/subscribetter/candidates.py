@@ -3,6 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from hashlib import sha256
 import json
+import math
 from pathlib import Path, PurePosixPath
 import re
 from threading import Lock
@@ -19,6 +20,63 @@ SUBTITLE = TEXT_SUBTITLE_SUFFIXES
 
 
 class HostCandidateAdapter:
+    @staticmethod
+    def site_description(raw, selected_sites, *, deadline):
+        """One bounded, same-origin detail request; credentials and HTML stay in memory."""
+        codes = {'SITE_DETAIL_TIMEOUT', 'SITE_DETAIL_UNAUTHORIZED', 'SITE_DETAIL_UNSAFE',
+                 'SITE_DETAIL_HTTP', 'SITE_DETAIL_TOO_LARGE', 'SITE_DETAIL_FAILED'}
+        try:
+            from app.sdk.network import RequestUtils, SecurityUtils
+            from app.sdk.config import settings
+            def remaining():
+                now = time.monotonic()
+                if type(deadline) not in (int, float) or not math.isfinite(deadline) or deadline <= now:
+                    raise ValueError('SITE_DETAIL_TIMEOUT')
+                return min(15, deadline - now)
+            remaining()
+            site_id = value(raw, 'site')
+            if (not isinstance(selected_sites, (list, tuple)) or len(selected_sites) > 32
+                    or any(type(i) is not int or i < 1 for i in selected_sites)
+                    or type(site_id) is not int or site_id not in selected_sites):
+                raise ValueError('SITE_DETAIL_UNAUTHORIZED')
+            matches = [s for s in HostCandidateAdapter.sites() if s.get('id') == site_id]
+            if len(matches) != 1 or matches[0].get('is_active') is False:
+                raise ValueError('SITE_DETAIL_UNAUTHORIZED')
+            site = matches[0]
+            url, base = value(raw, 'page_url'), site.get('url')
+            def origin(address):
+                if not isinstance(address, str) or any(c.isspace() for c in address):
+                    raise ValueError('SITE_DETAIL_UNSAFE')
+                parts = urlsplit(address)
+                if parts.scheme != 'https' or not parts.hostname or parts.username is not None or parts.password is not None:
+                    raise ValueError('SITE_DETAIL_UNSAFE')
+                return parts.hostname.casefold(), parts.port or 443
+            if origin(url) != origin(base) or not SecurityUtils.is_safe_url(
+                    url, allowed_domains=[urlsplit(base).netloc], strict=True, block_private=True):
+                raise ValueError('SITE_DETAIL_UNSAFE')
+            request = RequestUtils(cookies=site.get('cookie'), ua=site.get('ua'),
+                proxies=settings.PROXY if site.get('proxy') else None, timeout=remaining(), verify=True)
+            with request.get_stream(url, allow_redirects=False, raise_exception=True) as response:
+                if response is None or response.status_code != 200:
+                    raise ValueError('SITE_DETAIL_HTTP')
+                if origin(response.url) != origin(base):
+                    raise ValueError('SITE_DETAIL_UNSAFE')
+                limit = 2 * 1024 * 1024
+                length = response.headers.get('Content-Length')
+                if length is not None and int(length) > limit:
+                    raise ValueError('SITE_DETAIL_TOO_LARGE')
+                body = bytearray()
+                for chunk in response.iter_content(chunk_size=16384):
+                    remaining()
+                    if len(body) + len(chunk) > limit:
+                        raise ValueError('SITE_DETAIL_TOO_LARGE')
+                    body.extend(chunk)
+                remaining()
+                return body.decode(response.encoding or 'utf-8')
+        except Exception as error:
+            code = str(error) if isinstance(error, ValueError) and str(error) in codes else 'SITE_DETAIL_FAILED'
+            raise ValueError(code) from None
+
     @staticmethod
     def sites():
         from app.sdk.network import SitesHelper

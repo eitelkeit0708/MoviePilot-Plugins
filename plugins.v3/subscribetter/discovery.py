@@ -478,6 +478,7 @@ class DiscoveryService:
         self.inventory_refresh = inventory_refresh
         self.authorized, self.excluded = authorized or (lambda *_: False), excluded or (lambda _: False)
         self.accepted = accepted
+        self.identity_bridge = None
         self.current, self.owner_check, self.owner_snapshot = current or (lambda: False), owner_check, owner_snapshot
         self.instance_id, self.ai = instance_id, ai
         self.config_digest = _digest(self.config.model_dump(mode="json"))
@@ -833,6 +834,35 @@ class DiscoveryService:
         with self.repository.connection() as db:
             linked = db.execute("SELECT target_key FROM discovery_targets WHERE record_id=? AND task_id IS NOT NULL",
                                 (record_id,)).fetchall()
+        if (not linked and declared and source_id == 'douban' and media_type == '电影'
+                and callable(self.identity_bridge)):
+            if not self.current() or not self._owned(source.id):
+                return self._set_record(record_id, 'DEFERRED', 'STALE_GENERATION', data)
+            try:
+                bridge = self.identity_bridge(source, media)
+            except Exception:
+                return self._set_record(record_id, 'DEFERRED', 'SITE_IDENTITY_UNAVAILABLE', data)
+            if not self.current() or not self._owned(source.id):
+                return self._set_record(record_id, 'DEFERRED', 'STALE_GENERATION', data)
+            proof = bridge.get('evidence', {}) if isinstance(bridge, dict) else {}
+            data['site_identity'] = dict(proof, raw_revision=item.raw_revision,
+                                         state=bridge.get('state')) if isinstance(bridge, dict) else {'state':'UNKNOWN'}
+            if isinstance(bridge, dict) and bridge.get('state') == 'CONFLICT':
+                return self._set_record(record_id, 'DEFERRED', 'SOURCE_ID_CONFLICT', data)
+            if isinstance(bridge, dict) and bridge.get('state') == 'VERIFIED':
+                replacement = bridge.get('media')
+                resolved = self.recognizer.identity(replacement) if replacement is not None else None
+                kind = self._field(self._field(replacement, 'type'), 'value', self._field(replacement, 'type'))
+                native = self.recognizer.source_identity(replacement, 'douban')
+                if (not resolved or resolved[0] != 'themoviedb' or not resolved[1] or kind != media_type
+                        or proof.get('douban_id') != declared[1] or proof.get('media_type') != media_type
+                        or proof.get('canonical') != list(resolved)
+                        or native.get('state') == 'CONFLICT'
+                        or (native.get('state') == 'VERIFIED' and str(native.get('media_id')) != declared[1])):
+                    return self._set_record(record_id, 'DEFERRED', 'SOURCE_ID_CONFLICT', data)
+                media, (source_id, media_id) = replacement, resolved
+                mapping = {'state':'VERIFIED', 'source':'douban', 'media_id':declared[1], 'basis':'site_description_imdb'}
+                data['filter_evidence']['recognized_provider'] = source_id
         if any(json.loads(row["target_key"])[:3] != [media_type, source_id, media_id] for row in linked):
             return self._set_record(record_id, "DEFERRED", "IDENTITY_CHANGED", data)
         allowed = set(self.config.media_type_allowlist or ["电影", "电视剧"])

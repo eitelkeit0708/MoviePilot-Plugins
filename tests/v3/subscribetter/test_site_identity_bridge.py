@@ -1,0 +1,92 @@
+"""Bridge tests use real bounded CandidateService, isolated DB and fake providers."""
+from pathlib import Path
+from types import SimpleNamespace as NS
+import copy
+import tempfile
+import time
+import unittest
+from test_planner import load
+
+
+def body(douban='36439868', imdb='tt28014327'):
+    return '<div id="kdescr">[url=https://movie.douban.com/subject/'+douban+'/]Douban[/url] [url=https://www.imdb.com/title/'+imdb+'/]IMDb[/url]</div>'
+
+class BridgeTests(unittest.TestCase):
+    def setUp(self):
+        self.module=load('site_identity_bridge')
+        self.c=load('candidates');r=load('repository')
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.repo=r.Repository(Path(self.tmp.name)/'test.db')
+        self.rows=[dict(site=1,torrent_id='354238',title='Mayday 2026 1080p',description='own description',page_url='https://site/detail?id=354238&passkey=SECRET')]
+        self.media=NS(type='电影',media_source='themoviedb',media_id='1137844',year='2026',imdb_id='tt28014327',tmdb_info={'id':1137844,'imdb_id':'tt28014327'},douban_id=None,douban_info={})
+        self.bodies={'354238':body()};self.recognized={};self.calls=[]
+        outer=self
+        class Adapter:
+            def sites(self):return [{'id':1}]
+            def page_size(self,site,word):outer.calls.append(('page_size',));return None
+            def search(self,site,word,page):outer.calls.append(('search',word));return outer.rows
+            def site_description(self,raw,sites,*,deadline):outer.calls.append(('detail',raw['torrent_id']));return outer.bodies[raw['torrent_id']]
+            def recognize(self,meta,declared,*,media_type):outer.calls.append(('recognize',meta.title,declared,media_type));return outer.recognized.get(meta.title,outer.media)
+            identity=staticmethod(lambda m:(m.media_source,m.media_id))
+            source_identity=staticmethod(self.c.HostCandidateAdapter.source_identity)
+        self.service=self.c.CandidateService(self.repo,Adapter())
+        class Meta:
+            def parse(self,key,title,description):
+                outer.calls.append(('parse',title,description));return NS(status='OK',meta=NS(title=title))
+        self.meta=Meta();self.checks=0
+        self.budget=self.c.SearchBudget(keywords=2,pages=1,concurrency=1,results=20,requests=6,interval=0)
+    def check(self):self.checks+=1
+    def run_bridge(self,**kwargs):
+        return self.module.resolve_site_identity(self.service,self.meta,media=NS(type='电影',title='求救信号',original_title='Mayday',year='2026'),douban_id='36439868',selected_sites=[1],budget=kwargs.get('budget',self.budget),deadline=kwargs.get('deadline',time.monotonic()+10),checkpoint=kwargs.get('checkpoint',self.check))
+    def test_independent_original_candidate_and_unmodified_provider(self):
+        before=copy.deepcopy(vars(self.media));result=self.run_bridge()
+        self.assertEqual(result['state'],'VERIFIED');self.assertIs(result['media'],self.media)
+        self.assertEqual(result['evidence']['canonical'],['themoviedb','1137844'])
+        self.assertEqual(result['evidence']['douban_id'],'36439868')
+        self.assertEqual(result['evidence']['media_type'],'电影')
+        self.assertEqual(vars(self.media),before)
+        self.assertIn(('recognize','Mayday 2026 1080p',('themoviedb',None),'电影'),self.calls)
+        self.assertIn(('parse','Mayday 2026 1080p','own description'),self.calls)
+        self.assertNotIn('SECRET',str(result['evidence']));self.assertGreater(self.checks,4)
+    def test_conflicts_and_wrong_type_never_verified(self):
+        for changes in ({'tmdb_info':{'id':999,'imdb_id':'tt28014327'}},{'year':'2025'},{'imdb_id':'tt9'},{'type':'电视剧'},{'douban_id':'999'},{'douban_id':'36439868','douban_info':{'id':'999'}},{'tmdb_info':{'external_ids':{'imdb_id':'tt8'}}}):
+            with self.subTest(changes=changes):
+                before=vars(self.media).copy();vars(self.media).update(changes)
+                self.assertEqual(self.run_bridge()['state'],'CONFLICT');vars(self.media).clear();vars(self.media).update(before)
+    def test_other_douban_is_skipped_without_recognition(self):
+        self.bodies['354238']=body('99')
+        self.assertEqual(self.run_bridge()['state'],'UNKNOWN')
+        self.assertFalse(any(c[0]=='recognize' for c in self.calls))
+    def test_all_bounded_matching_bodies_checked_for_conflict(self):
+        self.rows.append(dict(self.rows[0],torrent_id='2',title='Other own title'))
+        self.bodies['2']=body(imdb='tt123')
+        self.recognized['Other own title']=NS(**dict(vars(self.media),media_id='2',imdb_id='tt123',tmdb_info={'id':2,'imdb_id':'tt123'}))
+        self.assertEqual(self.run_bridge()['state'],'CONFLICT')
+        self.assertEqual(len([c for c in self.calls if c[0]=='detail']),2)
+    def test_absent_imdb_and_provider_failure_stay_unknown(self):
+        self.media.imdb_id=None;self.media.tmdb_info={}
+        self.assertEqual(self.run_bridge()['state'],'UNKNOWN')
+        def failed(*args,**kwargs):raise OSError('PRIVATE URL should not leak')
+        self.service.adapter.site_description=failed
+        result=self.run_bridge()
+        self.assertEqual(result['state'],'UNKNOWN');self.assertNotIn('PRIVATE',str(result))
+
+    def test_conflicting_canonical_for_same_imdb_is_not_first_match_win(self):
+        self.rows.append(dict(self.rows[0],torrent_id='2',title='Second'))
+        self.bodies['2']=body()
+        self.recognized['Second']=NS(**dict(vars(self.media),media_id='99',tmdb_info={'id':99,'imdb_id':'tt28014327'}))
+        self.assertEqual(self.run_bridge()['state'],'CONFLICT')
+
+    def test_budget_caps_and_checkpoint_deadline_propagate(self):
+        self.rows=[dict(self.rows[0],torrent_id=str(i)) for i in range(20)]
+        self.bodies={str(i):body() for i in range(20)}
+        self.run_bridge()
+        self.assertLessEqual(len([c for c in self.calls if c[0] in ('detail','search','page_size')]),6)
+        self.assertEqual(len([c for c in self.calls if c[0]=='detail']),4)
+        with self.assertRaisesRegex(ValueError,'TICK_DEADLINE'):self.run_bridge(deadline=0)
+        def cancelled():raise RuntimeError('CANCELLED')
+        with self.assertRaisesRegex(RuntimeError,'CANCELLED'):self.run_bridge(checkpoint=cancelled)
+        tiny=self.c.SearchBudget(keywords=1,pages=1,concurrency=1,results=1,requests=2,interval=0)
+        self.calls.clear();self.assertEqual(self.run_bridge(budget=tiny)['state'],'UNKNOWN');self.assertEqual(self.calls,[])
+
+if __name__=='__main__':unittest.main()
