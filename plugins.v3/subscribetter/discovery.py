@@ -834,7 +834,9 @@ class DiscoveryService:
         with self.repository.connection() as db:
             linked = db.execute("SELECT target_key FROM discovery_targets WHERE record_id=? AND task_id IS NOT NULL",
                                 (record_id,)).fetchall()
-        if (not linked and declared and source_id == 'douban' and media_type == '电影'
+        bridge_eligible = not linked or all(
+            json.loads(row['target_key'])[:2] == ['电影', 'themoviedb'] for row in linked)
+        if (bridge_eligible and declared and source_id == 'douban' and media_type == '电影'
                 and callable(self.identity_bridge)):
             if not self.current() or not self._owned(source.id):
                 return self._set_record(record_id, 'DEFERRED', 'STALE_GENERATION', data)

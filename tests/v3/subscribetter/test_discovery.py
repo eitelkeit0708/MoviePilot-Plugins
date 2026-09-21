@@ -225,6 +225,65 @@ class DiscoveryTests(unittest.TestCase):
                     self.assertFalse(owner.calls)
                 self.assertFalse(hasattr(mapped,'douban_id'))
 
+    def test_linked_site_bridge_revalidates_exact_identity_without_duplicate(self):
+        original = types.SimpleNamespace(type='电影', identity=('douban','35322132'),
+            douban_id='35322132', title='Fixture', year='2026', category='movie', tmdb_info={})
+        mapped = types.SimpleNamespace(type='电影', identity=('themoviedb','42'),
+            title='Fixture', year='2026', category='movie', tmdb_info={})
+        host = Host()
+        owner = self.ownership_mod.Ownership(self.repo, host)
+        service = self.service(self.config(request_budget=ONE_BUDGET), media=original, owner=owner)
+        calls = []
+        def bridge(source, media):
+            calls.append(media)
+            return {'state':'VERIFIED', 'media':mapped, 'evidence':{
+                'media_type':'电影', 'douban_id':'35322132', 'canonical':list(mapped.identity)}}
+        service.identity_bridge = bridge
+        self.wait(service.run())
+        record = service.records()[0]
+        self.assertEqual(record['targets'][0]['state'], 'SUBMITTED')
+        task_id = record['targets'][0]['task_id']
+        service.reprocess([record['id']]);self.wait(service.run())
+        current = service.records()[0]
+        self.assertEqual(current['targets'][0]['state'], 'SUBMITTED')
+        self.assertEqual(current['targets'][0]['task_id'], task_id)
+        self.assertEqual(current['identity']['media_id'], '42')
+        self.assertEqual(len(calls), 2)
+        service.config_digest = 'changed-policy-revision'
+        service.reprocess([record['id']]);self.wait(service.run())
+        current = service.records()[0]
+        self.assertEqual(current['targets'][0]['state'], 'ALREADY_MANAGED')
+        self.assertEqual(current['targets'][0]['task_id'], task_id)
+        mapped.identity = ('themoviedb','43')
+        service.reprocess([record['id']]);self.wait(service.run())
+        current = service.records()[0]
+        self.assertEqual(current['reason'], 'IDENTITY_CHANGED')
+        self.assertEqual(current['targets'][0]['task_id'], task_id)
+        self.assertEqual(len(self.repo.list_tasks()), 1)
+        self.assertEqual(host.creates, 1)
+
+    def test_original_linked_douban_task_cannot_be_converted_by_bridge(self):
+        original = types.SimpleNamespace(type='电影', identity=('douban','35322132'),
+            douban_id='35322132', title='Fixture', year='2026', category='movie', tmdb_info={})
+        host = Host()
+        owner = self.ownership_mod.Ownership(self.repo, host)
+        service = self.service(self.config(request_budget=ONE_BUDGET), media=original, owner=owner)
+        self.wait(service.run())
+        record = service.records()[0]
+        bridge_calls = []
+        def forbidden(*args):
+            bridge_calls.append(args)
+            self.fail('linked Douban target must not invoke bridge')
+        service.identity_bridge = forbidden
+        service.reprocess([record['id']]);self.wait(service.run())
+        current = service.records()[0]
+        self.assertEqual(current['targets'][0]['state'], 'SUBMITTED')
+        self.assertEqual(current['identity']['media_source'], 'douban')
+        self.assertEqual(current['state'], 'SUBMITTED')
+        self.assertEqual(bridge_calls, [])
+        self.assertEqual(len(self.repo.list_tasks()), 1)
+        self.assertEqual(host.creates, 1)
+
     def test_catalog_basepath_and_no_public_fallback(self):
         self.assertEqual(13, len(self.d.ROUTES))
         config = self.config()
