@@ -268,8 +268,23 @@ class Delivery:
                 relative.add(rel)
                 with LocalSource(p,r['read_roots']) as source:
                     if source.size!=row['size'] or source.size!=table[index]['size']:raise ValueError('ORGANIZED_ASSET_CHANGED')
-                    digest,strong=source.hash()
+                    evidence=json.loads(row['evidence']);cached=evidence.get('prepare_hash')
+                    reusable=(os.name=='posix' and isinstance(cached,dict) and cached.get('snapshot')==source.snapshot
+                        and cached.get('sha256')==row['sha256'] and all(isinstance(cached.get(k),str)
+                        and len(cached[k])==n and all(c in '0123456789abcdef' for c in cached[k])
+                        for k,n in (('sha1',40),('sha256',64),('md5',32))))
+                    if reusable:
+                        source.check();digest,strong=cached['sha1'],cached['sha256'];source.sha1=digest;source.md5=cached['md5']
+                    else:digest,strong=source.hash()
                     if strong!=row['sha256']:raise ValueError('ORGANIZED_ASSET_CHANGED')
+                    source.check()
+                    if os.name=='posix' and not reusable:
+                        # Checkpoint the complete hash before the later receipt and dispatch gates; retries still pass _valid.
+                        evidence['prepare_hash']=dict(snapshot=source.snapshot,sha1=digest,sha256=strong,md5=source.md5)
+                        with self.repository.connection(write=True) as db:
+                            updated=db.execute('UPDATE organized_assets SET evidence=? WHERE plan_id=? AND file_index=? AND state=? AND sha256=? AND evidence=?',
+                                (encoded(evidence),source_plan_id,index,'COMPLETE',strong,row['evidence']))
+                            if updated.rowcount!=1:raise ValueError('ORGANIZED_ASSET_CHANGED')
                     files.append(dict(file_index=index,relative_path=rel,snapshot=source.snapshot,parents=parent_snapshot(p),sha1=digest,md5=source.md5,size=source.size,misses=0,attempts=0,action_id=None,state='PENDING',due=stamp(instant(now)+timedelta(seconds=r['stable_seconds'])),reader_stopped=True))
                 item=table[index]
                 assets.append(dict(file_index=index,relative_path=item['path'],role=item['role'],targets=item['targets'],requires=item['requires'],content=dict(sha1=digest,size=item['size'])))

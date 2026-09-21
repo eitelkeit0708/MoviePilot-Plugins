@@ -103,6 +103,52 @@ class DeliveryTests(unittest.TestCase):
         with self.assertRaises((ValueError,FileNotFoundError)): self.prepared()
         with self.repo.connection() as db: self.assertEqual(0,db.execute('SELECT count(*) FROM delivery_bundles').fetchone()[0])
 
+    def test_completed_prepare_hash_survives_expired_dispatch_without_weakening_digest(self):
+        self.worker.dispatch_gate=lambda:(_ for _ in ()).throw(ValueError('TICK_DEADLINE'))
+        with self.assertRaisesRegex(ValueError,'TICK_DEADLINE'):self.prepared()
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT COUNT(*) FROM delivery_bundles').fetchone()[0])
+            evidence=json.loads(db.execute('SELECT evidence FROM organized_assets WHERE plan_id=? AND file_index=?',('A',0)).fetchone()[0])
+        restarted=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda _:self.publication)
+        if os.name=='posix':
+            self.assertIn('prepare_hash',evidence)
+            with patch.object(self.m.LocalSource,'hash',side_effect=AssertionError('rehashed unchanged file')):
+                self.assertEqual('PREPARED',restarted.prepare('A','r',publication=self.publication,now=tp.NOW)['state'])
+        else:
+            self.assertNotIn('prepare_hash',evidence)
+            original_hash=self.m.LocalSource.hash
+            calls=[]
+            def counted_hash(source):
+                calls.append(1)
+                return original_hash(source)
+            with patch.object(self.m.LocalSource,'hash',counted_hash):
+                # Windows never trusts a cross-tick stat snapshot as a content-change token.
+                self.assertEqual('PREPARED',restarted.prepare('A','r',publication=self.publication,now=tp.NOW)['state'])
+                self.assertGreaterEqual(len(calls),1)
+
+    @unittest.skipUnless(os.name=='posix','POSIX ctime identity required')
+    def test_prepare_hash_rejects_same_size_change_with_restored_mtime(self):
+        self.worker.dispatch_gate=lambda:(_ for _ in ()).throw(ValueError('TICK_DEADLINE'))
+        with self.assertRaisesRegex(ValueError,'TICK_DEADLINE'):self.prepared()
+        path=self.local/'movie.mkv'
+        before=path.stat()
+        time.sleep(.01)
+        path.write_bytes(b'y'*100)
+        os.utime(path,ns=(before.st_atime_ns,before.st_mtime_ns))
+        self.assertNotEqual(before.st_ctime_ns,path.stat().st_ctime_ns)
+        restarted=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda _:self.publication)
+        original_hash=self.m.LocalSource.hash
+        calls=[]
+        def counted_hash(source):
+            calls.append(1)
+            return original_hash(source)
+        with patch.object(self.m.LocalSource,'hash',counted_hash):
+            with self.assertRaisesRegex(ValueError,'ORGANIZED_ASSET_CHANGED'):
+                restarted.prepare('A','r',publication=self.publication,now=tp.NOW)
+        self.assertGreaterEqual(len(calls),1)
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT COUNT(*) FROM delivery_bundles').fetchone()[0])
+
     def test_disabled_rule_safety_observes_issued_upload_without_new_dispatch(self):
         self.rule.update(fallback=True,fallback_gb='0.001',rapid_misses=1)
         self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda p:self.publication)
