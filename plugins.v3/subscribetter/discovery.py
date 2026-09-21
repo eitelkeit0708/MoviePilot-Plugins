@@ -57,7 +57,7 @@ ROUTES = {
 ROUTE_PROVENANCE = "deployed RSSHub list-COiEyPon.mjs ca633ed2908b0684f156f15c8c575897ecea76ab58d6fcbb2fe4681617c401e7"
 LEGACY_RANKS = {"movie-weekly": "movie_weekly_best", "movie-real-time": "movie_real_time_hotest"}
 SECRET_QUERY = re.compile(r"(?:token|key|secret|password|passwd|cookie|authorization|signature)", re.I)
-DOUBAN_SUBJECT = re.compile(r"^/subject/(\d+)/?$")
+DOUBAN_SUBJECT = re.compile(r"^/(?:subject|doubanapp/dispatch/movie)/(\d+)/?$")
 
 
 def _digest(value, *, default=None) -> str:

@@ -265,6 +265,29 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.d.parse_rss(SYNTHETIC_RSS, max_bytes=40)
 
+    def test_douban_dispatch_links_preserve_identity_and_source_type(self):
+        for hint, kind, media_id in (("TV", "电视剧", "36449295"), ("Movie", "电影", "37068446")):
+            link = "https://www.douban.com/doubanapp/dispatch/movie/" + media_id
+            body = ("<rss><channel><item><title>榜单条目</title><link>" + link +
+                    "</link></item></channel></rss>").encode()
+            item = self.d.parse_rss(body)[0]
+            self.assertEqual(media_id, item.douban_subject_id)
+            self.assertIsNone(item.year)
+            config = self.config(sources=[dict(id=hint, kind="custom", url="https://feed.invalid/rss", source_type_hint=hint)])
+            media = types.SimpleNamespace(type=types.SimpleNamespace(value=kind), identity=("douban", "999"))
+            recognizer, owner = Recognizer(media), Owner()
+            service = self.service(config, recognizer=recognizer, owner=owner)
+            service._observe(config.sources[0], item)
+            self.assertEqual((("douban", media_id), kind, None), recognizer.calls[0])
+            self.assertEqual("SOURCE_ID_CONFLICT", service.records(source_id=hint)[0]["reason"])
+            self.assertEqual([], owner.calls)
+        for link in ("https://www.douban.com.evil/doubanapp/dispatch/movie/123",
+                     "http://www.douban.com/doubanapp/dispatch/movie/123",
+                     "https://www.douban.com/doubanapp/dispatch/movie/123-extra"):
+            body = ("<rss><channel><item><title>x</title><link>" + link +
+                    "</link></item></channel></rss>").encode()
+            self.assertIsNone(self.d.parse_rss(body)[0].douban_subject_id)
+
     def test_host_fetcher_enforces_total_deadline_identity_encoding_and_close(self):
         events = []
         class Response:
