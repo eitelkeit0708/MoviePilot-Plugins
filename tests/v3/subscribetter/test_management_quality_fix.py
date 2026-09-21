@@ -25,45 +25,12 @@ class QualityFixTests(unittest.TestCase):
         if repo is not None:f.repo=repo
         return f,f.runtime(**config)
 
-    def test_session_clear_fences_dequeued_new_route_and_preserves_cache(self):
-        f=self.fixture(tm.ManagementTests)
-        route=dict(channel='Telegram',source='bot',userid='7',chat_id='99')
-        af,ai=self.ai_fixture(f.repo,chat_enabled=True,chat_routes=[route]);f.plugin.ai=ai
-        ai.owner_check=lambda *args:af.m.owner_receipt('receipt',*args,fingerprint='a'*64)
-        ai.owner_snapshot=lambda *args:dict(fingerprint='a'*64,overlaps=[],unclassified=[])
-        ai.cache['keep']=(9999,{});ai.bridge_cache['keep']=(9999,{})
-        dequeued=threading.Event();resume=threading.Event();sent=[];original=ai.chat
-        def paused(text,scope,**kw):
-            if text=='old question?':
-                dequeued.set();self.assertTrue(resume.wait(2))
-            return original(text,scope,**kw)
-        ai.chat=paused
-        ai.enqueue_chat(NS(event_data=dict(route,text='old question?')),lambda **kw:sent.append(kw))
-        m=load('ui');view=m.Views(f.plugin);user=NS(username='admin')
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            pending=pool.submit(ai.drain,None)
-            try:
-                self.assertTrue(dequeued.wait(2));self.assertFalse(ai.chat_queue)
-                key=af.m.digest(route)
-                self.assertNotIn(key,ai.sessions);self.assertNotIn(key,ai.session_epochs);self.assertNotIn(key,ai.chat_busy)
-                preview=view.sessions_preview(m.Fence(**f.fence()),user=user)
-                self.assertEqual('APPLIED',view.apply_sessions(f.apply_body(preview),user=user).state)
-            finally:resume.set()
-            pending.result(timeout=2)
-        self.assertEqual([],af.requests);self.assertEqual([],sent);self.assertFalse(ai.sessions)
-        self.assertEqual(0,ai.epoch);self.assertIn('keep',ai.cache);self.assertIn('keep',ai.bridge_cache)
-        af.replies.append('new answer')
-        ai.enqueue_chat(NS(event_data=dict(route,text='new question?')),lambda **kw:sent.append(kw));ai.drain(None)
-        self.assertEqual(1,len(af.requests));self.assertEqual('new answer',sent[0]['title'])
-        self.assertEqual(['new question?','new answer'],[x['content'] for x in ai.sessions[af.m.digest(route)]])
-        ai.clear_cache('admin');self.assertFalse(ai.cache);self.assertTrue(ai.sessions)
-
     def test_ai_preview_apply_order_all_kinds_without_database_timeout(self):
         f=self.fixture(tm.ManagementTests);af,ai=self.ai_fixture(f.repo);f.plugin.ai=ai
         m=load('ui');view=m.Views(f.plugin);user=NS(username='admin');request=m.Fence(**f.fence())
         original_connection=f.repo.connection;original_apply=view._apply
-        for kind in ('ai_cache','ai_sessions','ai_prompt'):
-            for preview_kind in ('ai_cache','ai_sessions','ai_prompt'):
+        for kind in ('ai_cache','ai_prompt'):
+            for preview_kind in ('ai_cache','ai_prompt'):
                 with self.subTest(apply=kind,preview=preview_kind):
                     preview=view.preview(kind,{},request,user)
                     body=f.apply_body(preview,kind+'-'+preview_kind)

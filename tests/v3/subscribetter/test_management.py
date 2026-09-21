@@ -142,15 +142,13 @@ class ManagementTests(unittest.TestCase):
         from test_ai import AITests
         f=AITests();f.setUp();self.addCleanup(f.doCleanups);ai=f.runtime();self.plugin.ai=ai
         m=load('ui');view=m.Views(self.plugin);user=SimpleNamespace(username='admin');request=m.Fence(**self.fence())
-        ai.cache['old']=(0,{'name':'expired'});ai.sessions['session']=[{'role':'user','content':'hello'}]
+        ai.cache['old']=(0,{'name':'expired'})
         ai.stats();self.assertIn('old',ai.cache)
         p=view.cache_preview(request,user=user);ai.cache['new']=(0,{})
         with self.assertRaises(Exception) as error:view.apply_cache(self.apply_body(p),user=user)
         self.assertEqual(409,error.exception.status_code)
         p=view.cache_preview(request,user=user);self.assertEqual('APPLIED',view.apply_cache(self.apply_body(p),user=user).state)
-        self.assertFalse(ai.cache);self.assertTrue(ai.sessions)
-        p=view.sessions_preview(request,user=user);self.assertEqual('APPLIED',view.apply_sessions(self.apply_body(p,'sessions'),user=user).state)
-        self.assertFalse(ai.sessions);self.assertEqual(1,ai.session_epochs['session'])
+        self.assertFalse(ai.cache)
         p=view.prompt_preview(request,user=user);out=view.apply_prompt(self.apply_body(p,'prompt'),user=user)
         self.assertTrue(out.result['native_save_required']);self.assertTrue(out.result['configuration']['valid'])
         self.assertEqual(load('ai').DEFAULT_PROMPT,out.result['configuration']['config']['ai_assist']['prompt'])

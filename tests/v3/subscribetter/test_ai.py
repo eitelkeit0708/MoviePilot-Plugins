@@ -53,6 +53,17 @@ class AITests(unittest.TestCase):
         self.addCleanup(runtime.close)
         return runtime
 
+    def test_removed_chat_config_has_no_runtime_and_name_transport_still_works(self):
+        runtime=self.runtime(chat_enabled=True,chat_routes=[{'ignored':'old'}],chat_history=['old'])
+        self.assertFalse(any(k.startswith('chat_') for k in runtime.config.model_dump()))
+        for name in ('chat','enqueue_chat','clear_sessions','sessions','chat_queue','session_epochs'):
+            self.assertFalse(hasattr(runtime,name),name)
+        self.assertEqual('accepted',runtime.extract('Example').reason)
+        self.assertTrue(str(self.requests[0].url).endswith('/chat/completions'))
+        self.assertEqual('accepted',runtime.extract('Example').reason)
+        self.assertEqual(1,len(self.requests))
+        self.assertNotIn('chat_sessions',runtime.stats())
+
     def test_internal_assistance_requires_fresh_owner_before_network_and_cache(self):
         runtime=self.runtime();runtime.assistance_gate=lambda:False
         self.assertEqual('owner_not_unique',runtime.extract('Example').reason)
@@ -161,7 +172,7 @@ class AITests(unittest.TestCase):
         self.assertEqual('user-model',mapped.model)
         self.assertEqual('  custom\n text  ',mapped.prompt)
         self.assertEqual('previous',mapped.prompt_backup)
-        self.assertFalse(mapped.enabled); self.assertFalse(mapped.chat_enabled)
+        self.assertFalse(mapped.enabled)
         self.assertEqual(['key-a','key-b'],[values[r] for r in mapped.credential_refs])
         self.assertNotIn('key-a',mapped.model_dump_json())
         if os.name=='posix':
@@ -171,32 +182,6 @@ class AITests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'POSIX'):store.put('fictional')
         for ref in ('../secret','secret:/x',''):
             with self.assertRaises(ValueError): store.resolve(ref)
-
-    def test_plain_chat_isolated_clear_routing_and_no_actions(self):
-        route=dict(channel='Telegram',source='bot-one',userid='7',chat_id='99')
-        c=self.runtime(chat_enabled=True,chat_routes=[route])
-        c.owner_check=lambda *args: self.m.owner_receipt('r1',*args,fingerprint='a'*64)
-        c.owner_snapshot=lambda *args: dict(fingerprint='a'*64,overlaps=[],unclassified=[])
-        sent=[]
-        self.replies.extend(['first answer','second answer','after clear'])
-        c.chat('帮我解释一下',route,send=sent.append)
-        c.chat('another question?',dict(route,reply_to_message_id=10),send=sent.append)
-        body=json.loads(self.requests[-1].content)
-        self.assertIn({'role':'assistant','content':'first answer'},body['messages'])
-        self.assertNotIn('tools',body)
-        self.assertEqual('99',sent[-1]['original_chat_id'])
-        self.assertNotIn('original_message_id',sent[-1])  # That edits a message, it is NOT reply-to.
-        from ai_host_contract import Message,NotificationChannel
-        outgoing=Message.model_validate(sent[-1])
-        self.assertEqual(NotificationChannel.Telegram,outgoing.channel)
-        self.assertEqual(route['source'],outgoing.source);self.assertEqual('99',outgoing.original_chat_id)
-        self.assertNotIn('reply_to_message_id',Message.model_fields)
-        c.chat('#清除',route,send=sent.append)
-        c.chat('another question?',route,send=sent.append)
-        self.assertEqual(2,len(json.loads(self.requests[-1].content)['messages']))
-        self.assertEqual('route_not_authorized',c.chat('a question?',dict(route,source='other'),send=sent.append).reason)
-        c.owner_snapshot=lambda *args:dict(fingerprint='b'*64,overlaps=[],unclassified=[])
-        self.assertEqual('owner_unconfirmed',c.chat('more questions?',route,send=sent.append).reason)
 
     def test_name_assistance_preserves_scope_and_rejects_hard_conflict(self):
         from test_meta import native
@@ -234,20 +219,6 @@ class AITests(unittest.TestCase):
         c.owner_snapshot=lambda *args:dict(fingerprint='a'*64,overlaps=['other'],unclassified=[])
         blocked=NS(event_data={'title':'[片名乙] 2024'})
         c.name_event(blocked,service);self.assertNotIn('name',blocked.event_data)
-
-    def test_chat_clear_fences_inflight_answer(self):
-        route=dict(channel='Telegram',source='bot',userid='7',chat_id='99')
-        c=self.runtime(chat_enabled=True,chat_routes=[route]);sent=[]
-        c.owner_check=lambda *args:self.m.owner_receipt('receipt',*args,fingerprint='a'*64)
-        c.owner_snapshot=lambda *args:dict(fingerprint='a'*64,overlaps=[],unclassified=[])
-        entered=threading.Event();release=threading.Event()
-        def reply(_):entered.set();self.assertTrue(release.wait(3));return 'late answer'
-        self.replies.append(reply)
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future=pool.submit(c.chat,'question?',route,send=sent.append)
-            self.assertTrue(entered.wait(2));c.chat('#清除',route,send=sent.append)
-            release.set();self.assertEqual('stale_session',future.result().reason)
-        self.assertEqual(['会话已清除'],[s['title'] for s in sent]);self.assertEqual(0,c.stats()['chat_sessions'])
 
     def test_candidate_pipeline_uses_ai_then_independent_provider_identity(self):
         from test_meta import native
@@ -291,18 +262,6 @@ class AITests(unittest.TestCase):
         with patch.object(sys.modules['app.schemas.types'],'MessageType',MessageType,create=True):
             plugin._ai_notify('AI service: authentication')
         self.assertEqual(MessageType.Plugin,sent[0]['mtype'])
-
-    def test_chat_event_has_no_http_and_clear_removes_queued_session(self):
-        route=dict(channel='Telegram',source='bot',userid='7',chat_id='99')
-        c=self.runtime(chat_enabled=True,chat_routes=[route]);sent=[]
-        c.owner_check=lambda *args:self.m.owner_receipt('receipt',*args,fingerprint='a'*64)
-        c.owner_snapshot=lambda *args:dict(fingerprint='a'*64,overlaps=[],unclassified=[])
-        c.enqueue_chat(NS(event_data=dict(route,text='question?')),lambda **kw:sent.append(kw))
-        self.assertEqual([],self.requests)
-        c.enqueue_chat(NS(event_data=dict(route,text='#清除')),lambda **kw:sent.append(kw))
-        self.assertEqual([],sent)  # Even the local clear acknowledgement sends in the worker.
-        c.drain(None)
-        self.assertEqual([],self.requests);self.assertEqual(['会话已清除'],[x['title'] for x in sent])
 
     def test_host_projection_unknown_responder_and_inactive_legacy_feature(self):
         rows=[dict(event_type='name',handler_identifier='own.name',status='enabled'),
@@ -357,7 +316,7 @@ class AITests(unittest.TestCase):
             self.assertEqual('previous_runtime_draining',replacement.extract('Example Two').reason)
             self.assertEqual(1,len(self.requests));release.set();old.result()
 
-    def test_known_prompt_migration_retains_previous_backup_and_chat_preview(self):
+    def test_known_prompt_migration_retains_previous_backup(self):
         values={}
         def put(value):ref='secret:'+format(len(values)+1,'032x');values[ref]=value;return ref
         data=dict(enabled=True,recognize=True,chat_enabled=True,customize_prompt=self.m.LEGACY_EXTRACTION_PROMPT,
@@ -367,8 +326,8 @@ class AITests(unittest.TestCase):
         self.assertEqual(data['customize_prompt'],mapped.prompt_backup)
         self.assertEqual('older user backup',mapped.prompt_previous_backup)
         preview=self.m.legacy_preview(data)
-        self.assertTrue(preview['requested_chat_enabled']);self.assertTrue(preview['requested_enabled'])
-        self.assertFalse(mapped.enabled);self.assertFalse(mapped.chat_enabled)
+        self.assertTrue(preview['requested_enabled'])
+        self.assertFalse(mapped.enabled)
 
     def test_profiles_endpoint_and_serialized_proxy_options(self):
         self.assertEqual('https://gateway.invalid/api',self.m.normalize_endpoint('https://gateway.invalid/api/',True))
@@ -468,34 +427,6 @@ class AITests(unittest.TestCase):
                     self.m.inspect_identity('{"name":"Rocky","year":"1979"}',title))
                 retained={'name':'Rocky '+numeral,'year':'1979'}
                 self.assertEqual(retained,self.m.inspect_identity(json.dumps(retained),title)[0])
-
-    def test_review_R3_clear_fences_dequeued_message_before_chat_admission(self):
-        route=dict(channel='Telegram',source='bot',userid='7',chat_id='99')
-        c=self.runtime(chat_enabled=True,chat_routes=[route]);sent=[]
-        c.owner_check=lambda *args:self.m.owner_receipt('receipt',*args,fingerprint='a'*64)
-        c.owner_snapshot=lambda *args:dict(fingerprint='a'*64,overlaps=[],unclassified=[])
-        dequeued=threading.Event();resume=threading.Event();original_chat=c.chat
-        def paused_chat(text,scope,**kwargs):
-            if text=='old question?':
-                dequeued.set();self.assertTrue(resume.wait(3))
-            return original_chat(text,scope,**kwargs)
-        c.chat=paused_chat
-        c.enqueue_chat(NS(event_data=dict(route,text='old question?')),lambda **kw:sent.append(kw))
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            worker=pool.submit(c.drain,None)
-            try:
-                self.assertTrue(dequeued.wait(2));self.assertEqual(0,c.stats()['queued'])
-                c.enqueue_chat(NS(event_data=dict(route,text='#清除')),lambda **kw:sent.append(kw))
-            finally:resume.set()
-            worker.result()
-        self.assertEqual([],self.requests)
-        self.assertEqual(['会话已清除'],[message['title'] for message in sent])
-        self.assertEqual(0,c.stats()['chat_sessions'])
-        self.replies.append('new answer')
-        c.enqueue_chat(NS(event_data=dict(route,text='new question?')),lambda **kw:sent.append(kw))
-        c.drain(None)
-        self.assertEqual(1,len(self.requests));self.assertEqual('new answer',sent[-1]['title'])
-        self.assertEqual(['new question?','new answer'],[message['content'] for message in c.sessions[self.m.digest(route)]])
 
     def test_dribbling_response_checks_elapsed_deadline_per_received_chunk(self):
         from unittest.mock import patch

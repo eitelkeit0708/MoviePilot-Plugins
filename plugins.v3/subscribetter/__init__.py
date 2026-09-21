@@ -246,7 +246,6 @@ class SubscriBetter(_PluginBase):
                                 self.ai.config_digest,'internal') is not None)
                         self.candidates.ai=self.ai
                         if ai_config.name_recognize_bridge:self.ai_listeners.append((ChainEventType.NameRecognize,self.ai_name))
-                        if ai_config.chat_enabled:self.ai_listeners.append((EventType.UserMessage,self.ai_message))
                         for event,callback in self.ai_listeners:eventmanager.add_event_listener(event,callback,priority=30)
                 except Exception:
                     if self.ai:self.ai.close()
@@ -411,11 +410,6 @@ class SubscriBetter(_PluginBase):
         with self.runtime_lock:runtime,meta,owner=self.ai,self.meta_service,self.runtime
         if runtime and owner:
             with owner.stages.lease():runtime.name_event(event,meta)
-
-    def ai_message(self,event):
-        with self.runtime_lock:runtime,owner=self.ai,self.runtime
-        if runtime and owner:
-            with owner.stages.lease():runtime.enqueue_chat(event,self.post_message)
 
     def ai_tick(self,generation=None):
         # HTTP and message sends never hold the plugin ownership/lifecycle lock.

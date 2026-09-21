@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
-from .ai import AIConfig, ChatRoute, digest
+from .ai import AIConfig, digest
 from .discovery import DiscoveryConfig, SourceConfig, RequestBudget, _digest as discovery_digest
 from .scheduler import ScheduleConfig
 from .candidates import SearchBudget
@@ -281,7 +281,6 @@ class Config(Strict):
             if any(rule[p] and not getattr(self.permissions,p) for p in Permissions.model_fields):raise ValueError('DESTRUCTIVE_PERMISSION_NOT_CONFIRMED')
         ai=self.ai_assist
         if ai['enabled'] and (not ai['endpoint_ref'] or not ai['credential_refs'] or not ai['model']):raise ValueError('AI_PROVIDER_REQUIRED')
-        if ai['chat_enabled'] and not ai['chat_routes']:raise ValueError('CHAT_ROUTES_REQUIRED')
         return self
 
 
@@ -353,7 +352,7 @@ def validation_errors(error):
     # Field names from the schema are useful; attacker-supplied map keys and
     # extra field names must not be echoed as a disguised credential export.
     known=set()
-    for model in (Config,AIConfig,ChatRoute,DiscoveryConfig,SourceConfig,RequestBudget,
+    for model in (Config,AIConfig,DiscoveryConfig,SourceConfig,RequestBudget,
                   Permissions,Lifecycle,Candidates,Recovery,Safety,PolicyConfig,Destination,Mapping,CloudScope,DeliveryRule,DeliveryConfig):
         known.update(model.model_fields)
     return ['.'.join(str(x) if type(x)is int or x in known else '<field>' for x in e['loc'])+':'+e['type']
@@ -402,8 +401,12 @@ class Configuration:
                     changed_fields=sorted(k for k in content(value) if value[k]!=current['config'].get(k)))
 
     def initialize(self,raw,*,import_marker=None,activate=True):
-        current=self.view();self.ready=False;self.errors=[]
+        current=self.view();persisted_current=deepcopy(current);self.ready=False;self.errors=[]
         try:
+            normalized=AIConfig.remove_legacy_chat(current['config']['ai_assist'])
+            if normalized!=current['config']['ai_assist']:
+                current['config']['ai_assist']=normalized
+                current['digest']=digest(content(current['config']))
             initial=self.repository.setting(self.key) is None
             raw=deepcopy(raw or {})
             if initial and 'permissions' not in raw:
@@ -429,7 +432,7 @@ class Configuration:
             state=dict(revision=revision,digest=new_digest,config=value)
             with self.repository.connection(write=True) as db:
                 persisted=db.execute('SELECT value FROM settings WHERE key=?',(self.key,)).fetchone()
-                if persisted and json.loads(persisted[0])!=current:raise ValueError('STALE_CONFIGURATION')
+                if persisted and json.loads(persisted[0])!=persisted_current:raise ValueError('STALE_CONFIGURATION')
                 if needs_preview:
                     changed=db.execute("UPDATE migration_receipts SET state='APPLIED' WHERE id=? AND kind='CONFIG' AND state='PREVIEW'",(value['configuration_receipt'],)).rowcount
                     if changed!=1:raise ValueError('CONFIG_PREFLIGHT_REQUIRED')
@@ -457,7 +460,7 @@ class Configuration:
         if self.repository.setting(marker):return self.view()
         current=self.view()
         if current['digest']!=base_digest:raise ValueError('IMPORT_CONFIG_CHANGED')
-        patch=merge(patch,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'chat_enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
+        patch=merge(patch,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
         preview=self.preview(patch,current['revision'],current['digest'],actor)
         if not preview['valid']:raise ValueError('IMPORT_CONFIG_INVALID')
         self.initialize(preview['config'],import_marker=marker,activate=False)

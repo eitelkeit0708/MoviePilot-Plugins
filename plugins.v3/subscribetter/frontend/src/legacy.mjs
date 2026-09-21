@@ -15,7 +15,7 @@ export function canonical(value){
 }
 export async function rawDigest(value){const bytes=sha256(new TextEncoder().encode(canonical(value)));return Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('')}
 export async function saveLegacy(api,change,step,alive=()=>true){
-  if(!step||step.instance_id!==change.instance_id||Object.keys(change.changes).some(k=>!['enabled','recognize','chat_enabled'].includes(k)||typeof change.changes[k]!=='boolean'))throw Error('INVALID_SELECTED_CHANGE');
+  if(!step||step.instance_id!==change.instance_id||Object.keys(change.changes).some(k=>!['enabled','recognize'].includes(k)||typeof change.changes[k]!=='boolean'))throw Error('INVALID_SELECTED_CHANGE');
   let raw='',config=null,patched='';
   const path='plugin/'+encodeURIComponent(change.instance_id);
   try{
@@ -25,7 +25,7 @@ export async function saveLegacy(api,change,step,alive=()=>true){
     const expectedValues=restoring?step.changes:step.before;
     const expectedChanges=restoring?step.before:step.changes;
     if(JSON.stringify(Object.keys(change.changes).sort())!==JSON.stringify(Object.keys(expectedChanges).sort()))throw Error('LEGACY_SCOPE_CHANGED');
-    for(const [key,value] of Object.entries(change.changes)){if(value!==expectedChanges[key]||(config[key]??(key==='chat_enabled'?config.enabled===true:false))!==expectedValues[key])throw Error('LEGACY_FLAGS_CHANGED');config[key]=value;}
+    for(const [key,value] of Object.entries(change.changes)){if(value!==expectedChanges[key]||(config[key]??false)!==expectedValues[key])throw Error('LEGACY_FLAGS_CHANGED');config[key]=value;}
     const expected=restoring?step.restore_digest:step.after_digest;
     if(await rawDigest(config)!==expected)throw Error('LEGACY_PATCH_DIGEST_CHANGED');
     patched=canonical(config);config=null;

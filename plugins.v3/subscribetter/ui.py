@@ -206,7 +206,6 @@ class AIView(Strict):
     prompt_previous_backup:str
     meta:dict[str,JsonValue]
     bridge:bool
-    chat:bool
     errors:list[str]
 
 
@@ -653,7 +652,7 @@ class Views:
         return AIView(state='AVAILABLE' if p.ai else 'DISABLED',config_digest=digest(state),generation=p.generation,
             provider=public({k:v for k,v in state.items() if k not in ('prompt','prompt_backup','prompt_previous_backup')}),runtime=public(p.ai.stats()) if p.ai else None,
             prompt=c.prompt,prompt_backup=c.prompt_backup,prompt_previous_backup=c.prompt_previous_backup,
-            meta=public(p.meta_patch.diagnostics()) if hasattr(p,'meta_patch') else {'state':'UNAVAILABLE'},bridge=c.name_recognize_bridge,chat=c.chat_enabled,errors=p.ai_errors)
+            meta=public(p.meta_patch.diagnostics()) if hasattr(p,'meta_patch') else {'state':'UNAVAILABLE'},bridge=c.name_recognize_bridge,errors=p.ai_errors)
 
     def diagnostics(self,user:TokenPayload=Depends(verify_token))->Health:
         self._auth(user);p=self.plugin
@@ -764,9 +763,9 @@ class Views:
         elif kind.startswith('ai_'):
             ai=self.plugin.ai
             with ai.lock if ai else nullcontext():
-                facts['ai']={'generation':getattr(ai,'generation',None),'epoch':getattr(ai,'epoch',None),'sessions':dict(getattr(ai,'session_epochs',{}))}
+                facts['ai']={'generation':getattr(ai,'generation',None),'epoch':getattr(ai,'epoch',None)}
                 if ai:
-                    facts['ai'].update(cache=sorted(ai.cache),bridge=sorted(ai.bridge_cache),queue=sorted(ai.queue),chat_queue=sorted(ai.chat_queue),pending=sorted(ai.pending),session_digest=digest(ai.sessions))
+                    facts['ai'].update(cache=sorted(ai.cache),bridge=sorted(ai.bridge_cache),queue=sorted(ai.queue),pending=sorted(ai.pending))
             if kind!='ai_prompt' and not ai:blockers.append('AI_SERVICE_UNAVAILABLE')
         facts['config']=self.plugin.configuration.view();facts['runtime_generation']=self.plugin.generation
         facts['exclusions']=rows('exclusions','1',())
@@ -798,7 +797,7 @@ class Views:
                 shown['files']=[{k:f.get(k) for k in ('file_index','relative_path','sha1','size','state','reader_stopped')} for f in bundle['files']]
                 shown['authority']=bundle['vector']
             if 'versions' in facts:shown['versions']=[{k:v[k] for k in ('id','target_key','service','library','active')} for v in facts['versions']]
-            if 'ai' in facts:shown['cache_and_session_references']=facts['ai']
+            if 'ai' in facts:shown['cache_references']=facts['ai']
             data['display']=public(shown)
             data['revisions']=dict(config_revision=request.config_revision,runtime_generation=request.runtime_generation,facts_digest=data['facts_digest'])
             signature=digest([identity,kind,actor,data,expiry]);db.execute('INSERT INTO management_previews VALUES(?,?,?,?,?,?)',(identity,kind,actor,signature,encoded(data),expiry))
@@ -836,7 +835,6 @@ class Views:
         return self.preview('revoke',dict(exclusion_id=exclusion_id),request,user)
 
     def cache_preview(self,request:Fence,user:TokenPayload=Depends(verify_token))->Preview:return self.preview('ai_cache',{},request,user)
-    def sessions_preview(self,request:Fence,user:TokenPayload=Depends(verify_token))->Preview:return self.preview('ai_sessions',{},request,user)
     def prompt_preview(self,request:Fence,user:TokenPayload=Depends(verify_token))->Preview:return self.preview('ai_prompt',{},request,user)
 
     def operation(self,operation_id:Id,user:TokenPayload=Depends(verify_token))->ActionResult:
@@ -924,10 +922,9 @@ class Views:
 
     def external_apply(self,kind,o,actor,request):
         p=self.plugin
-        if kind in ('ai_cache','ai_sessions'):
+        if kind=='ai_cache':
             if not p.ai:raise ValueError('AI_SERVICE_UNAVAILABLE')
-            if kind=='ai_cache':p.ai.clear_cache(actor)
-            else:p.ai.clear_sessions(actor)
+            p.ai.clear_cache(actor)
             return dict(cleared=kind)
         if kind=='ai_prompt':
             c=p.configuration.view();ai=c['config']['ai_assist']
@@ -1139,7 +1136,6 @@ class Views:
     def apply_change_source(self,candidate_key:Id,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.bound_apply('change_source',request,user,'candidate_key',candidate_key)
     def apply_revoke(self,exclusion_id:Id,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.bound_apply('revoke',request,user,'exclusion_id',exclusion_id)
     def apply_cache(self,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.apply('ai_cache',request,user)
-    def apply_sessions(self,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.apply('ai_sessions',request,user)
     def apply_prompt(self,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.apply('ai_prompt',request,user)
 
     def boundary(self,fn):
@@ -1182,7 +1178,7 @@ class Views:
         routes.insert(0,dict(path='/policies/catalog',methods=['GET'],endpoint=self.policy_catalog,response_model=ActionResult,auth='bear',route_class_override=PrivateRoute))
         for path,fn in [('/tasks/{task_id}/observations',self.task_observations),('/tasks/{task_id}/plans',self.task_plans),('/plans/{plan_id}/files',self.plan_files),('/plans/{plan_id}/records/{section}',self.plan_rows),('/health/records/{section}',self.health_rows)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=Page[Row],auth='bear',route_class_override=PrivateRoute))
-        actions=[('/discovery/history/cleanup',self.history_preview,self.apply_history),('/delivery/{bundle_id}/cancel',self.cancel_preview,self.apply_cancel),('/delivery/{bundle_id}/cleanup',self.cleanup_preview,self.apply_cleanup),('/archive/invalidate',self.invalidate_preview,self.apply_archive),('/tasks/{task_id}/settings',self.settings_preview,self.apply_settings),('/exclusions',self.exclusion_preview,self.apply_exclusion),('/exclusions/{exclusion_id}/revoke',self.revoke_preview,self.apply_revoke),('/candidates/{candidate_key}/change-source',self.change_source_preview,self.apply_change_source),('/ai/cache/clear',self.cache_preview,self.apply_cache),('/ai/sessions/clear',self.sessions_preview,self.apply_sessions),('/ai/prompt/restore',self.prompt_preview,self.apply_prompt)]
+        actions=[('/discovery/history/cleanup',self.history_preview,self.apply_history),('/delivery/{bundle_id}/cancel',self.cancel_preview,self.apply_cancel),('/delivery/{bundle_id}/cleanup',self.cleanup_preview,self.apply_cleanup),('/archive/invalidate',self.invalidate_preview,self.apply_archive),('/tasks/{task_id}/settings',self.settings_preview,self.apply_settings),('/exclusions',self.exclusion_preview,self.apply_exclusion),('/exclusions/{exclusion_id}/revoke',self.revoke_preview,self.apply_revoke),('/candidates/{candidate_key}/change-source',self.change_source_preview,self.apply_change_source),('/ai/cache/clear',self.cache_preview,self.apply_cache),('/ai/prompt/restore',self.prompt_preview,self.apply_prompt)]
         for path,preview,apply in actions:
             routes.extend([dict(path=path+'/'+suffix,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute) for suffix,fn,model in [('preview',preview,Preview),('apply',apply,ActionResult)]])
         for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:

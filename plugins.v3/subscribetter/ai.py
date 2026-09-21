@@ -1,9 +1,9 @@
-"""Integrated V3 AI name assistance and isolated plain chat.
+"""Integrated V3 AI name assistance only.
 
 Protocol/transport algorithms adapted from eitelkeit0708 ChatGPTPlusUltra 1.4.2
 (cbd770e364ec9a96a81fbfe9ac8d33abdb2bb1ba); repository GPL-3.0 LICENSE applies.
 V3 changes: source spans, injected transport, durable budgets, lifecycle fences,
-private references and explicit bridge/chat ownership. No agent/action interface.
+private references and explicit bridge ownership. No agent/action interface.
 """
 import json
 import logging
@@ -303,7 +303,7 @@ from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def digest(value):
@@ -362,14 +362,6 @@ def inspect_identity(content, title, subtitle='', team=None):
 REF_PATTERN = r'^secret:[a-f0-9]{32}$'
 
 
-class ChatRoute(BaseModel):
-    model_config = ConfigDict(extra='forbid',strict=True)
-    channel: str = Field(min_length=1,max_length=128)
-    source: str = Field(min_length=1,max_length=128)
-    userid: str = Field(min_length=1,max_length=256)
-    chat_id: str = Field(min_length=1,max_length=256)
-
-
 class AIConfig(BaseModel):
     model_config = ConfigDict(extra='forbid',strict=True)
     enabled: bool = False
@@ -392,11 +384,15 @@ class AIConfig(BaseModel):
     prompt_previous_backup: str = Field(default='',max_length=32768)
     notifications: bool = False
     name_recognize_bridge: bool = False
-    chat_enabled: bool = False
-    chat_routes: list[ChatRoute] = Field(default_factory=list,max_length=100)
-    chat_input_limit: int = Field(default=16000,ge=1,le=16000)
-    chat_history_limit: int = Field(default=32,ge=2,le=32,multiple_of=2)
-    chat_session_limit: int = Field(default=100,ge=1,le=100)
+
+    @model_validator(mode='before')
+    @classmethod
+    def remove_legacy_chat(cls, value):
+        if isinstance(value, dict):
+            return {k: v for k, v in value.items() if k not in {
+                'chat_enabled', 'chat_routes', 'chat_input_limit', 'chat_history_limit',
+                'chat_session_limit', 'chat_history'}}
+        return value
 
     @field_validator('credential_refs')
     @classmethod
@@ -527,7 +523,6 @@ def legacy_preview(data):
         value=data.get(name,default)
         return value.strip().lower() in {'true','1','yes','on'} if isinstance(value,str) else bool(value)
     return dict(requested_enabled=flag('enabled'),requested_name_assistance_enabled=flag('recognize'),
-                requested_chat_enabled=flag('chat_enabled',flag('enabled')),
                 one_shot_ignored=[key for key in ('clear_cache','restore_prompt') if flag(key)])
 
 
@@ -604,7 +599,7 @@ def owner_projection(handlers,plugins,module,event_type,own_handler,context):
         config=owner['config']
         if owner['source']=='ChatGPTPlusUltra':
             def enabled(value):return value.strip().lower() in {'true','1','yes','on'} if isinstance(value,str) else bool(value)
-            flag=config.get('recognize') if module=='name_bridge' else config.get('chat_enabled',config.get('enabled'))
+            flag=config.get('recognize')
             if enabled(config.get('enabled')) and enabled(flag):overlaps.append(identity)
         else:unclassified.append(identity)
     if not any(r['handler_identifier']==own_handler and r.get('status')=='enabled' for r in relevant):
@@ -618,11 +613,11 @@ def host_owner_snapshot(plugin,module,instance_id,config_digest,route_scope):
     """Fresh SDK-only state used by W08 and W10; no private registries/config logs."""
     from app.sdk.events import eventmanager
     from app.sdk.plugin import PluginManager
-    from app.schemas.types import EventType,ChainEventType
+    from app.schemas.types import ChainEventType
     manager=PluginManager();generation=manager.get_plugin_runtime_generation()
-    callback=plugin.ai_name if module=='name_bridge' else plugin.ai_message
+    callback=plugin.ai_name
     own_handler=callback.__module__+'.'+callback.__qualname__
-    event=ChainEventType.NameRecognize if module=='name_bridge' else EventType.UserMessage
+    event=ChainEventType.NameRecognize
     plugins=[]
     for pid,runtime in list(manager.running_plugins.items()):
         cls=type(runtime)
@@ -652,8 +647,8 @@ class AIService:
         self.lock=RLock();self.closed=False;self.epoch=0
         self.slots=BoundedSemaphore(config.max_concurrency)
         self.admission=BoundedSemaphore(config.max_concurrency+config.queue_size)
-        self.pending={};self.cache=OrderedDict();self.queue=OrderedDict();self.sessions=OrderedDict();self.bridge_cache=OrderedDict();self.chat_queue=OrderedDict()
-        self.session_epochs={};self.chat_busy=set();self.notices={};self.clients={};self.active=0
+        self.pending={};self.cache=OrderedDict();self.queue=OrderedDict();self.bridge_cache=OrderedDict()
+        self.notices={};self.clients={};self.active=0
         self.owner=uuid4().hex
         with repository.connection(write=True) as db:
             row=db.execute('SELECT generation,state FROM ai_runtime WHERE scope=?',(self.scope,)).fetchone()
@@ -758,7 +753,7 @@ class AIService:
             except FutureTimeout:return Result(reason='busy',source='coalesced')
             finally:self.admission.release()
         try:
-            result=self._request(self._messages(title,subtitle,context),key,True,started,gate)
+            result=self._request(self._messages(title,subtitle,context),key,started,gate)
             validated=result.reason=='response'
             if result.reason=='response':
                 result.identity,result.reason=inspect_identity(result.text,title,subtitle,team)
@@ -797,7 +792,7 @@ class AIService:
             except (ValueError,TypeError,OverflowError):seconds=60
         return max(1,seconds) if math.isfinite(seconds) else 60
 
-    def _request(self,messages,key,media,started,gate=None):
+    def _request(self,messages,key,started,gate=None):
         result=Result(request_digest=key,generation=self.generation)
         remaining=lambda:self.config.timeout-(time.monotonic()-started)
         if not self.slots.acquire(timeout=max(0,remaining())):return Result(reason='busy')
@@ -846,13 +841,13 @@ class AIService:
                                                 verify=True,trust_env=False,proxy=self.proxy if self.config.proxy else None)
                             self.clients[endpoint]=client
                     if not self.live() or gate is not None and not gate():raise ValueError()
-                    params=dict(model=self.config.model,messages=messages,max_tokens=512 if media else 2048)
+                    params=dict(model=self.config.model,messages=messages,max_tokens=512)
                     if deepseek:
                         params['thinking']={'type':'disabled'}
-                        if media:params.update(response_format={'type':'json_object'},temperature=0)
+                        params.update(response_format={'type':'json_object'},temperature=0)
                     result.attempts+=1;result.source='api';sent=True
                     with self.repository.connection(write=True) as db:
-                        self._bump(db,'api_calls');self._bump(db,'name_api_calls' if media else 'chat_api_calls')
+                        self._bump(db,'api_calls');self._bump(db,'name_api_calls')
                     with client.stream('POST','chat/completions',json=params,headers={'Authorization':'Bearer '+secret,'Accept-Encoding':'identity'},timeout=max(0.001,remaining())) as response:
                         response.raise_for_status()
                         if response.headers.get('content-encoding','identity').strip().lower()!='identity':
@@ -918,20 +913,9 @@ class AIService:
         except Exception:pass  # Diagnostic delivery must not alter durable request state.
 
     def clear_cache(self,actor):
-        with self.lock:self.epoch+=1;self.cache.clear();self.queue.clear();self.bridge_cache.clear();self.chat_queue.clear()
+        with self.lock:self.epoch+=1;self.cache.clear();self.queue.clear();self.bridge_cache.clear()
         with self.repository.connection(write=True) as db:
             self.repository._audit(db,None,'AI_CACHE_CLEAR',str(actor)[:128])
-
-    def clear_sessions(self,actor):
-        """Administrative local clearing; deliberately has no message callback."""
-        with self.lock:
-            # Dequeued first messages have no session/busy entry yet.
-            keys=set(self.sessions)|set(self.session_epochs)|set(self.chat_busy)|{digest(r.model_dump()) for r in self.config.chat_routes}
-            for key in keys:self.session_epochs[key]=self.session_epochs.get(key,0)+1
-            self.sessions.clear();self.chat_queue.clear()
-        with self.repository.connection(write=True) as db:
-            self.repository._audit(db,None,'AI_SESSIONS_CLEAR',str(actor)[:128])
-        return len(keys)
 
     def _close_clients(self):
         for client in self.clients.values():
@@ -941,7 +925,7 @@ class AIService:
 
     def close(self):
         with self.lock:
-            self.closed=True;self.epoch+=1;self.cache.clear();self.queue.clear();self.sessions.clear();self.bridge_cache.clear();self.chat_queue.clear()
+            self.closed=True;self.epoch+=1;self.cache.clear();self.queue.clear();self.bridge_cache.clear()
             if not self.active:self._close_clients()
 
     def stats(self):
@@ -952,62 +936,8 @@ class AIService:
         with self.lock:
             return dict(counts=counts,usage={k[7:]:v for k,v in counts.items() if k.startswith('tokens:')},
                 cooldown_remaining=max(0,health.get('until',0)-self.clock()),cooldown_reason=health.get('reason'),
-                cache_size=len(self.cache),inflight=len(self.pending),queued=len(self.queue)+len(self.chat_queue),
-                active_http=self.active,chat_sessions=len(self.sessions),generation=self.generation,recovery=recovery)
-
-    def chat(self,text,route,*,send,started=None,expected_session_epoch=None,expected_epoch=None):
-        if not self.live() or not self.config.chat_enabled:return Result(reason='disabled')
-        try:scope=ChatRoute.model_validate({k:route[k] for k in ('channel','source','userid','chat_id')}).model_dump()
-        except (ValueError,KeyError,TypeError):return Result(reason='route_not_authorized')
-        if scope not in [r.model_dump() for r in self.config.chat_routes]:return Result(reason='route_not_authorized')
-        gate=lambda:self._owned('chat',scope)
-        if not gate():return Result(reason='owner_unconfirmed')
-        if (not isinstance(text,str) or not text.strip() or len(text)>self.config.chat_input_limit
-                or any(unicodedata.category(c)=='Cs' for c in text) or text.startswith(('http','magnet','ftp'))):
-            return Result(reason='invalid_chat_input')
-        if not (text=='#清除' or text.startswith(('问','帮','你')) or text.endswith(('?','？')) or len(text)>10):return Result(reason='chat_not_triggered')
-        key=digest(scope)
-        clear_message=None
-        with self.lock:
-            if (expected_session_epoch is not None and expected_session_epoch!=self.session_epochs.get(key,0)
-                    or expected_epoch is not None and expected_epoch!=self.epoch):
-                return Result(reason='stale_session')
-            if text=='#清除':
-                self.sessions.pop(key,None);self.session_epochs[key]=self.session_epochs.get(key,0)+1
-                for queued in [k for k,v in self.chat_queue.items() if v[1]==scope]:self.chat_queue.pop(queued,None)
-                clear_message=dict(channel=scope['channel'],source=scope['source'],userid=scope['userid'],original_chat_id=scope['chat_id'],title='会话已清除',parse_mode='plain')
-            else:
-                if key in self.chat_busy:return Result(reason='busy')
-                if not self.admission.acquire(blocking=False):return Result(reason='busy')
-                self.chat_busy.add(key);epoch=self.session_epochs.get(key,0);generation=self.epoch
-                history=deepcopy(self.sessions.get(key,[]))
-        if clear_message is not None:
-            if gate():send(clear_message)
-            return Result(reason='cleared')
-        owner_gate=gate
-        gate=lambda:owner_gate() and generation==self.epoch and epoch==self.session_epochs.get(key,0)
-        try:
-            messages=[{'role':'system','content':'请使用中文回复。仅普通文字对话，不调用工具或执行订阅、下载、修改规则、删除操作。'}]+history+[{'role':'user','content':text}]
-            request_key=digest(['chat',scope,messages,self.config_digest,epoch,uuid4().hex])
-            result=self._request(messages,request_key,False,time.monotonic() if started is None else started,gate)
-            allowed=self.publishable() and gate()
-            with self.lock:
-                if not allowed or not self.live() or generation!=self.epoch or epoch!=self.session_epochs.get(key,0):
-                    result.text=None;result.reason='stale_session';return result
-                if result.reason!='response':return result
-                self.sessions[key]=(history+[{'role':'user','content':text},{'role':'assistant','content':result.text}])[-self.config.chat_history_limit:]
-                self.sessions.move_to_end(key)
-                while len(self.sessions)>self.config.chat_session_limit:self.sessions.popitem(last=False)
-                # Incoming reply_to_message_id is NOT V3 outgoing original_message_id
-                # (editing). V3 has no reply-to field; retain the exact conversation.
-                outgoing=dict(channel=scope['channel'],source=scope['source'],userid=scope['userid'],original_chat_id=scope['chat_id'],title=result.text,parse_mode='plain')
-            if not gate() or generation!=self.epoch or epoch!=self.session_epochs.get(key,0):
-                result.text=None;result.reason='stale_session';return result
-            send(outgoing)
-            return result
-        finally:
-            with self.lock:self.chat_busy.discard(key)
-            self.admission.release()
+                cache_size=len(self.cache),inflight=len(self.pending),queued=len(self.queue),
+                active_http=self.active,generation=self.generation,recovery=recovery)
 
     def assist(self,title,subtitle,correction,*,corrector,custom_words=None,locks=(),gate=None,started=None):
         """Only repair name-only deferral. Re-run deterministic scope with name locked.
@@ -1052,30 +982,10 @@ class AIService:
         with self.lock:
             cached=self.bridge_cache.get(key)
             if not cached or cached[0]<=self.clock():cached=None
-            if cached is None and len(self.queue)+len(self.chat_queue)<self.config.queue_size:
+            if cached is None and len(self.queue)<self.config.queue_size:
                 self.queue.setdefault(key,(title,self.epoch,time.monotonic()))
         if cached and cached[1] and self._owned('name_bridge',{'event':'NameRecognize'}):
             event.event_data={**data,**deepcopy(cached[1])}
-
-    def enqueue_chat(self,event,send):
-        data=getattr(event,'event_data',None)
-        if not isinstance(data,dict) or not self.live() or not self.config.chat_enabled:return
-        try:
-            route=ChatRoute.model_validate({k:str(getattr(data[k],'value',data[k])) for k in ('channel','source','userid','chat_id') if data.get(k) is not None}).model_dump()
-        except (ValueError,KeyError,TypeError):return
-        if route not in [r.model_dump() for r in self.config.chat_routes] or not self._owned('chat',route):return
-        text=data.get('text')
-        if not isinstance(text,str) or not 1<=len(text)<=self.config.chat_input_limit:return
-        if text=='#清除':
-            outgoing=[]
-            self.chat(text,route,send=outgoing.append)
-            with self.lock:
-                if outgoing and len(self.queue)+len(self.chat_queue)<self.config.queue_size:
-                    self.chat_queue[uuid4().hex]=(outgoing[0],route,send,time.monotonic(),self.epoch,self.session_epochs.get(digest(route),0))
-            return
-        with self.lock:
-            if len(self.queue)+len(self.chat_queue)<self.config.queue_size:
-                self.chat_queue[uuid4().hex]=(text,route,send,time.monotonic(),self.epoch,self.session_epochs.get(digest(route),0))
 
     def drain(self,meta_service):
         """Bounded host scheduled work; caller must not hold plugin runtime_lock."""
@@ -1097,12 +1007,3 @@ class AIService:
                 if allowed and self.live() and epoch==self.epoch:
                     self.bridge_cache[key]=(self.clock()+(self.config.positive_ttl if payload else self.config.negative_ttl),payload)
                     while len(self.bridge_cache)>self.config.cache_size:self.bridge_cache.popitem(last=False)
-        for _ in range(self.config.queue_size):
-            with self.lock:
-                if not self.chat_queue or not self.live():return
-                _,(text,route,send,started,epoch,session_epoch)=self.chat_queue.popitem(last=False)
-            if epoch==self.epoch and time.monotonic()-started<self.config.timeout:
-                if isinstance(text,dict):
-                    if self._owned('chat',route) and epoch==self.epoch and session_epoch==self.session_epochs.get(digest(route),0):send(**text)
-                else:self.chat(text,route,send=lambda message:send(**message),started=started,
-                               expected_session_epoch=session_epoch,expected_epoch=epoch)

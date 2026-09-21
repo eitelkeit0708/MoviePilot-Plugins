@@ -44,6 +44,33 @@ class ConfigurationTests(unittest.TestCase):
         self.config.initialize(preview['config'])
         return self.config.view()
 
+    def test_historical_chat_receipt_is_readable_but_cannot_advance(self):
+        data=dict(features=[{'module':'chat','route_scope':{}}],steps=[],operations={},next_changes=[])
+        receipt=self.migration._new('old-chat','CUTOVER','a'*64,'ACTIVE',data)
+        with self.repo.connection() as db:before='\n'.join(db.iterdump())
+        for action in ('activate','rollback','rollback_readback'):
+            with self.subTest(action=action),self.assertRaisesRegex(ValueError,'REMOVED_FEATURE_REQUIRES_NEW_PREVIEW'):
+                self.migration.advance('old-chat',1,'a'*64,action,'op','admin')
+        self.assertEqual(receipt,self.migration.receipt('old-chat'))
+        with self.repo.connection() as db:self.assertEqual(before,'\n'.join(db.iterdump()))
+
+    def test_persisted_chat_fields_are_removed_without_losing_config_or_receipts(self):
+        previous=self.config.view()
+        previous['config']['ai_assist'].update(chat_enabled=True,chat_routes=[{'old':'invalid now'}],
+            chat_input_limit=1,chat_history_limit=2,chat_session_limit=1,chat_history=['private history'])
+        previous['digest']=self.c.digest(self.c.content(previous['config']))
+        self.repo.setting(self.config.key,previous)
+        result=self.config.initialize(previous['config'])
+        self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual(previous['revision'],self.config.view()['revision'])
+        self.assertFalse(any(k.startswith('chat_') for k in result.ai_assist))
+        self.assertEqual(result.model_dump(),self.saved[-1])
+        self.assertEqual(result.model_dump(),self.config.view()['config'])
+        preview=self.config.preview({'dry_run':False},self.config.view()['revision'],self.config.view()['digest'],'admin')
+        self.assertTrue(preview['valid'])
+        self.config.initialize(preview['config']);self.assertTrue(self.config.ready)
+        with self.assertRaisesRegex(ValueError,'UNKNOWN_FEATURE'):self.migration.feature('chat',{})
+
     def test_fix1_cutover_binds_desired_config_and_keeps_baseline_across_restart(self):
         current=self.config.view()
         desired=self.config.preview({'enabled':True,'dry_run':False,'discovery':{'enabled':True,
@@ -213,7 +240,7 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual('  custom prompt\n',config['ai_assist']['prompt']);self.assertEqual(' backup\n',config['ai_assist']['prompt_backup'])
         for key,expected in {'name_assistance_enabled':True,'model':'explicit','profile':'generic','compatible':True,'proxy':True,
             'timeout':44,'max_attempts':3,'max_concurrency':4,'positive_ttl':0,'negative_ttl':7,'cache_size':27,
-            'notifications':True,'chat_enabled':False,'name_recognize_bridge':False}.items():
+            'notifications':True,'name_recognize_bridge':False}.items():
             with self.subTest(legacy_ai=key):self.assertEqual(expected,config['ai_assist'][key])
         self.assertEqual(['KEY_SENTINEL','SECOND_KEY_SENTINEL'],[self.store.resolve(r) for r in config['ai_assist']['credential_refs']])
         self.assertEqual(ai['openai_url'],self.store.resolve(config['ai_assist']['endpoint_ref']))

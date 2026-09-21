@@ -16,6 +16,47 @@ class NativeUITests(unittest.TestCase):
     def setUp(self):
         test_management.ManagementAPITests.setUp(self)
 
+    def test_removed_chat_has_no_registration_routes_or_schema(self):
+        from unittest.mock import patch
+        from test_planner import load
+        current=self.plugin.configuration.view()
+        ai=dict(enabled=True,model='fixture',endpoint_ref=self.store.put('https://fixture.invalid'),
+            credential_refs=[self.store.put('fiction-key')],name_recognize_bridge=True,
+            chat_enabled=True,chat_routes=[{'legacy':'route'}])
+        preview=self.plugin.configuration.preview({'ai_assist':ai},current['revision'],current['digest'],'admin')
+        self.assertTrue(preview['valid'])
+        with patch.object(self.mod,'SecretStore',return_value=self.store), \
+                patch.object(self.mod.ChainEventType,'NameRecognize','name',create=True), \
+                patch.object(self.mod.eventmanager,'add_event_listener') as register:
+            self.plugin.init_plugin(preview['config'])
+        self.addCleanup(self.plugin.stop_service)
+        self.assertEqual([],self.plugin.ai_errors)
+        names=[call.args[1].__name__ for call in register.call_args_list]
+        self.assertIn('ai_name',names)
+        self.assertNotIn('ai_message',names)
+        self.assertFalse(hasattr(self.plugin,'ai_message'))
+        for path in ('/ai/sessions/clear/preview','/ai/sessions/clear/apply'):
+            self.assertEqual(404,self.client.post(path,headers=self.headers,json={}).status_code)
+        self.assertNotIn('chat',self.client.get('/ai',headers=self.headers).json())
+        schema=load('ai').AIConfig.model_json_schema()
+        self.assertFalse(any(k.startswith('chat_') for k in schema['properties']))
+
+    def test_removed_feature_receipt_remains_readable_but_not_selectable(self):
+        feature=dict(module='chat',instance_id='SubscriBetter',config_digest='a'*64,route_scope={})
+        self.plugin.migration._new('old-chat','CUTOVER','a'*64,'ACTIVE',
+            dict(features=[feature],steps=[],operations={},next_changes=[]))
+        response=self.client.get('/migration/receipts/old-chat',headers=self.headers)
+        self.assertEqual(200,response.status_code,response.text)
+        self.assertEqual([feature],response.json()['features'])
+        with self.plugin.repository.connection() as db:before='\n'.join(db.iterdump())
+        for action in ('activate','rollback','rollback_readback'):
+            response=self.client.post('/migration/cutover',headers=self.headers,json=dict(
+                receipt_id='old-chat',revision=1,digest='a'*64,action=action,operation_id='attempt',confirm=True))
+            self.assertEqual(409,response.status_code,response.text)
+        with self.plugin.repository.connection() as db:self.assertEqual(before,'\n'.join(db.iterdump()))
+        response=self.client.post('/migration/cutover/preview',headers=self.headers,json={'features':[feature],'selected':[]})
+        self.assertEqual(422,response.status_code,response.text)
+
     def test_native_hooks_and_assets(self):
         self.assertEqual(('vue', 'dist/assets'), self.plugin.get_render_mode())
         form, defaults = self.plugin.get_form()

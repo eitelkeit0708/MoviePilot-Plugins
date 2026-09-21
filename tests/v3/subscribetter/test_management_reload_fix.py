@@ -12,7 +12,7 @@ import test_management as tm
 
 class ReloadFixTests(unittest.TestCase):
     def test_reload_wins_before_ai_management_lock_and_stale_work_is_rejected(self):
-        for kind in ('ai_cache','ai_sessions','ai_prompt'):
+        for kind in ('ai_cache','ai_prompt'):
             for action in ('preview','apply'):
                 with self.subTest(kind=kind,action=action):
                     tm.ManagementAPITests.setUpClass();f=tm.ManagementAPITests();f.setUp()
@@ -21,7 +21,7 @@ class ReloadFixTests(unittest.TestCase):
 
     def test_actual_reload_none_transitions_keep_old_requests_and_replays_scoped(self):
         for old_present,new_present in ((False,True),(True,False)):
-            for kind in ('ai_cache','ai_sessions','ai_prompt') if new_present else ('ai_prompt',):
+            for kind in ('ai_cache','ai_prompt') if new_present else ('ai_prompt',):
                 for action in ('preview','apply'):
                     with self.subTest(old=old_present,new=new_present,kind=kind,action=action):
                         tm.ManagementAPITests.setUpClass();f=tm.ManagementAPITests();f.setUp()
@@ -32,8 +32,8 @@ class ReloadFixTests(unittest.TestCase):
         m=import_module(f.mod.__name__+'.ui');v=m.Views(f.plugin)
         user=f.mod.TokenPayload(username='admin',super_user=True);closed=[];clears=[]
         def make_ai(label,generation):
-            ai=NS(lock=threading.RLock(),generation=generation,epoch=0,session_epochs={},
-                  cache={},bridge_cache={},queue={},chat_queue={},pending={},sessions={})
+            ai=NS(lock=threading.RLock(),generation=generation,epoch=0,
+                  cache={},bridge_cache={},queue={},pending={})
             def close():
                 with ai.lock:closed.append(label)
             def clear(actor):

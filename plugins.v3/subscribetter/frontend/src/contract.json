@@ -5531,118 +5531,6 @@
         }
       }
     },
-    "/ai/sessions/clear/preview": {
-      "post": {
-        "summary": "Sessions Preview",
-        "operationId": "sessions_preview_ai_sessions_clear_preview_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Fence"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Preview"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/ai/sessions/clear/apply": {
-      "post": {
-        "summary": "Apply Sessions",
-        "operationId": "apply_sessions_ai_sessions_clear_apply_post",
-        "parameters": [
-          {
-            "name": "authorization",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Apply"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActionResult"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/ai/prompt/restore/preview": {
       "post": {
         "summary": "Prompt Preview",
@@ -6565,10 +6453,6 @@
           "type": "boolean",
           "title": "Bridge"
         },
-        "chat": {
-          "type": "boolean",
-          "title": "Chat"
-        },
         "errors": {
           "items": {
             "type": "string"
@@ -6590,7 +6474,6 @@
         "prompt_previous_backup",
         "meta",
         "bridge",
-        "chat",
         "errors"
       ],
       "title": "AIView"
@@ -7720,12 +7603,7 @@
         },
         "modules": {
           "items": {
-            "type": "string",
-            "enum": [
-              "name_bridge",
-              "chat",
-              "discovery"
-            ]
+            "type": "string"
           },
           "type": "array",
           "title": "Modules"
@@ -8413,7 +8291,6 @@
           "enum": [
             "name_assistance",
             "name_bridge",
-            "chat",
             "discovery"
           ],
           "title": "Module"
@@ -10567,7 +10444,7 @@
         },
         "features": {
           "items": {
-            "$ref": "#/components/schemas/Feature"
+            "$ref": "#/components/schemas/RecordedFeature"
           },
           "type": "array",
           "title": "Features"
@@ -10725,6 +10602,49 @@
         "revision"
       ],
       "title": "Reconcile"
+    },
+    "RecordedFeature": {
+      "properties": {
+        "module": {
+          "type": "string",
+          "title": "Module"
+        },
+        "instance_id": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Instance Id"
+        },
+        "config_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Config Digest"
+        },
+        "route_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            }
+          ],
+          "title": "Route Scope"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "module",
+        "instance_id",
+        "config_digest",
+        "route_scope"
+      ],
+      "title": "RecordedFeature"
     },
     "Recovery": {
       "additionalProperties": false,
@@ -11124,7 +11044,6 @@
           "type": "string",
           "enum": [
             "name_bridge",
-            "chat",
             "discovery"
           ],
           "title": "Module"
@@ -12201,43 +12120,6 @@
       "title": "DeliveryConfig",
       "type": "object"
     },
-    "ChatRoute": {
-      "additionalProperties": false,
-      "properties": {
-        "channel": {
-          "maxLength": 128,
-          "minLength": 1,
-          "title": "Channel",
-          "type": "string"
-        },
-        "source": {
-          "maxLength": 128,
-          "minLength": 1,
-          "title": "Source",
-          "type": "string"
-        },
-        "userid": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Userid",
-          "type": "string"
-        },
-        "chat_id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Chat Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "channel",
-        "source",
-        "userid",
-        "chat_id"
-      ],
-      "title": "ChatRoute",
-      "type": "object"
-    },
     "AIConfig": {
       "additionalProperties": false,
       "properties": {
@@ -12367,41 +12249,6 @@
           "default": false,
           "title": "Name Recognize Bridge",
           "type": "boolean"
-        },
-        "chat_enabled": {
-          "default": false,
-          "title": "Chat Enabled",
-          "type": "boolean"
-        },
-        "chat_routes": {
-          "items": {
-            "$ref": "#/components/schemas/ChatRoute"
-          },
-          "maxItems": 100,
-          "title": "Chat Routes",
-          "type": "array"
-        },
-        "chat_input_limit": {
-          "default": 16000,
-          "maximum": 16000,
-          "minimum": 1,
-          "title": "Chat Input Limit",
-          "type": "integer"
-        },
-        "chat_history_limit": {
-          "default": 32,
-          "maximum": 32,
-          "minimum": 2,
-          "multipleOf": 2,
-          "title": "Chat History Limit",
-          "type": "integer"
-        },
-        "chat_session_limit": {
-          "default": 100,
-          "maximum": 100,
-          "minimum": 1,
-          "title": "Chat Session Limit",
-          "type": "integer"
         }
       },
       "title": "AIConfig",
@@ -12960,12 +12807,7 @@
       "prompt_backup": "",
       "prompt_previous_backup": "",
       "notifications": false,
-      "name_recognize_bridge": false,
-      "chat_enabled": false,
-      "chat_routes": [],
-      "chat_input_limit": 16000,
-      "chat_history_limit": 32,
-      "chat_session_limit": 100
+      "name_recognize_bridge": false
     },
     "discovery": {
       "enabled": false,

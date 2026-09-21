@@ -18,7 +18,7 @@ AI_FIELDS=dict(enabled='ai_assist.enabled',recognize='ai_assist.name_assistance_
     restore_prompt='action.prompt_restore',clear_cache='action.cache_clear',timeout='ai_assist.timeout',
     max_attempts='ai_assist.max_attempts',max_concurrency='ai_assist.max_concurrency',positive_ttl='ai_assist.positive_ttl',
     negative_ttl='ai_assist.negative_ttl',cache_size='ai_assist.cache_size',notify='ai_assist.notifications',
-    chat_enabled='ai_assist.chat_enabled',chat_history='historical.chat',statistics='historical.statistics')
+    statistics='historical.statistics')
 DISCOVERY_FIELDS=dict(enabled='discovery.enabled',ranks='discovery.sources',rss_addrs='discovery.sources',cron='discovery.cron',
     onlyonce='action.run_once',proxy='discovery.sources.proxy',sleep_time='discovery.request_budget',
     is_exit_ip_rate_limit='discovery.origin_cooldown',vote='discovery.minimum_rating',release_year='discovery.minimum_release_year',
@@ -27,7 +27,7 @@ DISCOVERY_FIELDS=dict(enabled='discovery.enabled',ranks='discovery.sources',rss_
     migrate_from_url='migration.read_only_source_ref',migrate_api_token='migration.credential_ref',migrate_once='action.import')
 HISTORY_FIELDS=('title','type','year','poster','overview','tmdbid','doubanid','unique','time','time_full','vote','status')
 ACTIONS={'restore_prompt','clear_cache','onlyonce','clear','clear_unrecognized','delete_history','migrate_once'}
-MODULES={'name_assistance','name_bridge','chat','discovery'}
+MODULES={'name_assistance','name_bridge','discovery'}
 
 
 def capabilities(plugin):
@@ -221,7 +221,7 @@ def collect_host(plugin):
     from app.sdk.plugin import PluginManager
     from app.sdk.events import eventmanager
     from app.sdk.scheduler import list_scheduler_jobs
-    from app.schemas.types import ChainEventType,EventType
+    from app.schemas.types import ChainEventType
     manager=PluginManager();generation=manager.get_plugin_runtime_generation();plugins=[];services=[]
     runtime=manager.running_plugins
     ids=set(manager.get_plugin_ids())|set(manager.get_plugin_instances())|set(manager.get_running_plugin_ids())
@@ -244,7 +244,7 @@ def collect_host(plugin):
     if len(handlers)>5000 or len(jobs)>5000:raise ValueError('OWNER_INVENTORY_LIMIT')
     if generation!=manager.get_plugin_runtime_generation():raise ValueError('OWNER_RUNTIME_CHANGED')
     return dict(generation=generation,plugins=plugins,services=services,jobs=jobs,handlers=handlers,
-                event_types={'name_bridge':ChainEventType.NameRecognize.value,'chat':EventType.UserMessage.value})
+                event_types={'name_bridge':ChainEventType.NameRecognize.value})
 
 
 class Migration:
@@ -291,7 +291,7 @@ class Migration:
         preview.update(snapshot_ref=reference,source_instance=source_instance,source_version=source_version,timezone=timezone,
             base_digest=self.configuration.view()['digest'],cursor=0,config_applied=False,operations={},actor=actor,private_context=context)
         proposal=merge(self.configuration.view()['config'],preview['config'])
-        proposal=merge(proposal,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'chat_enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
+        proposal=merge(proposal,{'enabled':False,'dry_run':True,'ai_assist':{'enabled':False,'name_recognize_bridge':False},'discovery':{'enabled':False}})
         preview['proposed_config']=self.configuration.validate(proposal)
         # Check the entire ordinary projection, including internal config patch
         # and external provenance metadata, against every known imported secret.
@@ -384,16 +384,15 @@ class Migration:
             if not isinstance(route_scope,str) or route_scope not in {s['id'] for s in config[key]['sources']}:raise ValueError('SOURCE_SCOPE_UNKNOWN')
         elif module=='name_bridge':
             if route_scope!={'event':'NameRecognize'}:raise ValueError('NAME_SCOPE_INVALID')
-        elif module=='chat':
-            if route_scope not in config[key]['chat_routes']:raise ValueError('CHAT_SCOPE_UNKNOWN')
         elif route_scope!='internal':raise ValueError('ASSISTANCE_SCOPE_INVALID')
         checksum=discovery_digest(config[key]) if module=='discovery' else digest(config[key])
         return dict(module=module,instance_id=self.configuration.instance_id,config_digest=checksum,route_scope=route_scope)
 
     def _enabled(self,feature,config):
+        if feature['module'] not in MODULES:return False
         if feature['module']=='discovery':return config.get('discovery',{}).get('enabled') is True
         ai=config.get('ai_assist',{})
-        return ai.get('enabled') is True and ai.get({'name_bridge':'name_recognize_bridge','name_assistance':'name_assistance_enabled','chat':'chat_enabled'}[feature['module']]) is True
+        return ai.get('enabled') is True and ai.get({'name_bridge':'name_recognize_bridge','name_assistance':'name_assistance_enabled'}[feature['module']]) is True
 
     def owner_snapshot(self,module,instance_id,config_digest,route_scope,*,desired=None,require_new=True):
         expected=self.feature(module,route_scope,desired)
@@ -406,11 +405,11 @@ class Migration:
         if checksum!=config_digest:unknown.append('own_config_changed')
         if (not self.configuration.ready or not own['active'] or own['config'].get('enabled') is not True or own['config'].get('dry_run') is not False
                 or not self._enabled(expected,own['config'])):unknown.append('own_feature_inactive')
-        if module in {'name_bridge','chat'}:
+        if module=='name_bridge':
             # Match the real enum values supplied in the public inventory.
-            from_event='NameRecognize' if module=='name_bridge' else 'UserMessage'
+            from_event='NameRecognize'
             event=inventory.get('event_types',{}).get(module,from_event)
-            own_handler=own['prefix']+('.ai_name' if module=='name_bridge' else '.ai_message')
+            own_handler=own['prefix']+'.ai_name'
             projected=owner_projection(inventory['handlers'],plugins,module,event,own_handler,expected)
             overlaps.extend(projected['overlaps']);unknown.extend(projected['unclassified'])
             # Legacy partial flags have no public runtime readback. Saved false
@@ -418,18 +417,18 @@ class Migration:
             # Do not inspect private flags or disable an unselected feature.
             for p in plugins:
                 if p['source']!='ChatGPTPlusUltra' or not p['active']:continue
-                key='recognize' if module=='name_bridge' else 'chat_enabled'
-                if not flag(p['config'].get(key,p['config'].get('enabled') if module=='chat' else False)) and any(
+                key='recognize'
+                if not flag(p['config'].get(key,False)) and any(
                         h.get('event_type')==event and h.get('status')=='enabled' and
                         h.get('handler_identifier','').startswith(p['prefix']+'.') for h in inventory['handlers']):
                     unknown.append('LEGACY_RUNTIME_FLAGS_UNVERIFIED:'+p['id'])
         for p in plugins:
             if p['id']==instance_id:continue
             if p['source'] in ('ChatGPTPlusUltra','DoubanRankPlusOptimized') and any(
-                    k in p['config'] and type(p['config'][k])is not bool for k in ('enabled','recognize','chat_enabled')):
+                    k in p['config'] and type(p['config'][k])is not bool for k in ('enabled','recognize')):
                 unknown.append(p['id']+':invalid_switch')
             if p['source']=='SubscriBetter' and self._enabled(expected,p['config']):
-                if module!='chat' or route_scope in p['config'].get('ai_assist',{}).get('chat_routes',[]):overlaps.append(p['id'])
+                overlaps.append(p['id'])
             if module=='discovery' and p['source']=='DoubanRankPlusOptimized':
                 services=[s for s in inventory['services'] if s['instance_id']==p['id']]
                 jobs=[j for j in inventory['jobs'] if j['id'].startswith(p['id']+'_')]
@@ -467,11 +466,11 @@ class Migration:
         for choice in selected:
             pid=choice['instance_id'];p=plugins.get(pid)
             if not p or choice['config_digest']!=digest(p['config']):raise ValueError('OLD_CONFIG_CHANGED')
-            if any(k in p['config'] and type(p['config'][k])is not bool for k in ('enabled','recognize','chat_enabled')):raise ValueError('OLD_SWITCH_INVALID')
+            if any(k in p['config'] and type(p['config'][k])is not bool for k in ('enabled','recognize')):raise ValueError('OLD_SWITCH_INVALID')
             if any(flag(p['config'].get(k)) for k in ACTIONS):raise ValueError('OLD_ONE_SHOT_RELOAD_UNSAFE')
             module=choice['module'];changes={};before={}
-            if p['source']=='ChatGPTPlusUltra' and p['version']=='1.4.2' and module in {'name_bridge','chat'}:
-                key='recognize' if module=='name_bridge' else 'chat_enabled';changes[key]=False;before[key]=p['config'].get(key,flag(p['config'].get('enabled')) if key=='chat_enabled' else False)
+            if p['source']=='ChatGPTPlusUltra' and p['version']=='1.4.2' and module=='name_bridge':
+                key='recognize';changes[key]=False;before[key]=p['config'].get(key,False)
             elif p['source']=='DoubanRankPlusOptimized' and p['version']=='1.0.7' and module=='discovery' and choice.get('whole_instance') is True:
                 # Fixed version's cron + manual discovery are its entire running
                 # capability. Unknown version/partial sources cannot use this exception.
@@ -516,6 +515,7 @@ class Migration:
             rows=list(db.execute("SELECT state,data FROM migration_receipts WHERE kind='CUTOVER' AND state NOT IN ('ACTIVE','ROLLED_BACK')"))
         for row in rows:
             data=json.loads(row['data'])
+            if not any(f['module'] in MODULES for f in data['features']):continue
             if row['state'] in ('ROLLBACK_FENCED','ROLLBACK_RESTORE') and not any(self._enabled(f,value) for f in data['features']):continue
             binding=data.get('configuration_receipt')
             if not binding:continue
@@ -534,6 +534,7 @@ class Migration:
 
     def advance(self,identity,revision,checksum,action,operation,actor):
         row=self._load(identity,'CUTOVER');data=row['data'];signature=digest([action,checksum])
+        if any(f['module'] not in MODULES for f in data['features']):raise ValueError('REMOVED_FEATURE_REQUIRES_NEW_PREVIEW')
         if operation in data['operations']:
             if data['operations'][operation]!=signature:raise ValueError('OPERATION_CONFLICT')
             return self.receipt(identity)
@@ -544,7 +545,7 @@ class Migration:
             row['state']='ROLLBACK_FENCED';changes={}
             for f in data['features']:
                 if f['module']=='discovery':changes=merge(changes,{'discovery':{'enabled':False}})
-                else:changes=merge(changes,{'ai_assist':{{'name_bridge':'name_recognize_bridge','chat':'chat_enabled','name_assistance':'name_assistance_enabled'}[f['module']]:False}})
+                else:changes=merge(changes,{'ai_assist':{{'name_bridge':'name_recognize_bridge','name_assistance':'name_assistance_enabled'}[f['module']]:False}})
             data['next_changes']=[dict(instance_id=self.configuration.instance_id,changes=changes,expected_digest=self.configuration.view()['digest'])]
         elif action=='rollback_readback':
             if row['state'] not in ('ROLLBACK_FENCED','ROLLBACK_RESTORE'):raise ValueError('ROLLBACK_NOT_FENCED')
@@ -561,12 +562,12 @@ class Migration:
                             if module=='discovery':
                                 services=[s for s in inventory['services'] if s['instance_id']==p['id'] and s['callable']]
                                 if not services or not any(j['id']==p['id']+'_'+s['id'] for j in inventory['jobs'] for s in services):registration_pending=True
-                            elif flag(step['before'].get('recognize' if module=='name_bridge' else 'chat_enabled')):
+                            elif flag(step['before'].get('recognize')):
                                 # The same public flag gap applies to restoration:
                                 # an enabled decorator is not proof init restored
                                 # a selected internal runtime switch.
                                 legacy_runtime_unknown=True;registration_pending=True
-                                event=inventory.get('event_types',{}).get(module,'NameRecognize' if module=='name_bridge' else 'UserMessage')
+                                event=inventory.get('event_types',{}).get(module,'NameRecognize')
                                 if not any(h['event_type']==event and h['status']=='enabled' and h['handler_identifier'].startswith(p['prefix']+'.') for h in inventory['handlers']):registration_pending=True
                     step['state']='WAIT_REGISTRATION' if registration_pending else 'RESTORED';continue
                 if digest(p['config'])!=step['after_digest']:raise ValueError('ROLLBACK_CONFIG_CONFLICT')

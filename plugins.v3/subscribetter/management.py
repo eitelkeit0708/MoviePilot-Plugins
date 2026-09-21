@@ -113,15 +113,20 @@ class SourcePreviewRequest(Strict):
 
 
 class Feature(Strict):
-    module: Literal['name_assistance','name_bridge','chat','discovery']
+    module: Literal['name_assistance','name_bridge','discovery']
     instance_id: Id
     config_digest: Digest
     route_scope: str | dict[str,str]
 
 
+class RecordedFeature(Feature):
+    # Historical evidence may name a retired feature; write DTOs stay strict.
+    module: str
+
+
 class SelectedOld(Strict):
     instance_id: Id
-    module: Literal['name_bridge','chat','discovery']
+    module: Literal['name_bridge','discovery']
     config_digest: Digest
     whole_instance: bool = False
     all_capabilities: list[Literal['discovery']] = Field(default_factory=list,max_length=1)
@@ -156,7 +161,7 @@ class SelectedScope(Strict):
 
 class CutoverStep(Strict):
     instance_id: str
-    modules: list[Literal['name_bridge','chat','discovery']]
+    modules: list[str]
     changes: dict[str,bool]
     before: dict[str,bool]
     before_digest: str
@@ -214,7 +219,7 @@ class Receipt(Strict):
     memory_cache_restored: bool = False
     history_count: int = 0
     cursor: int = 0
-    features: list[Feature] = Field(default_factory=list)
+    features: list[RecordedFeature] = Field(default_factory=list)
     steps: list[CutoverStep] = Field(default_factory=list)
     next_changes: list[NextChange] = Field(default_factory=list)
     read_scope: ReadScope | None = None
@@ -375,7 +380,6 @@ class Management:
         config=state['config'];routes=[]
         if config['ai_assist']['name_assistance_enabled']:routes.append(('name_assistance','internal'))
         if config['ai_assist']['name_recognize_bridge']:routes.append(('name_bridge',{'event':'NameRecognize'}))
-        routes.extend(('chat',r) for r in config['ai_assist']['chat_routes'])
         routes.extend(('discovery',s['id']) for s in config['discovery']['sources'] if s['enabled'])
         for module,route in routes:
             f=migration.feature(module,route)
