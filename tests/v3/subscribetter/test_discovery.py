@@ -592,6 +592,10 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(1, service.records()[0]["retry_count"])
         self.clock.advance(2)
         self.wait(service.run())
+        self.assertEqual("RATING_UNKNOWN", service.records()[0]["reason"])
+        self.assertEqual(1, service.records()[0]["retry_count"])
+        self.clock.advance(86401)
+        self.wait(service.run())
         self.assertEqual(2, service.records()[0]["retry_count"])
         self.clock.advance(2)
         self.wait(service.run())
@@ -605,6 +609,52 @@ class DiscoveryTests(unittest.TestCase):
         self.wait(changed.run())
         self.assertEqual(revision, changed.records()[0]["filter_revision"])
         self.assertEqual("SUBMITTED", changed.records()[0]["state"])
+
+    def test_unknown_provider_score_rechecks_after_daily_due_with_threshold_evidence(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "42"),
+                                      douban_id="35322132", title="Fixture", year="2026", category="movie", tmdb_info={})
+        owner = Owner()
+        service = self.service(self.config(minimum_rating=7.0, request_budget={"items":1,"response_bytes":16384,
+                               "interval_min_seconds":1,"interval_max_seconds":1,"retry_limit":1}), media=media, owner=owner)
+        self.wait(service.run())
+        record = service.records()[0]
+        self.assertEqual(("DEFERRED","RATING_UNKNOWN"),(record["state"],record["reason"]))
+        self.assertEqual({"rating_source":"recognized_provider","recognized_provider":"themoviedb",
+                          "minimum_rating":7.0,"minimum_release_year":None},record["filter_evidence"])
+        self.assertIsNone(record["rating"])
+        media.tmdb_info={"vote_average":8.25}
+        self.clock.advance(10)
+        self.wait(service.run())
+        self.assertEqual("DEFERRED",service.records()[0]["state"])
+        self.clock.advance(86401)
+        self.wait(service.run())
+        record=service.records()[0]
+        self.assertEqual("SUBMITTED",record["state"])
+        self.assertEqual({"provider":"themoviedb","field":"tmdb_info.vote_average","value":8.25},
+                         {key:record["rating"][key] for key in ("provider","field","value")})
+        self.assertEqual(1,len(owner.calls))
+        self.wait(service.run())
+        self.assertEqual(1,len(owner.calls))
+
+    def test_unknown_provider_year_rechecks_after_daily_due(self):
+        media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "42"),
+                                      douban_id="35322132", title="Fixture", year=None, category="movie", tmdb_info={})
+        owner = Owner()
+        service = self.service(self.config(minimum_release_year=2020, request_budget={"items":1,"response_bytes":16384,
+                               "interval_min_seconds":1,"interval_max_seconds":1,"retry_limit":1}), media=media, owner=owner)
+        self.wait(service.run())
+        record=service.records()[0]
+        self.assertEqual(("DEFERRED","YEAR_UNKNOWN"),(record["state"],record["reason"]))
+        self.assertEqual({"rating_source":"recognized_provider","recognized_provider":"themoviedb",
+                          "minimum_rating":None,"minimum_release_year":2020},record["filter_evidence"])
+        media.year="2026"
+        self.clock.advance(10)
+        self.wait(service.run())
+        self.assertEqual("DEFERRED",service.records()[0]["state"])
+        self.clock.advance(86401)
+        self.wait(service.run())
+        self.assertEqual("SUBMITTED",service.records()[0]["state"])
+        self.assertEqual(1,len(owner.calls))
 
     def test_movie_provider_enum_rating_retains_payload_evidence(self):
         details={"vote_average":8.25,"media_type":ProviderMediaType.MOVIE,

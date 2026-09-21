@@ -1100,10 +1100,12 @@ class Archive:
         from .execution import Exclusions
         exclusions = Exclusions(self.repository)
         exclusion_token = exclusions.token()
+        from .candidates import recognized_identity_matches
         for key in keys:
             identity = json.loads(key)
             recognition = candidate.get('recognition', {})
-            if recognition.get('status') != 'OK' or recognition.get('identity') != identity[1:3]:
+            if recognition.get('status') != 'OK' or recognized_identity_matches(
+                    Target(*identity[:5]),recognition.get('identity'),recognition.get('identity_mapping')) is not True:
                 raise ValueError('IDENTITY_CONFLICT')
             raw = manifest.get('publication', {}).get(key, {}).get('raw', {})
             if any(raw.get(k) != candidate.get(k) for k in ('title', 'description', 'labels')):

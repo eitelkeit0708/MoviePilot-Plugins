@@ -108,6 +108,18 @@ def identity_matches(target, candidate):
     return tuple(map(str, target)) == tuple(map(str, candidate))
 
 
+def recognized_identity_matches(target, identity, mapping=None):
+    """Match canonical identity or separately persisted, typed provider evidence."""
+    if not isinstance(identity,(tuple,list)) or len(identity)!=2 or not all(identity):return None
+    matched=identity_matches((target.media_source,target.media_id),identity)
+    if matched or identity[0]==target.media_source:return matched
+    if not isinstance(mapping,dict) or mapping.get('state')=='UNKNOWN':return None
+    if (mapping.get('state')!='VERIFIED' or mapping.get('source')!=target.media_source
+            or mapping.get('media_id')!=target.media_id):return False
+    if not mapping.get('media_type'):return None
+    return mapping['media_type']==target.media_type
+
+
 def candidate_key(raw):
     site = value(raw, 'site')
     if type(site) is not int or site < 1:
@@ -291,9 +303,7 @@ class CandidateService:
         if matched is False and identity[0]!=target.media_source:
             mapping=HostCandidateAdapter.source_identity(media,target.media_source)
             mapping=dict(mapping,source=target.media_source,media_type=media_type)
-            matched=(mapping['media_id']==target.media_id if mapping['state']=='VERIFIED'
-                     else False if mapping['state']=='CONFLICT' else None)
-            if matched is True and not media_type:matched=None
+        matched=recognized_identity_matches(target,identity,mapping)
         if media_type and media_type!=target.media_type:matched=False
         if assistance is not None and assistance.identity and matched is True:self.ai.count('identity_matched')
         result = {'status':'OK' if matched is True else 'REJECT' if matched is False else 'DEFER',

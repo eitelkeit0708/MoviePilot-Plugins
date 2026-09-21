@@ -705,7 +705,7 @@ class DiscoveryService:
         return state
 
     def _metadata_wait(self, db, row, source):
-        if row["reason"] == "SEASON_METADATA_UNKNOWN":
+        if row["reason"] in {"SEASON_METADATA_UNKNOWN", "YEAR_UNKNOWN", "RATING_UNKNOWN"}:
             return True
         if db.execute("SELECT 1 FROM discovery_targets WHERE record_id=? AND reason IN "
                       "('SEASON_NOT_AIRED','SEASON_AIR_DATE_UNKNOWN','SEASON_METADATA_UNKNOWN') LIMIT 1",
@@ -734,7 +734,11 @@ class DiscoveryService:
         correction = self.meta_service.parse("discovery:" + item.raw_revision, item.title)
         if correction.status != "OK" and self.ai is not None:
             correction, _ = self.ai.assist(item.title, "", correction, corrector=self.meta_service.corrector)
-        data = {"raw": asdict(item), "correction": correction.record(), "filter_revision": policy}
+        data = {"raw": asdict(item), "correction": correction.record(), "filter_revision": policy,
+                "filter_evidence": {"rating_source": source.rating_source,
+                                    "recognized_provider": None,
+                                    "minimum_rating": source.minimum_rating if source.minimum_rating is not None else self.config.minimum_rating,
+                                    "minimum_release_year": source.minimum_release_year or self.config.minimum_release_year}}
         if correction.status != "OK":
             return self._set_record(record_id, "DEFERRED", "META_" + correction.status, data)
         requested_type = ("电视剧" if source.source_type_hint == "TV" else "电影"
@@ -750,6 +754,7 @@ class DiscoveryService:
             return self._set_record(record_id, "UNRECOGNIZED", "IDENTITY_UNKNOWN", data)
         media_type = self._field(self._field(media, "type"), "value", self._field(media, "type"))
         source_id, media_id = str(identity[0]).casefold(), str(identity[1])
+        data["filter_evidence"]["recognized_provider"] = source_id
         if media_type not in {"电影", "电视剧"}:
             return self._set_record(record_id, "DEFERRED", "TYPE_UNKNOWN", data)
         if requested_type and media_type != requested_type:

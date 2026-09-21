@@ -389,6 +389,44 @@ class ArchiveTests(unittest.TestCase):
             self.assertEqual(1,db.execute('SELECT count(*) FROM evidence_consumption').fetchone()[0])
             self.assertEqual('ARCHIVED',db.execute("SELECT state FROM opportunities WHERE id='o'").fetchone()[0])
 
+    def test_enrichment_uses_verified_mapping_without_replacing_canonical_identity(self):
+        self.enrichment()
+        with self.repo.connection() as db:
+            candidate=json.loads(db.execute("SELECT data FROM candidates WHERE candidate_key='release'").fetchone()[0])
+        mapping=dict(state='VERIFIED',source='themoviedb',media_id='42',media_type='电影')
+        before=self.archive.authority.vector([self.key])
+        cases=[
+            (['douban','123'],None),
+            (['douban','123'],dict(mapping,state='UNKNOWN')),
+            (['douban','123'],dict(mapping,state='CONFLICT')),
+            (['douban','123'],dict(mapping,source='imdb')),
+            (['douban','123'],dict(mapping,media_id='43')),
+            (['douban','123'],dict(mapping,media_type='电视剧')),
+            (['douban','123'],dict(mapping,media_type=None)),
+            (None,mapping),
+            (['douban',None],mapping),
+            (['themoviedb','43'],mapping),
+        ]
+        for identity,proof in cases:
+            with self.subTest(identity=identity,proof=proof):
+                candidate['recognition']=dict(status='OK',identity=identity,identity_mapping=proof)
+                with self.repo.connection(write=True) as db:
+                    db.execute("UPDATE candidates SET data=? WHERE candidate_key='release'",(json.dumps(candidate),))
+                with self.assertRaisesRegex(ValueError,'IDENTITY_CONFLICT'):
+                    self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)
+                self.assertEqual(before,self.archive.authority.vector([self.key]))
+                with self.repo.connection() as db:
+                    self.assertEqual(0,db.execute('SELECT count(*) FROM evidence_consumption').fetchone()[0])
+                    self.assertEqual(0,db.execute('SELECT count(*) FROM ingest_receipts').fetchone()[0])
+        candidate['recognition']=dict(status='OK',identity=['douban','123'],identity_mapping=mapping)
+        with self.repo.connection(write=True) as db:
+            db.execute("UPDATE candidates SET data=? WHERE candidate_key='release'",(json.dumps(candidate),))
+        self.assertTrue(self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)['accepted'])
+        self.assertFalse(self.archive.enrich_evidence('o','release',self.enrichments,self.enrich_manifest)['accepted'])
+        with self.repo.connection() as db:
+            self.assertEqual(candidate['recognition'],json.loads(db.execute("SELECT data FROM candidates WHERE candidate_key='release'").fetchone()[0])['recognition'])
+            self.assertEqual(1,db.execute('SELECT count(*) FROM evidence_consumption').fetchone()[0])
+
     def test_enrichment_rolls_back_on_archive_failure_and_rejects_stale_cas(self):
         self.assertTrue(hasattr(self.archive,'enrich_evidence'),'W06 enrichment missing')
         self.enrichment()
