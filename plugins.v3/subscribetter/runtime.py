@@ -365,6 +365,9 @@ class Runtime:
         if not raw:raise ValueError('ORIGINAL_RUNTIME_INPUT_REQUIRED')
         saved=json.loads(raw[0]);keys=sorted(set(request['target_keys']))
         if saved['task_generation']!=task['generation'] or saved['task_id']!=task['id']:raise ValueError('ORIGINAL_RUNTIME_INPUT_STALE')
+        revisions=(self.policy.semantic_hash,self.meta.corrector.revision)
+        if (request.get('policy_revision',saved['effective']['policy_revision']),
+            request.get('parse_revision',saved['effective']['parse_revision']))!=revisions:raise ValueError('REVIEWED_REVISIONS_CHANGED')
         if not keys or not set(keys)<=set(json.loads(opportunity['scope'])):raise ValueError('TARGET_EXPANSION_FORBIDDEN')
         templates=[t.model_dump() for t in self.config.destination_templates if t.id==request['destination_template']]
         if len(templates)!=1 or templates[0]['category_id']!=saved['effective']['template']['category_id']:raise ValueError('DESTINATION_SCOPE_CHANGED')
@@ -389,7 +392,7 @@ class Runtime:
         # Existing anchors/expiry remain immutable; no historical unit is removed.
         db.execute('UPDATE task_lifecycle SET scope=? WHERE task_id=?',(json.dumps(keys),task['id']))
         scope=dict(saved['scope'],units=keys,provider_units=saved['scope'].get('provider_units',saved['scope']['units']))
-        effective=dict(saved['effective'],template=template)
+        effective=dict(saved['effective'],template=template,policy_revision=revisions[0],parse_revision=revisions[1])
         saved.update(scope=scope,effective=effective,config_digest=digest(effective),task_generation=task['generation']+1,locks=request['locks'])
         db.execute('UPDATE settings SET value=? WHERE key=?',(encoded(saved),'runtime-input:'+opportunity['id']))
         db.execute('UPDATE settings SET value=json_set(value,\'$.scope\',json(?),\'$.effective\',json(?)) WHERE key=?',(encoded(scope),encoded(effective),'runtime-task:'+str(task['id'])))

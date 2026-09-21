@@ -174,6 +174,57 @@ class ManagementTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'TASK_GENERATION_CHANGED'):
             with f.repo.connection(write=True) as db:f.runtime.settings(request,db=db,actor='admin')
 
+    def test_settings_explicitly_rebind_reviewed_policy_and_parse_revisions(self):
+        from test_runtime import CommonAdmissionTests
+        f=CommonAdmissionTests();f.setUp();self.addCleanup(f.doCleanups)
+        task=f.runtime.submit('manual',f.target,{'name':'Fiction'},'admin')
+        with f.repo.connection() as db:opportunity=dict(db.execute('SELECT * FROM opportunities').fetchone())
+        original=f.repo.setting('runtime-input:'+opportunity['id'])
+        f.runtime.policy.semantic_hash='reviewed-policy-revision'
+        f.runtime.meta.corrector.revision='reviewed-parse-revision'
+        request=dict(task_id=task['id'],generation=task['generation'],opportunity_id=opportunity['id'],
+            target_keys=original['scope']['units'],destination_template='movie-destination',locks={},
+            policy_revision=f.runtime.policy.semantic_hash,parse_revision=f.runtime.meta.corrector.revision)
+        with self.assertRaisesRegex(ValueError,'REVIEWED_REVISIONS_CHANGED'):
+            with f.repo.connection(write=True) as db:
+                f.runtime.settings({k:v for k,v in request.items() if k not in ('policy_revision','parse_revision')},db=db,actor='admin')
+        with f.repo.connection(write=True) as db:f.runtime.settings(request,db=db,actor='admin')
+        saved=f.repo.setting('runtime-input:'+opportunity['id'])
+        self.assertEqual((request['policy_revision'],request['parse_revision']),
+            (saved['effective']['policy_revision'],saved['effective']['parse_revision']))
+        self.assertEqual(saved['effective'],f.repo.setting('runtime-task:'+str(task['id']))['effective'])
+        self.assertEqual(original['effective']['schedule'],saved['effective']['schedule'])
+        self.assertEqual(original['effective']['lifecycle'],saved['effective']['lifecycle'])
+
+    def test_settings_preview_shows_revisions_and_rejects_changed_revision(self):
+        from test_runtime import CommonAdmissionTests
+        f=CommonAdmissionTests();f.setUp();self.addCleanup(f.doCleanups)
+        task=f.runtime.submit('manual',f.target,{'name':'Fiction'},'admin')
+        with f.repo.connection() as db:opportunity=dict(db.execute('SELECT * FROM opportunities').fetchone())
+        config=self.c.Configuration(f.repo,'SubscriBetter',PrivateFixture(),lambda x:None)
+        config.initialize({})
+        self.plugin.repository=f.repo;self.plugin.configuration=config;self.plugin.config=f.plugin.config
+        self.plugin.generation=f.plugin.generation;self.plugin.runtime=f.runtime
+        ui=load('ui');view=ui.Views(self.plugin);user=SimpleNamespace(username='admin')
+        saved=f.repo.setting('runtime-input:'+opportunity['id'])
+        request=ui.SettingsPreview(**dict(config_revision=config.view()['revision'],runtime_generation=f.plugin.generation,
+            generation=task['generation'],opportunity_id=opportunity['id'],target_keys=saved['scope']['units'],
+            destination_template='movie-destination',locks={}))
+        preview=view.settings_preview(task['id'],request,user=user)
+        self.assertEqual(f.runtime.policy.semantic_hash,preview.objects['policy_revision'])
+        self.assertEqual(f.runtime.meta.corrector.revision,preview.objects['parse_revision'])
+        f.runtime.policy.semantic_hash='changed-after-preview'
+        with self.assertRaisesRegex(Exception,'STALE_PREVIEW'):
+            view.apply_settings(task['id'],self.apply_body(preview),user=user)
+        f.runtime.meta.corrector.revision='parse-after-preview'
+        fresh=view.settings_preview(task['id'],request,user=user)
+        self.assertEqual('changed-after-preview',fresh.objects['policy_revision'])
+        self.assertEqual('parse-after-preview',fresh.objects['parse_revision'])
+        self.assertEqual('APPLIED',view.apply_settings(task['id'],self.apply_body(fresh),user=user).state)
+        effective=f.repo.setting('runtime-input:'+opportunity['id'])['effective']
+        self.assertEqual(('changed-after-preview','parse-after-preview'),
+            (effective['policy_revision'],effective['parse_revision']))
+
     def test_discovery_add_readback_handoff_and_each_tv_generation(self):
         from test_planner import AuthorityTests,NOW
         f=self.fixture(AuthorityTests);vector=f.claim();now=self.r.utcnow()

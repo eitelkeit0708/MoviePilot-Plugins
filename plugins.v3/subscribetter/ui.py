@@ -755,6 +755,9 @@ class Views:
             if any(u['publish_phase'] in ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF') for u in facts['units']):blockers.append('PUBLICATION_UNSETTLED')
             facts['opportunities']=rows('opportunities','task_id=? AND state=\'ACTIVE\'',(objects['task_id'],))
             facts['inputs']=rows('settings','key IN (SELECT \'runtime-input:\'||id FROM opportunities WHERE task_id=? AND state=\'ACTIVE\')',(objects['task_id'],))
+            if kind=='settings':
+                runtime=self.plugin.runtime
+                facts['reviewed_revisions']=[runtime.policy.semantic_hash,runtime.meta.corrector.revision] if runtime and runtime.policy else None
             facts['shared']=rows('plans',"task_id!=? AND authorization IN ('ACTIVE','PREPARED') AND EXISTS(SELECT 1 FROM plans p WHERE p.task_id=? AND p.authorization IN ('ACTIVE','PREPARED') AND json_extract(p.snapshot,'$.downloader')=json_extract(plans.snapshot,'$.downloader') AND json_extract(p.snapshot,'$.infohash')=json_extract(plans.snapshot,'$.infohash'))",(objects['task_id'],objects['task_id']))
             if facts['shared']:blockers.append('SHARED_REFERENCE')
         elif kind=='revoke':
@@ -817,7 +820,10 @@ class Views:
 
     def settings_preview(self,task_id:int,request:SettingsPreview,user:TokenPayload=Depends(verify_token))->Preview:
         self._auth(user);PolicyConfig(locks=request.locks)
-        objects=dict(task_id=task_id,**request.model_dump(exclude={'config_revision','runtime_generation'}))
+        runtime=self.plugin.runtime
+        if not runtime or not runtime.policy:raise HTTPException(409,'RUNTIME_UNAVAILABLE')
+        objects=dict(task_id=task_id,**request.model_dump(exclude={'config_revision','runtime_generation'}),
+            policy_revision=runtime.policy.semantic_hash,parse_revision=runtime.meta.corrector.revision)
         return self.preview('settings',objects,request,user)
 
     def exclusion_preview(self,request:ExclusionPreview,user:TokenPayload=Depends(verify_token))->Preview:
