@@ -461,8 +461,14 @@ class Runtime:
                 return dict(state='ASSET_PLAN_READY',plan_id=plan['id'])
             self.repository.setting('subtitle:'+plan['id'],dict(result['subtitles'],assets_state='VERIFIED_EMPTY',observation=assets['observation']))
         rule_id=saved['effective']['template']['organized_rule'];rule=self.delivery.rules[rule_id]
-        result=self.pipeline.organize(plan['id'],rule['local_root'])
-        if result['state']!='COMPLETE':return result
+        selected_indices=active_snapshot(plan)['selected_indices']
+        with self.repository.connection() as db:
+            completed=all((row:=db.execute('SELECT state FROM organized_assets WHERE plan_id=? AND file_index=?',
+                (plan['id'],index)).fetchone()) and row['state']=='COMPLETE' for index in selected_indices)
+        # Delivery.prepare still verifies each ORGANIZE receipt and fully hashes the destination.
+        if not completed:
+            result=self.pipeline.organize(plan['id'],rule['local_root'])
+            if result['state']!='COMPLETE':return result
         self.checkpoint(deadline)
         self.verify_input(saved)
         self.checkpoint(deadline)

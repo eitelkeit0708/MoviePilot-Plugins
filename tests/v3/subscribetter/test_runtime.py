@@ -281,6 +281,47 @@ class ConsumerTests(unittest.TestCase):
 class ColdExecutionTests(unittest.TestCase):
     setUp=CommonAdmissionTests.setUp
 
+    def test_completed_organized_assets_reenter_delivery_without_rehashing_source(self):
+        from test_acceptance_runtime_clocks import RuntimeClockTests
+        from test_planner import NOW
+        from datetime import timedelta
+        from unittest.mock import Mock
+        f=RuntimeClockTests('runTest');f.setUp();self.addCleanup(f.doCleanups)
+        f.prepare('B',2)
+        f.f.plugin.authority.claim('B',f.f.plugin.authority.vector([f.key]),now=NOW+timedelta(seconds=121),immediate=True)
+        runtime=f.f.runtime;plan=f.f.plugin.authority.plan('B')
+        saved=f.f.repo.setting('runtime-input:'+f.opportunity)
+        with f.f.repo.connection(write=True) as db:
+            db.execute('INSERT INTO organized_assets VALUES(?,?,?,?,?,?,?,?)',
+                ('B',0,'/fixture/source','/fixture/output',100,'a'*64,'COMPLETE','{}'))
+        executor=SimpleNamespace(_owned=lambda _:None,sample=lambda _:dict(status='COMPLETED'))
+        organizer=Mock(return_value=dict(state='COMPLETE'))
+        delivery=SimpleNamespace(rules={'rule':dict(local_root='/fixture',enabled=True)},
+            validate_publication=Mock(),prepare=Mock(return_value=dict(state='PREPARED',bundle_id='bundle')))
+        runtime.delivery=delivery
+        with patch.object(runtime,'refresh_plan'),patch.object(runtime.pipeline,'revalidate',return_value=dict(
+                facts={f.key:SimpleNamespace(raw={})},classification={})),\
+             patch.object(runtime.pipeline,'executor',return_value=executor),\
+             patch.object(runtime.pipeline,'execute',return_value=dict(state='RUNNING')),\
+             patch.object(runtime.pipeline,'organize',organizer),patch.object(runtime,'persist_scope'):
+            self.assertEqual('PREPARED',runtime.advance(plan,saved)['state'])
+            organizer.assert_not_called()
+            with f.f.repo.connection(write=True) as db:
+                db.execute("UPDATE organized_assets SET state='AUTHORIZED' WHERE plan_id='B'")
+            self.assertEqual('PREPARED',runtime.advance(plan,saved)['state'])
+            organizer.assert_called_once()
+
+    def test_completed_asset_with_changed_destination_cannot_prepare_delivery(self):
+        from test_delivery import DeliveryTests
+        DeliveryTests.setUpClass()
+        f=DeliveryTests('runTest');f.setUp();self.addCleanup(f.doCleanups)
+        path=f.local/'movie.mkv'
+        path.write_bytes(b'y'*100)  # Same size, different digest.
+        with self.assertRaisesRegex(ValueError,'ORGANIZED_ASSET_CHANGED'):
+            f.worker.prepare('A','r',publication=f.publication)
+        with f.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT COUNT(*) FROM delivery_bundles').fetchone()[0])
+
     def test_cold_exact_resource_rebuild_executes_strict_selection_and_changed_hash_defers(self):
         import sys
         from torrentool.api import Bencode

@@ -90,7 +90,7 @@ def partial_fixture(*,supersede=True):
   service=NS(repository=f.repo,adapter=NS(classify=lambda media:q.classification))
   pipeline=load('candidates').CandidatePipeline(service,NS(corrector=NS(revision='parse-1')),q.policy,lambda keys:{k:q.current[k] for k in keys},lambda _:None)
   def refresh(*args):pipeline.rounds['A']=dict(candidate=candidate,media=object(),acquired=time.monotonic(),mode='episode')
-  runtime=object.__new__(load('runtime').Runtime);runtime.pipeline=pipeline;runtime.verify_input=lambda saved:None
+  runtime=object.__new__(load('runtime').Runtime);runtime.repository=f.repo;runtime.pipeline=pipeline;runtime.verify_input=lambda saved:None
   runtime.candidates=NS(refresh=refresh);runtime.budget=lambda saved:None
   runtime.evaluate=lambda saved,key:pipeline._evaluate(candidate,f.keys,'episode')
   plan=f.auth.plan('A');refresh()
