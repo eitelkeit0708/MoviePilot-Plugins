@@ -23,6 +23,7 @@ BRACKET = re.compile(r"\[([^\[\]]{1,160})\]|【([^【】]{1,160})】")
 ROLE = re.compile(r"字幕|简体|繁体|音轨|中字|国粤|国英|特效|内封|外挂|制作组|发布组|字幕组|汉化|1080|2160|720|[xh][. ]?26[45]|HEVC|AVC|HDR|DV|DTS|AAC|WEB|Blu.?Ray|REMUX", re.I)
 RELEASE_LABEL = re.compile(r"(?:国语|粤语|台语|国粤|国英|双语|多语|配音)+|(?:已)?完结|全\d{1,4}集|更新至\d{1,4}集|[无未]删减|导演剪辑版")
 NUMERIC_WORD = re.compile(r"(?<![A-Za-z0-9])([A-Za-z]{2,}E\d{2,4})(?![A-Za-z0-9])", re.I)
+NUMERIC_HEAD = re.compile(r"^\s*([A-Za-z]{2,}E(\d{2,4})(?:[ ._-]+[A-Za-z][A-Za-z']*)+?)(?=[ ._-]+(?:(?:19|20)\d{2}|S\d{1,3}(?:E\d{1,4})?|\d{3,4}[pi]|WEB(?:-DL)?|BluRay|REMUX|mkv|mp4|flac|mka|aac|dts)(?=$|[ ._-]))", re.I)
 NAME_TAIL = re.compile(r"^(?:$|[. _-]+(?:(?:19|20)\d{2}|\d{3,4}[pi]|S\d{1,3}(?:E\d{1,4})?|WEB(?:-DL)?|BluRay|REMUX|mkv|mp4|flac|mka|aac|dts)(?=$|[. _-]))", re.I)
 NAMED_BRACKET = re.compile(r"(?:片名|中文名|译名|又名|别名)\s*[:：]\s*(.{1,140})")
 AUXILIARY_STEM = re.compile(r"(?:双语|字幕|特效|内封|外挂|官译|简体|繁体|繁中|简中|中英|简英|多语|国英|台粤|音轨|评论|国配|台配|粤语|韩语|日语|杜比|全景声|无损|中字|国语|原声)+")
@@ -70,7 +71,7 @@ class MetaCorrector:
         if (not isinstance(protected_names, (list, tuple)) or len(protected_names) > 100
                 or any(not isinstance(n, str) or not 1 <= len(n.strip()) <= 160 for n in protected_names)):
             raise ValueError("invalid protected names")
-        self.rules = {"core": 3, "protected_names": sorted(set(n.strip() for n in protected_names))}
+        self.rules = {"core": 4, "protected_names": sorted(set(n.strip() for n in protected_names))}
         self.revision = _digest(self.rules)
 
     def correct(self, native, title, subtitle=None, custom_words=None, locks=(), *, context_known=True):
@@ -138,6 +139,16 @@ class MetaCorrector:
                 if re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I):
                     protected = name
                     break
+            # A leading numeric word may belong to a longer title. Require an
+            # explicit year/season/resolution boundary, not an arbitrary suffix.
+            numeric_head = NUMERIC_HEAD.match(text) if protected is None else None
+            if numeric_head and NAME_TAIL.match(text[NUMERIC_WORD.search(text).end():]):
+                numeric_head = None
+            if numeric_head:
+                protected = numeric_head[1]
+                year = re.match(r"^[. _-]+(?:S\d{1,3}(?:E\d{1,4})?[. _-]+)?((?:19|20)\d{2})(?=$|[. _-]+(?:\d{3,4}[pi]|WEB(?:-DL)?|BluRay|REMUX)(?=$|[. _-]))", text[numeric_head.end():], re.I)
+                if year and "year" not in locked:
+                    result.year = year[1]
             for match in NUMERIC_WORD.finditer(text):
                 if protected is not None:
                     break
@@ -164,7 +175,8 @@ class MetaCorrector:
                 set_name(protected)
                 reasons.append("NUMERIC_NAME_PROTECTED")
                 trailing = re.search(r"(\d+)$", protected)
-                false_episode = trailing and before["begin_episode"] == int(trailing[1])
+                number = numeric_head[2] if numeric_head else trailing[1] if trailing else None
+                false_episode = number is not None and before["begin_episode"] == int(number)
                 if not episode and false_episode:
                     clear_scope(("episode",))
                     if not season:

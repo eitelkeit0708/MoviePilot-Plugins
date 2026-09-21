@@ -713,7 +713,8 @@ class Runtime:
 
     def reprofile(self):
         """Bounded stored-fact re-evaluation; no remote media or lifecycle writes."""
-        revision=digest([self.policy.semantic_hash,self.policy.classification_revision])
+        from .planner import quality_locks_for_scope
+        revision=digest([self.policy.semantic_hash,self.policy.classification_revision,self.config.policy.locks])
         state=self.repository.setting('runtime-reprofile') or {}
         if state.get('revision')!=revision:state=dict(revision=revision,phase='ARCHIVE',cursor='')
         if state['phase']=='COMPLETE':return dict(state='POLICY_CURRENT')
@@ -723,7 +724,12 @@ class Runtime:
         for row in rows:
             self.check();data=json.loads(row['data']);raw=data['raw'] if table=='archive_versions' else data
             facts=self.policy.normalize(raw,current=table=='archive_versions');classification=data.get('classification',{})
-            decision=self.policy.admit(facts,classification,locked=self.config.policy.locks,identity_ok=True,scope_ok=True)
+            # Raw reprofile rows do not prove physical episode scope. Leave a
+            # season-constrained decision to the candidate/plan scope gate.
+            try:locks=quality_locks_for_scope(self.config.policy.locks,[])
+            except ValueError as error:
+                decision=self.policy._decision('DEFER' if str(error)=='SEASON_SCOPE_UNCONFIRMED' else 'ERROR',str(error))
+            else:decision=self.policy.admit(facts,classification,locked=locks,identity_ok=True,scope_ok=True)
             self.repository.setting('runtime-policy:'+table+':'+row[column],dict(revision=revision,status=decision.status,reason=decision.reason,rank=list(decision.rank),admission_only=True))
             state['cursor']=row[column]
         if len(rows)<self.config.recovery.entries:state.update(phase='CANDIDATES' if state['phase']=='ARCHIVE' else 'COMPLETE',cursor='')

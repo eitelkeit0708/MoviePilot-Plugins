@@ -1014,6 +1014,7 @@ class Views:
         self._auth(user);self.fence(request);runtime=self.plugin.runtime
         if not runtime or not runtime.policy:raise HTTPException(409,'POLICY_UNAVAILABLE')
         from .policy import Version
+        from .planner import quality_locks_for_scope
         raw=request.candidate.model_dump(exclude_none=True)
         if request.sample_key:
             sample=self._one('parse_samples','sample_key',request.sample_key);inputs=json.loads(sample['inputs'])
@@ -1022,7 +1023,11 @@ class Views:
         if request.category_id not in policy.bindings:raise HTTPException(404,'POLICY_NOT_FOUND')
         classification=dict(state='complete',policy_revision=policy.classification_revision,effective={'category_id':request.category_id})
         current=[Version(v.version_id,policy.normalize(v.raw.model_dump(exclude_none=True),current=True),active=v.active,reliable=v.reliable) for v in request.current]
-        d=policy.compare(policy.normalize(raw),current,classification,identity_ok=True,scope_ok=True,locked=runtime.config.policy.locks)
+        # A title-only simulation has no verified physical episode scope.
+        try:locks=quality_locks_for_scope(runtime.config.policy.locks,[])
+        except ValueError as error:
+            d=policy._decision('DEFER' if str(error)=='SEASON_SCOPE_UNCONFIRMED' else 'ERROR',str(error))
+        else:d=policy.compare(policy.normalize(raw),current,classification,identity_ok=True,scope_ok=True,locked=locks)
         output=dict(plans=[],status=d.status,reason=d.reason,decisions={'simulation':dict(status=d.status,action=d.action,rank=list(d.rank),comparisons=list(d.comparisons),evidence_keys=list(d.evidence_keys))})
         ref=append(self.repository,'simulation:'+uuid4().hex,[],output,simulation=True,observed=raw,context=dict(policy=policy.semantic_hash,parse=runtime.meta.corrector.revision,config_revision=request.config_revision),sanitize=runtime.public_evidence)
         return self.decision(ref['decision_id'],user=user)

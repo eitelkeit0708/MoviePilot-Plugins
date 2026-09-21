@@ -102,6 +102,48 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual("QUALITY_UPGRADE", self.compare(self.facts(better + " -HHWEB 中文字幕"),
                                                               self.facts(worse + " -HHWEB 中文字幕")).reason)
 
+    def test_T018_each_picture_claim_and_restoration_boundary(self):
+        plain = self.facts("1080p WEB-DL -HHWEB 中文字幕")
+        for resolution in ("1080p", "1080i"):
+            for claim in ("DV", "HDR", "HQ", "DV HDR HQ"):
+                with self.subTest(resolution=resolution, claim=claim):
+                    tagged = self.facts(f"{resolution} WEB-DL {claim} -HHWEB 中文字幕")
+                    self.assertEqual("EQUIVALENT", self.compare(tagged, plain).reason)
+                    self.assertEqual("EQUIVALENT", self.compare(plain, tagged).reason)
+        for resolution in ("1080p", "2160p"):
+            edr = self.facts(f"{resolution} WEB-DL EDR -HHWEB 中文字幕")
+            self.assertEqual((0, False), (edr.picture, edr.hq))
+        for claim in ("4K修复", "4K修复 1080p", "1080p WEB-DL", "2160p WEB-DL"):
+            restored = self.facts(claim, description="4K修复")
+            expected = 2160 if claim.startswith("2160p") else 1080 if "1080p" in claim else None
+            self.assertEqual(expected, restored.resolution)
+
+    def test_T019_source_identity_and_disc_blacklist(self):
+        plain = self.facts("2160p WEB-DL -HHWEB 中文字幕")
+        for token in ("WEB", "WEB-DL", "WEBRip"):
+            with self.subTest(token=token):
+                web = self.facts(f"2160p {token} H.264 -HHWEB 中文字幕")
+                self.assertEqual("web", web.source)
+                self.assertEqual("ALLOW", self.admit(web).status)
+                self.assertEqual("EQUIVALENT", self.compare(web, plain).reason)
+        for title in ("The Web 2160p -CHDWEB 中文字幕", "2160p -CHDWEB 中文字幕"):
+            facts = self.facts(title)
+            self.assertIsNone(facts.source)
+            self.assertEqual("REJECT", self.admit(facts).status)
+        # A real technical WEB token stays valid even when the release group contains WEB.
+        self.assertEqual("web", self.facts("2160p WEB-DL -CHDWEB 中文字幕").source)
+        for token in ("原盘", "藍光原盤", "ISO", "BDMV", "BD50"):
+            with self.subTest(disc=token):
+                disc = self.facts(f"2160p {token} -HHWEB 中文字幕")
+                self.assertFalse(disc.base)
+                self.assertEqual("REJECT", self.admit(disc).status)
+        # Preserve the imported rule's explicit encoding exception; source notes alone
+        # must not relabel a WEB/REMUX release as a full disc.
+        for source in ("WEB-DL", "REMUX"):
+            self.assertTrue(self.facts(f"2160p {source} -HHWEB 中文字幕 原盘").base)
+        for token in ("ISO", "BDMV"):
+            self.assertFalse(self.facts(f"2160p WEB-DL -HHWEB 中文字幕 {token}").base)
+
     def test_japanese_tiers_and_exceptions_keep_base_filters(self):
         self.p = self.m.Policy({"stable-id": "日番"}, 7)
         tiers = ["1080i -VCB-Studio", "2160p B-Global", "1080p AMZN -HHWEB", "1080p B-Global", "1080p -HHWEB"]

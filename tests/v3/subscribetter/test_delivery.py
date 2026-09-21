@@ -517,7 +517,7 @@ class DeliveryTests(unittest.TestCase):
     def test_review_i3_host_prepare_validates_explicit_claim_then_bound_claim(self):
         from types import SimpleNamespace as NS
         host=tp.load('host_delivery_contract');seen=[]
-        def gate(archive,publication):
+        def gate(archive,publication,*,locked=None):
             def validate(plan):
                 seen.append(copy.deepcopy(publication))
                 if publication!=self.publication:raise ValueError('BAD_PUBLICATION')

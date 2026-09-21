@@ -844,11 +844,13 @@ def safe_unlink(snapshot,parents,*,resume=False,quarantine=None):
 
 class PublicationGate:
     """Same W06 classification/policy/current sources, before cloud side effects."""
-    def __init__(self,archive,publication):self.archive=archive;self.publication=json.loads(encoded(publication))
+    def __init__(self,archive,publication,*,locked=None):
+        self.archive=archive;self.publication=json.loads(encoded(publication));self.locked=locked
 
     def __call__(self,plan):
-        from .planner import active_snapshot
+        from .planner import active_snapshot,quality_locks_for_scope
         s=active_snapshot(plan,self.publication);keys=list(s['targets']);policy=self.archive.policy
+        locked=quality_locks_for_scope(self.locked,keys)
         if s['policy_revision']!=policy.semantic_hash:raise ValueError('POLICY_CHANGED')
         if set(self.publication)!=set(keys):raise ValueError('PUBLICATION_SCOPE_REQUIRED')
         current=self.archive.current(keys)
@@ -857,7 +859,7 @@ class PublicationGate:
             if baseline['state'] not in ('MISSING','INVALID','PRESENT') or (baseline['state']=='PRESENT' and not baseline['versions']):raise ValueError('CURRENT_UNVERIFIED')
             if self.archive.sources.classify_target(key)!=source['classification']:raise ValueError('CLASSIFICATION_CHANGED')
             facts=policy.normalize(source['raw'])
-            decision=policy.compare(facts,baseline['versions'],source['classification'],identity_ok=s['verified']['identity'],scope_ok=s['verified']['scope'])
+            decision=policy.compare(facts,baseline['versions'],source['classification'],identity_ok=s['verified']['identity'],scope_ok=s['verified']['scope'],locked=locked)
             supplement=s['targets'][key]['action']=='SIDECAR_SUPPLEMENT'
             if supplement:
                 before={v['version_id'] for v in s['current'][key].get('versions',[]) if v['active']}

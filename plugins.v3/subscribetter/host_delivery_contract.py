@@ -15,7 +15,13 @@ def build_delivery(plugin,config):
     archive=Archive(plugin.repository,policy,sources,mappings=config['mappings'])
     cloud=HostDeliveryCloud(sources)
     def gate(plan,publication):
-        return PublicationGate(archive,publication)(plan)
+        locks=getattr(getattr(getattr(plugin,'config',None),'policy',None),'locks',{})
+        saved=plugin.repository.setting('runtime-input:'+plan['opportunity_id']) or {}
+        if 'locks' in saved:
+            if saved.get('task_id')!=plan.get('task_id') or saved.get('task_generation')!=plan.get('task_generation'):
+                raise ValueError('ORIGINAL_RUNTIME_INPUT_STALE')
+            locks=saved['locks']
+        return PublicationGate(archive,publication,locked=locks)(plan)
     return Delivery(plugin.repository,Authority(plugin.repository),archive,cloud,rules=config['rules'],publication_validator=gate)
 
 

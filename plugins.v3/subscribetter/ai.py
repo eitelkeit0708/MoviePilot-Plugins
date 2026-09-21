@@ -998,10 +998,18 @@ class AIService:
             correction=meta_service.parse('ai-bridge:'+key,title)
             correction,result=self.assist(title,'',correction,corrector=meta_service.corrector,gate=gate,started=started)
             payload=None
-            if correction.status=='OK' and result.identity and gate():
+            identity=result.identity
+            if (correction.status=='OK' and result.reason=='deterministic'
+                    and 'NUMERIC_NAME_PROTECTED' in correction.reasons
+                    and {'cn_name','en_name','begin_episode','end_episode','total_episode'} & correction.diff.keys()):
+                # Reuse literal name/year validation; deterministic repair needs no LLM.
+                meta=correction.meta
+                identity,_=inspect_identity(json.dumps(dict(name=getattr(meta,'cn_name',None) or getattr(meta,'en_name',None),
+                    year=getattr(meta,'year',None) or '')),title,team=getattr(meta,'resource_team',None))
+            if correction.status=='OK' and identity and gate():
                 meta=correction.meta;season=getattr(meta,'begin_season',None);episode=getattr(meta,'begin_episode',None)
                 if all(v is None or type(v) is int and v>=0 for v in (season,episode)):
-                    payload=dict(title=title,name=result.identity['name'],year=result.identity['year'] or None,season=season,episode=episode)
+                    payload=dict(title=title,name=identity['name'],year=identity['year'] or None,season=season,episode=episode)
             allowed=gate()
             with self.lock:
                 if allowed and self.live() and epoch==self.epoch:

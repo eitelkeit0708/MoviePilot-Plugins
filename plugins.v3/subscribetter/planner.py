@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from contextlib import nullcontext
+from collections.abc import Mapping
 from hashlib import sha256
 import json
 import math
@@ -54,6 +55,25 @@ class TargetUnit:
     @property
     def key(self):
         return encoded([*json.loads(self.target.key), self.episode])
+
+
+def quality_locks_for_scope(locked, scope):
+    """Validate explicit season against identity, then pass only quality locks."""
+    if locked is None:return {}
+    if not isinstance(locked,Mapping):raise ValueError('INVALID_LOCK')
+    quality=dict(locked)
+    if 'season' not in quality:return quality
+    season=quality.pop('season')
+    if type(season)is not int or not 0<=season<=999:raise ValueError('INVALID_SEASON_LOCK')
+    if not scope:raise ValueError('SEASON_SCOPE_UNCONFIRMED')
+    for key in scope:
+        try:
+            parts=json.loads(key)
+            if not isinstance(parts,list) or len(parts)!=6:raise ValueError()
+            unit=TargetUnit(Target(*parts[:5]),parts[5])
+        except (TypeError,ValueError):raise ValueError('SEASON_SCOPE_UNCONFIRMED') from None
+        if unit.target.media_type!='电视剧' or unit.target.season!=season:raise ValueError('LOCK_MISMATCH:season')
+    return quality
 
 
 def validate_files(files, selected):
@@ -854,6 +874,11 @@ class Planner:
         if mode not in ('episode', 'season') or not scope or len(scope) > 10000 or len(scope) != len(set(scope)):
             raise ValueError('explicit bounded episode/season scope required')
         result = {'plans': [], 'decisions': {}, 'enrichments': [], 'reason': 'NO_SAFE_IMPROVEMENT'}
+        try:locked=quality_locks_for_scope(locked,scope)
+        except ValueError as error:
+            reason=str(error);status='REJECT' if reason=='LOCK_MISMATCH:season' else 'DEFER' if reason=='SEASON_SCOPE_UNCONFIRMED' else 'ERROR'
+            result.update(reason=reason,decisions={key:dict(status=status,action='NONE',reason=reason) for key in scope})
+            return result
         if any(candidate.get(k) is not True for k in ('available', 'identity_ok', 'scope_ok', 'files_verified', 'configuration_verified')) or candidate.get('parse_status') != 'OK':
             result['reason'] = 'CANDIDATE_UNVERIFIED_OR_UNAVAILABLE'
             return result
