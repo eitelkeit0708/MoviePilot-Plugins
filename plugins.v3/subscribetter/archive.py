@@ -50,7 +50,7 @@ def item_projection(item):
     result = {k: item[k] for k in ('Id', 'Type', 'Name', 'Path', 'ProviderIds', 'ParentId', 'SeriesId',
                                   'ParentIndexNumber', 'IndexNumber', 'IndexNumberEnd') if k in item}
     def streams(rows):
-        fields = {'Type', 'Codec', 'Height', 'Width', 'Language', 'Profile', 'VideoRange', 'VideoRangeType', 'DvProfile', 'IsExternal', 'Path', 'Index'}
+        fields = {'Type', 'Codec', 'Height', 'Width', 'Language', 'Profile', 'Title', 'VideoRange', 'VideoRangeType', 'DvProfile', 'IsExternal', 'Path', 'Index'}
         output = [{k: v for k, v in s.items() if k in fields} for s in rows if s.get('Type') != 'Attachment']
         for s in output:
             if s.get('Path'):
@@ -241,11 +241,22 @@ def stream_facts(item, media_source):
     vr = str(v.get('VideoRangeType') or v.get('VideoRange') or '').casefold()
     picture = 2 if 'dovi' in vr or 'dolbyvision' in vr or v.get('DvProfile') else 1 if 'hdr' in vr or 'hlg' in vr else 0 if vr == 'sdr' else None
     codecs = {str(a.get('Codec', '')).casefold() for a in audio}
-    audio_rank = 3 if codecs & {'truehd', 'flac', 'dts-hd', 'dtshd', 'pcm_s16le', 'pcm_s24le'} else 2 if any('atmos' in str(a.get('Profile', '')).lower() for a in audio) else 1 if codecs & {'eac3', 'e-ac-3'} else 0 if all(codecs) else None
+    audio_rank = 3 if codecs & {'truehd', 'flac', 'dts-hd', 'dtshd', 'pcm_s16le', 'pcm_s24le'} else 1 if codecs & {'eac3', 'e-ac-3'} else 0 if all(codecs) else None
+    # Metadata titles are declarations, not independent bitstream detection.
+    declarations = [dict(kind='declaration', field=field, value=a[field])
+                    for a in audio for field in ('Profile', 'Title')
+                    if isinstance(a.get(field), str) and (
+                        str(a.get('Codec', '')).casefold() in {'eac3', 'e-ac-3', 'truehd'}
+                        and re.search(r'(?<![A-Za-z0-9])Atmos(?![A-Za-z])', a[field], re.I)
+                        or str(a.get('Codec', '')).casefold() in {'dts', 'dts-hd', 'dtshd'}
+                        and re.search(r'(?<![A-Za-z0-9])DTS[\s._:/-]*X(?![A-Za-z])', a[field], re.I))]
+    if declarations and audio_rank != 3:
+        audio_rank = 2
     zh = {'chi', 'zho', 'zh', 'zh-cn', 'zh-tw', 'cmn', 'mandarin'}
     pgs = any(s.get('Type') == 'Subtitle' and str(s.get('Codec', '')).lower() in ('pgssub', 'hdmv_pgs_subtitle', 'pgs') and str(s.get('Language', '')).lower() in zh for s in streams)
     return {'title': PurePosixPath(media_source.get('Path') or item.get('Path') or '').name,
             'technical': {'resolution': resolution, 'picture': picture, 'audio': audio_rank},
+            'audio_evidence': declarations[0] if declarations and audio_rank == 2 else {'kind': 'stream', 'field': 'Codec/Profile'},
             'chinese_pgs': pgs, 'missing_fields': ['description', 'labels'], 'description': '', 'labels': []}, streams
 
 
@@ -764,7 +775,7 @@ class Archive:
                 observed['source_assets'] = prior.get('source_assets', prior.get('assets', []))
             if prior.get('publication_raw') and not observed.get('publication_raw'):
                 observed['publication_raw'] = prior['publication_raw']
-                observed['raw'] = dict(prior['publication_raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'])
+                observed['raw'] = dict(prior['publication_raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'], audio_evidence=observed['raw']['audio_evidence'])
         return dict(observed, assets=self._required_assets([dict(file_index=-1, role='video', location=observed['video'])], observed['assets'], version))
 
     def _sync(self, db, key, state, evidence_ref, diagnostics=(), **extra):
@@ -866,7 +877,7 @@ class Archive:
                 classification = self.sources.classify_target(key)
                 if classification != publication.get('classification'):
                     raise ValueError('CLASSIFICATION_CHANGED')
-                raw = dict(publication['raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'])
+                raw = dict(publication['raw'], technical=observed['raw']['technical'], chinese_pgs=observed['raw']['chinese_pgs'], audio_evidence=observed['raw']['audio_evidence'])
                 observed.update(raw=raw, publication_raw=publication['raw'], classification=classification,
                                 assets=required, source_assets=related, source_evidence=[manifest['manifest_ref']])
                 result.append(observed)

@@ -75,6 +75,32 @@ class ArchiveTests(unittest.TestCase):
         self.sources.items.append(item)
         return item
 
+    def test_audio_title_declarations_survive_projection_without_claiming_probe(self):
+        for codec, title, expected in (
+                ('eac3', 'English [Dolby Digital Plus with Dolby Atmos 5.1]', 2),
+                ('eac3', '', 1), ('eac3', 'Atmosphere', 1),
+                ('aac', 'Dolby Atmos', 0), ('truehd', 'Dolby Atmos', 3),
+                ('dts', 'DTS:X', 2)):
+            with self.subTest(codec=codec, title=title):
+                item = copy.deepcopy(self.item)
+                streams = item['MediaSources'][0]['MediaStreams']
+                streams[0]['Title'] = 'Atmos'
+                streams[1].update(Codec=codec, Profile=None, Title=title)
+                observed = self.archive.resolve_item('test', '10', item)[0]
+                self.assertEqual(expected, self.policy.normalize(observed['raw'], current=True).audio)
+                if expected == 2:
+                    self.assertEqual('declaration', observed['raw']['audio_evidence']['kind'])
+                    self.assertEqual('Title', observed['raw']['audio_evidence']['field'])
+                    self.assertEqual(title, observed['streams'][1]['Title'])
+
+    def test_audio_profile_uses_the_same_codec_and_token_guards(self):
+        for codec, profile, expected in (('eac3', 'Dolby Atmos', 2), ('eac3', 'Atmospheric', 1), ('aac', 'Atmos', 0)):
+            with self.subTest(codec=codec, profile=profile):
+                item = copy.deepcopy(self.item)
+                item['MediaSources'][0]['MediaStreams'][1].update(Codec=codec, Profile=profile)
+                observed = self.archive.resolve_item('test', '10', item)[0]
+                self.assertEqual(expected, observed['raw']['technical']['audio'])
+
     def test_scoped_two_stage_unicode_and_changed_target_with_identical_strm(self):
         first = self.archive.resolve_item('test', '10', self.item)[0]
         self.assertEqual('/115/media/中文 {电影}.mkv', first['video']['path'])
@@ -297,6 +323,18 @@ class ArchiveTests(unittest.TestCase):
         with self.repo.connection() as db:
             self.assertEqual('ARCHIVED',db.execute("SELECT state FROM opportunities WHERE id='o'").fetchone()[0])
             self.assertEqual(2,db.execute('SELECT count(*) FROM archive_assets').fetchone()[0])
+
+    def test_audio_declaration_provenance_survives_ingest_and_rescan(self):
+        self.publication()
+        for item in self.sources.items:
+            item['MediaSources'][0]['MediaStreams'][1].update(Codec='eac3', Profile=None, Title='Dolby Atmos')
+        self.assertTrue(self.archive.confirm_ingest('pub', self.manifest, self.consumer)['accepted'])
+        for rescanned in (False, True):
+            if rescanned:
+                self.assertEqual('COMPLETE', self.archive.reconcile('test', '10')['status'])
+            current = self.archive.current([self.key])[self.key]
+            self.assertEqual(2, current['versions'][0].facts.audio)
+            self.assertEqual('declaration', current['versions'][0].facts.raw['audio_evidence']['kind'])
 
     def test_confirm_rolls_back_receipts_and_clocks_on_archive_failure(self):
         self.assertTrue(hasattr(self.archive, 'confirm_ingest'), 'W06 confirmation missing')
