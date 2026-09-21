@@ -69,6 +69,32 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual('RUNNING', self.executor.resume('plan')['state'])
         self.assertEqual(1, self.client.calls.count('add'))
 
+    def test_ordinary_reentry_preserves_external_pause_and_nonrunning_states(self):
+        self.assertEqual('PAUSED_VERIFIED', self.executor.execute('plan', b'torrent')['state'])
+        self.assertEqual('RUNNING', self.executor.resume('plan')['state'])
+        before_owned = self.executor._owned(self.spec)
+        before_vector = self.auth.vector([self.keys[1]])
+        for status in ('PAUSED', 'CHECKING', 'LIMITED', 'DISCONNECTED'):
+            with self.subTest(status=status):
+                self.client.state = status
+                calls = list(self.client.calls)
+                for resume in (True, False):
+                    result = self.executor.execute('plan', b'torrent', resume=resume)
+                    self.assertEqual(('WAITING_ASSETS', 'DOWNLOADER_' + status), (result['state'], result['reason']))
+                    self.assertEqual(calls, self.client.calls)
+                    self.assertEqual(before_owned, self.executor._owned(self.spec))
+                    self.assertEqual(before_vector, self.auth.vector([self.keys[1]]))
+        self.client.state = 'PAUSED'
+        self.client.wanted = {3}
+        calls = list(self.client.calls)
+        self.assertEqual('WAITING_ASSETS', self.executor.execute('plan', b'torrent', resume=True)['state'])
+        self.assertEqual(calls, self.client.calls)
+        self.assertEqual(before_owned, self.executor._owned(self.spec))
+        self.client.wanted = {3, 7}
+        self.client.state = 'PAUSED'
+        self.assertEqual('RUNNING', self.executor.resume('plan')['state'])
+        self.assertEqual('DOWNLOADING', self.client.state)
+
     def test_entire_readback_mismatch_never_resumes(self):
         self.client.bad_readback = True
         result = self.executor.execute('plan', b'torrent')
@@ -289,14 +315,15 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(before,self.client.calls)
         self.executor.reconcile('plan');self.assertEqual('SUCCEEDED',self.auth.action('legacy-resume')['state'])
 
-    def test_execute_consumes_external_pause_before_overwriting_running_state(self):
+    def test_execute_preserves_external_pause_until_explicit_resume(self):
         self.assertEqual('RUNNING',self.executor.execute('plan',b'torrent',resume=True)['state'])
         self.client.state='PAUSED'
-        self.assertEqual('RUNNING',self.executor.execute('plan',b'torrent',resume=True)['state'])
+        self.assertEqual('WAITING_ASSETS',self.executor.execute('plan',b'torrent',resume=True)['state'])
+        self.assertEqual('RUNNING',self.executor._owned(self.spec)['state'])
         self.assertEqual('RUNNING',self.executor.resume('plan')['state'])
         self.assertEqual(2,self.client.calls.count('resume'))
         self.client.state='PAUSED'
-        self.assertEqual('PAUSED_VERIFIED',self.executor.execute('plan',b'torrent')['state'])
+        self.assertEqual('WAITING_ASSETS',self.executor.execute('plan',b'torrent')['state'])
         restarted=self.e.StrictExecutor(self.repo,lambda name:self.client,revalidate=self.executor.revalidate,verify_torrent=self.executor.verify_torrent)
         self.assertEqual('RUNNING',restarted.resume('plan')['state'])
         self.assertEqual(3,self.client.calls.count('resume'))

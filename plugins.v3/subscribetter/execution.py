@@ -441,6 +441,8 @@ class StrictExecutor:
                 refs,_,_=self._cohort(s)
                 union={i for ref in refs for i in ref['indices']}
                 unchanged={i for i,r in mapping.items() if r['wanted']}==union
+                if owned['state']=='RUNNING' and task['state'] in ('PAUSED','CHECKING','LIMITED','DISCONNECTED'):
+                    return {'state':'WAITING_ASSETS','reason':'DOWNLOADER_'+task['state']}
                 if resume and unchanged and task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
                     return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
