@@ -605,6 +605,179 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual("FAILED", self.wait(service.run())["sources"]["weekly"]["state"])
         self.assertEqual(3, len(calls))
 
+    def test_requested_history_replays_without_feed_and_retains_failure_audit(self):
+        for original in ("unrecognized", "low_rating"):
+            for network in ("empty", "failed", "backoff"):
+                with self.subTest(original=original, network=network):
+                    # Each case gets an independent real repository.
+                    with tempfile.TemporaryDirectory() as directory:
+                        self.repo = self.repo_mod.Repository(Path(directory) / "state.sqlite3")
+                        media = types.SimpleNamespace(type="电影", identity=("themoviedb", "42"),
+                            douban_id="35322132", year="2026", category="movie", tmdb_info={"vote_average":5.0})
+                        recognizer, owner = Recognizer(None if original == "unrecognized" else media), Owner()
+                        config = self.config(minimum_rating=7.0, request_budget={**ONE_BUDGET, "items":2})
+                        body, calls = [SYNTHETIC_RSS], []
+                        def fetch(*_):
+                            calls.append(1)
+                            if body[0] is None: raise self.d.FetchError("NETWORK_ERROR")
+                            return self.d.FetchResult(body[0])
+                        service = self.service(config, recognizer=recognizer, owner=owner, fetch=fetch)
+                        self.wait(service.run())
+                        with self.repo.connection() as db:
+                            rows = [dict(row) for row in db.execute("SELECT * FROM discovery_records ORDER BY id")]
+                        selected, untouched = rows
+                        self.assertEqual("IDENTITY_UNKNOWN" if original == "unrecognized" else "RATING_BELOW_MINIMUM", selected["reason"])
+                        media.tmdb_info = {"vote_average":8.5}; recognizer.media = media
+                        self.assertEqual(1, service.reprocess([selected["id"]]))
+                        body[0] = None if network == "failed" else b"<rss><channel/></rss>"
+                        if network == "backoff":
+                            with self.repo.connection(write=True) as db:
+                                db.execute("UPDATE discovery_sources SET failures=100 WHERE source_id='weekly'")
+                        if network != "backoff": self.clock.advance(11)
+                        result = self.wait(service.run())["sources"]["weekly"]
+                        self.assertEqual(["SUBMITTED"], result["history"]["states"])
+                        self.assertEqual(1, len(owner.calls))
+                        self.assertEqual("FAILED" if network == "failed" else "DEFERRED" if network == "backoff" else "SUCCESS", result["state"])
+                        self.assertEqual(1 if network == "backoff" else 2, len(calls))
+                        with self.repo.connection() as db:
+                            self.assertEqual(untouched, dict(db.execute("SELECT * FROM discovery_records WHERE id=?", (untouched["id"],)).fetchone()))
+                            self.assertTrue(db.execute("SELECT 1 FROM audit WHERE action=?", (f"DISCOVERY:{selected['id']}:{selected['state']}:{selected['reason']}",)).fetchone())
+
+    def test_requested_history_shares_items_budget_and_deduplicates_feed(self):
+        service = self.service(self.config(request_budget={**ONE_BUDGET,"items":2}))
+        self.wait(service.run())
+        ids = [row["id"] for row in service.records()]
+        service.reprocess(ids)
+        service = self.service(self.config(request_budget={**ONE_BUDGET,"items":1}))
+        first = self.wait(service.run())["sources"]["weekly"]
+        self.assertEqual(1, first["history"]["items"])
+        self.assertEqual(1, len(service.recognizer.calls))
+        self.assertEqual(1, sum(row["reason"] == "REPROCESS_REQUESTED" for row in service.records()))
+        # One history item plus the same item in RSS must not consume two slots/calls.
+        service = self.service(self.config(request_budget={**ONE_BUDGET,"items":2}))
+        self.clock.advance(11)
+        with patch.object(service, "_observe", wraps=service._observe) as observed:
+            result = self.wait(service.run())["sources"]["weekly"]
+        keys = [(call.args[1].item_key, call.args[1].raw_revision) for call in observed.call_args_list]
+        self.assertEqual(2, len(keys))
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertEqual(1, result["history"]["items"])
+        self.assertLessEqual(len(service.recognizer.calls), 2)
+
+    def test_requested_history_respects_source_current_owner_and_target_fences(self):
+        for fence in ("config_disabled", "source_disabled", "not_selected", "stale", "owner", "unauthorized", "STOPPED", "RELEASED"):
+            with self.subTest(fence=fence), tempfile.TemporaryDirectory() as directory:
+                self.repo = self.repo_mod.Repository(Path(directory) / "state.sqlite3")
+                media = types.SimpleNamespace(type="电影", identity=("themoviedb", "42"),
+                    year="2026", category="movie", tmdb_info={"vote_average":8.5})
+                owner = Owner()
+                service = self.service(self.config(request_budget=ONE_BUDGET), media=media, owner=owner,
+                    inventory=lambda _: {"state":"PRESENT", "evidence_ref":"fixture:existing"})
+                self.wait(service.run())
+                record = service.records()[0]
+                service.reprocess([record["id"]])
+                # Target can be stopped after the replay request was queued.
+                if fence in ("STOPPED", "RELEASED"):
+                    with self.repo.connection(write=True) as db:
+                        db.execute("UPDATE discovery_targets SET state=? WHERE record_id=?", (fence, record["id"]))
+                    self.assertEqual(0, service.reprocess([record["id"]]))
+                config = service.config.model_copy(deep=True)
+                if fence == "unauthorized": config.minimum_rating = 7.0
+                if fence == "config_disabled": config.enabled = False
+                if fence == "source_disabled": config.sources[0].enabled = False
+                replay = self.service(config, media=media, owner=owner,
+                    fetch=lambda *_: self.d.FetchResult(b"<rss><channel/></rss>"),
+                    authorized=(lambda *_: False) if fence == "unauthorized" else None)
+                if fence == "stale": replay.current = lambda: False
+                if fence == "owner": replay.owner_check = lambda *_: None
+                self.clock.advance(11)
+                self.wait(replay.run(["another"] if fence == "not_selected" else None))
+                self.assertEqual([], owner.calls)
+                if fence == "unauthorized":
+                    self.assertEqual("SCOPE_NOT_AUTHORIZED", replay.records()[0]["reason"])
+                if fence != "unauthorized":
+                    self.assertEqual([], replay.recognizer.calls)
+                    self.assertEqual("REPROCESS_REQUESTED", replay.records()[0]["reason"])
+
+    def test_history_exception_isolated_and_does_not_overwrite_committed_result(self):
+        for committed in (False, True):
+            with self.subTest(committed=committed), tempfile.TemporaryDirectory() as directory:
+                self.repo = self.repo_mod.Repository(Path(directory) / "state.sqlite3")
+                config = self.config(sources=[dict(id="first",kind="rsshub",route_key="movie_weekly_best"),
+                    dict(id="second",kind="custom",url="https://other.invalid/rss")], request_budget=ONE_BUDGET)
+                service = self.service(config)
+                self.wait(service.run())
+                ids = [row["id"] for row in service.records()]
+                self.assertEqual(2, len(ids))
+                service.reprocess(ids)
+                media = types.SimpleNamespace(type="电影",identity=("themoviedb","42"),douban_id="35322132",
+                    year="2026",category="movie",tmdb_info={"vote_average":8.5})
+                service.recognizer.media = media
+                observe = service._observe
+                def fail_first(source, item):
+                    if source.id == "first":
+                        if committed: observe(source, item)
+                        raise RuntimeError("fixture history failure")
+                    return observe(source, item)
+                with patch.object(service, "_observe", side_effect=fail_first):
+                    result = self.wait(service.run())
+                self.assertEqual(["SUBMITTED"], result["sources"]["second"]["history"]["states"])
+                self.assertEqual("HISTORY_REPROCESS_FAILED", result["sources"]["first"]["history"]["errors"][0]["reason"])
+                self.assertEqual("PARTIAL", result["sources"]["first"]["state"])
+                with self.repo.connection() as db:
+                    row = db.execute("SELECT * FROM discovery_records WHERE source_id='first'").fetchone()
+                    self.assertEqual("SUBMITTED" if committed else "DEFERRED", row["state"])
+                    self.assertEqual("" if committed else "HISTORY_REPROCESS_FAILED", row["reason"])
+                    self.assertEqual(0, db.execute("SELECT failures FROM discovery_sources WHERE source_id='first'").fetchone()[0])
+                calls = len(service.recognizer.calls)
+                # No persistent marker left for an unbounded local replay loop.
+                self.wait(service.run())
+                self.assertEqual(calls, len(service.recognizer.calls))
+
+    def test_history_reparses_original_dispatch_link_and_reuses_same_target(self):
+        body = SYNTHETIC_RSS.replace(b"https://movie.douban.com/subject/35322132/",
+            b"https://www.douban.com/doubanapp/dispatch/movie/35322132")
+        media = types.SimpleNamespace(type="电影", identity=("douban","35322132"),
+            year="2026",category="movie",tmdb_info={})
+        owner = Owner()
+        service = self.service(self.config(request_budget=ONE_BUDGET), media=media, owner=owner,
+            fetch=lambda *_: self.d.FetchResult(body))
+        self.wait(service.run())
+        record = service.records()[0]
+        self.assertEqual(1, len(owner.calls))
+        with self.repo.connection(write=True) as db:
+            raw = json.loads(db.execute("SELECT raw FROM discovery_records WHERE id=?", (record["id"],)).fetchone()[0])
+            raw["douban_subject_id"] = None  # Legacy parser-derived value, original link retained.
+            db.execute("UPDATE discovery_records SET raw=? WHERE id=?", (json.dumps(raw), record["id"]))
+        service.reprocess([record["id"]])
+        self.wait(service.run())
+        self.assertEqual(("douban","35322132"), service.recognizer.calls[-1][0])
+        self.assertEqual(1, len(owner.calls))
+        with self.repo.connection() as db:
+            stored = json.loads(db.execute("SELECT raw FROM discovery_records WHERE id=?", (record["id"],)).fetchone()[0])
+        self.assertEqual(raw, stored)
+
+    def test_history_changed_canonical_identity_keeps_existing_task(self):
+        host = Host()
+        owner = self.ownership_mod.Ownership(self.repo, host)
+        media = types.SimpleNamespace(type="电影", identity=("douban","35322132"),
+            douban_id="35322132",year="2026",category="movie",tmdb_info={})
+        service = self.service(self.config(request_budget=ONE_BUDGET), media=media, owner=owner)
+        self.wait(service.run())
+        record = service.records()[0]
+        self.assertIsNotNone(record["targets"][0]["task_id"])
+        service.reprocess([record["id"]])
+        self.wait(service.run())
+        self.assertEqual(1, host.creates)
+        old_task = self.repo.get_task(record["targets"][0]["task_id"])
+        service.reprocess([record["id"]])
+        media.identity = ("themoviedb","42")  # Valid payload maps back to the declared Douban ID.
+        self.wait(service.run())
+        self.assertEqual(1, host.creates)
+        self.assertEqual("IDENTITY_CHANGED", service.records()[0]["reason"])
+        self.assertEqual(record["targets"], service.records()[0]["targets"])
+        self.assertEqual(old_task, self.repo.get_task(record["targets"][0]["task_id"]))
+
     def test_record_retry_is_bounded_and_policy_revision_reconsiders(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "42"),
                                       title="Fixture", year="2026", category="movie", tmdb_info={})

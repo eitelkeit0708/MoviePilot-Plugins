@@ -211,6 +211,14 @@ def _decode_xml(body: bytes) -> str:
     return body.decode("utf-8-sig")
 
 
+def _douban_subject(link):
+    parts = urlsplit(link)
+    match = DOUBAN_SUBJECT.fullmatch(parts.path)
+    if parts.scheme == "https" and parts.hostname in {"movie.douban.com", "www.douban.com"} and match:
+        return match.group(1)
+    return None
+
+
 def parse_rss(body: bytes, *, max_bytes=524288, max_items=50, max_text=8192, max_depth=24) -> list[RSSItem]:
     if not isinstance(body, bytes) or len(body) > max_bytes:
         raise ValueError("RSS_TOO_LARGE")
@@ -245,12 +253,7 @@ def parse_rss(body: bytes, *, max_bytes=524288, max_items=50, max_text=8192, max
         title, link, guid, description = field("title"), field("link"), field("guid"), field("description")
         if not title:
             continue
-        subject = None
-        if link:
-            parts = urlsplit(link)
-            match = DOUBAN_SUBJECT.fullmatch(parts.path)
-            if parts.scheme == "https" and parts.hostname in {"movie.douban.com", "www.douban.com"} and match:
-                subject = match.group(1)
+        subject = _douban_subject(link)
         raw = dict(title=title, link=link, guid=guid, description=description)
         revision = _digest(raw)
         local = guid or link or _digest([title, description])
@@ -623,6 +626,8 @@ class DiscoveryService:
             return dict(source_id=source.id, items=0, fetch_only=True, state="FAILED", reason=code)
 
     async def run(self, source_ids=None):
+        if not self.config.enabled:
+            return {"sources": {}}
         selected = set(source_ids or [source.id for source in self.config.sources if source.enabled])
         owned = set()
         for source in self.config.sources:
@@ -630,16 +635,55 @@ class DiscoveryService:
                     and await _drainable_to_thread(self._owned, source.id)):
                 owned.add(source.id)
         result = {"sources": {}}
+        history = {}
         requests = 0
         for source in self.config.sources:
             if source.id not in selected or not source.enabled: continue
-            if requests >= self.config.request_budget.requests_per_run:
-                result["sources"][source.id] = {"state": "RATELIMITED", "reason": "RUN_REQUEST_BUDGET"}; continue
             url, origin = source_url(self.config, source), self._origin(source_url(self.config, source))
             if (source.id not in owned
                     or not await _drainable_to_thread(self._owned, source.id)):
                 owned.discard(source.id)
                 result["sources"][source.id] = {"state": "OWNER_UNBOUND", "reason": "OWNER_UNBOUND"}; continue
+            budget = source.request_budget or self.config.request_budget
+            with self.repository.connection() as db:
+                pending = db.execute("SELECT id,raw FROM discovery_records WHERE source_id=? "
+                    "AND state='DEFERRED' AND reason='REPROCESS_REQUESTED' AND NOT EXISTS "
+                    "(SELECT 1 FROM discovery_targets WHERE record_id=discovery_records.id "
+                    "AND state IN ('STOPPED','RELEASED')) ORDER BY id LIMIT ?", (source.id, budget.items)).fetchall()
+            seen, states, errors = set(), [], []
+            for row in pending:
+                if not await _drainable_to_thread(self._owned, source.id):
+                    break
+                try:
+                    raw = json.loads(row["raw"])
+                    raw["douban_subject_id"] = _douban_subject(raw["link"])
+                    item = RSSItem(**raw)
+                except (TypeError, ValueError, KeyError, AttributeError):
+                    states.append(self._set_record(row["id"], "DEFERRED", "HISTORY_RAW_INVALID", {}))
+                    continue
+                seen.add((item.item_key, item.raw_revision))
+                try:
+                    states.append(await _drainable_to_thread(self._observe, source, item))
+                except Exception:
+                    with self.repository.connection(write=True) as db:
+                        changed = db.execute("UPDATE discovery_records SET reason='HISTORY_REPROCESS_FAILED' "
+                            "WHERE id=? AND state='DEFERRED' AND reason='REPROCESS_REQUESTED'", (row["id"],)).rowcount
+                        if changed:
+                            db.execute("INSERT INTO audit(task_id,action,actor,at) VALUES(NULL,?,?,?)",
+                                (f"DISCOVERY:{row['id']}:DEFERRED:HISTORY_REPROCESS_FAILED", "discovery", utcnow()))
+                        actual = db.execute("SELECT state FROM discovery_records WHERE id=?", (row["id"],)).fetchone()
+                    states.append(actual[0] if actual else "DEFERRED")
+                    errors.append({"record_id": row["id"], "reason": "HISTORY_REPROCESS_FAILED"})
+            if states:
+                history[source.id] = {"items": len(states), "states": states}
+                if errors: history[source.id]["errors"] = errors
+            remaining = budget.items - len(states)
+            if not await _drainable_to_thread(self._owned, source.id):
+                result["sources"][source.id] = {"state": "OWNER_UNBOUND", "reason": "OWNER_UNBOUND"}; continue
+            if not remaining:
+                result["sources"][source.id] = {"state": "PARTIAL" if errors else "SUCCESS", "reason": "ITEM_BUDGET", "items": 0}; continue
+            if requests >= self.config.request_budget.requests_per_run:
+                result["sources"][source.id] = {"state": "RATELIMITED", "reason": "RUN_REQUEST_BUDGET"}; continue
             reserve = self._reserve(source, url, owned)
             if reserve:
                 state = "DEFERRED" if reserve == "RETRY_EXHAUSTED" else "RATELIMITED"
@@ -652,6 +696,7 @@ class DiscoveryService:
                     result["sources"][source.id] = {"state": "DEFERRED", "reason": "STALE_GENERATION"}
                     continue
                 items = parse_rss(fetched.body, max_bytes=budget.response_bytes, max_items=budget.items)
+                items = [item for item in items if (item.item_key, item.raw_revision) not in seen][:remaining]
                 states = [await _drainable_to_thread(self._observe, source, item) for item in items]
                 complete = {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "REJECTED"}
                 state = "PARTIAL" if "PARTIAL" in states or (any(x not in complete for x in states) and any(x in complete for x in states)) else "SUCCESS"
@@ -664,6 +709,8 @@ class DiscoveryService:
                 code = str(error) if str(error) in {"RSS_TOO_LARGE", "RSS_MALFORMED", "RSS_ENTITY_DECLARATION", "RSS_TOO_DEEP"} else "SOURCE_FAILED"
                 self._source_state(source.id, "FAILED", code)
                 result["sources"][source.id] = {"state": "FAILED", "reason": code}
+        for source_id, replay in history.items():
+            result["sources"][source_id]["history"] = replay
         return result
 
     def _observe(self, source, item):
@@ -783,6 +830,11 @@ class DiscoveryService:
                     return self._set_record(record_id, "DEFERRED", "SOURCE_MAPPING_UNKNOWN", data)
                 if mapping.get("state") != "VERIFIED" or str(mapping.get("media_id")) != declared[1]:
                     return self._set_record(record_id, "DEFERRED", "SOURCE_ID_CONFLICT", data)
+        with self.repository.connection() as db:
+            linked = db.execute("SELECT target_key FROM discovery_targets WHERE record_id=? AND task_id IS NOT NULL",
+                                (record_id,)).fetchall()
+        if any(json.loads(row["target_key"])[:3] != [media_type, source_id, media_id] for row in linked):
+            return self._set_record(record_id, "DEFERRED", "IDENTITY_CHANGED", data)
         allowed = set(self.config.media_type_allowlist or ["电影", "电视剧"])
         if source.media_type_allowlist: allowed &= set(source.media_type_allowlist)
         if media_type not in allowed:
