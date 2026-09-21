@@ -86,6 +86,27 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'OUTSIDE_LIBRARY'):
             self.archive.resolve_item('other', '10', self.item)
 
+    def test_embedded_attachment_paths_do_not_block_valid_media_facts(self):
+        item = copy.deepcopy(self.item)
+        media = item['MediaSources'][0]['MediaStreams']
+        for stream in media:
+            stream['Path'] = None
+        media.append(dict(Type='Subtitle', Codec='subrip', Language='zho', Path='/Emby/Movies/movie.zh.srt', IsExternal=True))
+        fonts = [dict(Type='Attachment', Codec='ttf', Path='STKaiti.ttf'),
+                 dict(Type='Attachment', Codec='otf', Path='cronospro.otf')]
+        media.extend(fonts)
+        item['MediaStreams'] = copy.deepcopy(media)
+        projected = self.m.item_projection(item)
+        self.assertEqual(['Video', 'Audio', 'Subtitle'], [s['Type'] for s in projected['MediaStreams']])
+        self.assertEqual(['Video', 'Audio', 'Subtitle'], [s['Type'] for s in projected['MediaSources'][0]['MediaStreams']])
+        self.assertEqual(['Video', 'Audio', 'Subtitle'], [s['Type'] for s in self.archive.resolve_item('test', '10', item)[0]['streams']])
+        for stream_type in ('Video', 'Audio', 'Subtitle'):
+            changed = copy.deepcopy(item)
+            stream = next(s for s in changed['MediaSources'][0]['MediaStreams'] if s['Type'] == stream_type)
+            stream['Path'] = 'relative/path'
+            with self.subTest(stream_type=stream_type), self.assertRaisesRegex(ValueError, 'UNSUPPORTED_TARGET'):
+                self.m.item_projection(changed)
+
     def test_prefix_boundary_multiline_oversize_and_symlink_escape(self):
         bad = copy.deepcopy(self.item)
         bad['Path'] = bad['MediaSources'][0]['Path'] = '/Emby/MoviesElse/file.strm'

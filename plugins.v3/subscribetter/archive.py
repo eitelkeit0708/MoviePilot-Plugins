@@ -51,7 +51,7 @@ def item_projection(item):
                                   'ParentIndexNumber', 'IndexNumber', 'IndexNumberEnd') if k in item}
     def streams(rows):
         fields = {'Type', 'Codec', 'Height', 'Width', 'Language', 'Profile', 'VideoRange', 'VideoRangeType', 'DvProfile', 'IsExternal', 'Path', 'Index'}
-        output = [{k: v for k, v in s.items() if k in fields} for s in rows]
+        output = [{k: v for k, v in s.items() if k in fields} for s in rows if s.get('Type') != 'Attachment']
         for s in output:
             if s.get('Path'):
                 posix(s['Path'])
