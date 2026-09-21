@@ -1,13 +1,12 @@
 """Real management ledger and delivery worker; only CD2 transport is fake."""
 from datetime import timedelta
 from types import SimpleNamespace as NS
-import threading
 import unittest
 from unittest.mock import Mock, patch
 import test_planner as tp
 import test_delivery as td
 import test_delivery_cloud as tc
-from test_management import ManagementTests
+from test_management import ManagementTests, runtime_fixture
 
 
 class CancelEntryTests(unittest.TestCase):
@@ -26,14 +25,21 @@ class CancelEntryTests(unittest.TestCase):
         f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=61))
         stub=Mock();stub.StartRemoteUpload.return_value=NS(upload_id='original-id')
         stub.RemoteUploadChannel.return_value=tc.Call([])
-        cloud=tp.load('delivery_cloud').HostDeliveryCloud(NS(scopes={'cloud':{'allowed_prefixes':['/115/staging']}},_client=lambda *a:(NS(stub=stub),tc.PB(),[])))
+        sources=tp.load('archive').HostArchiveSources(self.plugin,cloud_scopes={'cloud':dict(root='/115',allowed_prefixes=['/115/staging'])},libraries={})
+        sources.clients['cloud']=(NS(stub=stub),tc.PB(),[]);sources.accounts['cloud']='fictional-account'
+        stub.FindFileByPath.return_value=NS(fullPathName='/115',isDirectory=True,CloudAPI=NS(userName='fictional-account'))
+        cloud=tp.load('delivery_cloud').HostDeliveryCloud(sources)
         self.addCleanup(cloud.close);f.worker.cloud=cloud
         with patch.object(f.worker,'_directories'):
             f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122))
         file=f.worker.bundle(bid)['files'][0]
         self.assertEqual(('original-id','UNKNOWN',False),(file['upload_id'],file['state'],file['reader_stopped']))
         self.plugin.config=self.plugin.config.model_copy(update={'delivery':{'rules':[f.rule]}})
-        self.plugin.runtime=NS(lock=threading.RLock(),busy=False,stages=tp.load('runtime').OwnedStages(lambda:True),scope_worker=lambda identity:f.worker,authority=f.auth,check=lambda:None)
+        runtime=runtime_fixture(self.plugin,f.worker);self.plugin.runtime=runtime
+        sources.checkpoint=runtime.read_check;sources.ordinary_checkpoint=runtime.check
+        sources.safety_checkpoint=lambda:runtime.checkpoint(runtime.deadline)
+        f.worker.dispatch_gate=runtime.check
+        with self.assertRaisesRegex(ValueError,'STALE_OR_DISABLED_RUNTIME'):sources._client('cloud',10)
         self.assertFalse(self.plugin.config.enabled)
         self.m=tp.load('ui');self.view=self.m.Views(self.plugin);self.user=NS(username='admin')
         self.f=f;self.bid=bid;self.stub=stub
@@ -73,6 +79,9 @@ class CancelEntryTests(unittest.TestCase):
             self.assertEqual(1,db.execute('SELECT count(*) FROM management_operations').fetchone()[0])
         self.assertEqual(result,self.view.apply_cancel(self.bid,body,user=self.user))
         self.stub.RemoteUploadControl.assert_called_once();self.unchanged_io()
+        with self.assertRaisesRegex(ValueError,'STALE_OR_DISABLED_RUNTIME'):self.plugin.runtime.read_check()
+        with self.plugin.runtime.safety_reads():
+            with self.assertRaisesRegex(ValueError,'STALE_OR_DISABLED_RUNTIME'):self.plugin.runtime.check()
 
     def test_no_terminal_empty_ack_and_not_found_stay_pending(self):
         for control_error in (None,RuntimeError('NOT_FOUND'),'channel_timeout'):
@@ -123,6 +132,18 @@ class CancelEntryTests(unittest.TestCase):
         p=self.preview();self.assertIn('SHARED_REFERENCE',p.blockers)
         with self.assertRaises(Exception) as caught:self.view.apply_cancel(self.bid,self.apply_body(p),user=self.user)
         self.assertEqual(409,caught.exception.status_code);self.stub.RemoteUploadControl.assert_not_called()
+
+    def test_safety_cancel_keeps_deadline_and_account_checks(self):
+        for failure in ('deadline','account'):
+            with self.subTest(failure=failure):
+                self.uploaded();p=self.preview()
+                if failure=='deadline':self.plugin.runtime.deadline=0
+                else:self.stub.FindFileByPath.return_value.CloudAPI.userName='other-account'
+                self.view.apply_cancel(self.bid,self.apply_body(p),user=self.user)
+                b=self.f.worker.bundle(self.bid)
+                self.assertEqual(('CANCEL_PENDING','UNKNOWN',False),(b['state'],b['files'][0]['state'],b['files'][0]['reader_stopped']))
+                self.stub.RemoteUploadControl.assert_not_called();self.unchanged_io()
+                with self.assertRaisesRegex(ValueError,'STALE_OR_DISABLED_RUNTIME'):self.plugin.runtime.read_check()
 
     def test_current_fences_and_receipt_digest_are_rechecked(self):
         for change in ('generation','revision','receipt','bundle'):

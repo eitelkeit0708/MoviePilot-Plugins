@@ -940,7 +940,8 @@ class Views:
             worker=runtime.scope_worker(o['bundle_id'])
             if kind=='cancel':
                 b=worker.bundle(o['bundle_id']);s=runtime.authority.plan(b['plan_id'])['snapshot']
-                return worker.cancel(b['id'],reason=o['reason'],exclusion_id='cancel:'+request.preview_id,criteria=dict(candidate_key=s['candidate_key'],targets=sorted(b['vector'])))
+                with runtime.safety_reads():
+                    return worker.cancel(b['id'],reason=o['reason'],exclusion_id='cancel:'+request.preview_id,criteria=dict(candidate_key=s['candidate_key'],targets=sorted(b['vector'])))
             runtime.check();return worker.cleanup(o['bundle_id'],scope=o['scope'])
 
     async def run(self,request,user,function,*,ordinary=True):

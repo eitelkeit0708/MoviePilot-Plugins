@@ -9,6 +9,16 @@ from test_planner import load
 from test_configuration import PrivateFixture
 
 
+def runtime_fixture(plugin,worker):
+    """Use real runtime authority checks without constructing external services."""
+    module=load('runtime');runtime=object.__new__(module.Runtime)
+    runtime.plugin=plugin;runtime.generation=plugin.generation
+    runtime.lock=threading.RLock();runtime.busy=False;runtime._io=threading.local()
+    runtime.stages=module.OwnedStages(lambda:None);runtime.deadline=None
+    runtime.scope_worker=lambda identity:worker;runtime.authority=worker.authority
+    return runtime
+
+
 class ManagementTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -88,7 +98,7 @@ class ManagementTests(unittest.TestCase):
         from test_delivery import DeliveryTests
         f=self.fixture(DeliveryTests);bid=f.prepared();m=load('ui');user=SimpleNamespace(username='admin')
         self.plugin.config=self.plugin.config.model_copy(update={'delivery':{'rules':list(f.worker.rules.values())}})
-        self.plugin.runtime=SimpleNamespace(lock=threading.RLock(),busy=False,stages=load('runtime').OwnedStages(lambda:True),scope_worker=lambda identity:f.worker,authority=f.auth,check=lambda:None)
+        self.plugin.runtime=runtime_fixture(self.plugin,f.worker)
         view=m.Views(self.plugin);before={p.name:p.read_bytes() for p in f.local.iterdir()}
         p=view.cancel_preview(bid,m.BundlePreview(**self.fence(),revision=f.worker.bundle(bid)['revision']),user=user)
         self.assertEqual([],p.blockers)
