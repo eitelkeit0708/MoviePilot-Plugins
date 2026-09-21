@@ -53,8 +53,11 @@ ROUTES = {
     "tv_japanese": ("热播新剧日剧", "电视剧", False),
     "tv_korean": ("热播新剧韩剧", "电视剧", False),
     "tv_animation": ("热播新剧动画", "电视剧", False),
+    "show_hot": ("近期热门综艺节目", "电视剧", False),
+    "ECFA5DI7Q": ("近期热门美剧榜 (ECFA5DI7Q)", "电视剧", True),
 }
 ROUTE_PROVENANCE = "deployed RSSHub list-COiEyPon.mjs ca633ed2908b0684f156f15c8c575897ecea76ab58d6fcbb2fe4681617c401e7"
+USER_ROUTE_PROVENANCE = "user-supplied partial Douban routes; fnos HTTP 200 observed 2026-09-21; docs/subscribetter/deployment/user-douban-routes-20260921.json and douban-added-presets-read-20260921T140836Z.json"
 LEGACY_RANKS = {"movie-weekly": "movie_weekly_best", "movie-real-time": "movie_real_time_hotest"}
 SECRET_QUERY = re.compile(r"(?:token|key|secret|password|passwd|cookie|authorization|signature)", re.I)
 DOUBAN_SUBJECT = re.compile(r"^/(?:subject|doubanapp/dispatch/movie)/(\d+)/?$")
@@ -188,7 +191,8 @@ def source_url(config: DiscoveryConfig, source: SourceConfig) -> str:
     if not config.rsshub_base_url:
         raise ValueError("RSSHUB_BASE_REQUIRED")
     base = config.rsshub_base_url.rstrip("/") + "/"
-    route = f"douban/list/{quote(source.route_key or '', safe='')}"
+    path = "ECFA5DI7Q/&dt_dapp=1" if source.route_key == "ECFA5DI7Q" else quote(source.route_key or "", safe="")
+    route = f"douban/list/{path}"
     return _url(urljoin(base, route) + f"?limit={(source.request_budget or config.request_budget).items}")
 
 
@@ -239,7 +243,12 @@ def parse_rss(body: bytes, *, max_bytes=524288, max_items=50, max_text=8192, max
         if depth > max_depth:
             raise ValueError("RSS_TOO_DEEP")
         stack.extend((child, depth + 1) for child in node)
-    items = list(root.iter("item"))
+    if root.tag != "rss":
+        raise ValueError("RSS_UNSUPPORTED_FORMAT")
+    channels = root.findall("channel")
+    if len(channels) != 1:
+        raise ValueError("RSS_INVALID_STRUCTURE")
+    items = channels[0].findall("item")
     if len(items) > max_items:
         items = items[:max_items]
     result = []
@@ -504,7 +513,7 @@ class DiscoveryService:
         for key, (label, media_type, links) in ROUTES.items():
             sources = [source for source in configured.values() if source.route_key == key]
             rows.append(dict(route_key=key, label=label, media_type=media_type, item_links_observed=links,
-                             provenance=ROUTE_PROVENANCE, configured_ids=[source.id for source in sources],
+                             provenance=USER_ROUTE_PROVENANCE if key in ("show_hot", "ECFA5DI7Q") else ROUTE_PROVENANCE, configured_ids=[source.id for source in sources],
                              full_url=source_url(self.config, sources[0]) if sources and self.config.rsshub_base_url else None,
                              states=[states.get(source.id) for source in sources]))
         for source in configured.values():
@@ -707,7 +716,7 @@ class DiscoveryService:
                 self._source_state(source.id, "FAILED", error.code, retry_after=error.retry_after, origin=origin)
                 result["sources"][source.id] = {"state": "FAILED", "reason": error.code}
             except Exception as error:
-                code = str(error) if str(error) in {"RSS_TOO_LARGE", "RSS_MALFORMED", "RSS_ENTITY_DECLARATION", "RSS_TOO_DEEP"} else "SOURCE_FAILED"
+                code = str(error) if str(error) in {"RSS_TOO_LARGE", "RSS_MALFORMED", "RSS_ENTITY_DECLARATION", "RSS_TOO_DEEP", "RSS_UNSUPPORTED_FORMAT", "RSS_INVALID_STRUCTURE"} else "SOURCE_FAILED"
                 self._source_state(source.id, "FAILED", code)
                 result["sources"][source.id] = {"state": "FAILED", "reason": code}
         for source_id, replay in history.items():

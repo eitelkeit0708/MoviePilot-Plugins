@@ -284,8 +284,59 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(self.repo.list_tasks()), 1)
         self.assertEqual(host.creates, 1)
 
+    def test_user_seven_presets_exact_paths_limits_and_custom_host(self):
+        cases = [
+            ('tv_real_time_hotest', 'tv_real_time_hotest', 'TV', 10),
+            ('tv_global_best_weekly', 'tv_global_best_weekly', 'TV', 10),
+            ('tv_chinese_best_weekly', 'tv_chinese_best_weekly', 'TV', 10),
+            ('ECFA5DI7Q', 'ECFA5DI7Q/&dt_dapp=1', 'TV', 16),
+            ('tv_american', 'tv_american', 'TV', 15),
+            ('show_hot', 'show_hot', 'TV', 10),
+            ('movie_real_time_hotest', 'movie_real_time_hotest', 'Movie', 10),
+        ]
+        for key, path, hint, limit in cases:
+            with self.subTest(key=key):
+                self.assertIn(key, self.d.ROUTES)
+                for base in ('http://rsshub:1200', 'http://192.168.50.6:1200/proxy/rsshub'):
+                    config = self.config(rsshub_base_url=base, sources=[dict(
+                        id=key, kind='rsshub', route_key=key, request_budget={'items': limit})])
+                    self.assertEqual(base + '/douban/list/' + path + '?limit=' + str(limit),
+                                     self.d.source_url(config, config.sources[0]))
+                    self.assertEqual('电视剧' if hint == 'TV' else '电影', self.d.ROUTES[key][1])
+                original = 'http://original:1200/douban/list/' + path
+                if key in ('tv_american', 'show_hot'):
+                    original += '?limit=' + str(limit)
+                imported = self.d.import_legacy({'rss_addrs': original + '@@' + hint})
+                source = self.d.SourceConfig.model_validate(imported['sources'][0])
+                self.assertEqual(hint, source.source_type_hint)
+                self.assertEqual(original, self.d.source_url(config, source))
+                catalog = {row['route_key']: row for row in self.service(config).catalog()}
+                self.assertIn('user-supplied', catalog[key]['provenance']) if key in (
+                    'ECFA5DI7Q', 'show_hot') else self.assertIn('deployed RSSHub', catalog[key]['provenance'])
+        self.assertEqual('近期热门美剧榜 (ECFA5DI7Q)', self.d.ROUTES.get('ECFA5DI7Q', (None, None, None))[0])
+        self.assertTrue(self.d.ROUTES.get('ECFA5DI7Q', (None, None, None))[2])
+        self.assertFalse(self.d.ROUTES.get('show_hot', (None, None, None))[2])
+        with self.assertRaises(ValidationError):
+            self.d.SourceConfig(id='unsafe', kind='rsshub', route_key='ECFA5DI7Q/&dt_dapp=1')
+
+    def test_user_preset_public_ui_catalog_provenance(self):
+        from importlib import import_module
+        fake_modules = {name: types.ModuleType(name) for name in ('app', 'app.sdk', 'app.sdk.security', 'app.schemas', 'app.schemas.token')}
+        fake_modules['app.sdk.security'].verify_token = lambda: None
+        fake_modules['app.schemas.token'].TokenPayload = type('TokenPayload', (), {})
+        with patch.dict(sys.modules, fake_modules):
+            ui = import_module(self.d.__package__ + '.ui')
+        plugin = types.SimpleNamespace(repository=self.repo, _authorize=lambda user: None)
+        routes = {row['key']: row for row in ui.Views(plugin).catalog(user=None).result['routes']}
+        self.assertEqual(15, len(routes))
+        for key in ('show_hot', 'ECFA5DI7Q'):
+            self.assertIn('user-supplied', routes[key]['provenance'])
+            self.assertEqual(self.d.ROUTES[key][0], routes[key]['label'])
+        self.assertEqual('近期热门美剧榜 (ECFA5DI7Q)', routes['ECFA5DI7Q']['label'])
+        self.assertIn('deployed RSSHub', routes['movie_weekly_best']['provenance'])
+
     def test_catalog_basepath_and_no_public_fallback(self):
-        self.assertEqual(13, len(self.d.ROUTES))
+        self.assertEqual(15, len(self.d.ROUTES))
         config = self.config()
         source = config.sources[0]
         self.assertEqual("http://rss.internal:1200/proxy/rsshub/douban/list/movie_weekly_best?limit=10",
@@ -339,6 +390,54 @@ class DiscoveryTests(unittest.TestCase):
                                          "sleep_time": 4, "is_exit_ip_rate_limit": True})
         self.assertTrue(migrated["sources"][0]["proxy"])
         self.assertEqual(4, migrated["config"]["request_budget"]["interval_min_seconds"])
+
+    def test_T191_non_rss_and_invalid_channels_are_explicit_failures(self):
+        for body, reason in (
+            (b'<html><body>Access denied</body></html>', 'RSS_UNSUPPORTED_FORMAT'),
+            (b'<feed xmlns="http://www.w3.org/2005/Atom"/>', 'RSS_UNSUPPORTED_FORMAT'),
+            (b'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"/>', 'RSS_UNSUPPORTED_FORMAT'),
+            (b'<response><item><title>Not a feed</title></item></response>', 'RSS_UNSUPPORTED_FORMAT'),
+            (b'<rss/>', 'RSS_INVALID_STRUCTURE'),
+            (b'<rss><wrapper><channel/></wrapper></rss>', 'RSS_INVALID_STRUCTURE'),
+            (b'<rss><channel/><channel/></rss>', 'RSS_INVALID_STRUCTURE'),
+        ):
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, '^' + reason + '$'):
+                self.d.parse_rss(body)
+        self.assertEqual([], self.d.parse_rss(b'<rss version="2.0"><channel/></rss>'))
+        body = (b'<rss><channel><item><title>Actual item</title></item>'
+                b'<description><item><title>Nested error item</title></item></description>'
+                b'</channel><item><title>Outside channel</title></item></rss>')
+        self.assertEqual(['Actual item'], [item.title for item in self.d.parse_rss(body)])
+
+    def test_T191_bad_document_keeps_success_watermark_and_other_source_runs(self):
+        for index, (body, reason) in enumerate((
+            (b'<html><body>Access denied</body></html>', 'RSS_UNSUPPORTED_FORMAT'),
+            (b'<feed xmlns="http://www.w3.org/2005/Atom"/>', 'RSS_UNSUPPORTED_FORMAT'),
+            (b'<rss/>', 'RSS_INVALID_STRUCTURE'),
+            (b'<rss><channel/><channel/></rss>', 'RSS_INVALID_STRUCTURE'),
+        )):
+            with self.subTest(reason=reason, index=index):
+                bad_id, good_id = 'bad-' + str(index), 'good-' + str(index)
+                config = self.config(sources=[
+                    dict(id=bad_id, kind='custom', url='https://' + bad_id + '.invalid/rss'),
+                    dict(id=good_id, kind='custom', url='https://' + good_id + '.invalid/rss')])
+                owner, calls = Owner(), []
+                def fetch(url, source, budget):
+                    calls.append(source.id)
+                    return self.d.FetchResult(body if source.id == bad_id else b'<rss><channel/></rss>')
+                service = self.service(config, fetch=fetch, owner=owner)
+                result = self.wait(service.run())
+                self.assertEqual({'state': 'FAILED', 'reason': reason}, result['sources'][bad_id])
+                self.assertEqual({'state': 'SUCCESS', 'reason': '', 'items': 0}, result['sources'][good_id])
+                self.assertEqual([bad_id, good_id], calls)
+                self.assertEqual([], owner.calls)
+                with self.repo.connection() as db:
+                    bad = dict(db.execute('SELECT * FROM discovery_sources WHERE source_id=?', (bad_id,)).fetchone())
+                    good = dict(db.execute('SELECT * FROM discovery_sources WHERE source_id=?', (good_id,)).fetchone())
+                    self.assertEqual(0, db.execute('SELECT COUNT(*) FROM tasks').fetchone()[0])
+                self.assertEqual(('FAILED', reason, 1, None),
+                                 (bad['last_state'], bad['last_reason'], bad['failures'], bad['last_success']))
+                self.assertIsNotNone(good['last_success'])
 
     def test_parser_is_bounded_entity_safe_and_keeps_claims_untrusted(self):
         parsed = self.d.parse_rss(SYNTHETIC_RSS, max_bytes=16384, max_items=2, max_text=2000, max_depth=12)

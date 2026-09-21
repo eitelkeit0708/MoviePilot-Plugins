@@ -221,6 +221,76 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual('COMPLETE',org.organize('plan',target)['state'])
         self.assertEqual(before,calls)
 
+    def test_completed_source_hash_checkpoint_recovers_expired_tick_without_skipping_guards(self):
+        import shutil
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        delivery=load('delivery')
+        root=Path(self.tmp.name);source=root/'source';source.mkdir();target=root/'organized';target.mkdir()
+        for item in self.files:(source/item['path']).write_bytes(b'x'*item['size'])
+        calls=[];clock=[0];deadline=[30];hashes=[]
+        class Host:
+            def history(self,*args):calls.append('history');return True
+            def transfer(self,src,dest,*args):
+                calls.append('transfer');output=dest/src.name;shutil.copyfile(src,output);return output
+        self.executor.execute('plan',b'torrent');self.client.stats.update({3:200,7:10})
+        def gate():
+            if clock[0]>=deadline[0]:raise ValueError('TICK_DEADLINE')
+        self.executor.dispatch_gate=gate
+        org=self.e.Organizer(self.executor,Host(),source_root=lambda _:source)
+        old_hash=self.e.asset_hashes;source_hash=delivery.LocalSource.hash
+        def slow_old(path):
+            result=old_hash(path);hashes.append(str(path));clock[0]+=31;return result
+        def slow_source(src):
+            result=source_hash(src);hashes.append(str(src.path));clock[0]+=31;return result
+        # Exercise the POSIX cache policy on all runners; LocalSource itself is
+        # real. The separate POSIX test checks actual ctime invalidation.
+        with patch.object(self.e,'os',SimpleNamespace(name='posix'),create=True),patch.object(self.e,'asset_hashes',side_effect=slow_old),patch.object(delivery.LocalSource,'hash',slow_source):
+            first=org.organize('plan',target)
+            self.assertEqual('TICK_DEADLINE',first['reason']);self.assertEqual([],calls)
+            before=list(hashes);deadline[0]=clock[0]+30
+            # A fresh instance represents the next normal tick/restart.
+            self.executor.revalidate=lambda _:(_ for _ in ()).throw(ValueError('POLICY_PARSE_CHANGED'))
+            self.assertEqual('POLICY_PARSE_CHANGED',self.e.Organizer(self.executor,Host(),source_root=lambda _:source).organize('plan',target)['reason'])
+            self.assertEqual([],calls)
+            self.executor.revalidate=lambda _:None
+            second=self.e.Organizer(self.executor,Host(),source_root=lambda _:source).organize('plan',target)
+            self.assertEqual('COMPLETE',second['state'])
+            self.assertEqual(before,hashes,'completed stable hashes must survive the expired tick')
+            self.assertEqual(['history','transfer','transfer'],calls)
+
+    def test_source_hash_checkpoint_rejects_changes_and_nonposix_never_reuses(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        delivery=load('delivery');root=Path(self.tmp.name);path=root/'asset.mkv';path.write_bytes(b'first')
+        org=self.e.Organizer(self.executor,object())
+        original=delivery.LocalSource.hash;hashed=[]
+        def counted(src):hashed.append(1);return original(src)
+        with patch.object(self.e,'os',SimpleNamespace(name='nt')),patch.object(delivery.LocalSource,'hash',counted):
+            first=org._source_hashes('plan',1,path,root)
+            self.assertEqual(first,org._source_hashes('plan',1,path,root))
+            self.assertEqual(2,len(hashed))
+        with patch.object(self.e,'os',SimpleNamespace(name='posix')):
+            first=org._source_hashes('plan',1,path,root)
+            replacement=root/'replacement';replacement.write_bytes(b'other');replacement.replace(path)
+            self.assertNotEqual(first,org._source_hashes('plan',1,path,root))
+            def changed_during_hash(src):
+                result=original(src);path.write_bytes(b'changed-size');return result
+            with patch.object(delivery.LocalSource,'hash',changed_during_hash),self.assertRaisesRegex(ValueError,'SOURCE_CHANGED'):
+                org._source_hashes('new-plan',1,path,root)
+            self.assertIsNone(self.repo.setting('organize-source-hash:'+self.e.encoded(['new-plan',1])))
+
+    @unittest.skipUnless(__import__('os').name=='posix','POSIX ctime invalidation requires POSIX filesystem')
+    def test_source_hash_checkpoint_detects_same_size_change_with_restored_mtime(self):
+        import os
+        import time
+        root=Path(self.tmp.name);path=root/'asset.mkv';path.write_bytes(b'first')
+        org=self.e.Organizer(self.executor,object());before=path.stat()
+        first=org._source_hashes('plan',1,path,root)
+        time.sleep(.01);path.write_bytes(b'other');os.utime(path,ns=(before.st_atime_ns,before.st_mtime_ns))
+        self.assertNotEqual(before.st_ctime_ns,path.stat().st_ctime_ns)
+        self.assertNotEqual(first,org._source_hashes('plan',1,path,root))
+
     def test_transfer_guard_blocks_unplanned_and_stale_but_leaves_manual(self):
         self.assertTrue(hasattr(self.e,'TransferGuard'),'W05 transfer guard missing')
         from types import SimpleNamespace

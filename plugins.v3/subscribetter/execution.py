@@ -2,6 +2,7 @@
 from hashlib import sha256
 import json
 import math
+import os
 from pathlib import Path, PurePosixPath
 from threading import RLock
 
@@ -581,6 +582,23 @@ class Organizer:
         self.executor,self.host,self.source_root=executor,host,source_root
         self.repository=executor.repository
 
+    def _source_hashes(self,plan_id,index,path,root):
+        from .delivery import LocalSource
+        key='organize-source-hash:'+encoded([plan_id,index])
+        with LocalSource(path,[root]) as source:
+            cached=self.repository.setting(key) if os.name=='posix' else None
+            reusable=(isinstance(cached,dict) and cached.get('snapshot')==source.snapshot
+                and all(isinstance(cached.get(k),str) and len(cached[k])==n
+                        and all(c in '0123456789abcdef' for c in cached[k])
+                        for k,n in (('sha1',40),('sha256',64))))
+            if reusable:
+                source.check();return cached['sha256'],cached['sha1']
+            content,strong=source.hash();source.check()
+            if os.name=='posix':
+                # Completed work survives a later deadline; this stores no authority.
+                self.repository.setting(key,dict(snapshot=source.snapshot,sha1=content,sha256=strong))
+            return strong,content
+
     def organize(self,plan_id,target_root):
         with MUTATION_LOCK:
             try:
@@ -593,7 +611,7 @@ class Organizer:
                 if task['state'] in ('CHECKING','FAILED','DISCONNECTED') or any(mapping[i].get('completed')!=asset_table(s)[i]['size'] for i in indices):
                     return {'state':'WAITING_ASSETS'}
                 paths={i:safe_local(self.source_root(s),Path(self.source_root(s))/asset_table(s)[i]['path']) for i in indices}
-                asset_digests={i:asset_hashes(p) for i,p in paths.items()}
+                asset_digests={i:self._source_hashes(plan_id,i,p,self.source_root(s)) for i,p in paths.items()}
                 hashes={i:v[0] for i,v in asset_digests.items()}
                 content_sha1=[v[1] for v in asset_digests.values()]
                 if any(paths[i].stat().st_size!=asset_table(s)[i]['size'] for i in indices):

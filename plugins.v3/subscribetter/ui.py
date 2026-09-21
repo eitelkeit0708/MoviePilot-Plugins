@@ -580,8 +580,8 @@ class Views:
 
     def catalog(self,user:TokenPayload=Depends(verify_token))->ActionResult:
         self._auth(user)
-        from .discovery import ROUTES, ROUTE_PROVENANCE
-        return ActionResult(state='AVAILABLE',result=dict(routes=[dict(key=k,label=v[0],media_type=v[1],provenance=ROUTE_PROVENANCE) for k,v in ROUTES.items()]))
+        from .discovery import ROUTES, ROUTE_PROVENANCE, USER_ROUTE_PROVENANCE
+        return ActionResult(state='AVAILABLE',result=dict(routes=[dict(key=k,label=v[0],media_type=v[1],provenance=USER_ROUTE_PROVENANCE if k in ("show_hot", "ECFA5DI7Q") else ROUTE_PROVENANCE) for k,v in ROUTES.items()]))
 
     @staticmethod
     def _record(r):return public(dict(**{k:r[k] for k in DiscoveryRecord.model_fields if k not in ('evidence','raw','visible')},visible=bool(r['visible']),raw=json.loads(r['raw']),evidence=json.loads(r['data'])))
