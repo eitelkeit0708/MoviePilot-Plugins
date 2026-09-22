@@ -488,6 +488,35 @@ class DeliveryTests(unittest.TestCase):
             if report['state']=='COMPLETE':break
         with self.repo.connection() as db:self.assertIsNotNone(db.execute("SELECT 1 FROM local_observations WHERE path LIKE '%late.srt'").fetchone())
 
+    def test_failed_deep_scan_preserves_observations_and_restart_covers_unseen_file(self):
+        scan=self.m.LocalReconciler(self.repo,[self.rule]);deep=self.local/'deep';deep.mkdir()
+        (deep/'old.srt').write_text('old')
+        self.assertEqual('COMPLETE',scan.scan('r',force=True,now=tp.NOW)['state'])
+        root_mtime=self.local.stat();(deep/'unseen.srt').write_text('new')
+        os.utime(self.local,ns=(root_mtime.st_atime_ns,root_mtime.st_mtime_ns))
+        real_scandir=os.scandir
+        def fail_deep_once(path):
+            if Path(path)==deep:raise PermissionError('injected deep scan failure')
+            return real_scandir(path)
+        with patch.object(self.m.os,'scandir',side_effect=fail_deep_once):
+            failed=scan.scan('r',force=True,now=tp.NOW+timedelta(seconds=61))
+        self.assertEqual('INCOMPLETE',failed['state'])
+        self.assertEqual([str(deep)],failed['failed_paths'])
+        with self.repo.connection() as db:
+            self.assertEqual(failed['epoch'],json.loads(db.execute("SELECT data FROM reconcile_checkpoints WHERE scope='local:r'").fetchone()[0])['epoch'])
+            self.assertTrue(all(json.loads(row[0])['state']=='PRESENT' for row in db.execute('SELECT data FROM local_observations')))
+        restarted=self.m.LocalReconciler(self.repo,[self.rule])
+        for _ in range(30):
+            recovered=restarted.scan('r',limits={'entries':1},force=True,now=tp.NOW+timedelta(seconds=62))
+            if recovered['state']=='COMPLETE':break
+            with self.repo.connection() as db:
+                self.assertTrue(all(json.loads(row[0])['state']=='PRESENT' for row in db.execute('SELECT data FROM local_observations')))
+        self.assertEqual('COMPLETE',recovered['state'])
+        with self.repo.connection() as db:
+            states={Path(row[0]).name:json.loads(row[1])['state'] for row in db.execute('SELECT path,data FROM local_observations')}
+        self.assertEqual({'movie.mkv','movie.zh.srt','old.srt','unseen.srt'},set(states))
+        self.assertEqual({'PRESENT'},set(states.values()))
+
     def test_review_i4_replaced_empty_root_preserves_observations_and_recovers(self):
         scan=self.m.LocalReconciler(self.repo,[self.rule])
         self.assertEqual('COMPLETE',scan.scan('r',force=True)['state'])
