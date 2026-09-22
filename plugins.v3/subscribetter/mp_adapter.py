@@ -19,7 +19,7 @@ def make_target(media_type: str, media_source: str, media_id: str, season: int |
 
 
 def target_from_native(native: dict) -> Target:
-    return make_target(native["type"], native["media_source"], str(native["media_id"]),
+    return make_target(native["type"], native["media_source"], native["media_id"],
                        native.get("season"), native.get("episode_group") or "")
 
 

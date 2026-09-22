@@ -64,6 +64,22 @@ class AdapterContractTests(unittest.TestCase):
         self.assertEqual("specials", options["episode_group"])
         self.assertFalse(options["exist_ok"])
 
+    def test_native_target_rejects_missing_id_before_string_conversion(self):
+        from unittest.mock import patch
+        def resolve(*, media_source, media_id):
+            if media_id is None or str(media_id).strip() in ("", "0"):
+                return None, None
+            return media_source, str(media_id)
+        row = dict(type="电视剧", media_source="CustomSource", media_id=None,
+                   season=0, episode_group="specials")
+        with patch.object(self.module, "resolve_media_identity", side_effect=resolve):
+            for invalid in (None, "", 0, "0"):
+                with self.subTest(media_id=invalid), self.assertRaises(ValueError):
+                    self.module.target_from_native(dict(row, media_id=invalid))
+            target = self.module.target_from_native(dict(row, media_id=123))
+        self.assertEqual(("customsource", "123", 0, "specials"),
+                         (target.media_source, target.media_id, target.season, target.episode_group))
+
     def test_V3_adapter_missing_invalid_or_existing_id_is_not_new_ownership(self):
         for sid, message in ((None, "识别失败"), (0, "新增订阅失败"), (False, ""),
                              (-1, ""), ("42", ""), (42, "订阅已存在"),
