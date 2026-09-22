@@ -11,6 +11,9 @@ from .repository import utcnow
 
 def publish(archive, service, library, scan_id, scan):
     started=scan['started_at'];now=utcnow();mapping=archive.mappings.revision
+    with archive.repository.connection() as db:
+        for row in db.execute("SELECT j.value FROM archive_scan_items i,json_each(i.resolved) j WHERE i.scan_id=? AND json_type(j.value,'$.strm')='object'",(scan_id,)):
+            archive.validate_observation(json.loads(row[0]))
     def canonical(value):return encoded(json.loads(value))
     def source(value):return encoded({k:v for k,v in json.loads(value).items() if k!='observed_at'})
     def location_id(value):

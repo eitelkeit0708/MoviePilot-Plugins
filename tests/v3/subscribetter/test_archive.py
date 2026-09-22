@@ -227,6 +227,28 @@ class ArchiveTests(unittest.TestCase):
         result = self.archive.reconcile('test', '10')
         self.assertEqual('ERROR', result['status'])
 
+    def test_strm_changed_after_finalize_before_publish_is_not_committed(self):
+        scan_module = tp.load('archive_scan')
+        original = scan_module.publish
+        replacement = '/115/media/replaced.mkv'
+
+        def replace(*args, **kwargs):
+            (self.strms / '中文 {电影}.strm').write_text('/Cloud' + replacement + '\n', encoding='utf-8')
+            self.sources.cloud['cloud', replacement] = dict(sha1='b' * 40, size=100, cd2_id='new', p115_id='')
+            return original(*args, **kwargs)
+
+        with patch.object(scan_module, 'publish', side_effect=replace):
+            first = self.archive.reconcile('test', '10')
+        self.assertEqual('ERROR', first['status'])
+        self.assertEqual(['STRM_CHANGED'], first['diagnostics'])
+        with self.repo.connection() as db:
+            self.assertEqual(0, db.execute('SELECT COUNT(*) FROM archive_versions WHERE active=1').fetchone()[0])
+
+        self.assertEqual('COMPLETE', self.archive.reconcile('test', '10')['status'])
+        with self.repo.connection() as db:
+            active = [json.loads(row[0])['video']['path'] for row in db.execute('SELECT data FROM archive_versions WHERE active=1')]
+        self.assertEqual([replacement], active)
+
     def publication(self, planned_picture=0, *, unknown=False, video_requires=None):
         task = self.repo.submit('task', self.r.Target('电影', 'themoviedb', '42'), {}, 'test', 42, True)
         self.repo.complete_handoff(task['id'], task['generation'])
