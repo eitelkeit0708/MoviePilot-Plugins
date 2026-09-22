@@ -463,6 +463,22 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual('CLEANUP_PERMISSION_DISABLED',self.worker.cleanup(bid)['reason'])
         self.assertTrue((self.local/'movie.mkv').exists())
 
+    def test_cleanup_blocker_survives_restart_then_clears_after_reader_settles(self):
+        self.rule['cleanup_abandoned']=True
+        self.worker=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda _:self.publication)
+        bid=self.prepared()
+        self.worker.cancel(bid,reason='USER_ABANDON',exclusion_id='deny',criteria={'candidate_key':'candidate'})
+        bundle=self.worker.bundle(bid);bundle['files'][0].update(reader_stopped=False,state='CD2_UPLOADING')
+        self.worker._save(bundle)
+        self.assertEqual('READER_OR_REMOTE_UNSETTLED',self.worker.cleanup(bid)['reason'])
+        restarted=self.m.Delivery(self.repo,self.auth,None,self.cloud,rules=[self.rule],revalidate=lambda _:self.publication)
+        self.assertEqual('READER_OR_REMOTE_UNSETTLED',restarted.bundle(bid)['cleanup_blocker']['reason'])
+        bundle=restarted.bundle(bid);bundle['files'][0].update(reader_stopped=True,state='FAILED')
+        restarted._save(bundle)
+        with patch.object(self.m,'safe_unlink'):
+            self.assertTrue(restarted.cleanup(bid)['monitor_cleaned'])
+        self.assertNotIn('cleanup_blocker',restarted.bundle(bid))
+
     def test_review_i2_consumed_entry_reaches_validator_without_premature_handoff(self):
         from unittest.mock import Mock
         bid=self.all_remote();original=self.cloud.move

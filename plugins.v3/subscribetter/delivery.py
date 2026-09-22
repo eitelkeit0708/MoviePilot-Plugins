@@ -702,10 +702,14 @@ class Delivery:
     def cleanup(self,bundle_id,*,scope='monitor',now=None):
         with LOCK:
             b=self.bundle(bundle_id);r=self._rule(b)
+            def blocked(reason):
+                b['cleanup_blocker']={'scope':scope,'reason':reason,'at':stamp(now)}
+                self._save(b)
+                return dict(self._result(b),reason=reason)
             successful=b['state'] in ('WAIT_CONSUMER','CONFIRMED') and all(f['state']=='VERIFIED' for f in b['files']) and b.get('consumer_pending') is not None
             abandoned=b['state']=='ABANDONED' and bool(b.get('cancel_intent'))
             if not successful and not abandoned:return dict(self._result(b),reason='CLEANUP_NOT_ELIGIBLE')
-            if any(not f.get('reader_stopped') or f['state']=='UNKNOWN' for f in b['files']):return dict(self._result(b),reason='READER_OR_REMOTE_UNSETTLED')
+            if any(not f.get('reader_stopped') or f['state']=='UNKNOWN' for f in b['files']):return blocked('READER_OR_REMOTE_UNSETTLED')
             if scope not in ('monitor','staging','downloader_task','downloader_data'):raise ValueError('CLEANUP_SCOPE_REQUIRED')
             permission={'monitor':'cleanup_success' if successful else 'cleanup_abandoned','staging':'cleanup_staging','downloader_task':'remove_downloader_task_enabled','downloader_data':'delete_downloader_data_enabled'}[scope]
             if not r[permission]:return dict(self._result(b),reason='CLEANUP_PERMISSION_DISABLED')
@@ -713,11 +717,12 @@ class Delivery:
             if scope in ('downloader_task','downloader_data'):return self._cleanup_downloader(b,r,scope,now)
             for f in b['files']:
                 if f.get('cleaned'):continue
-                if self._shared(b,f):return dict(self._result(b),reason='SHARED_LOCAL_REFERENCE')
+                if self._shared(b,f):return blocked('SHARED_LOCAL_REFERENCE')
                 f.setdefault('cleanup_intent',{'permission':permission,'rule_revision':r['revision'],'at':stamp(now),'quarantine':'.subscribetter-clean-'+uuid.uuid4().hex});self._save(b)
                 try:safe_unlink(f['snapshot'],f['parents'],resume=True,quarantine=f['cleanup_intent']['quarantine'])
-                except (OSError,ValueError):return dict(self._result(b),reason='BLOCKED_CLEANUP_UNSAFE')
+                except (OSError,ValueError):return blocked('BLOCKED_CLEANUP_UNSAFE')
                 f['cleaned']=True;self._save(b)
+            b.pop('cleanup_blocker',None);self._save(b)
             return dict(self._result(b),monitor_cleaned=True)
 
     def _cleanup_staging(self,b,r,now):
