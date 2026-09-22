@@ -524,7 +524,9 @@ class Runtime:
         """Claim/replacement share one exact vector and physical isolation gate."""
         if round_plans is None or snapshot not in round_plans:raise ValueError('COMPLETE_CANDIDATE_ROUND_REQUIRED')
         ranked=self.ranked(round_plans)
-        if any(set(p['targets'])&set(snapshot['targets']) for p in ranked[:ranked.index(snapshot)]):return None
+        if any(set(p['targets'])&set(snapshot['targets']) and all(
+                self.scheduler.ready(opportunity['id'],key,value['action'],immediate=immediate)['ready']
+                for key,value in p['targets'].items()) for p in ranked[:ranked.index(snapshot)]):return None
         for candidate in round_plans:
             for key,value in candidate['targets'].items():self.scheduler.observe(opportunity['id'],key,candidate['candidate_key'],value['quality'],eligible=True)
         with self.repository.connection(write=True) as db:

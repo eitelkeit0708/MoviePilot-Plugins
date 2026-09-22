@@ -9,6 +9,34 @@ import test_runtime as fixtures
 
 
 class RuntimeFixTests(unittest.TestCase):
+    def test_immature_shared_pack_does_not_block_mature_safe_episode(self):
+        import json
+        from dataclasses import asdict
+        from datetime import datetime,timedelta,timezone
+        import test_planner as p
+        p.AuthorityTests.setUpClass();f=p.AuthorityTests('runTest');f.setUp();self.addCleanup(f.doCleanups)
+        config=f.s.ScheduleConfig(observation_enabled=True,base_seconds=30,quiet_seconds=20,max_seconds=90)
+        with f.repo.connection(write=True) as db:
+            db.execute('UPDATE opportunities SET config=? WHERE id=?',(json.dumps(asdict(config)),'round'))
+        e07,e08=f.keys;base=datetime.now(timezone.utc)-timedelta(seconds=61)
+        whole=f.spec(candidate='B',shared=True);whole['candidate_key']='whole'
+        episode=f.spec(keys=[e07],candidate='A');episode['candidate_key']='episode'
+        f.schedule.observe('round',e07,'whole',[2],eligible=True,now=base)
+        f.schedule.observe('round',e08,'whole',[2],eligible=True,now=base+timedelta(seconds=40))
+        m=load('runtime');r=object.__new__(m.Runtime)
+        r.repository=f.repo;r.authority=f.auth;r.scheduler=f.schedule;r.verify_input=lambda _:None
+        r.pipeline=SimpleNamespace(revalidate=lambda _:None)
+        ranked=r.ranked([episode,whole]);op=f.schedule.opportunity('round')
+        now=base+timedelta(seconds=61)
+        with patch.object(f.s,'instant',lambda value=None:now if value is None else value),patch.object(f.m,'instant',lambda value=None:now if value is None else value):
+            self.assertIsNone(r.candidate_plan(op,{},whole,round_plans=ranked))
+            chosen=r.candidate_plan(op,{},episode,round_plans=ranked)
+        self.assertIsNotNone(chosen)
+        self.assertEqual('episode',chosen['snapshot']['candidate_key'])
+        self.assertEqual(chosen['id'],f.auth.vector([e07])[e07]['owner_plan_id'])
+        self.assertIsNone(f.auth.vector([e08])[e08]['owner_plan_id'])
+        with f.repo.connection() as db:self.assertEqual(1,db.execute('SELECT count(*) FROM plans').fetchone()[0])
+
     def test_cold_fixture_does_not_bootstrap_available_host_sdk(self):
         import sys
         from unittest.mock import Mock
