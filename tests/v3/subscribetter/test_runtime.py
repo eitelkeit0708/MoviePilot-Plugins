@@ -499,6 +499,25 @@ class PassiveTests(unittest.TestCase):
             self.assertEqual(5,db.execute("SELECT COUNT(*) FROM settings WHERE key LIKE 'runtime-policy:candidates:%'").fetchone()[0])
             self.assertEqual(0,db.execute('SELECT COUNT(*) FROM ingest_receipts').fetchone()[0])
 
+    def test_reprofile_page_failure_does_not_persist_partial_results(self):
+        cm=load('candidates');service=cm.CandidateService(self.repo,None)
+        for n in range(2):service.observe(dict(site=1,torrent_id=str(n),title='Fiction',description='',labels=[]))
+        self.runtime.config.recovery.entries=2
+        self.assertEqual('CANDIDATES',self.runtime.reprofile()['phase'])
+        calls=[]
+        def fail_second():
+            calls.append(1)
+            if len(calls)==2:raise RuntimeError('injected reprofile interruption')
+        with patch.object(self.runtime,'check',side_effect=fail_second):
+            with self.assertRaisesRegex(RuntimeError,'injected reprofile interruption'):
+                self.runtime.reprofile()
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute("SELECT COUNT(*) FROM settings WHERE key LIKE 'runtime-policy:candidates:%'").fetchone()[0])
+        self.assertEqual('',self.repo.setting('runtime-reprofile')['cursor'])
+        self.assertEqual(2,self.runtime.reprofile()['checked'])
+        with self.repo.connection() as db:
+            self.assertEqual(2,db.execute("SELECT COUNT(*) FROM settings WHERE key LIKE 'runtime-policy:candidates:%'").fetchone()[0])
+
 
 class ReplacementTests(unittest.TestCase):
     def test_runtime_replacement_requires_physical_isolation_and_keeps_budget(self):

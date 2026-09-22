@@ -732,6 +732,7 @@ class Runtime:
         table,column=('archive_versions','id') if state['phase']=='ARCHIVE' else ('candidates','candidate_key')
         with self.repository.connection() as db:
             rows=[dict(r) for r in db.execute(f'SELECT {column},data FROM {table} WHERE {column}>? ORDER BY {column} LIMIT ?',(state['cursor'],self.config.recovery.entries))]
+        writes=[]
         for row in rows:
             self.check();data=json.loads(row['data']);raw=data['raw'] if table=='archive_versions' else data
             facts=self.policy.normalize(raw,current=table=='archive_versions');classification=data.get('classification',{})
@@ -741,10 +742,12 @@ class Runtime:
             except ValueError as error:
                 decision=self.policy._decision('DEFER' if str(error)=='SEASON_SCOPE_UNCONFIRMED' else 'ERROR',str(error))
             else:decision=self.policy.admit(facts,classification,locked=locks,identity_ok=True,scope_ok=True)
-            self.repository.setting('runtime-policy:'+table+':'+row[column],dict(revision=revision,status=decision.status,reason=decision.reason,rank=list(decision.rank),admission_only=True))
+            writes.append(('runtime-policy:'+table+':'+row[column],json.dumps(dict(revision=revision,status=decision.status,reason=decision.reason,rank=list(decision.rank),admission_only=True))))
             state['cursor']=row[column]
         if len(rows)<self.config.recovery.entries:state.update(phase='CANDIDATES' if state['phase']=='ARCHIVE' else 'COMPLETE',cursor='')
-        self.repository.setting('runtime-reprofile',state)
+        writes.append(('runtime-reprofile',json.dumps(state)))
+        with self.repository.connection(write=True) as db:
+            db.executemany('INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',writes)
         return dict(state='POLICY_REPROFILE',phase=state['phase'],checked=len(rows))
 
     @staticmethod
