@@ -137,6 +137,14 @@ class ManagementTests(unittest.TestCase):
             self.assertEqual(0,db.execute('SELECT count(*) FROM exclusions').fetchone()[0])
             self.assertEqual('INVALID',db.execute('SELECT state FROM archive_targets WHERE target_key=?',(f.key,)).fetchone()[0])
         self.assertEqual(before,{p.name:p.read_bytes() for p in f.strms.iterdir()});self.assertEqual(calls,f.sources.calls)
+        f.archive.reconcile('test','10')
+        with f.repo.connection() as db:
+            self.assertEqual(0,db.execute('SELECT active FROM archive_versions WHERE id=?',(vid,)).fetchone()[0])
+            self.assertEqual('INVALID',db.execute('SELECT state FROM archive_targets WHERE target_key=?',(f.key,)).fetchone()[0])
+        with f.repo.connection(write=True) as db:
+            f.archive._store_version(db,f.archive.resolve_item('test','10',f.item)[0])
+            self.assertEqual(0,db.execute('SELECT active FROM archive_versions WHERE id=?',(vid,)).fetchone()[0])
+        self.assertEqual(before,{p.name:p.read_bytes() for p in f.strms.iterdir()})
 
     def test_ai_clear_fences_and_prompt_restore_use_no_model_or_chat(self):
         from test_ai import AITests

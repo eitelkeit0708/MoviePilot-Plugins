@@ -734,7 +734,7 @@ class Archive:
         key, version = observed['target_key'], observed['version_id']
         db.execute("INSERT OR IGNORE INTO archive_targets VALUES(?,'UNKNOWN','',?,?)", (key, '{}', utcnow()))
         observed = self._prepared_version(db, observed)
-        db.execute('INSERT INTO archive_versions VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET active=1,data=excluded.data',
+        db.execute("INSERT INTO archive_versions VALUES(?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET active=CASE WHEN json_extract(archive_versions.data,'$.user_invalidated')=1 THEN 0 ELSE 1 END,data=CASE WHEN json_extract(archive_versions.data,'$.user_invalidated')=1 THEN json_set(excluded.data,'$.user_invalidated',json('true')) ELSE excluded.data END",
                    (version, key, observed['service'], observed['library'], encoded(observed)))
         # These are the current required links; immutable archive_sources retains
         # each historical asset set when this same video acquires new sidecars.

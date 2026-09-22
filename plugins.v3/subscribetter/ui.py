@@ -905,7 +905,7 @@ class Views:
         if kind=='archive':
             archive=getattr(getattr(self.plugin,'delivery_worker',None),'archive',None)
             if not archive:raise HTTPException(409,'ARCHIVE_UNAVAILABLE')
-            db.execute('UPDATE archive_versions SET active=0 WHERE id IN (SELECT value FROM json_each(?))',(encoded(o['version_ids']),))
+            db.execute("UPDATE archive_versions SET active=0,data=json_set(data,'$.user_invalidated',json('true')) WHERE id IN (SELECT value FROM json_each(?))",(encoded(o['version_ids']),))
             for key in sorted({v['target_key'] for v in facts['versions']}):archive._sync(db,key,'PRESENT' if archive._live_versions(db,key).fetchone() else 'INVALID','management:'+request.preview_id,diagnostics=['LOGICALLY_INVALIDATED'])
             self.repository._audit(db,None,'ARCHIVE_INVALIDATE:'+request.preview_id,actor);return dict(invalidated=o['version_ids'])
         if kind=='revoke':
