@@ -105,6 +105,14 @@ class ImportRequest(ReceiptRequest):
     limit: int = Field(default=100,ge=1,le=100)
 
 
+class HistoryLinkRequest(Strict):
+    receipt_id: Id
+    ordinal: int = Field(ge=0,le=10000)
+    digest: Digest
+    task_id: int = Field(gt=0)
+    version_id: Id
+
+
 class SourcePreviewRequest(Strict):
     endpoint_ref: Annotated[str,Field(pattern=r'^secret:[a-f0-9]{32}$')]
     credential_ref: Annotated[str,Field(pattern=r'^secret:[a-f0-9]{32}$')]
@@ -243,6 +251,15 @@ class LegacyHistory(Strict):
     status: Any = None
 
 
+class HistoryLink(Strict):
+    task_id: int
+    version_id: str
+    service: str
+    library: str
+    archive_revision: str
+    linked_at: str
+
+
 class HistoryRow(Strict):
     ordinal: int
     digest: str
@@ -255,6 +272,7 @@ class HistoryRow(Strict):
     time_basis: Literal['LEGACY_REPORTED']
     state: Literal['LEGACY_UNVERIFIED']
     diagnostics: list[str]
+    link: HistoryLink | None = None
 
 
 class HistoryView(Strict):
@@ -364,6 +382,14 @@ class Management:
         self._auth(user)
         return dict(rows=self._call(self.plugin.migration.history,receipt_id,limit,offset),limit=limit,offset=offset)
 
+    def link_history(self,request:HistoryLinkRequest,user:TokenPayload=Depends(verify_token))->HistoryRow:
+        self._auth(user)
+        with self.plugin.runtime_lock:
+            worker=getattr(self.plugin,'delivery_worker',None)
+            if not worker:raise HTTPException(409,'ARCHIVE_UNAVAILABLE')
+            return self._call(self.plugin.migration.link_history,request.receipt_id,request.ordinal,
+                request.digest,request.task_id,request.version_id,worker.archive,str(user.username))
+
     def cutover_preview(self,request:CutoverPreviewRequest,user:TokenPayload=Depends(verify_token))->Receipt:
         self._auth(user)
         with self.plugin.runtime_lock:
@@ -398,6 +424,7 @@ class Management:
             ('/migration/import','POST',self.import_page,Receipt),('/migration/receipts/{receipt_id}','GET',self.receipt,Receipt),
             ('/migration/source/preview','POST',self.source_preview,Receipt),('/migration/source/read','POST',self.source_read,Receipt),
             ('/migration/receipts/{receipt_id}/history','GET',self.history,HistoryView),
+            ('/migration/history/link','POST',self.link_history,HistoryRow),
             ('/migration/cutover/preview','POST',self.cutover_preview,Receipt),('/migration/cutover','POST',self.cutover,Receipt),
             ('/migration/owners','GET',self.owners,OwnerView)]
         return [dict(path=p,methods=[m],endpoint=f,response_model=t,auth='bear',summary=f.__name__,route_class_override=PrivateRoute) for p,m,f,t in definitions]

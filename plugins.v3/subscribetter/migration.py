@@ -377,6 +377,59 @@ class Migration:
             raise ValueError('PRIVATE_VALUE_IN_MIGRATION')
         return rows
 
+    def link_history(self,identity,ordinal,expected_digest,task_id,version_id,archive,actor):
+        """Attach a historical row to a fresh current task/library without granting work."""
+        receipt=self._load(identity,'IMPORT')
+        if type(ordinal)is not int or ordinal<0 or type(task_id)is not int or task_id<=0 or not isinstance(version_id,str) or not version_id:
+            raise ValueError('LEGACY_LINK_SCOPE_INVALID')
+        with self.repository.connection() as db:
+            stored=db.execute('SELECT data FROM migration_history WHERE receipt_id=? AND ordinal=?',(identity,ordinal)).fetchone()
+            task=db.execute('SELECT * FROM tasks WHERE id=?',(task_id,)).fetchone()
+            selected=db.execute('SELECT target_key,active FROM archive_versions WHERE id=?',(version_id,)).fetchone()
+        if not stored or not task:raise ValueError('LEGACY_LINK_SCOPE_UNKNOWN')
+        row=json.loads(stored[0]);task=dict(task)
+        private=[self.secrets.resolve(ref) for ref in receipt['data'].get('private_context',[])]
+        if any(contains_private(row,value) for value in private):
+            raise ValueError('PRIVATE_VALUE_IN_MIGRATION')
+        if row['digest']!=expected_digest:raise ValueError('LEGACY_DIGEST_CHANGED')
+        prior=row.get('link')
+        if prior:
+            if (prior['task_id'],prior['version_id'])!=(task_id,version_id):raise ValueError('LEGACY_LINK_CONFLICT')
+            return row
+        raw=row['raw'];identities=row['identities'];snapshot=json.loads(task['snapshot'])
+        if raw.get('type')!=task['media_type']:
+            raise ValueError('LEGACY_IDENTITY_UNVERIFIED')
+        if identities:
+            if identities.get(task['media_source'])!=str(task['media_id']):raise ValueError('LEGACY_IDENTITY_UNVERIFIED')
+        else:
+            title=' '.join(str(raw.get('title') or '').split()).casefold()
+            current_title=' '.join(str(snapshot.get('name') or '').split()).casefold()
+            year=str(raw.get('year') or '')
+            if not title or title!=current_title or not year.isdecimal() or int(year)<=0 or year!=str(snapshot.get('year')):
+                raise ValueError('LEGACY_IDENTITY_UNVERIFIED')
+        if not selected or selected['active']!=1 or json.loads(selected['target_key'])[:5]!=json.loads(task['target_key']):
+            raise ValueError('CURRENT_LIBRARY_UNVERIFIED')
+        unit_key=selected['target_key']
+        observed=archive.current([unit_key])[unit_key]
+        if observed['state']!='PRESENT' or version_id not in {v.version_id for v in observed['versions']}:
+            raise ValueError('CURRENT_LIBRARY_UNVERIFIED')
+        with self.repository.connection(write=True) as db:
+            current=db.execute('SELECT data FROM migration_history WHERE receipt_id=? AND ordinal=?',(identity,ordinal)).fetchone()
+            fresh_task=db.execute('SELECT target_key,snapshot,generation FROM tasks WHERE id=?',(task_id,)).fetchone()
+            target=db.execute('SELECT state,revision FROM archive_targets WHERE target_key=?',(unit_key,)).fetchone()
+            version=db.execute('SELECT target_key,service,library,active FROM archive_versions WHERE id=?',(version_id,)).fetchone()
+            if not current or current[0]!=stored[0] or not fresh_task or (fresh_task['target_key'],fresh_task['snapshot'],fresh_task['generation'])!=(task['target_key'],task['snapshot'],task['generation']):
+                raise ValueError('LEGACY_LINK_CHANGED')
+            if not target or target['state']!='PRESENT' or target['revision']!=observed['archive_revision'] or not version or version['target_key']!=unit_key or version['active']!=1:
+                raise ValueError('CURRENT_LIBRARY_UNVERIFIED')
+            row['link']=dict(task_id=task_id,version_id=version_id,service=version['service'],library=version['library'],
+                             archive_revision=target['revision'],linked_at=utcnow())
+            if any(contains_private(row,value) for value in private):
+                raise ValueError('PRIVATE_VALUE_IN_MIGRATION')
+            db.execute('UPDATE migration_history SET data=? WHERE receipt_id=? AND ordinal=?',(json.dumps(row,ensure_ascii=False),identity,ordinal))
+            self.repository._audit(db,task_id,'LEGACY_HISTORY_LINK:'+identity+':'+str(ordinal),str(actor)[:128])
+        return row
+
     def feature(self,module,route_scope,config=None):
         if module not in MODULES:raise ValueError('UNKNOWN_FEATURE')
         config=config if config is not None else self.configuration.view()['config'];key='discovery' if module=='discovery' else 'ai_assist'

@@ -1268,6 +1268,62 @@
         }
       }
     },
+    "/migration/history/link": {
+      "post": {
+        "summary": "link_history",
+        "operationId": "link_history_migration_history_link_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryLinkRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryRow"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/migration/cutover/preview": {
       "post": {
         "summary": "cutover_preview",
@@ -8553,6 +8609,89 @@
       ],
       "title": "Health"
     },
+    "HistoryLink": {
+      "properties": {
+        "task_id": {
+          "type": "integer",
+          "title": "Task Id"
+        },
+        "version_id": {
+          "type": "string",
+          "title": "Version Id"
+        },
+        "service": {
+          "type": "string",
+          "title": "Service"
+        },
+        "library": {
+          "type": "string",
+          "title": "Library"
+        },
+        "archive_revision": {
+          "type": "string",
+          "title": "Archive Revision"
+        },
+        "linked_at": {
+          "type": "string",
+          "title": "Linked At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "task_id",
+        "version_id",
+        "service",
+        "library",
+        "archive_revision",
+        "linked_at"
+      ],
+      "title": "HistoryLink"
+    },
+    "HistoryLinkRequest": {
+      "properties": {
+        "receipt_id": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Receipt Id"
+        },
+        "ordinal": {
+          "type": "integer",
+          "maximum": 10000.0,
+          "minimum": 0.0,
+          "title": "Ordinal"
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Digest"
+        },
+        "task_id": {
+          "type": "integer",
+          "exclusiveMinimum": 0.0,
+          "title": "Task Id"
+        },
+        "version_id": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Version Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "receipt_id",
+        "ordinal",
+        "digest",
+        "task_id",
+        "version_id"
+      ],
+      "title": "HistoryLinkRequest"
+    },
     "HistoryPreview": {
       "properties": {
         "config_revision": {
@@ -8650,6 +8789,16 @@
           },
           "type": "array",
           "title": "Diagnostics"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/HistoryLink"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "additionalProperties": false,
