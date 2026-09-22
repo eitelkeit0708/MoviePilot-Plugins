@@ -221,6 +221,37 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual('COMPLETE',org.organize('plan',target)['state'])
         self.assertEqual(before,calls)
 
+    def test_organize_adopts_existing_exact_native_transfer_only_with_receipt(self):
+        import shutil
+        root=Path(self.tmp.name);source=root/'source';source.mkdir();target=root/'organized';target.mkdir()
+        for item in self.files:
+            path=source/item['path'];path.write_bytes(b'x'*item['size'])
+            if item['index'] in (1,2):shutil.copyfile(path,target/path.name)
+        self.executor.execute('plan',b'torrent');self.client.stats.update({3:200,7:10})
+        class Host:
+            receipt=False
+            def history(self,*args):return True
+            def prepare_transfer(self,src,dest,item,snapshot):
+                return dict(planned=dest/src.name,naming_revision='test')
+            def transfer_receipt(self,src,dest,snapshot):
+                assert Path(src).name==Path(dest).name
+                return self.receipt
+            def transfer_prepared(self,prepared):
+                raise AssertionError('must not copy a proven existing target')
+        host=Host();organizer=self.e.Organizer(self.executor,host,source_root=lambda _:source)
+        self.assertEqual('DESTINATION_ALREADY_EXISTS',organizer.organize('plan',target)['reason'])
+        with self.repo.connection() as db:
+            self.assertEqual(0,db.execute("SELECT count(*) FROM plan_actions WHERE kind='ORGANIZE' AND json_extract(payload,'$.verb') LIKE 'organize:%'").fetchone()[0])
+        host.receipt=True
+        (target/'E02.mkv').write_bytes(b'y'*200)
+        self.assertEqual('DESTINATION_ALREADY_EXISTS',organizer.organize('plan',target)['reason'])
+        shutil.copyfile(source/'E02.mkv',target/'E02.mkv')
+        self.assertEqual('COMPLETE',organizer.organize('plan',target)['state'])
+        with self.repo.connection() as db:
+            assets=[(r['file_index'],r['state']) for r in db.execute("SELECT file_index,state FROM organized_assets WHERE plan_id='plan' ORDER BY file_index")]
+        self.assertEqual([(1,'COMPLETE'),(2,'COMPLETE')],assets)
+        self.assertEqual('COMPLETE',organizer.organize('plan',target)['state'])
+
     def test_completed_source_hash_checkpoint_recovers_expired_tick_without_skipping_guards(self):
         import shutil
         from types import SimpleNamespace

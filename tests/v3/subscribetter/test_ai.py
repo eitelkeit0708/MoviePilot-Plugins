@@ -233,7 +233,7 @@ class AITests(unittest.TestCase):
         self.replies.append('{"name":"片名乙","year":"2024"}')
         result=service.recognize(record['candidate_key'],self.r.Target('电影','tmdb','target'),parse)
         self.assertEqual('REJECT',result['status']);self.assertEqual('片名乙',calls[0][0].cn_name)
-        self.assertIsNone(calls[0][1]);self.assertEqual(1,c.stats()['counts']['candidate_submitted'])
+        self.assertEqual(('tmdb',None),calls[0][1]);self.assertEqual(1,c.stats()['counts']['candidate_submitted'])
         self.assertNotIn('identity_matched',c.stats()['counts'])
         other=service.observe(dict(site=1,torrent_id='y',title='[另一个片名] 2024',description='',labels=[]))
         self.replies.append('{"name":"","year":""}')

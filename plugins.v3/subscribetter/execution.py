@@ -637,11 +637,19 @@ class Organizer:
                             (plan_id,index,str(src),None,item['size'],hashes[index],'AUTHORIZED',encoded(evidence)))
                     payload={'file_index':index,'source':str(src),'target_root':str(target),'sha256':hashes[index],'content_sha1':content_sha1}
                     transfer=lambda:self.host.transfer(src,target,item,s)
+                    adopted=False
                     if hasattr(self.host,'prepare_transfer'):
                         # Native planning is pure. Reject predictable collisions before
                         # creating a copy attempt, instead of mislabelling them UNKNOWN.
                         prepared=self.host.prepare_transfer(src,target,item,s)
-                        if prepared['planned'].exists():raise ValueError('DESTINATION_ALREADY_EXISTS')
+                        if prepared['planned'].exists():
+                            output=safe_local(target,prepared['planned'])
+                            receipt=getattr(self.host,'transfer_receipt',None)
+                            if (output.stat().st_size!=item['size'] or not receipt
+                                    or not receipt(str(src),str(output),s)
+                                    or self._source_hashes(plan_id,'adopt:'+str(index),output,target)[0]!=hashes[index]):
+                                raise ValueError('DESTINATION_ALREADY_EXISTS')
+                            adopted=True
                         token=self.executor.exclusions.token()
                         self.executor._fresh_candidate(plan,vector,content_sha1)
                         with self.repository.connection() as db:
@@ -649,15 +657,24 @@ class Organizer:
                         if len(old)==1 and item['role']=='subtitle':
                             proof=self.host.legacy_preflight_proof(plan_id,src,target,item,s)
                             if proof:self.executor.authority.settle_legacy_preflight(old[0]['id'],vector,proof,exclusion_token=token)
-                        payload.update(naming_revision=prepared['naming_revision'],planned_destination=str(prepared['planned']))
-                        transfer=lambda:self.host.transfer_prepared(prepared)
+                        payload.update(naming_revision=prepared['naming_revision'],planned_destination=str(prepared['planned']),adopted_native_receipt=adopted)
+                        if adopted:
+                            def transfer():
+                                output=safe_local(target,prepared['planned'])
+                                if (output.stat().st_size!=item['size']
+                                        or self._source_hashes(plan_id,'adopt:'+str(index),output,target)[0]!=hashes[index]
+                                        or not self.host.transfer_receipt(str(src),str(output),s)):
+                                    raise ValueError('ADOPTED_TRANSFER_CHANGED')
+                                return output
+                        else:transfer=lambda:self.host.transfer_prepared(prepared)
                     ok,action,result=self.executor._mutation(plan,indices,vector,'organize:'+str(index),'ORGANIZE',transfer,payload)
                     if not ok or result is None:
                         if self.executor.authority.action(action)['state']=='FAILED':
                             return {'state':'BLOCKED','reason':'ORGANIZE_NOT_SENT_REPLAN_REQUIRED','action_id':action}
                         return {'state':'UNKNOWN','reason':'ORGANIZE_OUTCOME_UNKNOWN','action_id':action}
                     output=safe_local(target,result)
-                    if output.stat().st_size!=item['size'] or digest(output)!=hashes[index]:
+                    output_hash=self._source_hashes(plan_id,'adopt:'+str(index),output,target)[0] if adopted else digest(output)
+                    if output.stat().st_size!=item['size'] or output_hash!=hashes[index]:
                         raise ValueError('ORGANIZED_ASSET_READBACK_MISMATCH')
                     with self.repository.connection(write=True) as db:
                         db.execute("UPDATE organized_assets SET destination=?,state='COMPLETE',evidence=? WHERE plan_id=? AND file_index=?",(str(output),encoded(dict(evidence,action_id=action)),plan_id,index))
