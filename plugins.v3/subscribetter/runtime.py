@@ -323,7 +323,7 @@ class Runtime:
         scope=scope or (self.scopes.get(target.key) or (None,None))[1]
         if not self.delivery or not scope:return dict(state='UNKNOWN',diagnostics=['UNOBSERVED_SCOPE'],evidence_ref=None)
         facts=self.delivery.archive.current(scope['units']);states={v['state'] for v in facts.values()}
-        state='MISSING' if states=={'MISSING'} else 'PRESENT' if states=={'PRESENT'} and target.media_type=='电影' else 'PARTIAL' if 'PRESENT' in states else 'UNKNOWN'
+        state='MISSING' if states=={'MISSING'} else 'INVALID' if states=={'INVALID'} else 'PRESENT' if states=={'PRESENT'} and target.media_type=='电影' else 'PARTIAL' if 'PRESENT' in states else 'UNKNOWN'
         if target.media_type=='电视剧' and states=={'PRESENT'} and scope['scope_closed']:
             with self.repository.connection() as db:
                 missing=db.execute('SELECT 1 FROM json_each(?) k WHERE NOT EXISTS(SELECT 1 FROM ingest_receipts r JOIN target_units u USING(target_key) WHERE r.target_key=k.value AND r.generation=u.generation AND u.last_ingest_confirmed_at IS NOT NULL) LIMIT 1',(encoded(scope['units']),)).fetchone()
