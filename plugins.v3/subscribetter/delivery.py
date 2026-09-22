@@ -83,7 +83,7 @@ def validate_rules(rules):
         if not isinstance(name,str) or not name or name in result: raise ValueError('INVALID_RULE_ID')
         if type(r.get('enabled')) is not bool: raise ValueError('INVALID_RULE_ENABLED')
         root=Path(r['local_root'])
-        if not root.is_absolute() or '..' in root.parts or root.is_symlink(): raise ValueError('INVALID_LOCAL_ROOT')
+        if not root.is_absolute() or '..' in root.parts or any(p.is_symlink() for p in (root,*root.parents)): raise ValueError('INVALID_LOCAL_ROOT')
         root=root.absolute()
         if os.name=='posix' and Path('/proc/self/mountinfo').exists():
             for line in Path('/proc/self/mountinfo').read_text().splitlines():
@@ -962,6 +962,7 @@ class LocalReconciler:
                             if owner['id']!=rule_id:continue
                             if stat.S_ISDIR(observed[2]):
                                 data['stack'].append({'path':str(path),'offset':0});finished=False;break
+                            if not stat.S_ISREG(observed[2]):continue
                             previous=db.execute('SELECT data FROM local_observations WHERE rule_id=? AND path=?',(rule_id,str(path))).fetchone()
                             old=json.loads(previous[0]) if previous else {}
                             value=dict(state='PRESENT',identity=observed,stable_since=old.get('stable_since') if old.get('identity')==observed else stamp(now))

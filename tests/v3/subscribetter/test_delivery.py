@@ -222,6 +222,35 @@ class DeliveryTests(unittest.TestCase):
             self.assertEqual(expected,self.m.fallback_allowed(dict(self.rule,fallback=True,fallback_gb=value),100))
         self.assertFalse(self.m.fallback_allowed(dict(self.rule,fallback=True,fallback_gb='0.000000099'),100))
 
+    def test_rule_rejects_symlinked_ancestor_of_monitor_root(self):
+        target=self.root/'actual-parent';(target/'organized').mkdir(parents=True)
+        alias=self.root/'alias-parent';alias.symlink_to(target,target_is_directory=True)
+        with self.assertRaisesRegex(ValueError,'INVALID_LOCAL_ROOT'):
+            self.m.validate_rules([dict(self.rule,local_root=str(alias/'organized'))])
+        with self.assertRaisesRegex(ValueError,'MONITOR_OUTPUT_OVERLAP'):
+            self.m.validate_rules([dict(self.rule,excluded_local_roots=[str(self.local/'strm')])])
+
+    @unittest.skipUnless(os.name=='posix','Linux mountinfo required')
+    def test_rule_rejects_cloudfs_mount(self):
+        mountinfo='12 1 0:12 / /mnt/cloudfs rw - rclone cloud rw\n'
+        with patch.object(Path,'read_text',return_value=mountinfo):
+            with self.assertRaisesRegex(ValueError,'CLOUDFS_MONITOR_FORBIDDEN'):
+                self.m.validate_rules([dict(self.rule,local_root='/mnt/cloudfs/media')])
+
+    def test_local_scan_owns_nested_root_without_following_directory_symlink(self):
+        nested=self.local/'nested';nested.mkdir();inside=nested/'episode.mkv';inside.write_bytes(b'episode')
+        outside=self.root/'outside';outside.mkdir();(outside/'foreign.mkv').write_bytes(b'foreign')
+        alias=self.local/'linked';alias.symlink_to(outside,target_is_directory=True)
+        child=dict(self.rule,id='child',local_root=str(nested))
+        scanner=self.m.LocalReconciler(self.repo,[self.rule,child])
+        self.assertEqual('COMPLETE',scanner.scan('r',force=True,now=tp.NOW)['state'])
+        self.assertEqual('COMPLETE',scanner.scan('child',force=True,now=tp.NOW)['state'])
+        with self.repo.connection() as db:
+            paths={(row['rule_id'],row['path']) for row in db.execute('SELECT rule_id,path FROM local_observations')}
+        self.assertIn(('child',str(inside)),paths)
+        self.assertNotIn(('r',str(inside)),paths)
+        self.assertFalse(any(path==str(alias) or path.startswith(str(outside)) for _,path in paths))
+
     def test_misses_only_and_retry_due_survive_restart(self):
         bid=self.prepared(); self.cloud.results=[ValueError('AUTH_FAILED'),'MISS','MISS']
         self.worker.reconcile(bid,now=tp.NOW)
