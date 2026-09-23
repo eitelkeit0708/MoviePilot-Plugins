@@ -49,6 +49,51 @@ class ProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'PROVIDER_IDENTITY_UNVERIFIED'):self.provider.resolve(target)
         with self.assertRaises(ValueError):self.provider.resolve(self.r.Target('电视剧','douban','1396',1))
 
+    def test_candidate_evaluation_only_uses_aired_episodes(self):
+        target=self.r.Target('电视剧','themoviedb','1396',1)
+        self.media.tmdb_info={'seasons':[{'season_number':1,'episode_count':3}]}
+        self.detail={'season_number':1,'episodes':[
+            {'id':41,'season_number':1,'episode_number':1,'air_date':'2020-01-01'},
+            {'id':42,'season_number':1,'episode_number':2,'air_date':'2020-01-08'},
+            {'id':43,'season_number':1,'episode_number':3,'air_date':'2999-01-01'},
+        ]}
+        frozen=self.provider.resolve(target,today=date(2026,9,24))
+        self.assertFalse(frozen['scope_closed'])
+        self.assertEqual(3,len(frozen['units']))
+        captured=[]
+        runtime=object.__new__(self.m.Runtime)
+        runtime.verify_input=lambda saved:dict(id=1,media_type='电视剧',media_source='themoviedb',media_id='1396',season=1,episode_group='')
+        runtime.scope=lambda target,**kwargs:frozen
+        runtime.pipeline=SimpleNamespace(evaluate=lambda key,target,units,**kwargs:captured.append(units) or dict(plans=[]))
+        saved=dict(scope=frozen,planner_mode='episode',opportunity_id='test',effective={'template':{'downloader':'qb','save_path':'/test','custom_words':''}})
+        runtime.evaluate(saved,'candidate')
+        self.assertEqual(frozen['units'][:2],captured[0])
+        policy=load('policy').Policy({'tv':'欧美剧'},7)
+        planner=load('planner').Planner(policy)
+        fact=lambda quality,current=False:policy.normalize({'title':f'Fictional {quality} WEB-DL -HHWEB 中文字幕','description':'','labels':[]},current=current)
+        candidate=dict(candidate_key='future',infohash='a'*40,downloader='qb',save_path='/test',parse_revision='test',
+            facts={key:fact('2160p') for key in frozen['units']},classification={'state':'complete','policy_revision':7,'effective':{'category_id':'tv'}},
+            torrent_files=[dict(index=index,path=f'E{index+1:02}.mkv',size=100,role='video',targets=[key],requires=[])
+                           for index,key in enumerate(frozen['units'])],available=True,identity_ok=True,scope_ok=True,
+            parse_status='OK',files_verified=True,configuration_verified=True)
+        current={frozen['units'][0]:dict(state='PRESENT',revision=1,versions=[load('policy').Version('low',fact('1080p',True))]),
+                 frozen['units'][1]:dict(state='MISSING',revision=0,versions=[])}
+        plans=planner.evaluate(candidate,current,captured[0])['plans']
+        self.assertEqual(1,len(plans))
+        self.assertEqual([0,1],plans[0]['selected_indices'])
+        self.assertEqual(['QUALITY_UPGRADE','ACQUIRE'],[plans[0]['targets'][key]['action'] for key in frozen['units'][:2]])
+        self.assertNotIn(frozen['units'][2],plans[0]['targets'])
+        only_future=dict(frozen,units=frozen['units'][2:],provider_rows=frozen['provider_rows'][2:])
+        runtime.scope=lambda target,**kwargs:only_future
+        self.assertEqual('NO_AIRED_UNITS',runtime.evaluate(dict(saved,scope=only_future),'candidate')['reason'])
+        self.assertEqual(1,len(captured))
+        aired=dict(frozen,provider_rows=[*frozen['provider_rows'][:2],dict(frozen['provider_rows'][2],air_date='2020-01-15')])
+        runtime.scope=lambda target,**kwargs:aired
+        runtime.evaluate(saved,'candidate')
+        self.assertEqual(frozen['units'],captured[-1])
+        movie=self.r.Target('电影','themoviedb','42')
+        self.assertEqual([self.m.TargetUnit(movie).key],runtime.aired_units({'units':[self.m.TargetUnit(movie).key]},movie))
+
 
 class DirectedInventoryTests(unittest.TestCase):
     def setUp(self):

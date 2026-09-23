@@ -100,7 +100,7 @@ class Passive:
         if not keys:return dict(state='OUTSIDE_PASSIVE_SCOPE')
         if len(keys)>1000:raise ValueError('PASSIVE_SCOPE_LIMIT')
         scope=r.scope(target,fresh=True);template=r.destination(scope)
-        eligible=sorted(set(keys)&set(scope['units']))
+        eligible=sorted(set(keys)&set(r.aired_units(scope,target)))
         if not eligible:return dict(state='OUTSIDE_PROVIDER_SCOPE')
         result=r.pipeline.evaluate(key,target,eligible,downloader=template['downloader'],save_path=template['save_path'],custom_words=template['custom_words'],mode='episode')
         approved=sorted({k for plan in result['plans'] for k,v in plan['targets'].items() if v['action'] in ('QUALITY_UPGRADE','EVIDENCE_UPGRADE','REPLACE_INVALID','SIDECAR_SUPPLEMENT')})

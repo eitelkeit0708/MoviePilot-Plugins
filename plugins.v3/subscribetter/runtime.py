@@ -350,6 +350,17 @@ class Runtime:
         values=saved['effective']['candidates']
         return SearchBudget(**{k:values[k] for k in ('keywords','pages','concurrency','results','requests','interval')})
 
+    @staticmethod
+    def aired_units(scope,target):
+        if target.media_type=='电影':return scope['units']
+        today=date.today();aired=set()
+        for row in scope['provider_rows']:
+            try:
+                if date.fromisoformat(row.get('air_date') or '')<=today:
+                    aired.add(TargetUnit(target,row['episode_number']).key)
+            except (ValueError,TypeError,KeyError):continue
+        return sorted(aired&set(scope['units']))
+
     def verify_input(self,saved):
         self.check();row=self.repository.get_task(saved['task_id'])
         if not row or row['state'] not in ('ACTIVE','PASSIVE') or row['generation']!=saved['task_generation']:
@@ -366,7 +377,10 @@ class Runtime:
         fresh=self.scope(target)
         if fresh['units']!=scope.get('provider_units',scope['units']):raise ValueError('PROVIDER_SCOPE_CHANGED')
         mode=saved['planner_mode']
-        return self.pipeline.evaluate(key,target,scope['units'],downloader=template['downloader'],save_path=template['save_path'],
+        eligible=self.aired_units(fresh,target)
+        eligible=sorted(set(eligible)&set(scope['units']))
+        if not eligible:return dict(plans=[],reason='NO_AIRED_UNITS')
+        return self.pipeline.evaluate(key,target,eligible,downloader=template['downloader'],save_path=template['save_path'],
             custom_words=template['custom_words'],task_id=row['id'],mode=mode,opportunity_id=saved['opportunity_id'],simulation=simulation,assistance=assistance,locks=saved.get('locks'))
 
     def settings(self,request,*,db,actor):
