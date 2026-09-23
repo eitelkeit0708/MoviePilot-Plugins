@@ -200,6 +200,12 @@ def candidate_key(raw):
     raise ValueError('resource identity missing; title and size are not identity')
 
 
+def sample_key(kind, candidate, task_id, index=None):
+    scoped = candidate if task_id is None else candidate + ':task:' + str(task_id)
+    if index is not None:scoped += ':' + str(index)
+    return kind + ':' + sha256(scoped.encode()).hexdigest()
+
+
 @dataclass(frozen=True)
 class SearchBudget:
     keywords: int
@@ -342,7 +348,7 @@ class CandidateService:
         if all(declared) and declared[0] == target.media_source and identity_matches((target.media_source,target.media_id),declared) is False:
             return {'status':'REJECT','reason':'PROVIDER_ID_CONFLICT'}
         check()
-        correction = meta_service.parse('candidate:'+sha256(key.encode()).hexdigest(), value(raw,'title') or '', value(raw,'description'), custom_words, task_id=task_id)
+        correction = meta_service.parse(sample_key('candidate',key,task_id), value(raw,'title') or '', value(raw,'description'), custom_words, task_id=task_id)
         allow_ai=assistance;assistance=None
         if self.ai is not None and allow_ai:
             check()
@@ -535,7 +541,7 @@ class CandidatePipeline:
         for index,(path,size) in enumerate(table):
             if PurePosixPath(path).suffix.casefold() not in VIDEO:
                 continue
-            corrected=self.meta.parse('file:'+sha256((key+':'+str(index)).encode()).hexdigest(),path,custom_words=custom_words,task_id=task_id,is_path=True,force_video=True)
+            corrected=self.meta.parse(sample_key('file',key,task_id,index),path,custom_words=custom_words,task_id=task_id,is_path=True,force_video=True)
             if self.active:self.active()
             if corrected.status=='DEFER' and corrected.reasons==('BRACKET_NAME_AMBIGUOUS',):
                 brackets=list(BRACKET.finditer(PurePosixPath(path).name))
@@ -544,7 +550,7 @@ class CandidatePipeline:
                         and (brackets[0][1] or brackets[0][2]).strip()==value(result['media'],'title')
                         and isinstance(alias,str) and isinstance(parsed,str) and alias
                         and re.sub(r'\W+','',alias.casefold())==re.sub(r'\W+','',parsed.casefold())):
-                    corrected=self.meta.parse('file:'+sha256((key+':'+str(index)).encode()).hexdigest(),path,
+                    corrected=self.meta.parse(sample_key('file',key,task_id,index),path,
                                               custom_words=custom_words,locks=('name',),task_id=task_id,
                                               is_path=True,force_video=True)
             if corrected.status!='OK':

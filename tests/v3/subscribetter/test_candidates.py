@@ -309,5 +309,40 @@ class CandidateTests(unittest.TestCase):
                 if not expected:self.assertEqual('PHYSICAL_META_UNCONFIRMED',result['reason'])
 
 
+    def test_same_candidate_parse_samples_are_owned_per_task(self):
+        from torrentool.api import Bencode
+        policy=load('policy').Policy({'tv':'欧美剧'},7)
+        target=self.r.Target('电视剧','themoviedb','42',1)
+        unit=self.m.TargetUnit(target,1).key
+        content=Bencode.encode({'info':{'name':'Show.S01E01.1080p.WEB-DL-HHWEB.mkv',
+            'length':100,'piece length':16384,'pieces':b'x'*20}})
+        class Adapter:
+            def recognize(self,meta,declared):return types.SimpleNamespace(title='Show')
+            def identity(self,media):return ('themoviedb','42')
+            def classify(self,media):return {'state':'complete','policy_revision':7,
+                'effective':{'category_id':'tv'}}
+            def acquire(self,raw):return content
+        class Meta:
+            corrector=types.SimpleNamespace(revision='task-scope-test')
+            def __init__(self,repo):self.repo=repo
+            def parse(self,key,title,*args,task_id=None,**kwargs):
+                self.repo.save_parse_sample(key,{'inputs':{},'native':{},
+                    'result':{'revision':'task-scope-test'}},{},task_id,True)
+                return types.SimpleNamespace(status='OK',meta=types.SimpleNamespace(
+                    begin_season=1,end_season=None,begin_episode=1,end_episode=None),
+                    record=lambda:{'status':'OK'})
+        service=self.m.CandidateService(self.repo,Adapter())
+        key=service.observe(dict(site=1,torrent_id='same',title='Show S01E01 1080p WEB-DL-HHWEB',
+                                 description='',labels=[]))['candidate_key']
+        current={unit:{'state':'MISSING','revision':0,'versions':[]}}
+        pipeline=self.m.CandidatePipeline(service,Meta(self.repo),policy,lambda _:current,lambda _:object())
+        task=self.repo.submit('sample-owner',target,{},'test')
+        for task_id in (None,task['id'],task['id']):
+            pipeline.evaluate(key,target,[unit],downloader='test',save_path='/test',
+                              task_id=task_id,assistance=False)
+        self.assertEqual({None,task['id']},{row['task_id'] for row in self.repo.parse_samples()})
+        self.assertEqual(4,len(self.repo.parse_samples()))
+
+
 if __name__ == '__main__':
     unittest.main()
