@@ -412,6 +412,7 @@ class Runtime:
         if completed_mode is not None:
             if (task['media_type']!='电视剧' or effective['mode']!='CONTINUOUS' or not scope['scope_closed']
                     or completed_mode not in ('EPISODE','PACK')):raise ValueError('COMPLETED_MODE_SCOPE_REQUIRED')
+            if completed_mode=='PACK' and set(keys)!=set(scope['provider_units']):raise ValueError('PACK_REQUIRES_FULL_PROVIDER_SCOPE')
             effective['lifecycle']=dict(effective['lifecycle'],completed_mode=completed_mode)
             saved['completed_mode_override']=True
         saved.update(scope=scope,effective=effective,config_digest=digest(effective),task_generation=task['generation']+1,

@@ -766,6 +766,9 @@ class Views:
                         saved=json.loads(facts['inputs'][0]['value'])
                         if (task[0]['media_type']!='电视剧' or saved['effective']['mode']!='CONTINUOUS'
                                 or not saved['scope']['scope_closed']):blockers.append('COMPLETED_MODE_SCOPE_REQUIRED')
+                        if (objects['completed_mode']=='PACK' and
+                                set(objects['target_keys'])!=set(saved['scope'].get('provider_units',saved['scope']['units']))):
+                            blockers.append('PACK_REQUIRES_FULL_PROVIDER_SCOPE')
                         facts['mode_change']=dict(current=saved['effective']['lifecycle']['completed_mode'],
                                                   requested=objects['completed_mode'],
                                                   planner_mode='season' if objects['completed_mode']=='PACK' else 'episode')

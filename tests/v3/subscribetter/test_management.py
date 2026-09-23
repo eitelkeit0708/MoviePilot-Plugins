@@ -231,6 +231,13 @@ class ManagementTests(unittest.TestCase):
         self.plugin.repository=f.repo;self.plugin.configuration=config;self.plugin.config=f.plugin.config
         self.plugin.generation=f.plugin.generation;self.plugin.runtime=f.runtime
         ui=load('ui');view=ui.Views(self.plugin);user=SimpleNamespace(username='admin')
+        partial=ui.SettingsPreview(config_revision=config.view()['revision'],runtime_generation=f.plugin.generation,
+            generation=task['generation'],opportunity_id=opportunity['id'],target_keys=keys[:1],
+            destination_template='tv-destination',locks={},completed_mode='PACK')
+        partial_preview=view.settings_preview(task['id'],partial,user=user)
+        self.assertIn('PACK_REQUIRES_FULL_PROVIDER_SCOPE',partial_preview.blockers)
+        with self.assertRaisesRegex(Exception,'PACK_REQUIRES_FULL_PROVIDER_SCOPE'):
+            view.apply_settings(task['id'],self.apply_body(partial_preview,'partial'),user=user)
         request=ui.SettingsPreview(config_revision=config.view()['revision'],runtime_generation=f.plugin.generation,
             generation=task['generation'],opportunity_id=opportunity['id'],target_keys=keys,
             destination_template='tv-destination',locks={},completed_mode='PACK')
