@@ -732,7 +732,7 @@ class DeliveryTests(unittest.TestCase):
         with self.repo.connection(write=True) as db:
             db.execute('INSERT INTO managed_downloads VALUES(?,?,?,?,?,?,?,?,?,?)',(s['downloader'],s['infohash'],s['save_path'],'[]','owned','add','client','RUNNING','{}',self.s.stamp(tp.NOW)))
         from unittest.mock import Mock
-        client=Mock();task={'id':'client','save_path':s['save_path'],'markers':['owned']}
+        client=Mock();task={'id':'client','save_path':s['save_path'],'markers':['owned'],'state':'DOWNLOADING'}
         client.task.return_value=task;client.files.return_value=[{'id':f['index'],'path':f['path'],'size':f['size']} for f in self.files]
         def remove(tid):
             with self.repo.connection() as db:
@@ -741,6 +741,10 @@ class DeliveryTests(unittest.TestCase):
             client.task.return_value=None
         client.remove.side_effect=remove
         with patch.object(tp.load('execution').ConfiguredDownloader,'named',return_value=client):
+            blocked=self.worker.cleanup(bid,scope='downloader_task')
+            self.assertEqual('DOWNLOADER_NOT_STOPPED',blocked['reason'])
+            client.remove.assert_not_called()
+            task['state']='PAUSED'
             result=self.worker.cleanup(bid,scope='downloader_task')
         self.assertTrue(result['downloader_removed']);self.assertTrue((self.local/'movie.mkv').exists())
 

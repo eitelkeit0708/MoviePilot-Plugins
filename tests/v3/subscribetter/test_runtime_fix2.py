@@ -22,7 +22,7 @@ def cleanup_deadline(slow='task',scope='downloader_task'):
    if removed:return None
    if slow=='task':time.sleep(.15)
    if scope=='downloader_data':return None
-   return dict(id='client',save_path=s['save_path'],markers=['owned'])
+   return dict(id='client',save_path=s['save_path'],markers=['owned'],state='PAUSED')
   def files(ih):
    calls.append(dict(stage='files',elapsed=round(time.monotonic()-began,3)))
    if slow=='files':time.sleep(.15)

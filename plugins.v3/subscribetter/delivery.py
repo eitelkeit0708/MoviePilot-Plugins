@@ -770,6 +770,7 @@ class Delivery:
         if task and (task['id']!=managed['client_id'] or task['save_path']!=s['save_path'] or managed['marker'] not in task['markers']):return dict(self._result(b),reason='DOWNLOAD_OWNERSHIP_CHANGED')
         if scope=='downloader_task':
             if task:
+                if task['state']!='PAUSED':return dict(self._result(b),reason='DOWNLOADER_NOT_STOPPED')
                 if b.get('downloader_remove_intent'):return dict(self._result(b),reason='DOWNLOADER_REMOVE_UNKNOWN')
                 if self.dispatch_gate:self.dispatch_gate()
                 actual=client.files(s['infohash'])
