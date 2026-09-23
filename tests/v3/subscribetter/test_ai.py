@@ -243,6 +243,29 @@ class AITests(unittest.TestCase):
             stored=json.loads(db.execute('SELECT data FROM candidates WHERE candidate_key=?',(other['candidate_key'],)).fetchone()[0])
         self.assertEqual('no_name',stored['recognition']['ai']['reason'])
 
+    def test_clear_title_skips_model_and_nonempty_native_conflict_uses_bounded_assistance(self):
+        from test_meta import native
+        meta=load('meta');candidates=load('candidates');ai=self.runtime()
+        class Adapter:
+            def recognize(self,parsed,declared):return NS(type='电影')
+            def identity(self,media):return ('tmdb','target')
+        service=candidates.CandidateService(self.repo,Adapter(),ai=ai)
+        parser=lambda title,*args,**kwargs:native('Example' if title.startswith('Example') else 'Wrong',begin_episode=None)
+        parse=meta.MetaService(self.repo,meta.MetaCorrector(),parser=parser)
+        target=self.r.Target('电影','tmdb','target')
+        clear=service.observe(dict(site=1,torrent_id='clear',title='Example 2024',description='',labels=[]))
+        result=service.recognize(clear['candidate_key'],target,parse)
+        self.assertEqual('OK',result['status']);self.assertEqual([],self.requests)
+        self.assertEqual('deterministic',result['ai']['reason'])
+        conflict=service.observe(dict(site=1,torrent_id='conflict',title='[片名乙] 2024',description='',labels=[]))
+        self.replies.append('{"name":"片名乙","year":"2024"}')
+        result=service.recognize(conflict['candidate_key'],target,parse)
+        self.assertEqual('OK',result['status']);self.assertEqual('片名乙',result['meta'].cn_name)
+        self.assertEqual('accepted',result['ai']['reason']);self.assertEqual(1,len(self.requests))
+        hard=service.observe(dict(site=1,torrent_id='hard',title='[片名乙] S03E08 2024',description='S02E07',labels=[]))
+        result=service.recognize(hard['candidate_key'],target,parse)
+        self.assertEqual('DEFER',result['status']);self.assertEqual(1,len(self.requests))
+
     def test_plugin_ai_lifecycle_errors_do_not_remove_ownership_safety(self):
         from test_ownership import PluginTests
         PluginTests.setUpClass()
