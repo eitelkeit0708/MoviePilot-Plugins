@@ -254,6 +254,48 @@ class AuthorityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.auth.recover('another', new, failure_id='B-failed', safe_isolation=True, now=NOW)
 
+    def test_T120_failed_B_replans_superseded_A_but_permanent_exclusion_blocks_it(self):
+        policy_module, candidates, execution = load('policy'), load('candidates'), load('execution')
+        policy = policy_module.Policy({'tv': '欧美剧'}, 7)
+        facts = policy.normalize({'title': 'Fictional 2160p WEB-DL -HHWEB 中文字幕',
+                                  'description': '', 'labels': []})
+        candidate = dict(candidate_key='A', infohash='a' * 40, downloader='isolated',
+                         save_path='/test', parse_revision='parse-1',
+                         facts={key: facts for key in self.keys},
+                         classification={'state': 'complete', 'policy_revision': 7,
+                                         'effective': {'category_id': 'tv'}},
+                         torrent_files=self.spec()['torrent_files'], available=True,
+                         identity_ok=True, scope_ok=True, parse_status='OK',
+                         files_verified=True, configuration_verified=True)
+        current = {key: {'state': 'MISSING', 'revision': 0, 'versions': []} for key in self.keys}
+        pipeline = candidates.CandidatePipeline(types.SimpleNamespace(repository=self.repo), None,
+            policy, lambda _: current, lambda _: object())
+
+        a = self.claim()
+        self.auth.queue_attempt('old-A-resume', 'A', a, 'RESUME', [0, 1], {}, now=NOW)
+        self.prepare('B')
+        b = self.auth.supersede('B', a, reason='QUALITY_UPGRADE', safe_isolation=True, now=NOW)
+        self.assertEqual('CANCELLED', self.auth.action('old-A-resume')['state'])
+        self.schedule.record_failure('round', 'B-failed', 'CONFIRMED_BAD_RESOURCE', now=NOW)
+        self.assertTrue(pipeline._evaluate(candidate, self.keys, 'episode')['plans'])
+
+        exclusions = execution.Exclusions(self.repo)
+        exclusions.add('permanent-A', {'candidate_key': 'A'}, reason='USER_EXCLUDED')
+        self.assertEqual([], pipeline._evaluate(candidate, self.keys, 'episode')['plans'])
+        self.assertEqual('B', self.auth.vector(self.keys)[self.keys[0]]['owner_plan_id'])
+        exclusions.revoke('permanent-A')
+        self.assertTrue(pipeline._evaluate(candidate, self.keys, 'episode')['plans'])
+        self.auth.prepare('A-new', 'round', self.spec(candidate='A'), now=NOW)
+        recovered = self.auth.recover('A-new', b, failure_id='B-failed', safe_isolation=True, now=NOW)
+        self.assertEqual('A-new', recovered[self.keys[0]]['owner_plan_id'])
+        self.assertEqual('SUPERSEDED', self.auth.plan('A')['authorization'])
+        with self.assertRaises(ValueError):
+            self.auth.begin_attempt('revived-old-A', 'A', a, 'RESUME', [0, 1], {}, now=NOW)
+        self.assertTrue(self.auth.begin_attempt('new-A-add', 'A-new', recovered,
+            'ADD', [0, 1], {}, now=NOW)['dispatch'])
+        self.assertEqual((1, 1), (self.schedule.opportunity('round')['failures'],
+                                   self.schedule.opportunity('round')['supersessions']))
+
     def test_early_preemption_requires_real_selected_file_cost_and_status(self):
         from dataclasses import asdict
         import json
