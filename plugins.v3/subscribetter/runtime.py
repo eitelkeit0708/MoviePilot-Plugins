@@ -454,6 +454,41 @@ class Runtime:
             if not saved:raise ValueError('ORIGINAL_RUNTIME_INPUT_REQUIRED')
             self.recover(plan,saved)
 
+    def replan_stale_paused(self,plan):
+        """Release a stale plan only before any bytes or downstream action escape."""
+        if plan['authorization']!='ACTIVE' or plan['snapshot'].get('local_assets'):return False
+        from .execution import MUTATION_LOCK
+        snapshot=plan['snapshot']
+        with MUTATION_LOCK:
+            executor=self.pipeline.executor();owned=executor._owned(snapshot)
+            try:
+                if owned:
+                    if owned['state']!='PAUSED_VERIFIED' or not owned['client_id'] or not owned['marker']:return False
+                    client=executor.clients(snapshot['downloader'])
+                    task=executor._task(snapshot,executor._read(client.task,snapshot['infohash']))
+                    if task['state']!='PAUSED' or str(task['id'])!=owned['client_id'] or owned['marker'] not in task.get('markers',[]):return False
+                    files=executor._table(snapshot,executor._read(client.files,snapshot['infohash']))
+                    if any(type(f.get('completed')) is not int or f['completed']!=0 for f in files.values()):return False
+                    if {i for i,f in files.items() if f['wanted']}!=set(snapshot['selected_indices']):return False
+            except Exception:
+                return False
+            with self.repository.connection(write=True) as db:
+                actions=[dict(r) for r in db.execute('SELECT kind,state FROM plan_actions WHERE plan_id=?',(plan['id'],))]
+                if any(r['state'] not in ('PENDING','SUCCEEDED') or
+                       (r['state']=='SUCCEEDED' and r['kind'] not in ('ADD','SET_WANTED')) for r in actions):return False
+                if db.execute('SELECT 1 FROM organized_assets WHERE plan_id=? LIMIT 1',(plan['id'],)).fetchone():return False
+                if db.execute('SELECT 1 FROM delivery_bundles WHERE plan_id=? LIMIT 1',(plan['id'],)).fetchone():return False
+                current=db.execute('SELECT * FROM managed_downloads WHERE downloader=? AND infohash=?',
+                                   (snapshot['downloader'],snapshot['infohash'])).fetchone()
+                if (dict(current) if current else None)!=owned:return False
+                if not owned and any(r['kind']=='ADD' and r['state']=='SUCCEEDED' for r in actions):return False
+                references=self.authority.download_references(snapshot['downloader'],snapshot['infohash'],snapshot['save_path'],db=db)
+                if len(references)!=1 or references[0]['plan_id']!=plan['id']:return False
+                vector=self.authority._vector(db,list(snapshot['targets']))
+                if any(v['owner_plan_id']!=plan['id'] or v['publish_phase']!='NOT_SENT' for v in vector.values()):return False
+                self.authority.cancel(plan['id'],vector,reason='STALE_PAUSED_REPLAN',db=db)
+            return True
+
     def search(self,saved,words):
         """Rotate configured sites within one shared request budget per round."""
         key='runtime-search:'+saved['opportunity_id'];state=self.repository.setting(key) or dict(cursor=0)
@@ -471,9 +506,14 @@ class Runtime:
         self.checkpoint(deadline)
         self.verify_input(saved)
         self.checkpoint(deadline)
-        self.refresh_plan(plan,saved)
-        self.checkpoint(deadline)
-        self.pipeline.revalidate(plan)
+        try:
+            self.refresh_plan(plan,saved)
+            self.checkpoint(deadline)
+            self.pipeline.revalidate(plan)
+        except ValueError as error:
+            if str(error) in ('COLD_PLAN_CHANGED','CANDIDATE_POLICY_OR_CURRENT_CHANGED') and self.replan_stale_paused(plan):
+                return dict(state='WAIT_REPLAN',reason='STALE_PAUSED_REPLAN')
+            raise
         executor=self.pipeline.executor();owned=executor._owned(plan['snapshot'])
         if owned and owned['state'] in ('ADD_INTENT','UNKNOWN'):
             return executor.reconcile(plan['id'])
@@ -629,7 +669,11 @@ class Runtime:
             failure_id=None
             executor=self.pipeline.executor();owned=executor._owned(plan['snapshot'])
             if owned and owned.get('client_id'):
-                self.refresh_plan(plan,saved)
+                try:self.refresh_plan(plan,saved)
+                except ValueError as error:
+                    if str(error) in ('COLD_PLAN_CHANGED','CANDIDATE_POLICY_OR_CURRENT_CHANGED') and self.replan_stale_paused(plan):
+                        return dict(state='WAIT_REPLAN',reason='STALE_PAUSED_REPLAN')
+                    raise
                 self.checkpoint(deadline)
                 progress=executor.sample(plan['id'])
                 if progress['status']=='FAILED':
