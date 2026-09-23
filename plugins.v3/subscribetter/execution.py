@@ -446,6 +446,7 @@ class StrictExecutor:
                     return {'state':'WAITING_ASSETS','reason':'DOWNLOADER_'+task['state']}
                 if resume and unchanged and task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
+                    self.authority.set_transfer_phase(plan_id,vector,'DOWNLOADING')
                     return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
                 wanted=self._prepare_selection(plan,s,indices,vector,client,owned,task,selection_changed=not unchanged)
                 return self.resume(plan_id) if resume else {'state':'PAUSED_VERIFIED','infohash':s['infohash'],'wanted':wanted}
@@ -469,6 +470,7 @@ class StrictExecutor:
                 self._cohort(s)
                 if task['state'] in ('DOWNLOADING','QUEUED','COMPLETED'):
                     self._save(s,state='RUNNING',evidence={'actual_state':task['state']})
+                    self.authority.set_transfer_phase(plan_id,vector,'DOWNLOADING')
                     return {'state':'RUNNING','actual_state':task['state'],'infohash':s['infohash']}
                 self._prepare_cycle(s,owned,task)
                 ok,_,_=self._mutation(plan,indices,vector,'resume','RESUME',lambda:client.resume(task['id']),{'id':task['id'],'wanted_indices':sorted(union)})

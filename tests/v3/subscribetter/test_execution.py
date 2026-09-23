@@ -95,6 +95,30 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual('RUNNING', self.executor.resume('plan')['state'])
         self.assertEqual('DOWNLOADING', self.client.state)
 
+    def test_delayed_resume_readback_records_downloading_phase_without_second_rpc(self):
+        self.assertEqual('PAUSED_VERIFIED', self.executor.execute('plan', b'torrent')['state'])
+        def delayed(task_id):
+            self.client.calls.append('resume')
+            return True
+        self.client.resume = delayed
+        self.assertEqual('UNKNOWN', self.executor.resume('plan')['state'])
+        self.client.state = 'DOWNLOADING'
+        self.assertEqual('RECONCILED', self.executor.reconcile('plan')['state'])
+        self.assertEqual('RUNNING', self.executor.resume('plan')['state'])
+        self.assertEqual(1, self.client.calls.count('resume'))
+        with self.repo.connection() as db:
+            self.assertEqual('DOWNLOADING', db.execute("SELECT transfer_phase FROM plans WHERE id='plan'").fetchone()[0])
+            self.assertEqual('DOWNLOADING', db.execute("SELECT transfer_phase FROM plan_targets WHERE plan_id='plan'").fetchone()[0])
+
+    def test_execute_running_readback_records_downloading_phase(self):
+        self.assertEqual('PAUSED_VERIFIED', self.executor.execute('plan', b'torrent')['state'])
+        self.client.state = 'DOWNLOADING'
+        self.assertEqual('RUNNING', self.executor.execute('plan', b'torrent', resume=True)['state'])
+        self.assertEqual(0, self.client.calls.count('resume'))
+        with self.repo.connection() as db:
+            self.assertEqual('DOWNLOADING', db.execute("SELECT transfer_phase FROM plans WHERE id='plan'").fetchone()[0])
+            self.assertEqual('DOWNLOADING', db.execute("SELECT transfer_phase FROM plan_targets WHERE plan_id='plan'").fetchone()[0])
+
     def test_entire_readback_mismatch_never_resumes(self):
         self.client.bad_readback = True
         result = self.executor.execute('plan', b'torrent')
