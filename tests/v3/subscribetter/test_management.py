@@ -1,11 +1,12 @@
 """Bounded management contracts against real disposable SQLite, no host IO."""
 import json
+import copy
 from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import threading
 import unittest
-from test_planner import load
+from test_planner import load, NOW
 from test_configuration import PrivateFixture
 
 
@@ -119,6 +120,19 @@ class ManagementTests(unittest.TestCase):
         self.assertTrue(p.permissions['cleanup_abandoned'])
         p=view.cleanup_preview(bid,m.CleanupPreview(**self.fence(),revision=f.worker.bundle(bid)['revision'],scope='downloader_data'),user=user)
         self.assertFalse(p.permissions['delete_downloader_data_enabled'])
+
+    def test_T116_superseded_old_delivery_remains_visible_for_review(self):
+        from test_delivery import DeliveryTests
+        f=self.fixture(DeliveryTests);bid=f.prepared()
+        snap=copy.deepcopy(f.auth.plan('A')['snapshot'])
+        snap['candidate_key']='B';snap['targets'][f.key]['quality']=[2]
+        f.auth.prepare('B','round',snap,now=NOW)
+        f.auth.supersede('B',f.auth.vector([f.key]),reason='QUALITY_UPGRADE',safe_isolation=True,now=NOW)
+        self.assertEqual('ABANDONED',f.worker.reconcile(bid,now=NOW)['state'])
+        view=load('ui').Views(self.plugin)
+        page=view.bundles(plan_id='A',state='ABANDONED',user=None)
+        self.assertEqual((1,bid,'SUPERSEDED'),(page.total,page.items[0].id,page.items[0].reason))
+        self.assertEqual('SUPERSEDED',view.bundle(bid,user=None).bundle.reason)
 
     def test_logical_archive_invalidation_preserves_file_and_no_exclusion(self):
         from test_archive import ArchiveTests

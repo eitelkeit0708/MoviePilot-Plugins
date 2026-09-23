@@ -418,6 +418,42 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual('ABANDONED',self.worker.reconcile(bid,now=tp.NOW)['state'])
         self.assertEqual('B',self.auth.vector([self.key])[self.key]['owner_plan_id'])
 
+    def test_T116_restart_scan_and_reorganized_old_file_do_not_revive_superseded_upload(self):
+        bid = self.prepared()
+        snap = copy.deepcopy(self.auth.plan('A')['snapshot'])
+        snap['candidate_key'] = 'B'
+        snap['targets'][self.key]['quality'] = [2]
+        self.auth.prepare('B', 'round', snap, now=tp.NOW)
+        self.auth.supersede('B', self.auth.vector([self.key]), reason='QUALITY_UPGRADE',
+                            safe_isolation=True, now=tp.NOW)
+        old_file = self.local/'movie.mkv'
+        reorganized = self.local/'movie-reorganized.mkv'
+        reorganized.write_bytes(old_file.read_bytes())
+
+        repo = self.r.Repository(self.repo.path)
+        restarted = self.m.Delivery(repo, self.p.Authority(repo), None, self.cloud,
+            rules=[self.rule], revalidate=lambda _: self.publication)
+        scan = self.m.LocalReconciler(repo, [self.rule]).scan('r', force=True, now=tp.NOW)
+        self.assertEqual('COMPLETE', scan['state'])
+        with repo.connection() as db:
+            observed = {row['path'] for row in db.execute(
+                "SELECT path FROM local_observations WHERE rule_id='r'")}
+        self.assertIn(str(old_file), observed)
+        self.assertIn(str(reorganized), observed)
+        before = list(self.cloud.calls)
+        result = restarted.reconcile(bid, now=tp.NOW)
+        self.assertEqual(('ABANDONED', 'SUPERSEDED'), (result['state'], result['reason']))
+        tick = restarted.tick(now=tp.NOW + timedelta(seconds=61),
+                              limits={'bundles': 1, 'scan_entries': 10, 'seconds': 1})
+        self.assertEqual('ABANDONED', tick['bundles'][0]['state'])
+        self.assertEqual(before, self.cloud.calls)
+        self.assertEqual('B', restarted.authority.vector([self.key])[self.key]['owner_plan_id'])
+        self.assertTrue(old_file.exists() and reorganized.exists())
+        with repo.connection() as db:
+            self.assertEqual(1, db.execute('SELECT count(*) FROM delivery_bundles').fetchone()[0])
+        with self.assertRaises(ValueError):
+            restarted.prepare('A', 'r', publication=self.publication, now=tp.NOW)
+
     def test_review_i1_absent_conflicting_or_unreadable_rapid_stays_unknown(self):
         bid=self.prepared();self.cloud.results=[TimeoutError()];self.worker.reconcile(bid,now=tp.NOW)
         b=self.worker.bundle(bid);f=b['files'][0];path=b['staging']+'/'+f['relative_path']
