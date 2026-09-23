@@ -969,6 +969,60 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(record["targets"], service.records()[0]["targets"])
         self.assertEqual(old_task, self.repo.get_task(record["targets"][0]["task_id"]))
 
+    def test_rule_revision_replays_only_wrong_identity_from_original_rss(self):
+        from test_meta import native
+        from test_planner import load
+
+        meta = load("meta")
+        body = SYNTHETIC_RSS.replace(b"<title>24</title>",
+            "<title>虚构故事 Fictional.2024</title>".encode("utf-8"))
+        wrong = types.SimpleNamespace(type="电影", identity=("themoviedb", "41"),
+            douban_id="35322132", title="Fictional", year="2024", category="movie", tmdb_info={})
+        corrected = types.SimpleNamespace(type="电影", identity=("themoviedb", "42"),
+            douban_id="35322132", title="虚构故事", year="2024", category="movie", tmdb_info={})
+
+        class RuleRecognizer(Recognizer):
+            def recognize(self, parsed, declared, *, media_type=None):
+                self.calls.append((declared, media_type, getattr(parsed, "year", None)))
+                if (parsed.cn_name or parsed.en_name) == "虚构故事":
+                    return corrected
+                return wrong if declared else None
+
+        host = Host()
+        owner = self.ownership_mod.Ownership(self.repo, host)
+        parser = lambda *args, **kwargs: native("Fictional", type="电影", begin_episode=None)
+        service = self.service(self.config(request_budget={**ONE_BUDGET, "items": 2}),
+            owner=owner, recognizer=RuleRecognizer(),
+            meta_service=meta.MetaService(self.repo, meta.MetaCorrector(), parser),
+            fetch=lambda *_: self.d.FetchResult(body))
+        self.wait(service.run())
+        first = next(row for row in service.records() if row["raw"]["douban_subject_id"])
+        untouched = next(row for row in service.records() if row["id"] != first["id"])
+        self.assertEqual("SUBMITTED", first["state"])
+        self.assertEqual("41", first["identity"]["media_id"])
+        self.assertEqual(1, host.creates)
+        with self.repo.connection() as db:
+            original_raw = db.execute("SELECT raw FROM discovery_records WHERE id=?", (first["id"],)).fetchone()[0]
+            original_other = dict(db.execute("SELECT * FROM discovery_records WHERE id=?", (untouched["id"],)).fetchone())
+        sample = "discovery:" + first["raw_revision"]
+        old_revision = service.meta_service.corrector.revision
+        service.meta_service.corrector = meta.MetaCorrector(["虚构故事"])
+        self.assertNotEqual(old_revision, service.meta_service.corrector.revision)
+        self.assertEqual(1, service.reprocess([first["id"]]))
+        service.fetch = lambda *_: self.d.FetchResult(b"<rss><channel/></rss>")
+        self.clock.advance(11)
+        self.wait(service.run())
+        replayed = next(row for row in service.records() if row["id"] == first["id"])
+        self.assertEqual((first["id"], "IDENTITY_CHANGED"), (replayed["id"], replayed["reason"]))
+        self.assertEqual("虚构故事", replayed["correction"]["corrected"]["cn_name"])
+        self.assertEqual(service.meta_service.corrector.revision, replayed["correction"]["revision"])
+        self.assertEqual(first["targets"], replayed["targets"])
+        self.assertEqual(1, host.creates)
+        self.assertEqual(2, len(self.repo.parse_history(sample)))
+        with self.repo.connection() as db:
+            self.assertEqual(original_raw, db.execute("SELECT raw FROM discovery_records WHERE id=?", (first["id"],)).fetchone()[0])
+            self.assertEqual(original_other, dict(db.execute("SELECT * FROM discovery_records WHERE id=?", (untouched["id"],)).fetchone()))
+
     def test_record_retry_is_bounded_and_policy_revision_reconsiders(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电影"), identity=("themoviedb", "42"),
                                       title="Fixture", year="2026", category="movie", tmdb_info={})
