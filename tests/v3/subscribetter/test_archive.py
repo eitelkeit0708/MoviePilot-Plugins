@@ -402,6 +402,27 @@ class ArchiveTests(unittest.TestCase):
             response.status_code=200
             self.assertEqual([],sources.emby_page('test','10',0,10)['Items'])
 
+    def test_emby_inventory_keeps_separate_versions_hidden_by_user_listing(self):
+        class Response:
+            status_code=200
+            def __init__(self, items):self.items=items
+            def json(self):return {'Items':self.items,'TotalRecordCount':len(self.items)}
+            def close(self):pass
+        urls=[]
+        def get_data(url):
+            urls.append(url)
+            assert 'ParentId=10' in url
+            ids=['base'] if '/Users/' in url else ['base','high']
+            return Response([{'Id':value,'Type':'Movie','ProviderIds':{'Tmdb':'42'}} for value in ids])
+        instance=types.SimpleNamespace(get_data=get_data)
+        helper=types.SimpleNamespace(get_service=lambda name,type_filter:types.SimpleNamespace(instance=instance))
+        with patch.dict('sys.modules',{'app.sdk.services':types.SimpleNamespace(MediaServerHelper=lambda:helper)}):
+            sources=self.m.HostArchiveSources(types.SimpleNamespace(),cloud_scopes={},libraries={'test':['10']})
+            page=sources.emby_page('test','10',0,10)
+        self.assertEqual(['base','high'],[item['Id'] for item in page['Items']])
+        self.assertEqual(2,page['TotalRecordCount'])
+        self.assertIn('/Items?',urls[0])
+
     def enrichment(self, proven=True):
         task=self.repo.submit('task',self.r.Target('电影','themoviedb','42'),{},'test',42,True)
         self.repo.complete_handoff(task['id'],task['generation'])

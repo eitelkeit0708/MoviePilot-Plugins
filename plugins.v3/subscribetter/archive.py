@@ -287,7 +287,7 @@ class HostArchiveSources:
                       Fields='Path,ProviderIds,MediaSources,MediaStreams,ParentId')
         params.update(query)
         self.checkpoint()
-        response = wrapper.instance.get_data('[HOST]emby/Users/[USER]/Items?' + urlencode(params) + '&api_key=[APIKEY]')
+        response = wrapper.instance.get_data('[HOST]emby/Items?' + urlencode(params) + '&api_key=[APIKEY]')
         if response is None:
             raise ValueError('EMBY_UNAVAILABLE')
         try:
