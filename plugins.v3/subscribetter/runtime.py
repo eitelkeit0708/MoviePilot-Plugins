@@ -225,8 +225,10 @@ class Runtime:
         if not template['sites'] or self.clients(template['downloader']) is None:raise ValueError('SEARCH_DOWNLOAD_CONFIG_REQUIRED')
         return template
 
-    def effective(self,template,mode):
-        return dict(template=template,mode=mode,schedule=self.config.schedule,lifecycle=self.config.lifecycle.model_dump(),
+    def effective(self,template,mode,*,completed_mode=None):
+        lifecycle=self.config.lifecycle.model_dump()
+        if completed_mode is not None:lifecycle['completed_mode']=completed_mode
+        return dict(template=template,mode=mode,schedule=self.config.schedule,lifecycle=lifecycle,
             candidates=self.config.candidates.model_dump(),policy_revision=self.policy.semantic_hash,
             parse_revision=self.meta.corrector.revision)
 
@@ -242,10 +244,19 @@ class Runtime:
         template=self.destination(scope,template_id)
         self.check()
         native=dict(snapshot) if adopt else dict(snapshot,save_path=template['save_path'],downloader=template['downloader'],sites=template['sites'],custom_words=template['custom_words'])
-        frozen=dict(scope=scope,effective=self.effective(template,mode),native=snapshot_config(native))
+        pending=self.repository.setting('runtime-task:'+str(prior['id'])) if prior else None
+        override=(pending['effective']['lifecycle']['completed_mode'] if pending and pending.get('completed_mode_override') else None)
+        if override is not None and 'provider_units' in pending['scope']:
+            scope=dict(scope,provider_units=pending['scope']['provider_units'])
+        frozen=dict(scope=scope,effective=self.effective(template,mode,completed_mode=override),native=snapshot_config(native))
         intent_setting='runtime-intent:'+digest(intent)
         previous=self.repository.setting(intent_setting)
-        if previous and previous!=frozen:raise ValueError('INTENT_CONFIG_CHANGED')
+        if previous and previous!=frozen:
+            original=dict(frozen,effective=dict(frozen['effective'],lifecycle=dict(frozen['effective']['lifecycle'],
+                completed_mode=previous['effective']['lifecycle']['completed_mode'])))
+            if 'provider_units' not in previous['scope']:
+                original['scope']={k:v for k,v in original['scope'].items() if k!='provider_units'}
+            if override is None or original!=previous:raise ValueError('INTENT_CONFIG_CHANGED')
         if not previous:self.repository.setting(intent_setting,frozen)
         row=self.owner.submit(intent,target,native,actor,native_id,adopt)
         with self.repository.connection() as db:
@@ -267,15 +278,18 @@ class Runtime:
     def attach(self,row,scope,template,*,mode='CONTINUOUS'):
         self.check()
         if mode not in ('CONTINUOUS','ONESHOT'):raise ValueError('INVALID_OPPORTUNITY_MODE')
-        effective=self.effective(template,mode);config_digest=digest(effective)
         with self.repository.connection() as db:
             existing=db.execute("SELECT id FROM opportunities WHERE task_id=? AND state='ACTIVE' ORDER BY created_at LIMIT 1",(row['id'],)).fetchone()
+        saved=self.repository.setting('runtime-input:'+existing['id']) if existing else None
+        pending=self.repository.setting('runtime-task:'+str(row['id'])) if existing else None
+        prior_input=saved or pending or {}
+        override=prior_input if prior_input.get('completed_mode_override') else None
+        effective=self.effective(template,mode,completed_mode=override['effective']['lifecycle']['completed_mode'] if override else None)
+        config_digest=digest(effective)
         if existing:
-            saved=self.repository.setting('runtime-input:'+existing['id'])
             if saved:
                 if saved['config_digest']!=config_digest or saved['scope']['units']!=scope['units']:raise ValueError('RUNTIME_SCOPE_OR_CONFIG_CHANGED')
                 return saved
-            pending=self.repository.setting('runtime-task:'+str(row['id']))
             if not pending or digest(pending['effective'])!=config_digest or pending['scope']['units']!=scope['units']:
                 raise ValueError('ORIGINAL_RUNTIME_INPUT_REQUIRED')
         target=Target.from_task(row);units=[TargetUnit(target,n) for n in scope['episodes']] if scope['episodes'] else [TargetUnit(target)]
@@ -341,7 +355,8 @@ class Runtime:
         if not row or row['state'] not in ('ACTIVE','PASSIVE') or row['generation']!=saved['task_generation']:
             raise ValueError('TASK_GENERATION_CHANGED')
         template=self.destination(self.scope(Target.from_task(row),fresh=True),saved['effective']['template']['id'])
-        if digest(self.effective(template,saved['effective']['mode']))!=saved['config_digest']:
+        if digest(self.effective(template,saved['effective']['mode'],
+                                 completed_mode=saved['effective']['lifecycle']['completed_mode'] if saved.get('completed_mode_override') else None))!=saved['config_digest']:
             raise ValueError('RUNTIME_CONFIG_CHANGED')
         return row
 
@@ -393,9 +408,18 @@ class Runtime:
         db.execute('UPDATE task_lifecycle SET scope=? WHERE task_id=?',(json.dumps(keys),task['id']))
         scope=dict(saved['scope'],units=keys,provider_units=saved['scope'].get('provider_units',saved['scope']['units']))
         effective=dict(saved['effective'],template=template,policy_revision=revisions[0],parse_revision=revisions[1])
-        saved.update(scope=scope,effective=effective,config_digest=digest(effective),task_generation=task['generation']+1,locks=request['locks'])
+        completed_mode=request.get('completed_mode')
+        if completed_mode is not None:
+            if (task['media_type']!='电视剧' or effective['mode']!='CONTINUOUS' or not scope['scope_closed']
+                    or completed_mode not in ('EPISODE','PACK')):raise ValueError('COMPLETED_MODE_SCOPE_REQUIRED')
+            effective['lifecycle']=dict(effective['lifecycle'],completed_mode=completed_mode)
+            saved['completed_mode_override']=True
+        saved.update(scope=scope,effective=effective,config_digest=digest(effective),task_generation=task['generation']+1,
+                     planner_mode='season' if scope['scope_closed'] and effective['mode']=='CONTINUOUS' and effective['lifecycle']['completed_mode']=='PACK' else 'episode',
+                     locks=request['locks'])
         db.execute('UPDATE settings SET value=? WHERE key=?',(encoded(saved),'runtime-input:'+opportunity['id']))
-        db.execute('UPDATE settings SET value=json_set(value,\'$.scope\',json(?),\'$.effective\',json(?)) WHERE key=?',(encoded(scope),encoded(effective),'runtime-task:'+str(task['id'])))
+        db.execute('UPDATE settings SET value=json_set(value,\'$.scope\',json(?),\'$.effective\',json(?),\'$.completed_mode_override\',json(?)) WHERE key=?',
+                   (encoded(scope),encoded(effective),encoded(bool(saved.get('completed_mode_override'))),'runtime-task:'+str(task['id'])))
         db.execute('DELETE FROM settings WHERE key IN (?,?)',('runtime-round:'+opportunity['id'],'runtime-search:'+opportunity['id']))
         self.repository._audit(db,task['id'],'TASK_SETTINGS_CHANGED',actor)
         return dict(task_id=task['id'],generation=task['generation']+1,opportunity_id=opportunity['id'],target_keys=keys)
@@ -781,7 +805,8 @@ class Runtime:
                 if frozen['effective']['mode']=='ONESHOT':
                     if scope['units']!=frozen['scope'].get('provider_units',frozen['scope']['units']):continue
                     scope=frozen['scope']
-                if digest(self.effective(template,frozen['effective']['mode']))!=digest(frozen['effective']):continue
+                if digest(self.effective(template,frozen['effective']['mode'],
+                                         completed_mode=frozen['effective']['lifecycle']['completed_mode'] if frozen.get('completed_mode_override') else None))!=digest(frozen['effective']):continue
                 attached=self.attach(row,scope,template,mode=frozen['effective']['mode'])
                 arrivals=self.repository.setting('runtime-pending-arrivals:'+str(row['id']))
                 if arrivals:self.repository.setting('runtime-arrivals:'+attached['opportunity_id'],arrivals)

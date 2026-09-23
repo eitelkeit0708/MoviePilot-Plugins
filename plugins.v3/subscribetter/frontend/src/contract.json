@@ -11317,6 +11317,21 @@
           },
           "type": "object",
           "title": "Locks"
+        },
+        "completed_mode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "EPISODE",
+                "PACK"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Completed Mode"
         }
       },
       "additionalProperties": false,

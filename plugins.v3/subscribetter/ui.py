@@ -320,6 +320,7 @@ class SettingsPreview(Fence):
     target_keys:list[Key]=Field(min_length=1,max_length=100)
     destination_template:Text
     locks:dict[str,JsonValue]=Field(default_factory=dict)
+    completed_mode:Literal['EPISODE','PACK']|None=None
 
 
 class Immediate(Fence):
@@ -759,6 +760,15 @@ class Views:
             if kind=='settings':
                 runtime=self.plugin.runtime
                 facts['reviewed_revisions']=[runtime.policy.semantic_hash,runtime.meta.corrector.revision] if runtime and runtime.policy else None
+                if objects.get('completed_mode') is not None:
+                    if len(facts['inputs'])!=1:blockers.append('ORIGINAL_RUNTIME_INPUT_REQUIRED')
+                    else:
+                        saved=json.loads(facts['inputs'][0]['value'])
+                        if (task[0]['media_type']!='电视剧' or saved['effective']['mode']!='CONTINUOUS'
+                                or not saved['scope']['scope_closed']):blockers.append('COMPLETED_MODE_SCOPE_REQUIRED')
+                        facts['mode_change']=dict(current=saved['effective']['lifecycle']['completed_mode'],
+                                                  requested=objects['completed_mode'],
+                                                  planner_mode='season' if objects['completed_mode']=='PACK' else 'episode')
             facts['shared']=rows('plans',"task_id!=? AND authorization IN ('ACTIVE','PREPARED') AND EXISTS(SELECT 1 FROM plans p WHERE p.task_id=? AND p.authorization IN ('ACTIVE','PREPARED') AND json_extract(p.snapshot,'$.downloader')=json_extract(plans.snapshot,'$.downloader') AND json_extract(p.snapshot,'$.infohash')=json_extract(plans.snapshot,'$.infohash'))",(objects['task_id'],objects['task_id']))
             if facts['shared']:blockers.append('SHARED_REFERENCE')
         elif kind=='revoke':
@@ -802,6 +812,7 @@ class Views:
                 shown['authority']=bundle['vector']
             if 'versions' in facts:shown['versions']=[{k:v[k] for k in ('id','target_key','service','library','active')} for v in facts['versions']]
             if 'ai' in facts:shown['cache_references']=facts['ai']
+            if 'mode_change' in facts:shown['mode_change']=facts['mode_change']
             data['display']=public(shown)
             data['revisions']=dict(config_revision=request.config_revision,runtime_generation=request.runtime_generation,facts_digest=data['facts_digest'])
             signature=digest([identity,kind,actor,data,expiry]);db.execute('INSERT INTO management_previews VALUES(?,?,?,?,?,?)',(identity,kind,actor,signature,encoded(data),expiry))

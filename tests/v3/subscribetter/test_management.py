@@ -198,6 +198,70 @@ class ManagementTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'TASK_GENERATION_CHANGED'):
             with f.repo.connection(write=True) as db:f.runtime.settings(request,db=db,actor='admin')
 
+    def test_completed_tv_mode_switch_keeps_episode_facts_and_survives_restart(self):
+        from test_runtime import CommonAdmissionTests
+        f=CommonAdmissionTests();f.setUp();self.addCleanup(f.doCleanups)
+        target=f.r.Target('电视剧','themoviedb','1396',1)
+        keys=[f.p.TargetUnit(target,n).key for n in (1,2)]
+        f.plugin.config.policy.bindings['tv']='欧美剧'
+        template=f.plugin.config.destination_templates[0]
+        template.id='tv-destination';template.category_id='tv'
+        f.classification['effective']['category_id']='tv'
+        scope=dict(target_key=target.key,provider_identity=['themoviedb','1396'],episode_group='',season=1,
+            episodes=[1,2],provider_rows=[],scope_closed=True,units=keys,
+            classification=f.classification,keywords=['Fixture'])
+        f.provider.resolve=lambda _:copy.deepcopy(scope)
+        f.runtime=f.m.Runtime(f.plugin,provider=f.provider,clients=lambda name:object())
+        task=f.runtime.submit('manual',target,{'name':'Fixture'},'admin')
+        with f.repo.connection(write=True) as db:
+            opportunity=dict(db.execute('SELECT * FROM opportunities').fetchone())
+            for n,key in enumerate(keys,1):
+                db.execute('UPDATE target_units SET current_revision=?,current_facts=? WHERE target_key=?',
+                           (n,json.dumps({'state':'PRESENT','episode':n}),key))
+                db.execute('INSERT INTO archive_targets VALUES(?,?,?,?,?)',
+                           (key,'PRESENT','revision-'+str(n),'{}',f.r.utcnow()))
+                db.execute('INSERT INTO archive_versions VALUES(?,?,?,?,?,?)',
+                           ('version-'+str(n),key,'emby','test',1,json.dumps({'episode':n})))
+            before=[tuple(row) for row in db.execute('SELECT target_key,current_revision,current_facts FROM target_units ORDER BY target_key')]
+            archive=[tuple(row) for row in db.execute('SELECT * FROM archive_versions ORDER BY id')]
+        original=f.repo.setting('runtime-input:'+opportunity['id'])
+        self.assertEqual('episode',original['planner_mode'])
+        config=self.c.Configuration(f.repo,'SubscriBetter',PrivateFixture(),lambda x:None)
+        config.initialize({})
+        self.plugin.repository=f.repo;self.plugin.configuration=config;self.plugin.config=f.plugin.config
+        self.plugin.generation=f.plugin.generation;self.plugin.runtime=f.runtime
+        ui=load('ui');view=ui.Views(self.plugin);user=SimpleNamespace(username='admin')
+        request=ui.SettingsPreview(config_revision=config.view()['revision'],runtime_generation=f.plugin.generation,
+            generation=task['generation'],opportunity_id=opportunity['id'],target_keys=keys,
+            destination_template='tv-destination',locks={},completed_mode='PACK')
+        preview=view.settings_preview(task['id'],request,user=user)
+        self.assertEqual({'current':'EPISODE','requested':'PACK','planner_mode':'season'},preview.objects['mode_change'])
+        self.assertEqual([],preview.blockers)
+        result=view.apply_settings(task['id'],self.apply_body(preview),user=user).result
+        switched=f.repo.setting('runtime-input:'+opportunity['id'])
+        self.assertEqual('season',switched['planner_mode'])
+        self.assertEqual('PACK',switched['effective']['lifecycle']['completed_mode'])
+        self.assertEqual(result['generation'],switched['task_generation'])
+        f.runtime.verify_input(switched)
+        restarted=f.m.Runtime(f.plugin,provider=f.provider,clients=lambda name:object())
+        import time
+        restarted.bootstrap(time.monotonic()+2)
+        restarted.verify_input(f.repo.setting('runtime-input:'+opportunity['id']))
+        self.assertEqual(task['id'],restarted.submit('manual',target,{'name':'Fixture'},'admin')['id'])
+        self.assertEqual(task['id'],restarted.submit('second',target,{'name':'Fixture'},'admin')['id'])
+        back=ui.SettingsPreview(config_revision=config.view()['revision'],runtime_generation=f.plugin.generation,
+            generation=result['generation'],opportunity_id=opportunity['id'],target_keys=keys,
+            destination_template='tv-destination',locks={},completed_mode='EPISODE')
+        back_preview=view.settings_preview(task['id'],back,user=user)
+        self.assertEqual({'current':'PACK','requested':'EPISODE','planner_mode':'episode'},back_preview.objects['mode_change'])
+        self.assertEqual('APPLIED',view.apply_settings(task['id'],self.apply_body(back_preview,'back'),user=user).state)
+        self.assertEqual('episode',f.repo.setting('runtime-input:'+opportunity['id'])['planner_mode'])
+        with f.repo.connection() as db:
+            self.assertEqual(before,[tuple(row) for row in db.execute('SELECT target_key,current_revision,current_facts FROM target_units ORDER BY target_key')])
+            self.assertEqual(archive,[tuple(row) for row in db.execute('SELECT * FROM archive_versions ORDER BY id')])
+            self.assertEqual(1,db.execute('SELECT COUNT(*) FROM opportunities').fetchone()[0])
+            self.assertEqual(opportunity['created_at'],db.execute('SELECT created_at FROM opportunities').fetchone()[0])
+
     def test_settings_explicitly_rebind_reviewed_policy_and_parse_revisions(self):
         from test_runtime import CommonAdmissionTests
         f=CommonAdmissionTests();f.setUp();self.addCleanup(f.doCleanups)
