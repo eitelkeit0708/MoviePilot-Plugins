@@ -71,7 +71,7 @@ class MetaCorrector:
         if (not isinstance(protected_names, (list, tuple)) or len(protected_names) > 100
                 or any(not isinstance(n, str) or not 1 <= len(n.strip()) <= 160 for n in protected_names)):
             raise ValueError("invalid protected names")
-        self.rules = {"core": 4, "protected_names": sorted(set(n.strip() for n in protected_names))}
+        self.rules = {"core": 5, "protected_names": sorted(set(n.strip() for n in protected_names))}
         self.revision = _digest(self.rules)
 
     def correct(self, native, title, subtitle=None, custom_words=None, locks=(), *, context_known=True):
@@ -256,7 +256,8 @@ class MetaCorrector:
         locked = set(locks)
         for part in (item.name, item.parent.name, item.parent.parent.name):
             locked.update(_tag_locks(part))
-        title = item.parent.name if len(item.stem) <= 16 and AUXILIARY_STEM.fullmatch(item.stem) else item.name
+        auxiliary = len(item.stem) <= 16 and AUXILIARY_STEM.fullmatch(item.stem)
+        title = item.parent.name if auxiliary else item.name
         parent_season = None
         if not any(pattern.search(title) for pattern in (SEASON, CN_SEASON)):
             for part in (item.parent.name, item.parent.parent.name):
@@ -265,7 +266,13 @@ class MetaCorrector:
                 if tokens:
                     parent_season = " ".join(tokens)
                     break
-        return self.correct(native, title, subtitle=parent_season, custom_words=custom_words, locks=sorted(locked))
+        result = self.correct(native, title, subtitle=parent_season, custom_words=custom_words, locks=sorted(locked))
+        parent = item.parent.name
+        if auxiliary and result.status == "OK" and (parent.casefold() in {"extras", "extra", "subtitles", "subs", "bonus", "字幕", "花絮", "特典"}
+                                                        or SEASON.fullmatch(parent) or CN_SEASON.fullmatch(parent)):
+            return Correction(result.meta, "DEFER", (*result.reasons, "AUXILIARY_TITLE_UNCONFIRMED"),
+                              result.native, result.diff, self.revision)
+        return result
 
 
 def _stored(value):

@@ -178,6 +178,22 @@ class MetaTests(unittest.TestCase):
         self.assertEqual(8, result.meta.begin_season)
         self.assertIsNone(result.meta.begin_episode)
 
+    def test_auxiliary_only_stem_under_generic_parent_defers_final_name(self):
+        for folder in ("Extras", "Season 0", "字幕"):
+            with self.subTest(folder=folder):
+                original = native("Mkv", begin_episode=None, type="电影")
+                result = self.c.correct_path(original, f"/Film.2024/{folder}/简体字幕.mkv")
+                self.assertEqual("DEFER", result.status)
+                self.assertIn("AUXILIARY_TITLE_UNCONFIRMED", result.reasons)
+                self.assertEqual("Mkv", result.meta.en_name)
+
+        named = native("Film", begin_episode=None, type="电影")
+        result = self.c.correct_path(named, "/Film.2024/简体字幕.mkv")
+        self.assertEqual("OK", result.status)
+        self.assertEqual("Film", result.meta.en_name)
+        music = native("Track", type="音乐", begin_episode=None)
+        self.assertEqual("SKIP", self.c.correct_path(music, "/Album/Extras/简体字幕.mkv").status)
+
     def test_explicit_ranges_s00_and_subtitle_conflict(self):
         result = self.c.correct(native(begin_season=1), "Fictional.S00E02-E04.1080p")
         self.assertEqual((0, 2, 4, 3), (result.meta.begin_season, result.meta.begin_episode, result.meta.end_episode, result.meta.total_episode))
