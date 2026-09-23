@@ -754,25 +754,25 @@ class AIService:
             finally:self.admission.release()
         try:
             result=self._request(self._messages(title,subtitle,context),key,started,gate)
-            validated=result.reason=='response'
-            if result.reason=='response':
-                result.identity,result.reason=inspect_identity(result.text,title,subtitle,team)
-                result.text=None
-                with self.repository.connection(write=True) as db:
-                    self._bump(db,'validation:'+result.reason)
-                    if result.identity:self._bump(db,'name_accepted')
-            ttl=self.config.positive_ttl if result.identity else self.config.negative_ttl if validated else 30
-            if validated:
-                with self.repository.connection(write=True) as db:
-                    db.execute('UPDATE ai_requests SET next_at=?,reason=? WHERE scope=? AND digest=? AND owner=?',
-                        (self.clock()+ttl,'retry_cooldown' if result.identity else result.reason,self.scope,key,self.owner))
-            allowed=self.publishable() and (gate is None or gate())
             with self.lock:
-                if not allowed or not self.live() or epoch!=self.epoch:
+                if not self.live() or epoch!=self.epoch or not self.publishable() or gate is not None and not gate():
                     result.identity=None;result.text=None;result.reason='stale_runtime'
-                elif ttl>0:
-                    self.cache[key]=(self.clock()+ttl,deepcopy(result));self.cache.move_to_end(key)
-                    while len(self.cache)>self.config.cache_size:self.cache.popitem(last=False)
+                else:
+                    validated=result.reason=='response'
+                    if validated:
+                        result.identity,result.reason=inspect_identity(result.text,title,subtitle,team)
+                        result.text=None
+                        with self.repository.connection(write=True) as db:
+                            self._bump(db,'validation:'+result.reason)
+                            if result.identity:self._bump(db,'name_accepted')
+                    ttl=self.config.positive_ttl if result.identity else self.config.negative_ttl if validated else 30
+                    if validated:
+                        with self.repository.connection(write=True) as db:
+                            db.execute('UPDATE ai_requests SET next_at=?,reason=? WHERE scope=? AND digest=? AND owner=?',
+                                (self.clock()+ttl,'retry_cooldown' if result.identity else result.reason,self.scope,key,self.owner))
+                    if ttl>0:
+                        self.cache[key]=(self.clock()+ttl,deepcopy(result));self.cache.move_to_end(key)
+                        while len(self.cache)>self.config.cache_size:self.cache.popitem(last=False)
             future.set_result(result)
             return result
         except Exception:

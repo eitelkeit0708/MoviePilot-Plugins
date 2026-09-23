@@ -354,6 +354,51 @@ class AITests(unittest.TestCase):
             self.assertIsNone(pending.result().identity)
         self.assertEqual(0,replacement.stats()['cache_size'])
 
+    def test_inflight_http_cache_clear_reload_and_disable_are_fenced_and_closed(self):
+        for action in ("clear", "reload", "disable"):
+            with self.subTest(action=action):
+                c = self.runtime(model="t180-" + action)
+                entered, release = threading.Event(), threading.Event()
+                notices = []
+                c.notify = notices.append
+                def reply(_):
+                    entered.set()
+                    self.assertTrue(release.wait(5))
+                    return '{"name":"Example","year":""}'
+                self.replies.append(reply)
+                before = len(self.requests)
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    pending = pool.submit(c.extract, "Example")
+                    self.assertTrue(entered.wait(2))
+                    client = self.clients[-1]
+                    if action == "clear":
+                        c.clear_cache("tester")
+                    elif action == "reload":
+                        c.close()
+                        replacement = self.runtime(model="t180-replacement")
+                    else:
+                        c.config.enabled = False
+                        c.close()
+                    release.set()
+                    result = pending.result()
+                self.assertIsNone(result.identity)
+                self.assertEqual("stale_runtime", result.reason)
+                self.assertEqual(0, c.stats()["cache_size"])
+                self.assertEqual(1, c.stats()["counts"]["api_calls"])
+                self.assertEqual(1, c.stats()["counts"]["api_responses"])
+                self.assertEqual(1, c.stats()["counts"]["usage_responses"])
+                self.assertEqual(7, c.stats()["usage"]["prompt_tokens"])
+                self.assertNotIn("name_accepted", c.stats()["counts"])
+                self.assertFalse(any(key.startswith("validation:") for key in c.stats()["counts"]))
+                self.assertEqual(before + 1, len(self.requests))
+                self.assertEqual([], notices)
+                if action == "reload":
+                    self.assertEqual(0, replacement.stats()["cache_size"])
+                    self.assertNotIn("api_calls", replacement.stats()["counts"])
+                c.close()
+                self.assertTrue(client.is_closed)
+                self.assertEqual({}, c.clients)
+
     def test_negative_ttl_and_unknown_usage_survive_restart_without_new_charge(self):
         c=self.runtime();self.replies.append(httpx.Response(200,json={
             'choices':[{'message':{'content':'{"name":"","year":""}'}}],
