@@ -272,6 +272,42 @@ class CandidateTests(unittest.TestCase):
             self.assertEqual(evidence['data'],db.execute('SELECT data FROM candidate_decisions WHERE id=?',(result['decision_id'],)).fetchone()[0])
         with self.assertRaises(ValueError):pipeline.revalidate(authority.plan('plan'))
 
+    def test_verified_provider_bracket_alias_unlocks_only_matching_physical_name(self):
+        from torrentool.api import Bencode
+        p=load('policy');planner=load('planner')
+        target=self.r.Target('电视剧','themoviedb','294990',1)
+        keys=[planner.TargetUnit(target,n).key for n in (13,14)]
+        policy=p.Policy({'tv':'欧美剧'},7)
+        class Adapter:
+            def __init__(self,bracket):self.bracket=bracket
+            def recognize(self,meta,declared):return types.SimpleNamespace(title='一瓯春')
+            def identity(self,media):return ('themoviedb','294990')
+            def classify(self,media):return {'state':'complete','policy_revision':7,'effective':{'category_id':'tv'}}
+            def acquire(self,raw):
+                name=f'[{self.bracket}].Spring.of.the.Blade.S01E13.2026.2160p.WEB-DL.mkv'
+                return Bencode.encode({'info':{'name':name,'length':100,'piece length':16384,'pieces':b'x'*20}})
+        class Meta:
+            corrector=types.SimpleNamespace(revision='meta-1')
+            def parse(self,key,title,*args,**kw):
+                if not kw.get('is_path'):
+                    return types.SimpleNamespace(status='OK',meta=types.SimpleNamespace(en_name='Spring Of The Blade'),
+                        record=lambda:{'status':'OK'})
+                locked=kw.get('locks')==('name',)
+                return types.SimpleNamespace(status='OK' if locked else 'DEFER',
+                    reasons=() if locked else ('BRACKET_NAME_AMBIGUOUS',),
+                    native={'en_name':'Spring Of The Blade'},
+                    meta=types.SimpleNamespace(begin_season=1,end_season=None,begin_episode=13,end_episode=None),
+                    record=lambda:{'status':'OK' if locked else 'DEFER'})
+        for identifier,bracket,expected in (('1','一瓯春',True),('2','另一部剧',False)):
+            with self.subTest(bracket=bracket):
+                adapter=Adapter(bracket);service=self.m.CandidateService(self.repo,adapter)
+                row=service.observe(dict(site=1,torrent_id='spring-'+identifier,title='Spring of the Blade S01E13',description='',labels=[]))
+                current={key:{'state':'MISSING','revision':0,'versions':[]} for key in keys}
+                pipeline=self.m.CandidatePipeline(service,Meta(),policy,lambda scope:current,lambda _:object())
+                result=pipeline.evaluate(row['candidate_key'],target,[keys[0]],downloader='test',save_path='/test',assistance=False)
+                self.assertEqual(bool(pipeline.rounds),expected,result)
+                if not expected:self.assertEqual('PHYSICAL_META_UNCONFIRMED',result['reason'])
+
 
 if __name__ == '__main__':
     unittest.main()

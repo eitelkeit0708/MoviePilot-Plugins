@@ -11,7 +11,7 @@ from threading import Lock
 import time
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
-from .meta import _stored
+from .meta import BRACKET, _stored
 from .planner import (TEXT_SUBTITLE_SUFFIXES, VIDEO_SUFFIXES, TargetUnit, encoded,
                       validate_files, validate_new_asset_scope)
 from .repository import Target, utcnow
@@ -537,6 +537,16 @@ class CandidatePipeline:
                 continue
             corrected=self.meta.parse('file:'+sha256((key+':'+str(index)).encode()).hexdigest(),path,custom_words=custom_words,task_id=task_id,is_path=True,force_video=True)
             if self.active:self.active()
+            if corrected.status=='DEFER' and corrected.reasons==('BRACKET_NAME_AMBIGUOUS',):
+                brackets=list(BRACKET.finditer(PurePosixPath(path).name))
+                alias=value(result['meta'],'en_name');parsed=corrected.native.get('en_name')
+                if (len(brackets)==1 and brackets[0].start()==0
+                        and (brackets[0][1] or brackets[0][2]).strip()==value(result['media'],'title')
+                        and isinstance(alias,str) and isinstance(parsed,str) and alias
+                        and re.sub(r'\W+','',alias.casefold())==re.sub(r'\W+','',parsed.casefold())):
+                    corrected=self.meta.parse('file:'+sha256((key+':'+str(index)).encode()).hexdigest(),path,
+                                              custom_words=custom_words,locks=('name',),task_id=task_id,
+                                              is_path=True,force_video=True)
             if corrected.status!='OK':
                 return dict(plans=[],reason='PHYSICAL_META_UNCONFIRMED')
             if target.media_type=='电影':
