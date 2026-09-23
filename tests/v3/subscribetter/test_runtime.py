@@ -390,6 +390,58 @@ class ColdExecutionTests(unittest.TestCase):
 class PassiveTests(unittest.TestCase):
     setUp=CommonAdmissionTests.setUp
 
+    def test_duplicate_site_rss_workers_keep_both_arrivals_and_one_budget(self):
+        import concurrent.futures
+        import threading
+        import time
+        cm=load('candidates');m=load('runtime_passive');key=self.p.TargetUnit(self.target).key
+        self.runtime.config.passive_libraries={'test':['10']}
+        self.runtime.config.candidates.site_ids=[1,2]
+        self.runtime.config.candidates.supplement_limit=2
+        rows={site:dict(site=site,torrent_id='42',title='Fiction',description='description',labels=[])
+              for site in (1,2)}
+        adapter=SimpleNamespace(sites=lambda:[dict(id=site) for site in rows],
+            rss=lambda site,timeout:[rows[site['id']]],
+            search=lambda site,word,page:[rows[site['id']]],page_size=lambda site,word:None,
+            recognize=lambda *args:SimpleNamespace(type='电影'),identity=lambda media:('themoviedb','42'))
+        self.runtime.candidates=cm.CandidateService(self.repo,adapter)
+        self.runtime.meta=SimpleNamespace(parse=lambda *args:SimpleNamespace(status='OK',meta=SimpleNamespace()),
+            corrector=SimpleNamespace(revision='parse-v1'))
+        self.runtime.delivery.archive.current=lambda keys:{key:dict(archive_revision='before',state='PRESENT')}
+        self.runtime.pipeline=SimpleNamespace(evaluate=lambda *args,**kw:dict(plans=[dict(targets={key:dict(action='QUALITY_UPGRADE')})]))
+        self.runtime.evaluate=lambda saved,candidate:dict(plans=[dict(targets={key:dict(action='QUALITY_UPGRADE')})])
+        with self.repo.connection(write=True) as db:
+            db.execute('INSERT INTO archive_targets VALUES(?,?,?,?,?)',(key,'PRESENT','r','{}',self.r.utcnow()))
+            db.execute('INSERT INTO archive_versions VALUES(?,?,?,?,?,?)',('version',key,'test','10',1,'{}'))
+        passive=m.Passive(self.runtime)
+        for _ in rows:self.assertEqual(1,passive.rss(time.monotonic()+3)['processed'])
+        with self.repo.connection() as db:
+            opportunities=[dict(row) for row in db.execute('SELECT * FROM opportunities')]
+        self.assertEqual(1,len(opportunities))
+        opportunity=opportunities[0]['id']
+        self.runtime.scheduler.record_failure(opportunity,'failed-once','EXECUTION_FAILED')
+        for site in rows:
+            setting='runtime-rss-site:'+str(site)
+            state=self.repo.setting(setting);state['next_at']='2000-01-01T00:00:00+00:00'
+            self.repo.setting(setting,state)
+        for _ in rows:self.assertEqual(0,passive.rss(time.monotonic()+3)['processed'])
+        self.repo.setting('runtime-arrivals:'+opportunity,[])
+        barrier=threading.Barrier(2)
+        original=self.repo.setting
+        def raced_setting(setting,value=None):
+            result=original(setting,value)
+            if setting=='runtime-arrivals:'+opportunity and value is None:barrier.wait(timeout=3)
+            return result
+        self.repo.setting=raced_setting
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes=list(pool.map(passive.arrival,('site:1:42','site:2:42')))
+        finally:self.repo.setting=original
+        self.assertEqual(['MERGED','MERGED'],[row['state'] for row in outcomes])
+        self.assertEqual(['site:1:42','site:2:42'],sorted(self.repo.setting('runtime-arrivals:'+opportunity)))
+        with self.repo.connection() as db:
+            self.assertEqual([(1,opportunity)],[(row['failures'],row['id']) for row in db.execute('SELECT * FROM opportunities')])
+
     def test_independent_rss_persists_watermark_failure_empty_and_cold_cursor(self):
         import time
         cm=load('candidates');m=load('runtime_passive');calls=[]

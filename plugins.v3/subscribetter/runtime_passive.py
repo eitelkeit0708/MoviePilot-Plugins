@@ -120,7 +120,10 @@ class Passive:
 
     def queue(self,opportunity,key):
         setting='runtime-arrivals:'+opportunity
-        pending=self.repo.setting(setting) or []
-        if key not in pending:
-            if len(pending)>=1000:raise ValueError('RSS_ARRIVAL_LIMIT')
-            self.repo.setting(setting,pending+[key])
+        with self.repo.connection(write=True) as db:
+            row=db.execute('SELECT value FROM settings WHERE key=?',(setting,)).fetchone()
+            pending=json.loads(row[0]) if row else []
+            if key not in pending:
+                if len(pending)>=1000:raise ValueError('RSS_ARRIVAL_LIMIT')
+                db.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                    (setting,json.dumps(pending+[key])))
