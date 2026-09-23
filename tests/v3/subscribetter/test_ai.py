@@ -266,6 +266,41 @@ class AITests(unittest.TestCase):
         result=service.recognize(hard['candidate_key'],target,parse)
         self.assertEqual('DEFER',result['status']);self.assertEqual(1,len(self.requests))
 
+    def test_theatrical_s00_numeric_title_and_explicit_id_conflict_share_recognition_gate(self):
+        from test_meta import native
+        meta=load('meta');candidates=load('candidates');ai=self.runtime()
+        original=[None];parsed=[];recognized=[]
+        def parser(*args,**kwargs):parsed.append(args);return original[0]
+        class Adapter:
+            def recognize(self,corrected,declared):
+                recognized.append((corrected,declared));return NS(type=corrected.type)
+            def identity(self,media):return ('tmdb','42')
+        parse=meta.MetaService(self.repo,meta.MetaCorrector(),parser=parser)
+        service=candidates.CandidateService(self.repo,Adapter(),ai=ai)
+        cases=[
+            ('theatrical','Steins;Gate The Movie.2024.1080p',native('Steins;Gate The Movie',begin_season=1,end_season=2,total_season=2,begin_episode=4,end_episode=8,total_episode=5),
+             self.r.Target('电影','tmdb','42'),dict(type='电影',en_name='Steins;Gate The Movie',begin_season=None,begin_episode=None)),
+            ('s00','Fictional.S00E02-E04.1080p',native('Fictional',begin_season=1,begin_episode=2),
+             self.r.Target('电视剧','tmdb','42',0),dict(type='电视剧',begin_season=0,begin_episode=2,end_episode=4)),
+            ('numeric','1917.2019.1080p',native('',year='1917',type='电影',begin_episode=None),
+             self.r.Target('电影','tmdb','42'),dict(type='电影',en_name='1917',year='2019',begin_episode=None)),
+        ]
+        for tid,title,original_meta,target,expected in cases:
+            original[0]=original_meta
+            row=service.observe(dict(site=1,torrent_id=tid,title=title,description='',labels=[]))
+            result=service.recognize(row['candidate_key'],target,parse)
+            self.assertEqual('OK',result['status'],tid)
+            for field,value in expected.items():self.assertEqual(value,getattr(result['meta'],field),tid+':'+field)
+        self.assertEqual(3,len(parsed));self.assertEqual(3,len(recognized));self.assertEqual([],self.requests)
+        original[0]=native('',year='1917',type='电视剧',begin_episode=None)
+        wrong_type=service.observe(dict(site=1,torrent_id='numeric-wrong-type',title=cases[2][1],description='',labels=[]))
+        self.assertEqual('REJECT',service.recognize(wrong_type['candidate_key'],cases[2][3],parse)['status'])
+        self.assertEqual('电视剧',recognized[-1][0].type);self.assertEqual([],self.requests)
+        conflict=service.observe(dict(site=1,torrent_id='conflicting-id',title=cases[0][1],
+                                      description='',labels=[],media_source='tmdb',media_id='43'))
+        self.assertEqual('REJECT',service.recognize(conflict['candidate_key'],cases[0][3],parse)['status'])
+        self.assertEqual(4,len(parsed));self.assertEqual(4,len(recognized));self.assertEqual([],self.requests)
+
     def test_plugin_ai_lifecycle_errors_do_not_remove_ownership_safety(self):
         from test_ownership import PluginTests
         PluginTests.setUpClass()
