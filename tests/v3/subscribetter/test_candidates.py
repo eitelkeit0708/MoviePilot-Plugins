@@ -57,6 +57,25 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual([(1, 'unrelated', 0), (1, 'wanted', 0)], calls)
         self.assertEqual(2, len(service.records()))
 
+    def test_noisy_first_keyword_does_not_starve_trusted_alias(self):
+        calls=[]
+        class Adapter:
+            def sites(self):return [dict(id=1)]
+            def page_size(self, site, word):return None
+            def search(self, site, word, page):
+                calls.append(word)
+                names=[f'Unrelated {i}' for i in range(20)] if word=='心灵' else [word]
+                return [dict(site=1,torrent_id=str((1000 if word=='心灵' else 2000)+i),title=name,description='') for i,name in enumerate(names)]
+        service=self.m.CandidateService(self.repo,Adapter())
+        budget=self.m.SearchBudget(keywords=2,pages=1,concurrency=1,results=4,requests=4,interval=0)
+        rows=service.search([1],['心灵','Soul 2020'],budget)
+        self.assertEqual(['心灵','Soul 2020'],calls)
+        self.assertIn('Soul 2020',[row['title'] for row in rows])
+        self.assertEqual('Soul 2020',rows[1]['title'])
+        self.assertLessEqual(len(rows),4)
+        tiny=self.m.SearchBudget(keywords=2,pages=1,concurrency=1,results=1,requests=4,interval=0)
+        self.assertEqual(['2046'],[row['title'] for row in service.search([1],['心灵','2046'],tiny)])
+
     def test_rss_incomplete_and_secret_redaction(self):
         service = self.m.CandidateService(self.repo, None)
         row = service.observe(dict(site=1, torrent_id='42', title='a', enclosure='https://s/passkey=SECRET', site_cookie='SECRET'), source='rss')
