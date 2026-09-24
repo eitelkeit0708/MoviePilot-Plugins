@@ -106,6 +106,15 @@ class CandidateTests(unittest.TestCase):
                 self.assertEqual(('subtitle', [self.m.TargetUnit(target).key], []),
                                  (subtitle['role'], subtitle['targets'], subtitle['requires']))
 
+    def test_sample_videos_are_retained_but_never_managed(self):
+        target = self.r.Target('电影', 'tmdb', '42')
+        key = self.m.TargetUnit(target).key
+        table = [('Pack/Sample/Movie.Sample.mkv', 10), ('Pack/Movie.sample.mkv', 11),
+                 ('Pack/Movie.mkv', 100), ('Pack/Movie.nfo', 1)]
+        files = self.m.bind_files(table, target, video_scopes={0: [key], 1: [key], 2: [key]})
+        self.assertEqual([2], [item['index'] for item in files if item['targets']])
+        self.assertEqual(['video', 'video'], [files[index]['role'] for index in (0, 1)])
+
     def test_unsafe_paths_and_ambiguous_subtitle_refused(self):
         target = self.r.Target('电视剧', 'tmdb', '42', 1)
         for path in ('../x.mkv', '/x.mkv', 'C:/x.mkv', 'x\\y.mkv', 'x//y.mkv'):

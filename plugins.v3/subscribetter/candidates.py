@@ -20,6 +20,12 @@ VIDEO = VIDEO_SUFFIXES
 SUBTITLE = TEXT_SUBTITLE_SUFFIXES
 
 
+def _sample_video(path):
+    value = PurePosixPath(path)
+    return (any(part.casefold() == 'sample' for part in value.parts[:-1])
+            or re.search(r'(?i)(?:^|[._ -])sample(?:[._ -]|$)', value.stem) is not None)
+
+
 class HostCandidateAdapter:
     @staticmethod
     def site_description(raw, selected_sites, *, deadline):
@@ -457,7 +463,9 @@ def bind_files(table, target, *, dependencies=None, video_scopes=None):
         role='video' if suffix in VIDEO else 'subtitle' if suffix in SUBTITLE else 'other'
         targets=[]
         if role=='video':
-            if video_scopes is not None:
+            if _sample_video(path):
+                targets=[]
+            elif video_scopes is not None:
                 targets=video_scopes.get(index,[])
                 if not targets:
                     raise ValueError('corrected physical video scope required')
@@ -555,7 +563,7 @@ class CandidatePipeline:
         if self.active:self.active()
         scopes={};parse_evidence={}
         for index,(path,size) in enumerate(table):
-            if PurePosixPath(path).suffix.casefold() not in VIDEO:
+            if PurePosixPath(path).suffix.casefold() not in VIDEO or _sample_video(path):
                 continue
             corrected=self.meta.parse(sample_key('file',key,task_id,index),path,custom_words=custom_words,task_id=task_id,is_path=True,force_video=True)
             if self.active:self.active()
