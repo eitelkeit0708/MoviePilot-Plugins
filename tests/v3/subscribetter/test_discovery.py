@@ -183,7 +183,7 @@ class DiscoveryTests(unittest.TestCase):
         async def fetch_async(*args):
             result = fetch_sync(*args)
             return await result if hasattr(result, "__await__") else result
-        return self.d.DiscoveryService(
+        service = self.d.DiscoveryService(
             self.repo, owner or Owner(), meta_service or MetaService(), recognizer or Recognizer(media), config or self.config(),
             fetch=fetch_async, clock=self.clock,
             inventory=inventory or (lambda _target: {"state": "MISSING", "evidence_ref": "fixture:missing"}),
@@ -191,6 +191,8 @@ class DiscoveryTests(unittest.TestCase):
             authorized=authorized or (lambda *_: True), excluded=excluded or (lambda _target: False),
             current=lambda: True, owner_check=owner_check or owner_receipt, accepted=accepted,
             owner_snapshot=lambda *_: OWNER_SNAPSHOT, instance_id="SubscriBetter")
+        service.sleep = self.clock.advance
+        return service
 
     def test_site_identity_bridge_preserves_source_and_admission_gates(self):
         for outcome in ('VERIFIED', 'CONFLICT', 'UNKNOWN', 'inventory_unknown', 'wrong_id'):
@@ -817,14 +819,15 @@ class DiscoveryTests(unittest.TestCase):
                         with self.repo.connection() as db:
                             rows = [dict(row) for row in db.execute("SELECT * FROM discovery_records ORDER BY id")]
                         selected, untouched = rows
-                        self.assertEqual("IDENTITY_UNKNOWN" if original == "unrecognized" else "RATING_BELOW_MINIMUM", selected["reason"])
+                        self.assertEqual("DOUBAN_DETAIL_UNAVAILABLE" if original == "unrecognized" else "RATING_BELOW_MINIMUM", selected["reason"])
                         media.tmdb_info = {"vote_average":8.5}; recognizer.media = media
                         self.assertEqual(1, service.reprocess([selected["id"]]))
                         body[0] = None if network == "failed" else b"<rss><channel/></rss>"
                         if network == "backoff":
                             with self.repo.connection(write=True) as db:
                                 db.execute("UPDATE discovery_sources SET failures=100 WHERE source_id='weekly'")
-                        if network != "backoff": self.clock.advance(11)
+                        # An explicit history retry also respects the shared provider cooldown.
+                        self.clock.advance(61 if original == "unrecognized" else 11)
                         result = self.wait(service.run())["sources"]["weekly"]
                         self.assertEqual(["SUBMITTED"], result["history"]["states"])
                         self.assertEqual(1, len(owner.calls))
@@ -839,6 +842,7 @@ class DiscoveryTests(unittest.TestCase):
         self.wait(service.run())
         ids = [row["id"] for row in service.records()]
         service.reprocess(ids)
+        self.clock.advance(61)
         service = self.service(self.config(request_budget={**ONE_BUDGET,"items":1}))
         first = self.wait(service.run())["sources"]["weekly"]
         self.assertEqual(1, first["history"]["items"])
@@ -904,6 +908,7 @@ class DiscoveryTests(unittest.TestCase):
                 media = types.SimpleNamespace(type="电影",identity=("themoviedb","42"),douban_id="35322132",
                     year="2026",category="movie",tmdb_info={"vote_average":8.5})
                 service.recognizer.media = media
+                self.clock.advance(61)
                 observe = service._observe
                 def fail_first(source, item):
                     if source.id == "first":
@@ -921,8 +926,9 @@ class DiscoveryTests(unittest.TestCase):
                     self.assertEqual("" if committed else "HISTORY_REPROCESS_FAILED", row["reason"])
                     self.assertEqual(0, db.execute("SELECT failures FROM discovery_sources WHERE source_id='first'").fetchone()[0])
                 calls = len(service.recognizer.calls)
-                # No persistent marker left for an unbounded local replay loop.
-                self.wait(service.run())
+                # Isolate history replay: normal RSS discovery can now be due after cooldown.
+                with patch.object(service, "_reserve", return_value="NOT_DUE"):
+                    self.wait(service.run())
                 self.assertEqual(calls, len(service.recognizer.calls))
 
     def test_history_reparses_original_dispatch_link_and_reuses_same_target(self):

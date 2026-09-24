@@ -121,6 +121,22 @@ class HostCandidateAdapter:
             media_id=str(declared[1]) if declared and declared[1] is not None else None,episode_group=None)
 
     @staticmethod
+    def dump_media(media):
+        from fastapi.encoders import jsonable_encoder
+        data = media.to_dict()
+        # The REST serializer removes raw provider facts needed for seasons and rating.
+        for field in ('tmdb_info', 'douban_info'):
+            data[field] = getattr(media, field, None)
+        return jsonable_encoder(data)
+
+    @staticmethod
+    def load_media(data):
+        from app.sdk.media import MediaInfo
+        media = MediaInfo()
+        media.from_dict(data)
+        return media
+
+    @staticmethod
     def identity(media):
         from app.sdk.media import resolve_media_identity
         source,mid=resolve_media_identity(media=media)

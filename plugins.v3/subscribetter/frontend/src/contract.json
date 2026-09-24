@@ -12754,6 +12754,13 @@
           "title": "Cron",
           "type": "string"
         },
+        "douban_interval_seconds": {
+          "default": 5,
+          "maximum": 60,
+          "minimum": 1,
+          "title": "Douban Interval Seconds",
+          "type": "number"
+        },
         "request_budget": {
           "$ref": "#/components/schemas/RequestBudget"
         },
@@ -12992,6 +12999,7 @@
       "rsshub_base_url": null,
       "allowed_private_ranges": [],
       "cron": "0 8 * * *",
+      "douban_interval_seconds": 5,
       "request_budget": {
         "timeout": 12.0,
         "response_bytes": 524288,

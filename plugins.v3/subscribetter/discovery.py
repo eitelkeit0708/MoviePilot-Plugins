@@ -11,6 +11,8 @@ import json
 import math
 import random
 import re
+from threading import Lock
+import time
 from typing import Annotated, Callable, Literal
 from urllib.parse import parse_qsl, quote, unquote, urljoin, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
@@ -61,6 +63,15 @@ USER_ROUTE_PROVENANCE = "user-supplied partial Douban routes; fnos HTTP 200 obse
 LEGACY_RANKS = {"movie-weekly": "movie_weekly_best", "movie-real-time": "movie_real_time_hotest"}
 SECRET_QUERY = re.compile(r"(?:token|key|secret|password|passwd|cookie|authorization|signature)", re.I)
 DOUBAN_SUBJECT = re.compile(r"^/(?:subject|doubanapp/dispatch/movie)/(\d+)/?$")
+# ponytail: one process-wide discovery lock; separate provider workers if throughput warrants it.
+_DOUBAN_LOCK = Lock()
+_DOUBAN_GATE = "discovery_douban_gate"
+
+
+class DoubanDeferred(Exception):
+    def __init__(self, reason, retry_at):
+        super().__init__(reason)
+        self.retry_at = retry_at
 
 
 def _digest(value, *, default=None) -> str:
@@ -158,6 +169,7 @@ class DiscoveryConfig(BaseModel):
     rsshub_base_url: str | None = None
     allowed_private_ranges: list[str] = Field(default_factory=list, max_length=8)
     cron: str = "0 8 * * *"
+    douban_interval_seconds: float = Field(default=5, ge=1, le=60)
     request_budget: RequestBudget = Field(default_factory=RequestBudget)
     media_type_allowlist: list[Literal["电影", "电视剧"]] = Field(default_factory=list, max_length=2)
     minimum_release_year: int | None = Field(default=None, ge=1870, le=2999)
@@ -484,6 +496,7 @@ class DiscoveryService:
         self.repository, self.owner, self.meta_service, self.recognizer = repository, owner, meta_service, recognizer
         self.config, self.fetch = config.model_copy(deep=True), fetch
         self.clock, self.inventory = clock or __import__("time").time, inventory or (lambda _: {"state": "UNKNOWN"})
+        self.sleep = time.sleep
         self.inventory_refresh = inventory_refresh
         self.authorized, self.excluded = authorized or (lambda *_: False), excluded or (lambda _: False)
         self.accepted = accepted
@@ -657,9 +670,11 @@ class DiscoveryService:
             budget = source.request_budget or self.config.request_budget
             with self.repository.connection() as db:
                 pending = db.execute("SELECT id,raw FROM discovery_records WHERE source_id=? "
-                    "AND state='DEFERRED' AND reason='REPROCESS_REQUESTED' AND NOT EXISTS "
+                    "AND state='DEFERRED' AND (reason='REPROCESS_REQUESTED' OR "
+                    "(reason='DOUBAN_DETAIL_UNAVAILABLE' AND next_due<=? "
+                    "AND json_extract(data,'$.refresh_requested')=1)) AND NOT EXISTS "
                     "(SELECT 1 FROM discovery_targets WHERE record_id=discovery_records.id "
-                    "AND state IN ('STOPPED','RELEASED')) ORDER BY id LIMIT ?", (source.id, budget.items)).fetchall()
+                    "AND state IN ('STOPPED','RELEASED')) ORDER BY next_due,id LIMIT ?", (source.id, self.clock(), budget.items)).fetchall()
             seen, states, errors = set(), [], []
             for row in pending:
                 if not await _drainable_to_thread(self._owned, source.id):
@@ -750,15 +765,22 @@ class DiscoveryService:
                 cursor = db.execute("INSERT INTO discovery_records(source_id,item_key,raw_revision,raw,state,reason,retry_count,next_due,filter_revision,data,visible,first_seen,last_seen) VALUES(?,?,?,?, 'UNRECOGNIZED','',0,0,?,'{}',1,?,?)",
                                     (source.id, item.item_key, item.raw_revision, json.dumps(asdict(item), ensure_ascii=False), policy, now, now))
                 record_id = cursor.lastrowid
-        state = self._process(record_id, source, item, policy, reuse_resolved=reuse_resolved)
+        state = self._process(record_id, source, item, policy, reuse_resolved=reuse_resolved,
+                              refresh=bool(row and (row["reason"] == "REPROCESS_REQUESTED" or
+                                  (row["reason"] == "DOUBAN_DETAIL_UNAVAILABLE"
+                                   and json.loads(row["data"]).get("refresh_requested")))))
         with self.repository.connection(write=True) as db:
             row = db.execute("SELECT * FROM discovery_records WHERE id=?", (record_id,)).fetchone()
+            if row["reason"] in {"DOUBAN_DETAIL_UNAVAILABLE", "REPROCESS_REQUESTED"}:
+                db.execute("UPDATE discovery_records SET next_due=? WHERE id=?",
+                           (json.loads(row["data"])["retry_at"], record_id))
+                return state
             metadata_wait = self._metadata_wait(db, row, source)
             if state in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"} or metadata_wait:
                 delay = max(budget.interval_min_seconds, 86400) if metadata_wait else budget.interval_min_seconds
                 increment = 1 if state in {"UNRECOGNIZED", "DEFERRED", "PARTIAL"} else 0
                 db.execute("UPDATE discovery_records SET retry_count=retry_count+?,next_due=? WHERE id=?",
-                           (increment, due + delay, record_id))
+                           (increment, float(self.clock()) + delay, record_id))
         return state
 
     def _metadata_wait(self, db, row, source):
@@ -787,7 +809,81 @@ class DiscoveryService:
                        (f"DISCOVERY:{record_id}:{state}:{reason}", "discovery", utcnow()))
         return state
 
-    def _process(self, record_id, source, item, policy, *, reuse_resolved=False):
+    def _recognize_douban(self, meta, declared, media_type, *, refresh=False):
+        """Cache provider facts, not downstream classification/admission decisions."""
+        key = "discovery_douban_v1:" + _digest([declared[1], media_type])
+        def valid(media):
+            identity = self.recognizer.identity(media) if media is not None else None
+            if not identity:
+                return False
+            if identity[0] == 'douban' and str(identity[1]) != declared[1]:
+                return False
+            actual_type = self._field(media, "type")
+            actual_type = self._field(actual_type, "value", actual_type)
+            if actual_type not in {"电影", "电视剧"} or (media_type and actual_type != media_type):
+                return False
+            proof = self.recognizer.source_identity(media, "douban")
+            if proof.get("state") == "CONFLICT":
+                return False
+            if proof.get("state") == "VERIFIED":
+                return str(proof.get("media_id")) == declared[1]
+            return tuple(identity) == declared
+
+        while not _DOUBAN_LOCK.acquire(timeout=0.25):
+            if not self.current():
+                raise DoubanDeferred("STALE_GENERATION", self.clock())
+        try:
+            if not self.current():
+                raise DoubanDeferred("STALE_GENERATION", self.clock())
+            cached = self.repository.setting(key)
+            if not refresh and cached and cached["media"] is not None and cached["expires_at"] > self.clock():
+                try:
+                    media = self.recognizer.load_media(cached["media"])
+                    if valid(media):
+                        return media
+                except (AttributeError, TypeError, ValueError, KeyError):
+                    pass  # A stale host serialization format is a cache miss.
+            if cached and cached.get("retry_at", 0) > self.clock():
+                raise DoubanDeferred("DOUBAN_DETAIL_UNAVAILABLE", cached["retry_at"])
+            gate = self.repository.setting(_DOUBAN_GATE) or {}
+            next_start = max(gate.get("next_start", 0),
+                             gate.get("last_start", 0) + self.config.douban_interval_seconds)
+            while next_start > self.clock():
+                if not self.current():
+                    raise DoubanDeferred("STALE_GENERATION", self.clock())
+                self.sleep(min(0.25, next_start - self.clock()))
+            if not self.current():
+                raise DoubanDeferred("STALE_GENERATION", self.clock())
+            gate.update(last_start=self.clock(), next_start=self.clock() + self.config.douban_interval_seconds)
+            self.repository.setting(_DOUBAN_GATE, gate)
+            try:
+                media = self.recognizer.recognize(meta, declared, media_type=media_type)
+            except Exception:
+                media = None
+            expires_at = self.clock() + (60 if media is None else 86400)
+            payload = None
+            if media is None:
+                # MP owns IP backoff; an ambiguous None must not block unrelated subjects.
+                entry = cached if cached and cached["expires_at"] > self.clock() else {"expires_at": expires_at, "media": None}
+                payload = json.dumps({**entry, "retry_at": expires_at}, ensure_ascii=False)
+            elif valid(media) and callable(getattr(self.recognizer, "dump_media", None)):
+                try:
+                    payload = json.dumps({"expires_at": expires_at,
+                                          "media": self.recognizer.dump_media(media)}, ensure_ascii=False)
+                except (AttributeError, TypeError, ValueError):
+                    return media
+            if payload is not None and len(payload.encode("utf-8")) <= 262144:
+                with self.repository.connection(write=True) as db:
+                    db.execute("INSERT INTO settings VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, payload))
+                    db.execute("DELETE FROM settings WHERE key GLOB 'discovery_douban_v1:*' AND max(json_extract(value,'$.expires_at'),coalesce(json_extract(value,'$.retry_at'),0))<=?", (self.clock(),))
+                    db.execute("DELETE FROM settings WHERE key IN (SELECT key FROM settings WHERE key GLOB 'discovery_douban_v1:*' ORDER BY json_extract(value,'$.expires_at') DESC,key LIMIT -1 OFFSET 512)")
+            if media is None:
+                raise DoubanDeferred("DOUBAN_DETAIL_UNAVAILABLE", expires_at)
+            return media
+        finally:
+            _DOUBAN_LOCK.release()
+
+    def _process(self, record_id, source, item, policy, *, reuse_resolved=False, refresh=False):
         correction = self.meta_service.parse("discovery:" + item.raw_revision, item.title)
         if correction.status != "OK" and self.ai is not None:
             correction, _ = self.ai.assist(item.title, "", correction, corrector=self.meta_service.corrector)
@@ -803,8 +899,14 @@ class DiscoveryService:
                           ROUTES.get(source.route_key, (None, None, None))[1])
         declared = ("douban", item.douban_subject_id) if item.douban_subject_id else None
         try:
-            media = self.recognizer.recognize(correction.meta, declared, media_type=requested_type)
+            media = (self._recognize_douban(correction.meta, declared, requested_type, refresh=refresh)
+                     if declared else self.recognizer.recognize(correction.meta, declared, media_type=requested_type))
             identity = self.recognizer.identity(media) if media is not None else None
+        except DoubanDeferred as error:
+            data["retry_at"] = error.retry_at
+            data["refresh_requested"] = refresh
+            reason = "REPROCESS_REQUESTED" if refresh and str(error) == "STALE_GENERATION" else str(error)
+            return self._set_record(record_id, "DEFERRED", reason, data)
         except Exception:
             media, identity = None, None
         if not media or not identity or len(identity) != 2 or not all(identity):

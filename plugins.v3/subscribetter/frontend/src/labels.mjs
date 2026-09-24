@@ -1,4 +1,5 @@
 export const labels={
+ douban_interval_seconds:'豆瓣详情最小读取间隔（秒）',
  first_eligible_at:'首次合格观察',last_better_at:'最后实质改善',deadline:'观察截止',anchor_at:'期限起算锚点',quality:'当前质量',gaps:'缺集',missing:'缺失目标',inflight:'在途目标',bytes_downloaded:'已下载字节',remaining_seconds:'测量剩余秒数',sha1:'SHA-1',sha256:'SHA-256',hash:'内容 Hash',size:'内容字节',location:'当前位置证据',full_scan_watermark:'最近完整扫描水位',failed_paths:'失败目录',supersessions:'已用取代次数',publish_action_id:'原始发布操作 ID',last_ingest:'最后确认入库',observations:'逐目标观察时钟',last_better:'最后实质改善',original:'原始依据',corrected:'纠正结果',diff:'逐字段差异',compatibility:'宿主兼容性',
 
  enabled:'启用',dry_run:'只读 / dry-run',auto_types:'新订阅自动纳管类型',enhance_host_meta:'增强宿主公共解析',meta_protected_names:'明确保护的完整片名',ai_assist:'AI 名称辅助',discovery:'榜单与 RSS 发现',delivery:'交付、目录与两段映射',policy:'独立策略',lifecycle:'生命周期',candidates:'站点与候选预算',schedule:'观察、冷却与抢占',recovery:'对账与消费者恢复',safety:'安全与容量',permissions:'独立清理权限',passive_libraries:'授权被动媒体库',destination_templates:'目的目录模板',history_view:'历史显示方式',configuration_receipt:'配置回执',configuration_revision:'配置版本',
