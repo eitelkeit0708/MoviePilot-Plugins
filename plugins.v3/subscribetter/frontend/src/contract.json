@@ -10853,7 +10853,6 @@
           "type": "integer"
         },
         "watcher": {
-          "const": false,
           "default": false,
           "title": "Watcher",
           "type": "boolean"
@@ -12116,7 +12115,6 @@
           "title": "Fallback Gb"
         },
         "watcher": {
-          "const": false,
           "default": false,
           "title": "Watcher",
           "type": "boolean"

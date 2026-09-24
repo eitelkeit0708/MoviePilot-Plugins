@@ -113,7 +113,8 @@ def validate_rules(rules):
         r.setdefault('read_roots',[str(root)])
         if not r['read_roots'] or any(not Path(p).is_absolute() or '..' in Path(p).parts for p in r['read_roots']): raise ValueError('READ_ROOT_REQUIRED')
         if any(Path(x['local_root'])==root for x in result.values()): raise ValueError('DUPLICATE_LOCAL_OWNER')
-        if r.get('watcher',False) is not False:raise ValueError('WATCHER_UNSUPPORTED_USE_PERIODIC_SCAN')
+        r.setdefault('watcher',False)
+        if type(r['watcher']) is not bool:raise ValueError('INVALID_WATCHER')
         for k in ('notify_success','notify_error'):
             r.setdefault(k,False)
             if type(r[k]) is not bool:raise ValueError('INVALID_NOTIFICATION_PERMISSION')
@@ -185,11 +186,25 @@ class LocalSource:
 
 
 class Delivery:
-    def __init__(self,repository,authority,archive,cloud,*,rules,revalidate=None,publication_validator=None,dispatch_gate=None):
+    def __init__(self,repository,authority,archive,cloud,*,rules,revalidate=None,publication_validator=None,dispatch_gate=None,
+                 watchers=False,watch_factory=None):
         if not callable(revalidate) and not callable(publication_validator):raise ValueError('CURRENT_CANDIDATE_REVALIDATOR_REQUIRED')
         self.repository,self.authority,self.archive,self.cloud=repository,authority,archive,cloud
         self.rules=validate_rules(rules);self.revalidate=revalidate;self.publication_validator=publication_validator;self.exclusions=Exclusions(repository)
-        self.dispatch_gate=dispatch_gate
+        self.dispatch_gate=dispatch_gate;self.watchers_enabled=watchers;self.watch_factory=watch_factory;self.local=None
+
+    def _local(self):
+        rules=[{k:v for k,v in r.items() if k not in ('revision','transfer_revision')} for r in self.rules.values()]
+        revisions={r['id']:r['revision'] for r in self.rules.values()}
+        if self.local is None or {k:v['revision'] for k,v in self.local.rules.items()}!=revisions:
+            if self.local:self.local.close()
+            options={} if self.watch_factory is None else {'watch_factory':self.watch_factory}
+            self.local=LocalReconciler(self.repository,rules,**options)
+        if self.watchers_enabled:self.local.start_watchers()
+        return self.local
+
+    def close(self):
+        if self.local:self.local.close()
 
     def validate_publication(self,plan,publication):
         fresh=self.publication_validator(plan,publication) if self.publication_validator else self.revalidate(plan)
@@ -417,7 +432,7 @@ class Delivery:
         scans=[]
         if rules:
             rule=next((r for r in rules if r>cursor['rule']),rules[0])
-            scans.append(LocalReconciler(self.repository,[{k:v for k,v in r.items() if k not in ('revision','transfer_revision')} for r in self.rules.values()]).scan(rule,limits={'entries':limits['scan_entries'],'seconds':limits['seconds']},now=now))
+            scans.append(self._local().scan(rule,limits={'entries':limits['scan_entries'],'seconds':limits['seconds']},now=now))
             cursor['rule']=rule
         with self.repository.connection() as db:
             query="SELECT id FROM delivery_bundles WHERE state!='CONFIRMED' AND id>? ORDER BY id LIMIT ?"
@@ -445,7 +460,7 @@ class Delivery:
         rules=sorted(k for k,r in self.rules.items() if r['enabled']);scans=[];results=[]
         if rules and time.monotonic()<deadline:
             key=next((k for k in rules if k>cursor['rule']),rules[0])
-            scans.append(LocalReconciler(self.repository,[{k:v for k,v in r.items() if k not in ('revision','transfer_revision')} for r in self.rules.values()]).scan(key,
+            scans.append(self._local().scan(key,
                 limits=dict(entries=entries,seconds=min(30,max(.001,deadline-time.monotonic())))))
             cursor['rule']=key
         scopes=('monitor','staging','downloader_task','downloader_data')
@@ -917,16 +932,167 @@ def local_source_identity(root):
     return value
 
 
+class InotifyWatcher:
+    """Small Linux notification accelerator; the durable scanner remains authoritative."""
+    IN_ATTRIB=0x00000004;IN_CLOSE_WRITE=0x00000008;IN_MOVED_FROM=0x00000040
+    IN_MOVED_TO=0x00000080;IN_CREATE=0x00000100;IN_DELETE=0x00000200
+    IN_DELETE_SELF=0x00000400;IN_MOVE_SELF=0x00000800;IN_UNMOUNT=0x00002000
+    IN_Q_OVERFLOW=0x00004000;IN_IGNORED=0x00008000;IN_ISDIR=0x40000000
+    IN_ONLYDIR=0x01000000;IN_DONT_FOLLOW=0x02000000;IN_EXCL_UNLINK=0x04000000
+    MASK=(IN_ATTRIB|IN_CLOSE_WRITE|IN_MOVED_FROM|IN_MOVED_TO|IN_CREATE|IN_DELETE|
+          IN_DELETE_SELF|IN_MOVE_SELF|IN_UNMOUNT|IN_ONLYDIR|IN_DONT_FOLLOW|IN_EXCL_UNLINK)
+
+    def __init__(self,root,callback):
+        self.root=Path(root);self.callback=callback;self.fd=None;self.thread=None
+        self.stop=threading.Event();self.paths={};self.fd_lock=threading.Lock()
+
+    @staticmethod
+    def events(payload):
+        import struct
+        header=struct.Struct('iIII');offset=0
+        while offset<len(payload):
+            if len(payload)-offset<header.size:raise ValueError('INOTIFY_EVENT_TRUNCATED')
+            wd,mask,_cookie,length=header.unpack_from(payload,offset);offset+=header.size
+            if length>len(payload)-offset:raise ValueError('INOTIFY_EVENT_TRUNCATED')
+            name=payload[offset:offset+length].rstrip(b'\0');offset+=length
+            yield wd,mask,name
+
+    @classmethod
+    def reason(cls,mask):
+        if mask&cls.IN_Q_OVERFLOW:return 'IN_Q_OVERFLOW'
+        if mask&(cls.IN_UNMOUNT|cls.IN_IGNORED|cls.IN_DELETE_SELF|cls.IN_MOVE_SELF):return 'WATCH_INVALIDATED'
+        return 'FILESYSTEM_EVENT'
+
+    def _error(self):
+        import ctypes
+        value=ctypes.get_errno()
+        return OSError(value,os.strerror(value))
+
+    def _add(self,path):
+        path=Path(path)
+        if path.is_symlink():return
+        wd=self.libc.inotify_add_watch(self.fd,os.fsencode(path),self.MASK)
+        if wd<0:raise self._error()
+        self.paths[wd]=path
+
+    def _add_tree(self,root):
+        self._add(root)
+        for directory,names,_files in os.walk(root,followlinks=False):
+            base=Path(directory)
+            names[:]=[name for name in names if not (base/name).is_symlink()]
+            for name in names:self._add(base/name)
+
+    def start(self):
+        if os.name!='posix':raise OSError('INOTIFY_REQUIRES_LINUX')
+        import ctypes
+        self.libc=ctypes.CDLL(None,use_errno=True)
+        self.libc.inotify_init1.argtypes=[ctypes.c_int];self.libc.inotify_init1.restype=ctypes.c_int
+        self.libc.inotify_add_watch.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_uint32];self.libc.inotify_add_watch.restype=ctypes.c_int
+        self.fd=self.libc.inotify_init1(os.O_NONBLOCK|os.O_CLOEXEC)
+        if self.fd<0:raise self._error()
+        try:self._add_tree(self.root)
+        except BaseException:os.close(self.fd);self.fd=None;raise
+        self.thread=threading.Thread(target=self._run,name='subscribetter-inotify',daemon=True);self.thread.start()
+
+    def _run(self):
+        import select
+        try:
+            while not self.stop.is_set():
+                try:
+                    ready,_,_=select.select([self.fd],[],[],.5)
+                    if not ready:continue
+                    payload=os.read(self.fd,65536)
+                    for wd,mask,name in self.events(payload):
+                        path=self.paths.get(wd,self.root)
+                        if name:path=path/os.fsdecode(name)
+                        reason=self.reason(mask)
+                        self.callback(reason,str(path))
+                        if reason!='FILESYSTEM_EVENT':
+                            if reason=='WATCH_INVALIDATED':self.stop.set()
+                            continue
+                        if mask&self.IN_ISDIR and mask&(self.IN_CREATE|self.IN_MOVED_TO):
+                            try:self._add_tree(path)
+                            except OSError:
+                                self.callback('WATCH_REGISTRATION_FAILED',str(path));self.stop.set();break
+                except (OSError,ValueError):
+                    if not self.stop.is_set():self.callback('WATCH_READ_FAILED',str(self.root))
+                    self.stop.set()
+        finally:self._close_fd()
+
+    def _close_fd(self):
+        with self.fd_lock:
+            descriptor=self.fd;self.fd=None
+        if descriptor is not None:
+            try:os.close(descriptor)
+            except OSError:pass
+
+    def close(self):
+        self.stop.set()
+        self._close_fd()
+        if self.thread and self.thread is not threading.current_thread():self.thread.join(timeout=2)
+
+
 class LocalReconciler:
     """Durable full-range scans; notifications merely shorten the next due time."""
-    def __init__(self,repository,rules):self.repository=repository;self.rules=validate_rules(rules)
+    def __init__(self,repository,rules,*,watch_factory=InotifyWatcher):
+        self.repository=repository;self.rules=validate_rules(rules)
+        self.watch_factory=watch_factory;self.watchers={};self.closed=False
+        self.lifecycle=threading.Lock()
+
+    def _watch_health(self,rule_id,state,reason='',failed_paths=None):
+        failed_paths=failed_paths or [];root=Path(self.rules[rule_id]['local_root'])
+        unmonitored=[]
+        for path in failed_paths:
+            try:relative=Path(path).relative_to(root).as_posix();unmonitored.append(relative or '.')
+            except ValueError:unmonitored.append('.')
+        value=dict(state=state,reason=reason,failed_paths=failed_paths,
+                   unmonitored=sorted(set(unmonitored)),updated_at=stamp())
+        with LOCK,self.repository.connection(write=True) as db:
+            if self.closed:return
+            db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',('watcher:'+rule_id,encoded(value)))
+
+    def start_watchers(self):
+        with self.lifecycle:
+            if self.closed:return
+            for rule_id,rule in self.rules.items():
+                if not rule['enabled'] or not rule['watcher'] or rule_id in self.watchers:continue
+                try:
+                    if self.watch_factory is None:raise ValueError('WATCHER_BACKEND_UNAVAILABLE')
+                    watch=self.watch_factory(Path(rule['local_root']),lambda reason,path=None,r=rule_id:self._watch_event(r,reason,path))
+                    watch.start();self.watchers[rule_id]=watch
+                    self._watch_health(rule_id,'HEALTHY')
+                except Exception:
+                    self.notify(rule_id,'WATCH_REGISTRATION_FAILED')
+                    self._watch_health(rule_id,'DEGRADED','WATCH_REGISTRATION_FAILED',[rule['local_root']])
+
+    def _watch_event(self,rule_id,reason,path=None):
+        self.notify(rule_id,reason)
+        if reason!='FILESYSTEM_EVENT':
+            failed=[self.rules[rule_id]['local_root'] if reason=='IN_Q_OVERFLOW' else path or self.rules[rule_id]['local_root']]
+            self._watch_health(rule_id,'DEGRADED',reason,failed)
+            if reason in ('WATCH_INVALIDATED','WATCH_REGISTRATION_FAILED','WATCH_READ_FAILED'):
+                self.watchers.pop(rule_id,None)
+
+    def close(self):
+        with self.lifecycle:
+            with LOCK:
+                if self.closed:return
+                self.closed=True
+            watches=list(self.watchers.values());self.watchers.clear()
+        for watch in watches:watch.close()
 
     def hint(self,rule_id):
-        with self.repository.connection(write=True) as db:
-            row=db.execute('SELECT data FROM reconcile_checkpoints WHERE scope=?',('local:'+rule_id,)).fetchone()
-            if row:
-                data=json.loads(row[0]);data['hint']=True
-                db.execute('UPDATE reconcile_checkpoints SET data=? WHERE scope=?',(encoded(data),'local:'+rule_id))
+        self.notify(rule_id,'HINT')
+
+    def notify(self,rule_id,reason='FILESYSTEM_EVENT'):
+        if rule_id not in self.rules:raise ValueError('RULE_UNKNOWN')
+        with LOCK,self.repository.connection(write=True) as db:
+            if self.closed:return
+            scope='local:'+rule_id
+            row=db.execute('SELECT data FROM reconcile_checkpoints WHERE scope=?',(scope,)).fetchone()
+            data=json.loads(row[0]) if row else {}
+            data.update(hint=True,notification=reason)
+            db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',(scope,encoded(data)))
 
     def scan(self,rule_id,*,limits=None,force=False,now=None):
         limits={'entries':1000,'seconds':5,**(limits or {})}
@@ -998,5 +1164,8 @@ class LocalReconciler:
                 # Missing is written only after an entire unchanged accessible range.
                 db.execute("UPDATE local_observations SET data=json_set(data,'$.state','MISSING') WHERE rule_id=? AND epoch!=?",(rule_id,data['epoch']))
                 data.update(state='COMPLETE',watermark=stamp(now),due=stamp(instant(now)+timedelta(seconds=r['scan_interval'])),hint=False)
+                if rule_id in self.watchers:
+                    health=dict(state='HEALTHY',reason='',failed_paths=[],unmonitored=[],updated_at=stamp(now))
+                    db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',('watcher:'+rule_id,encoded(health)))
             db.execute('INSERT OR REPLACE INTO reconcile_checkpoints VALUES(?,?)',(scope,encoded(data)))
             return data

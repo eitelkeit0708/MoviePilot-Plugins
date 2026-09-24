@@ -1,4 +1,4 @@
-"""T086/T087 partial evidence: supported watcher-off scans, not inotify faults."""
+"""Watcher-off recovery remains supported when the notification accelerator is disabled."""
 from datetime import timedelta
 import json
 import os
@@ -28,19 +28,17 @@ class WatchDisabledTests(unittest.TestCase):
             return json.loads(db.execute(
                 "SELECT data FROM reconcile_checkpoints WHERE scope='local:r'").fetchone()[0])
 
-    def test_watch_enable_rejected_at_both_typed_and_worker_boundaries(self):
+    def test_watch_defaults_off_and_explicit_enable_is_typed(self):
         config = planner.load('configuration')
         # Typed native host configuration uses POSIX paths; actual scan fixtures
         # below retain this platform's real temporary-directory paths.
         native_rule = dict(self.f.rule, local_root='/fixture/local', read_roots=['/fixture/local'])
         self.assertIs(False, config.Recovery().watcher)
         self.assertIs(False, config.DeliveryRule.model_validate(native_rule).watcher)
-        with self.assertRaises(ValueError):
-            config.Recovery(watcher=True)
-        with self.assertRaises(ValueError):
-            config.DeliveryRule.model_validate(dict(native_rule, watcher=True))
-        with self.assertRaisesRegex(ValueError, 'WATCHER_UNSUPPORTED_USE_PERIODIC_SCAN'):
-            self.f.m.LocalReconciler(self.f.repo, [dict(self.f.rule, watcher=True)])
+        self.assertIs(True, config.Recovery(watcher=True).watcher)
+        self.assertIs(True, config.DeliveryRule.model_validate(dict(native_rule, watcher=True)).watcher)
+        scanner = self.f.m.LocalReconciler(self.f.repo, [dict(self.f.rule, watcher=True)])
+        self.addCleanup(scanner.close)
         with self.f.repo.connection() as db:
             self.assertEqual(0, db.execute('SELECT count(*) FROM reconcile_checkpoints').fetchone()[0])
 

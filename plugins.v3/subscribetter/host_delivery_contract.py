@@ -22,12 +22,15 @@ def build_delivery(plugin,config):
                 raise ValueError('ORIGINAL_RUNTIME_INPUT_STALE')
             locks=saved['locks']
         return PublicationGate(archive,publication,locked=locks)(plan)
-    return Delivery(plugin.repository,Authority(plugin.repository),archive,cloud,rules=config['rules'],publication_validator=gate)
+    watchers=bool(getattr(getattr(plugin,'config',None),'recovery',None) and plugin.config.recovery.watcher)
+    return Delivery(plugin.repository,Authority(plugin.repository),archive,cloud,rules=config['rules'],publication_validator=gate,watchers=watchers)
 
 
 def close_delivery(worker):
-    try:worker.cloud.close()
-    finally:worker.archive.sources.close()
+    try:worker.close()
+    finally:
+        try:worker.cloud.close()
+        finally:worker.archive.sources.close()
 
 
 def run_host_contract(plugin,*,phase,fixture):

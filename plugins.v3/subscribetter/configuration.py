@@ -77,7 +77,7 @@ class Recovery(Strict):
     entries: int = Field(default=100,ge=1,le=1000)
     seconds: float = Field(default=5,ge=.1,le=30)
     active_poll_seconds: int = Field(default=15,ge=1,le=3600)
-    watcher: Literal[False] = False
+    watcher: bool = False
     consumer_recovery_ref: str = Field(default='',max_length=256)
 
 
@@ -159,7 +159,7 @@ class DeliveryRule(Permissions):
     fallback: bool = False
     unlimited: bool = False
     fallback_gb: float | None = Field(default=None,ge=0,le=100000)
-    watcher: Literal[False] = False
+    watcher: bool = False
     notify_success: bool = False
     notify_error: bool = False
 
