@@ -92,6 +92,25 @@ class DoubanCacheTests(unittest.TestCase):
             service._recognize_douban(meta, ('douban', '9'), '电影')
         self.assertEqual(len(self.recognizer.calls), 5)
 
+    def test_actual_recognition_starts_remain_five_seconds_apart_after_gate_write(self):
+        service = self.service()
+        original_setting = self.repo.setting
+        first_write = [True]
+        starts = []
+        def setting(key, value=None):
+            if key == self.d._DOUBAN_GATE and value is not None and first_write[0]:
+                first_write[0] = False
+                self.clock.advance(.25)  # First SQLite write takes longer than the second.
+            return original_setting(key, value)
+        def recognize(meta, declared, *, media_type=None):
+            starts.append(self.clock())
+            return self.media
+        self.repo.setting = setting
+        self.recognizer.recognize = recognize
+        service._recognize_douban(fixtures.Meta('Fixture'), ('douban', '35322132'), '电影')
+        service._recognize_douban(fixtures.Meta('Fixture'), ('douban', '999'), '电影')
+        self.assertGreaterEqual(starts[1] - starts[0], 5)
+
     def test_unavailable_is_deferred_and_does_not_exhaust_record(self):
         self.recognizer.media = None
         service = self.service()

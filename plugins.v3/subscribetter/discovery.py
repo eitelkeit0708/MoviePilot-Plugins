@@ -860,6 +860,10 @@ class DiscoveryService:
                 media = self.recognizer.recognize(meta, declared, media_type=media_type)
             except Exception:
                 media = None
+            finally:
+                # Start spacing still holds when the provider call or the gate write takes time.
+                gate["next_start"] = self.clock() + self.config.douban_interval_seconds
+                self.repository.setting(_DOUBAN_GATE, gate)
             expires_at = self.clock() + (60 if media is None else 86400)
             payload = None
             if media is None:
