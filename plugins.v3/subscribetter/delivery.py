@@ -999,9 +999,11 @@ class InotifyWatcher:
         try:
             while not self.stop.is_set():
                 try:
-                    ready,_,_=select.select([self.fd],[],[],.5)
+                    with self.fd_lock:descriptor=self.fd
+                    if descriptor is None:break
+                    ready,_,_=select.select([descriptor],[],[],.5)
                     if not ready:continue
-                    payload=os.read(self.fd,65536)
+                    payload=os.read(descriptor,65536)
                     for wd,mask,name in self.events(payload):
                         path=self.paths.get(wd,self.root)
                         if name:path=path/os.fsdecode(name)
@@ -1028,8 +1030,8 @@ class InotifyWatcher:
 
     def close(self):
         self.stop.set()
-        self._close_fd()
         if self.thread and self.thread is not threading.current_thread():self.thread.join(timeout=2)
+        self._close_fd()
 
 
 class LocalReconciler:

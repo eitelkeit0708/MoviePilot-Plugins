@@ -6,6 +6,7 @@ import struct
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 import test_delivery as delivery_tests
 import test_management as management_tests
@@ -131,6 +132,18 @@ class T041Tests(unittest.TestCase):
         self.assertIsNone(watcher.fd)
         with self.assertRaises(OSError):
             os.fstat(descriptor)
+
+    def test_close_between_select_and_read_does_not_read_none_descriptor(self):
+        watcher = self.f.m.InotifyWatcher(self.f.local, lambda *args: None)
+        descriptor, writer = os.pipe()
+        self.addCleanup(os.close, writer)
+        watcher.fd = descriptor
+        def selected(*args):
+            watcher._close_fd()
+            return [descriptor], [], []
+        with patch('select.select', side_effect=selected):
+            watcher._run()
+        self.assertTrue(watcher.stop.is_set())
 
     def test_delivery_owns_one_watcher_and_closes_it(self):
         instances = []
