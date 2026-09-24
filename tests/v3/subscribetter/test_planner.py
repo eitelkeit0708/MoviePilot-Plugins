@@ -510,6 +510,21 @@ class PlanSelectionTests(unittest.TestCase):
         candidate['torrent_files'][-1]['requires'] = [999]
         self.assertEqual([], self.planner.evaluate(candidate, self.current, self.keys)['plans'])
 
+    def test_same_video_sidecar_plan_tolerates_unknown_current_text_rank(self):
+        key = self.keys[0]
+        current = self.policy.normalize({'title': 'Fictional 2160p WEB-DL',
+                                         'missing_fields': ['description', 'labels'],
+                                         'technical': {'resolution': 2160, 'picture': 0, 'audio': 0}}, current=True)
+        self.current[key] = {'state': 'PRESENT', 'revision': 1,
+                             'versions': [self.p.Version('same-video', current)], 'sidecar_missing': True}
+        candidate = self.candidate()
+        candidate['same_video_verified'] = {key: True}
+        candidate['torrent_files'].append({'index': 2, 'path': 'E7.zh-Hans.srt', 'size': 10,
+                                           'role': 'subtitle', 'targets': [key], 'requires': []})
+        result = self.planner.evaluate(candidate, self.current, [key])
+        self.assertEqual([2], result['plans'][0]['selected_indices'])
+        self.assertEqual('SIDECAR_SUPPLEMENT', result['plans'][0]['targets'][key]['action'])
+
     def test_direct_old_scope_candidate_requires_rebinding(self):
         candidate = self.candidate()
         candidate['torrent_files'].append({'index': 2, 'path': 'subtitle.ass', 'size': 10,

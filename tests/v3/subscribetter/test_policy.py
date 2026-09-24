@@ -213,6 +213,23 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual("QUALITY_UPGRADE", self.compare(self.facts(), old).reason)
         self.assertEqual("DEFER", self.admit(self.facts("WEB-DL -HHWEB 中文字幕")).status)
 
+    def test_sidecar_equivalence_tolerates_only_unknown_current_rank_dimensions(self):
+        self.p = self.m.Policy({"stable-id": "外语电影"}, 7)
+        candidate = self.facts("2160p WEB-DL 中文字幕", technical={"resolution": 2160, "picture": 0, "audio": 0})
+        current = self.facts("2160p WEB-DL", current=True,
+                             missing_fields=["description", "labels"],
+                             technical={"resolution": 2160, "picture": 0, "audio": 0})
+        versions = [self.m.Version("current", current)]
+        ordinary = self.p.compare(candidate, versions, self.c, identity_ok=True, scope_ok=True)
+        self.assertEqual("CURRENT_EVIDENCE_MISSING:special", ordinary.reason)
+        sidecar = self.p.compare_sidecar(candidate, versions, self.c, identity_ok=True, scope_ok=True)
+        self.assertEqual(("REJECT", "EQUIVALENT", ordinary.rank),
+                         (sidecar.status, sidecar.reason, sidecar.rank))
+        known_mismatch = replace(current, picture=1)
+        blocked = self.p.compare_sidecar(candidate, [self.m.Version("current", known_mismatch)], self.c,
+                                         identity_ok=True, scope_ok=True)
+        self.assertNotEqual("EQUIVALENT", blocked.reason)
+
     def test_group_platform_locks_and_malformed_gates(self):
         f = self.facts("2160p AMZN WEB-DL -M-Team 中文字幕")
         self.assertEqual("ALLOW", self.admit(f, locked={"group": "MTeam", "platform": "Amazon"}).status)

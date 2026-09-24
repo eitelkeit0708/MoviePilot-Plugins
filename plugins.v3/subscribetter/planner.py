@@ -905,9 +905,11 @@ class Planner:
             if state == 'MISSING' and any(v.active for v in versions):
                 result['decisions'][key] = {'status': 'ERROR', 'action': 'NONE', 'reason': 'CONTRADICTORY_MISSING_FACT'}
                 continue
-            decision = self.policy.compare(facts, versions, candidate['classification'], consumed=consumed,
-                                           same_assets_verified=same_assets_verified, identity_ok=True, scope_ok=True,
-                                           excluded=key in excluded, locked=locked)
+            sidecar = baseline.get('sidecar_missing') is True and candidate.get('same_video_verified', {}).get(key) is True
+            compare = self.policy.compare_sidecar if sidecar else self.policy.compare
+            decision = compare(facts, versions, candidate['classification'], consumed=consumed,
+                               same_assets_verified=same_assets_verified, identity_ok=True, scope_ok=True,
+                               excluded=key in excluded, locked=locked)
             action = 'NONE'
             status = decision.status
             if decision.status == 'ALLOW':
@@ -919,7 +921,7 @@ class Planner:
                     action = 'NONE'
             elif decision.reason == 'EQUIVALENT':
                 action, status = 'UNCHANGED', 'ALLOW'
-                if baseline.get('sidecar_missing') is True and candidate.get('same_video_verified', {}).get(key) is True:
+                if sidecar:
                     action = 'SIDECAR_SUPPLEMENT'
             result['decisions'][key] = {'status': status, 'action': action, 'reason': decision.reason,
                                          'evidence_keys': list(decision.evidence_keys), 'rank': list(decision.rank), 'evidence_source': facts.evidence,

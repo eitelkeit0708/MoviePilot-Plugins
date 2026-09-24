@@ -1038,7 +1038,8 @@ class Archive:
                 candidate = self.policy.normalize(o['raw'])
                 if exclusions.matches(dict(candidate_key=plan['snapshot']['candidate_key'], infohash=plan['snapshot']['infohash'], targets=[key], content_sha1=[a['content']['sha1'] for a in o['assets']]), facts=dict(candidate.raw)):
                     raise ValueError('EXCLUDED')
-                decision = self.policy.compare(candidate, before['versions'], o['classification'], identity_ok=True, scope_ok=True)
+                compare = self.policy.compare_sidecar if target['action'] == 'SIDECAR_SUPPLEMENT' else self.policy.compare
+                decision = compare(candidate, before['versions'], o['classification'], identity_ok=True, scope_ok=True)
                 accompanying = target['action'] in ('UNCHANGED', 'SIDECAR_SUPPLEMENT') and decision.reason == 'EQUIVALENT'
                 if decision.status != 'ALLOW' and not accompanying:
                     raise ValueError('CURRENT_POLICY_' + decision.reason)

@@ -982,8 +982,9 @@ class PublicationGate:
             if baseline['state'] not in ('MISSING','INVALID','PRESENT') or (baseline['state']=='PRESENT' and not baseline['versions']):raise ValueError('CURRENT_UNVERIFIED')
             if self.archive.sources.classify_target(key)!=source['classification']:raise ValueError('CLASSIFICATION_CHANGED')
             facts=policy.normalize(source['raw'])
-            decision=policy.compare(facts,baseline['versions'],source['classification'],identity_ok=s['verified']['identity'],scope_ok=s['verified']['scope'],locked=locked)
             supplement=s['targets'][key]['action']=='SIDECAR_SUPPLEMENT'
+            compare=policy.compare_sidecar if supplement else policy.compare
+            decision=compare(facts,baseline['versions'],source['classification'],identity_ok=s['verified']['identity'],scope_ok=s['verified']['scope'],locked=locked)
             if supplement:
                 before={v['version_id'] for v in s['current'][key].get('versions',[]) if v['active']}
                 after={v.version_id for v in baseline['versions'] if v.active}

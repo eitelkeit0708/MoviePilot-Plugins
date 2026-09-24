@@ -658,3 +658,23 @@ class Policy:
             return replace(decision, reason="EVIDENCE_UPGRADE", action=action, evidence_keys=tuple(keys),
                            comparisons=tuple(comparisons))
         return replace(decision, status="REJECT", reason="EQUIVALENT", comparisons=tuple(comparisons))
+
+    def compare_sidecar(self, candidate, current_versions, classification, *, consumed=frozenset(),
+                        same_assets_verified=frozenset(), **gates):
+        """Allow a proven same-video sidecar when every known current rank dimension is unchanged."""
+        decision = self.compare(candidate, current_versions, classification, consumed=consumed,
+                                same_assets_verified=same_assets_verified, **gates)
+        if not decision.reason.startswith("CURRENT_EVIDENCE_MISSING:"):
+            return decision
+        admitted = self.admit(candidate, classification, **gates)
+        if admitted.status != "ALLOW":
+            return decision
+        versions = [version for version in current_versions if version.active]
+        for version in versions:
+            if not version.reliable or version.facts.errors or version.facts.predicate_hash != self.predicate_hash:
+                return decision
+            old = self.rank(version.facts, admitted.category["policy"])
+            if all(value is not None for value in old) or any(value is not None and value != admitted.rank[index]
+                                                              for index, value in enumerate(old)):
+                return decision
+        return replace(admitted, status="REJECT", reason="EQUIVALENT", action="NONE")
