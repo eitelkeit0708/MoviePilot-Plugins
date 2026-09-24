@@ -14,7 +14,7 @@ from functools import wraps
 
 from .planner import BARRIERS, encoded, validate_files, asset_table
 from .scheduler import instant, parse, stamp
-from .execution import Exclusions, MUTATION_LOCK
+from .execution import Exclusions, MUTATION_LOCK, subtitle_name
 
 
 LOCK = MUTATION_LOCK
@@ -258,6 +258,17 @@ class Delivery:
                     if db.execute("SELECT 1 FROM plan_actions WHERE plan_id=? AND kind IN ('RAPID','CD2_UPLOAD','PUBLISH','ORGANIZE') AND state IN ('IN_FLIGHT','UNKNOWN','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF')",(source_plan_id,)).fetchone():raise ValueError('SOURCE_PLAN_UNSETTLED')
             table=validate_files(asset_table(s),indices)
             keys=sorted({k for i in indices for k in table[i]['targets']});vector=self.authority.vector(keys)
+            sidecar=all(s['targets'][k]['action']=='SIDECAR_SUPPLEMENT' for k in keys)
+            destinations={}
+            if sidecar:
+                if self.archive is None or any(table[i]['role']!='subtitle' for i in indices):raise ValueError('SIDECAR_ASSETS_REQUIRED')
+                for index in indices:
+                    item=table[index];video=self.archive.sidecar_video(item['targets'])
+                    if video['cloud_scope_id']!=r['cloud_scope_id']:raise ValueError('SIDECAR_SCOPE_CONFLICT')
+                    name=subtitle_name(item,PurePosixPath(video['path']),asset_table(s))
+                    if len(name.encode('utf-8'))>255:raise ValueError('TRANSFER_NAME_TOO_LONG')
+                    destination=cloud_path(str(PurePosixPath(video['path']).parent/name))
+                    destinations[str(index)]={'path':destination,'video':{k:video.get(k) for k in ('cloud_scope_id','account_ref','path','sha1','size')}}
             bid=sha256(encoded([plan_id,source_plan_id,rule_id,r['transfer_revision'],indices,vector]).encode()).hexdigest()
             with self.repository.connection() as db:
                 old=db.execute('SELECT id FROM delivery_bundles WHERE id=?',(bid,)).fetchone()
@@ -278,7 +289,7 @@ class Delivery:
                 p=Path(row['destination']).absolute();root=Path(r['local_root'])
                 owner=max((x for x in self.rules.values() if x['enabled'] and p.is_relative_to(Path(x['local_root']))),key=lambda x:len(Path(x['local_root']).parts),default=None)
                 if owner is None or owner['id']!=rule_id:raise ValueError('LOCAL_RULE_OWNERSHIP')
-                rel=p.relative_to(root).as_posix()
+                rel=PurePosixPath(destinations[str(index)]['path']).name if sidecar else p.relative_to(root).as_posix()
                 if rel in relative or p.suffix.lower() in ('.strm','.zip','.rar','.7z'):raise ValueError('ASSET_PENDING_OR_COLLISION')
                 relative.add(rel)
                 with LocalSource(p,r['read_roots']) as source:
@@ -305,6 +316,7 @@ class Delivery:
                 assets.append(dict(file_index=index,relative_path=item['path'],role=item['role'],targets=item['targets'],requires=item['requires'],content=dict(sha1=digest,size=item['size'])))
             manifest=dict(plan_id=plan_id,manifest_ref=bid,assets=assets,publication=publication)
             b=dict(id=bid,plan_id=plan_id,source_plan_id=source_plan_id,rule_id=rule_id,rule_revision=r['revision'],rule_transfer_revision=r['transfer_revision'],vector=vector,indices=indices,manifest=manifest,files=files,state='PREPARED',reason='',due=files[0]['due'],staging=r['staging_root']+'/'+bid,incoming=r['incoming_root']+'/'+bid,publication_action=None,revision=0)
+            if sidecar:b['sidecar_destinations']=destinations
             self._valid(b)
             with self.repository.connection(write=True) as db:db.execute('INSERT INTO delivery_bundles VALUES(?,?,?,?,?,0,?)',(bid,plan_id,rule_id,b['state'],b['due'],encoded({k:v for k,v in b.items() if k!='revision'})))
             return dict(state=b['state'],bundle_id=bid)
@@ -568,6 +580,7 @@ class Delivery:
     def _result(b):return dict(state=b['state'],reason=b['reason'],bundle_id=b['id'])
 
     def _publication_status(self,b,r,now):
+        if b.get('sidecar_destinations'):return self._sidecar_publication_status(b,r,now)
         if b['state'] in ('CONFIRMED','WAIT_CONSUMER'):
             if b.get('publication_refresh_pending'):
                 try:self.cloud.refresh(r['cloud_scope_id'],r['incoming_root'])
@@ -593,18 +606,85 @@ class Delivery:
                 self.authority.record_result(b['publication_action'],'UNKNOWN',{'reason':b['reason']},now=now,db=db);self._save(b,db)
         return self._result(b)
 
+    @staticmethod
+    def _same_remote(actual,expected):
+        return actual is not None and (actual.get('id'),actual.get('sha1'),actual.get('size'))==(expected.get('id'),expected.get('sha1'),expected.get('size'))
+
+    def _sidecar_current(self,b,r):
+        by_index={a['file_index']:a for a in b['manifest']['assets']}
+        for f in b['files']:
+            frozen=b['sidecar_destinations'][str(f['file_index'])]
+            video=self.archive.sidecar_video(by_index[f['file_index']]['targets'])
+            expected=frozen['video']
+            if any(video.get(k)!=expected.get(k) for k in ('cloud_scope_id','account_ref','path','sha1','size')):
+                raise ValueError('CURRENT_VIDEO_CHANGED')
+            if video['cloud_scope_id']!=r['cloud_scope_id'] or str(PurePosixPath(frozen['path']).parent)!=str(PurePosixPath(video['path']).parent):
+                raise ValueError('SIDECAR_SCOPE_CONFLICT')
+
+    def _sidecar_observe(self,b,r):
+        self._sidecar_current(b,r);pending=[]
+        for f in b['files']:
+            source=b['staging']+'/'+f['relative_path'];destination=b['sidecar_destinations'][str(f['file_index'])]['path']
+            self.cloud.refresh(r['cloud_scope_id'],str(PurePosixPath(destination).parent))
+            final=self.cloud.stat(r['cloud_scope_id'],destination);staged=self.cloud.stat(r['cloud_scope_id'],source)
+            if self._same_remote(final,f['remote']) and staged is None:
+                f['published']=final;continue
+            if final is not None:raise ValueError('DESTINATION_CONFLICT')
+            if not self._same_remote(staged,f['remote']):raise ValueError('PUBLISH_LOCATION_UNKNOWN')
+            pending.append((f,source,destination))
+        return pending
+
+    def _sidecar_publication_status(self,b,r,now):
+        if b['state'] in ('CONFIRMED','WAIT_CONSUMER'):
+            if b.get('publication_refresh_pending'):
+                try:
+                    for value in b['sidecar_destinations'].values():self.cloud.refresh(r['cloud_scope_id'],str(PurePosixPath(value['path']).parent))
+                except Exception:b['reason']='PUBLICATION_REFRESH_PENDING';self._save(b);return self._result(b)
+                b['publication_refresh_pending']=False;self._save(b)
+            return self._result(b)
+        try:
+            if self._sidecar_observe(b,r):return self._result(b)
+            b.update(state='WAIT_CONSUMER',reason='CONSUMER_SETTLEMENT_REQUIRED',consumer_pending=True,publication_refresh_pending=True)
+            entries=[v['path'] for v in b['sidecar_destinations'].values()]
+            with self.repository.connection(write=True) as db:
+                self.authority.record_result(b['publication_action'],'HANDED_OFF',{'bundle_id':b['id'],'asset_manifest':b['manifest'],'entries':entries},now=now,db=db);self._save(b,db)
+        except Exception:
+            b.update(state='PUBLISH_OUTCOME_UNKNOWN',reason='PUBLISH_LOCATION_UNKNOWN')
+            with self.repository.connection(write=True) as db:
+                self.authority.record_result(b['publication_action'],'UNKNOWN',{'reason':b['reason']},now=now,db=db);self._save(b,db)
+        return self._result(b)
+
+    def _publish_sidecars(self,b,r,now):
+        try:
+            for _,source,destination in self._sidecar_observe(b,r):
+                if self.dispatch_gate:self.dispatch_gate()
+                self.cloud.move(r['cloud_scope_id'],source,destination)
+        except Exception:
+            b.update(state='PUBLISH_OUTCOME_UNKNOWN',reason='MOVE_RESPONSE_UNKNOWN')
+            with self.repository.connection(write=True) as db:
+                self.authority.record_result(b['publication_action'],'UNKNOWN',{'reason':b['reason']},now=now,db=db);self._save(b,db)
+            return self._result(b)
+        return self._publication_status(b,r,now)
+
     @exclusive
     def publish(self,bundle_id,*,now=None):
         with LOCK:
             b=self.bundle(bundle_id);r=self._rule(b)
-            if b.get('publication_action'):return self._publication_status(b,r,now)
+            if b.get('publication_action'):
+                status=self._publication_status(b,r,now)
+                if b.get('sidecar_destinations') and status['state'] not in ('WAIT_CONSUMER','CONFIRMED'):return self._publish_sidecars(b,r,now)
+                return status
             token=self.exclusions.token();plan=self._valid(b,publication=True)
             if any(f['state']!='VERIFIED' or f.get('refresh_pending') for f in b['files']):raise ValueError('ASSETS_NOT_READY')
             for f in b['files']:
                 with self._source(f,r):pass
                 if self._remote(b,f)!=f['remote']:raise ValueError('REMOTE_IDENTITY_CHANGED')
             self._bundle_contents(b,r,b['staging'])
-            if self.cloud.stat(r['cloud_scope_id'],b['incoming']) is not None:
+            if b.get('sidecar_destinations'):
+                self._sidecar_current(b,r)
+                if any(self.cloud.stat(r['cloud_scope_id'],v['path']) is not None for v in b['sidecar_destinations'].values()):
+                    b.update(reason='DESTINATION_CONFLICT');self._save(b);return self._result(b)
+            elif self.cloud.stat(r['cloud_scope_id'],b['incoming']) is not None:
                 b.update(reason='DESTINATION_CONFLICT');self._save(b);return self._result(b)
             self.authority.set_transfer_phase(b['plan_id'],b['vector'],'READY_TO_PUBLISH')
             checks={name:True for name in ('identity','admission','scope','not_excluded','current_allows','assets_complete','remote_verified')}
@@ -614,6 +694,7 @@ class Delivery:
                 action=self.authority.begin_publish(aid,b['plan_id'],b['vector'],b['indices'],validation=validation,now=now,exclusion_token=token,db=db)
                 b.update(publication_action=aid,state='PUBLISHING');self._save(b,db)
             if not action['dispatch']:return self._publication_status(b,r,now)
+            if b.get('sidecar_destinations'):return self._publish_sidecars(b,r,now)
             try:
                 if self.dispatch_gate:self.dispatch_gate()
                 self.cloud.move(r['cloud_scope_id'],b['staging'],b['incoming'])

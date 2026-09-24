@@ -19,6 +19,15 @@ class TransferNotSent(ValueError):
     """A synchronous pre-copy refusal, before the native transfer entry."""
 
 
+def subtitle_name(item,video,files):
+    source=PurePosixPath(item['path']);stem=source.stem
+    # Preserve the complete track description, including unknown languages,
+    # forced/SDH and same-language editions. Do not guess which token matters.
+    if any(f['role']=='subtitle' and set(f['targets'])==set(item['targets']) and PurePosixPath(f['path']).stem.casefold()==stem.casefold() and PurePosixPath(f['path']).with_suffix('')!=source.with_suffix('') for f in files):
+        stem+='.'+sha256(str(source.with_suffix('')).encode()).hexdigest()[:12]
+    return video.stem+'.'+stem+source.suffix
+
+
 class ConfiguredDownloader:
     """Only the instance already provided by the public DownloaderHelper service."""
     def __init__(self,service):
@@ -896,15 +905,6 @@ class HostOrganization:
         if output is None:raise ValueError('ORGANIZED_VIDEO_RECEIPT_REQUIRED')
         return safe_local(destination,output,exists=False)
 
-    @staticmethod
-    def _subtitle_name(item,video,files):
-        source=PurePosixPath(item['path']);stem=source.stem
-        # Preserve the complete track description, including unknown languages,
-        # forced/SDH and same-language editions. Do not guess which token matters.
-        if any(f['role']=='subtitle' and set(f['targets'])==set(item['targets']) and PurePosixPath(f['path']).stem.casefold()==stem.casefold() and PurePosixPath(f['path']).with_suffix('')!=source.with_suffix('') for f in files):
-            stem+='.'+sha256(str(source.with_suffix('')).encode()).hexdigest()[:12]
-        return video.stem+'.'+stem+source.suffix
-
     def prepare_transfer(self,src,destination,item,snapshot,*,legacy=False):
         """Public pure planning; no asset reservation or copy has happened yet."""
         from app.chain.transfer import TransferChain
@@ -926,7 +926,7 @@ class HostOrganization:
         target=destination;name=src.name
         if item['role']=='subtitle' and not legacy:
             video=self._video_output(videos[0],snapshot,destination)
-            target=video.parent;name=self._subtitle_name(item,video,asset_table(snapshot))
+            target=video.parent;name=subtitle_name(item,video,asset_table(snapshot))
         elif not rename:
             parents={self._video_output(consumer,snapshot,destination).parent for consumer in videos}
             # The configured host season layout puts these consumers together.

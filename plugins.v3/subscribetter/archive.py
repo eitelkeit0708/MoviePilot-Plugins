@@ -611,6 +611,29 @@ class Archive:
                                    sidecar_missing=state=='PRESENT' and bool(sidecars) and not any(sidecars))
             return result
 
+    def sidecar_video(self,keys):
+        """Return the one fresh reliable current video shared by these targets."""
+        if not isinstance(keys,list) or not keys or len(keys)!=len(set(keys)):
+            raise ValueError('SIDECAR_TARGETS_REQUIRED')
+        current=self.current(keys)
+        if any(current[k]['state']!='PRESENT' or current[k]['diagnostics'] for k in keys):
+            raise ValueError('CURRENT_UNCONFIRMED')
+        videos=[]
+        with self.repository.connection() as db:
+            for key in keys:
+                rows=list(self._live_versions(db,key))
+                if len(rows)!=1:raise ValueError('CURRENT_VIDEO_AMBIGUOUS')
+                observed=json.loads(rows[0]['data'])
+                if observed.get('reliable') is not True:raise ValueError('CURRENT_UNCONFIRMED')
+                videos.append(observed['video'])
+        identities={(v['cloud_scope_id'],v.get('account_ref'),posix(v['path']),content(v)['sha1'],content(v)['size']) for v in videos}
+        if len(identities)!=1:raise ValueError('CURRENT_VIDEO_AMBIGUOUS')
+        expected=videos[0]
+        actual=self.sources.cloud_stat(expected['cloud_scope_id'],expected['path'],refresh=True)
+        if self._location_key(actual)!=self._location_key(expected) or content(actual)!=content(expected):
+            raise ValueError('CURRENT_VIDEO_CHANGED')
+        return dict(actual,**content(actual))
+
     def candidate_evidence(self,candidate,scope):
         """Join recorded source hashes to fresh associated current assets only."""
         key=candidate['candidate_key'];table=candidate['torrent_files'];proven=[];versions=[]

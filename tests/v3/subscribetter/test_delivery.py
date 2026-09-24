@@ -358,6 +358,32 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual('HANDED_OFF',self.auth.vector([self.key])[self.key]['publish_phase'])
         self.assertEqual('WAIT_CONSUMER',self.worker.bundle(bid)['state'])
 
+    def test_sidecar_supplement_moves_beside_exact_current_video_and_recovers_lost_reply(self):
+        plan=self.auth.plan('A');snapshot=plan['snapshot'];snapshot['selected_indices']=[1]
+        snapshot['targets'][self.key]['action']='SIDECAR_SUPPLEMENT'
+        with self.repo.connection(write=True) as db:
+            db.execute('UPDATE plans SET snapshot=? WHERE id=?',(json.dumps(snapshot),'A'))
+        video=dict(cloud_scope_id='cloud',path='/115/media/Movies/Final.mkv',
+                   sha1='f'*40,size=999,account_ref='own')
+        archive=type('Archive',(),{'sidecar_video':lambda _,keys:copy.deepcopy(video)})()
+        self.worker=self.m.Delivery(self.repo,self.auth,archive,self.cloud,rules=[self.rule],
+                                    revalidate=lambda plan:self.publication)
+        bid=self.all_remote();bundle=self.worker.bundle(bid);sidecar=bundle['files'][0]
+        destination='/115/media/Movies/Final.movie.zh.srt'
+        self.assertEqual('Final.movie.zh.srt',sidecar['relative_path'])
+        original=self.cloud.move
+        def lost(*args):original(*args);raise TimeoutError()
+        with patch.object(self.cloud,'move',side_effect=lost):
+            self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.worker.publish(
+                bid,now=tp.NOW+timedelta(minutes=5))['state'])
+        restarted=self.m.Delivery(self.repo,self.auth,archive,self.cloud,rules=[self.rule],
+                                  revalidate=lambda plan:self.publication)
+        self.assertEqual('WAIT_CONSUMER',restarted.publish(
+            bid,now=tp.NOW+timedelta(minutes=6))['state'])
+        self.assertIn(destination,self.cloud.objects)
+        self.assertFalse(any(path.startswith('/115/incoming/') for path in self.cloud.objects))
+        self.assertEqual(1,sum(call[0]=='move' for call in self.cloud.calls))
+
     def test_publish_skip_is_conflict_not_success(self):
         bid=self.all_remote();b=self.worker.bundle(bid)
         self.cloud.objects[b['incoming']]=dict(id='unrelated',path=b['incoming'],directory=True)
