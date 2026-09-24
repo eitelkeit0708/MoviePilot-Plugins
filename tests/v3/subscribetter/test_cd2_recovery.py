@@ -219,6 +219,36 @@ class RecoveryTests(unittest.TestCase):
                     self.assertFalse(hasattr(pump.call_args.args[3],'read'));self.assertEqual(16 if source_failure=='other' else 23,pump.call_args.kwargs['budget'])
                     stub.StartRemoteUpload.assert_called_once();stub.RemoteReadData.assert_not_called();stub.RemoteHashProgress.assert_not_called()
 
+    def test_missing_queue_receipt_checks_exact_remote_before_waiting(self):
+        f,bid=self.fixture()
+        f.worker.reconcile(bid,now=tp.NOW+timedelta(seconds=122),limits={'seconds':10})
+        bundle=f.worker.bundle(bid);item=bundle['files'][0]
+        self.assertEqual('upload-owned',item['upload_id'])
+        item.update(state='UNKNOWN',local_reader_stopped=True,reader_stopped=False)
+        f.worker._save(bundle)
+        path=bundle['staging']+'/'+item['relative_path']
+        source=td.Path(item['snapshot']['path'])
+        result=dict(state='UNKNOWN',reader_stopped=True,bytes_sent=0,requests=0,pause_requested=False)
+        before_starts=sum(call[0]=='start' for call in f.cloud.calls)
+        with patch.object(f.cloud,'pump',return_value=result),patch.object(f.cloud,'stat',wraps=f.cloud.stat) as stat:
+            f.worker.safety_reconcile(bid,now=tp.NOW+timedelta(seconds=300),limits={'seconds':10})
+            self.assertTrue(any(call.args[1]==path for call in stat.call_args_list))
+        self.assertEqual('UNKNOWN',f.worker.bundle(bid)['files'][0]['state'])
+        self.assertTrue(source.is_file())
+        self.assertEqual(before_starts,sum(call[0]=='start' for call in f.cloud.calls))
+
+        f.cloud.objects[path]=dict(path=path,id='wrong-remote',sha1='0'*40,size=item['size'],account_ref='own')
+        with patch.object(f.cloud,'pump',return_value=result):
+            f.worker.safety_reconcile(bid,now=tp.NOW+timedelta(seconds=301),limits={'seconds':10})
+        self.assertEqual('UNKNOWN',f.worker.bundle(bid)['files'][0]['state'])
+        self.assertTrue(source.is_file())
+
+        f.cloud.objects[path]=dict(path=path,id='remote-owned',sha1=item['sha1'],size=item['size'],account_ref='own')
+        with patch.object(f.cloud,'pump',side_effect=AssertionError('verified remote needs no reader')):
+            f.worker.safety_reconcile(bid,now=tp.NOW+timedelta(seconds=302),limits={'seconds':10})
+        self.assertEqual('VERIFIED',f.worker.bundle(bid)['files'][0]['state'])
+        self.assertTrue(source.is_file())
+
 
     def test_generic_no_id_timeout_before_start_is_not_a_local_budget_receipt(self):
         f,bid=self.fixture();cloud,stub=self.protocol(f)

@@ -343,6 +343,12 @@ class Delivery:
 
     def _pump(self,b,f,r,now,*,cancel=False,budget=10,observe_only=False,deadline=None):
         terminal_states=('FINISH','CANCELLED','ERROR','FATALERROR','SKIPPED','IGNORED')
+        if (f.get('state')=='UNKNOWN' and f.get('local_reader_stopped')
+                and (deadline is None or time.monotonic()<deadline)):
+            try:remote=self._remote(b,f)
+            except Exception:remote=None
+            if remote:
+                self._verified(b,f,remote,now);return
         stage='source'
         try:
             if deadline is not None and time.monotonic()>=deadline:raise ValueError('READER_BUDGET')
