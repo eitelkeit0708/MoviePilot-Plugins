@@ -379,9 +379,16 @@ class SubscriBetter(_PluginBase):
 
     def _discovery_identity(self, source, media):
         import time
-        from .site_identity_bridge import resolve_site_identity
+        from .candidates import value
+        from .site_identity_bridge import resolve_site_identity,resolve_title_identity
         runtime = self.runtime
         runtime.check()
+        media_type=value(value(media,'type'),'value',value(media,'type'))
+        if media_type=='电视剧':
+            deadline=time.monotonic()+(source.request_budget or self.discovery.config.request_budget).timeout
+            return resolve_title_identity(self.candidates.adapter,self.meta_service,media=media,
+                douban_id=str(self.candidates.adapter.identity(media)[1]),media_type=media_type,
+                deadline=deadline,checkpoint=runtime.check)
         template_id = source.destination_templates.get('movie')
         templates = [t for t in runtime.config.destination_templates if t.id == template_id]
         if len(templates) != 1 or not templates[0].sites:

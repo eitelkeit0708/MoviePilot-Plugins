@@ -89,4 +89,36 @@ class BridgeTests(unittest.TestCase):
         tiny=self.c.SearchBudget(keywords=1,pages=1,concurrency=1,results=1,requests=2,interval=0)
         self.calls.clear();self.assertEqual(self.run_bridge(budget=tiny)['state'],'UNKNOWN');self.assertEqual(self.calls,[])
 
+    def test_tv_without_imdb_resolves_all_trusted_names_to_one_title_year_identity(self):
+        source=NS(type='电视剧',media_source='douban',media_id='37029663',douban_id='37029663',
+            title='侠女内莉',original_title='Neagley',year='2026',
+            douban_info={'id':'37029663','aka':['妮格莉','内格利']})
+        canonical=NS(type='电视剧',media_source='themoviedb',media_id='273207',tmdb_id='273207',
+            title='侠女内莉',original_title='Neagley',year='2026',tmdb_info={'id':273207})
+        outer=self
+        class Adapter:
+            @staticmethod
+            def recognize(meta,declared,*,media_type):
+                outer.calls.append(('title-recognize',meta.title,declared,media_type))
+                return canonical if meta.title.startswith(('侠女内莉','Neagley')) else None
+            identity=staticmethod(lambda media:(media.media_source,media.media_id))
+            source_identity=staticmethod(self.c.HostCandidateAdapter.source_identity)
+        class Meta:
+            @staticmethod
+            def parse(key,title,*args):return NS(status='OK',meta=NS(title=title),record=lambda:{})
+        result=self.module.resolve_title_identity(Adapter(),Meta(),media=source,douban_id='37029663',
+            media_type='电视剧',deadline=time.monotonic()+10,checkpoint=self.check)
+        self.assertEqual('VERIFIED',result['state'])
+        self.assertIs(canonical,result['media'])
+        self.assertEqual(['themoviedb','273207'],result['evidence']['canonical'])
+        self.assertEqual('douban-title-year-v1',result['evidence']['rule_version'])
+        self.assertTrue(any(call[1].startswith('侠女内莉') for call in self.calls if call[0]=='title-recognize'))
+        self.assertTrue(any(call[1].startswith('Neagley') for call in self.calls if call[0]=='title-recognize'))
+
+        conflict=NS(**dict(vars(canonical),media_id='999',tmdb_id='999',tmdb_info={'id':999},
+                           title='内格利',original_title='Neagley'))
+        Adapter.recognize=staticmethod(lambda meta,declared,*,media_type: conflict if meta.title.startswith('内格利') else canonical if meta.title.startswith(('侠女内莉','Neagley')) else None)
+        self.assertEqual('CONFLICT',self.module.resolve_title_identity(Adapter(),Meta(),media=source,
+            douban_id='37029663',media_type='电视剧',deadline=time.monotonic()+10,checkpoint=self.check)['state'])
+
 if __name__=='__main__':unittest.main()

@@ -950,8 +950,8 @@ class DiscoveryService:
             linked = db.execute("SELECT target_key FROM discovery_targets WHERE record_id=? AND task_id IS NOT NULL",
                                 (record_id,)).fetchall()
         bridge_eligible = not linked or all(
-            json.loads(row['target_key'])[:2] == ['电影', 'themoviedb'] for row in linked)
-        if (bridge_eligible and declared and source_id == 'douban' and media_type == '电影'
+            json.loads(row['target_key'])[:2] == [media_type, 'themoviedb'] for row in linked)
+        if (bridge_eligible and declared and source_id == 'douban'
                 and callable(self.identity_bridge)):
             if not self.current() or not self._owned(source.id):
                 return self._set_record(record_id, 'DEFERRED', 'STALE_GENERATION', data)
@@ -978,7 +978,8 @@ class DiscoveryService:
                         or (native.get('state') == 'VERIFIED' and str(native.get('media_id')) != declared[1])):
                     return self._set_record(record_id, 'DEFERRED', 'SOURCE_ID_CONFLICT', data)
                 media, (source_id, media_id) = replacement, resolved
-                mapping = {'state':'VERIFIED', 'source':'douban', 'media_id':declared[1], 'basis':'site_description_imdb'}
+                mapping = {'state':'VERIFIED', 'source':'douban', 'media_id':declared[1],
+                           'basis':proof.get('rule_version','provider_bridge')}
                 data['filter_evidence']['recognized_provider'] = source_id
         if any(json.loads(row["target_key"])[:3] != [media_type, source_id, media_id] for row in linked):
             return self._set_record(record_id, "DEFERRED", "IDENTITY_CHANGED", data)

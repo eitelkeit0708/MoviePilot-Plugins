@@ -4,10 +4,74 @@ from hashlib import sha256
 import json
 import re
 import time
+import unicodedata
 
 from .candidates import HostCandidateAdapter, value
 from .repository import utcnow
 from .site_identity import extract_site_identity
+
+
+def _name(value_):
+    return ''.join(character for character in unicodedata.normalize('NFKC', value_).casefold()
+                   if character.isalnum())
+
+
+def resolve_title_identity(recognizer, meta_service, *, media, douban_id,
+                           media_type, deadline, checkpoint):
+    """Resolve a Douban TV item only when trusted names and year agree on one TMDb work."""
+    evidence = {'rule_version':'douban-title-year-v1','observed_at':utcnow(),
+                'douban_id':str(douban_id),'media_type':media_type,
+                'canonical_queries':0,'provider_calls':0}
+    def result(state, reason, recognized=None):
+        evidence['reason']=reason
+        return {'state':state,'media':recognized,'evidence':evidence}
+    def check():
+        checkpoint()
+        if deadline is not None and time.monotonic() >= deadline:raise ValueError('TICK_DEADLINE')
+    check()
+    if media_type!='电视剧' or not re.fullmatch(r'[1-9][0-9]*',str(douban_id)):
+        return result('UNKNOWN','TV_DOUBAN_ID_REQUIRED')
+    native=recognizer.source_identity(media,'douban')
+    if native.get('state')=='CONFLICT' or (native.get('state')=='VERIFIED' and native.get('media_id')!=str(douban_id)):
+        return result('CONFLICT','SOURCE_ID_CONFLICT')
+    year=str(value(media,'year') or '')
+    if not re.fullmatch(r'[0-9]{4}',year):return result('UNKNOWN','YEAR_REQUIRED')
+    detail=value(media,'douban_info') or {}
+    aliases=value(detail,'aka',[]) if isinstance(detail,dict) else []
+    names=list(dict.fromkeys(item.strip() for item in
+        [value(media,'title'),value(media,'original_title'),*(aliases if isinstance(aliases,list) else [])]
+        if isinstance(item,str) and item.strip()))[:8]
+    trusted={_name(item) for item in names if _name(item)}
+    if not trusted:return result('UNKNOWN','TRUSTED_NAMES_REQUIRED')
+    found={}
+    for name in names:
+        check();evidence['canonical_queries']+=1
+        correction=meta_service.parse('douban-title:'+_digest([douban_id,media_type,name,year]),f'{name} ({year})')
+        if correction.status!='OK':continue
+        evidence['provider_calls']+=1
+        try:recognized=recognizer.recognize(correction.meta,('themoviedb',None),media_type=media_type)
+        except Exception:recognized=None
+        check()
+        identity=recognizer.identity(recognized) if recognized is not None else None
+        if not identity or identity[0]!='themoviedb' or not re.fullmatch(r'[1-9][0-9]*',str(identity[1])):continue
+        output_type=value(value(recognized,'type'),'value',value(recognized,'type'))
+        output_names={_name(item) for item in (value(recognized,'title'),value(recognized,'original_title'))
+                      if isinstance(item,str) and _name(item)}
+        output_year=str(value(recognized,'year') or '')
+        canonical=recognizer.source_identity(recognized,'themoviedb')
+        source=recognizer.source_identity(recognized,'douban')
+        if (output_type!=media_type or output_year!=year or not trusted.intersection(output_names)
+                or canonical.get('state')=='CONFLICT'
+                or canonical.get('state')=='VERIFIED' and canonical.get('media_id')!=str(identity[1])
+                or source.get('state')=='CONFLICT'
+                or source.get('state')=='VERIFIED' and source.get('media_id')!=str(douban_id)):
+            continue
+        found[str(identity[1])]=recognized
+    if len(found)>1:return result('CONFLICT','MULTIPLE_WORK_IDENTITIES')
+    if not found:return result('UNKNOWN','NO_VERIFIED_TITLE_YEAR_MAPPING')
+    media_id,recognized=next(iter(found.items()))
+    evidence['canonical']=['themoviedb',media_id]
+    return result('VERIFIED','TITLE_YEAR_PROVIDER_MATCH',recognized)
 
 
 def _digest(value):
