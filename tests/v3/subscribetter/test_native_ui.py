@@ -84,6 +84,15 @@ class NativeUITests(unittest.TestCase):
         self.assertIn('./Page', content)
         self.assertIn('./Config', content)
 
+    def test_clone_package_retarget_does_not_break_management_routes(self):
+        original = self.mod.__package__
+        try:
+            self.mod.__package__ = original + 't149at149a'
+            routes = self.plugin.get_api()
+        finally:
+            self.mod.__package__ = original
+        self.assertIn('/diagnostics', {route['path'] for route in routes})
+
     def test_scan_item_projection_auth_pagination_and_private_omission(self):
         repo = self.plugin.repository
         with repo.connection(write=True) as db:

@@ -22,8 +22,9 @@ from .ai import AIConfig, AIService, SecretStore
 from .discovery import DiscoveryConfig, DiscoveryService, HostRSSFetcher, SourceConfig
 from .configuration import Config, Configuration, host_references
 from .migration import Migration, collect_host
-from .management import Management
+from .management import Management, PrivateRoute
 from .runtime import Runtime
+from .ui import Views, ParseView, ReplayView, DiscoveryRun, DiscoveryTest, Changed
 
 
 class IntentRequest(BaseModel):
@@ -682,11 +683,9 @@ class SubscriBetter(_PluginBase):
         routes=[{"path": path, "methods": [method], "endpoint": endpoint, "response_model": model,
                  "auth": "bear", "summary": endpoint.__name__} for path, method, endpoint, model in definitions]
         if getattr(self,'management',None):routes.extend(self.management.routes())
-        from .ui import Views, ParseView, ReplayView, DiscoveryRun, DiscoveryTest, Changed
         views=Views(self);managed=views.routes();replaced={r['path'] for r in managed}
         routes=[r for r in routes if r['path'] not in replaced]
         models={'/parse':ParseView,'/parse/replay':ReplayView,'/discovery/test':DiscoveryTest,'/discovery/run':DiscoveryRun,'/discovery/sources/retry':Changed,'/discovery/reprocess':Changed}
-        from .management import PrivateRoute
         for route in routes:
             if route['path'] in models:
                 route.update(response_model=models[route['path']],endpoint=views.boundary(route['endpoint']),route_class_override=PrivateRoute)
