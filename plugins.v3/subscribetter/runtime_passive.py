@@ -51,9 +51,10 @@ class Passive:
         if not sites:return dict(state='RSS_NO_SELECTED_SITES')
         cursor=self.repo.setting('runtime-rss-site-cursor') or 0
         site=sites[cursor%len(sites)];key='runtime-rss-site:'+str(site['id']);state=self.repo.setting(key) or dict(seen={},pending=[],cursor=0)
-        self.repo.setting('runtime-rss-site-cursor',(cursor+1)%len(sites))
         if state['cursor']>=len(state['pending']):
-            if state.get('next_at') and instant()<parse(state['next_at']):return dict(state='RSS_NOT_DUE',site_id=site['id'])
+            if state.get('next_at') and instant()<parse(state['next_at']):
+                self.repo.setting('runtime-rss-site-cursor',(cursor+1)%len(sites))
+                return dict(state='RSS_NOT_DUE',site_id=site['id'])
             state['attempt_at']=utcnow();state['next_at']=(instant()+timedelta(seconds=self.config.candidates.refresh_seconds)).isoformat()
             try:
                 r.check()
@@ -73,8 +74,10 @@ class Passive:
             except Exception as error:
                 if str(error)=='TICK_DEADLINE' or time.monotonic()>=deadline:return dict(state='RSS_DEADLINE',site_id=site['id'])
                 state['failure']=r.reason(error);self.repo.setting(key,state)
+                self.repo.setting('runtime-rss-site-cursor',(cursor+1)%len(sites))
                 return dict(state='RSS_FAILED',site_id=site['id'],reason=state['failure'])
             self.repo.setting(key,state)
+        self.repo.setting('runtime-rss-site-cursor',(cursor+1)%len(sites))
         processed=0
         while state['cursor']<len(state['pending']) and processed<self.config.candidates.supplement_limit and time.monotonic()<deadline:
             cid=state['pending'][state['cursor']]

@@ -440,11 +440,12 @@ class PassiveTests(unittest.TestCase):
         from threading import Event
         passive=load('runtime_passive')
         self.runtime.config.passive_libraries={'test':['10']}
+        self.runtime.config.candidates.site_ids=[1,2]
         entered,release=Event(),Event()
         class Adapter:
             def sites(self):
                 if slow=='sites':entered.set();release.wait(.25)
-                return [dict(id=1)]
+                return [dict(id=1),dict(id=2)]
             def rss(self,site,timeout):
                 if slow=='rss':entered.set();release.wait(.25)
                 return []
@@ -461,6 +462,7 @@ class PassiveTests(unittest.TestCase):
         self.assertLess(elapsed,.15)
         self.assertEqual('RSS_DEADLINE',result['state'])
         self.assertIsNone(self.repo.setting('runtime-rss-site:1'))
+        self.assertIsNone(self.repo.setting('runtime-rss-site-cursor'))
 
     def test_passive_rss_slow_sites_obeys_deadline(self):
         self._assert_passive_rss_deadline('sites')
