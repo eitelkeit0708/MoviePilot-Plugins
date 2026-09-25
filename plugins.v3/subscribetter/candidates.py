@@ -290,7 +290,10 @@ class CandidateService:
         words = list(dict.fromkeys(keywords))[:budget.keywords]
         # Reserve raw-result slots for later trusted aliases before querying a noisy first term.
         base, extra = divmod(budget.results, len(words)) if words else (0, 0)
-        word_limits = {word: base + (index >= len(words) - extra) for index, word in enumerate(words)}
+        allocated = {word: base + (index >= len(words) - extra) for index, word in enumerate(words)}
+        word_limits = {word: max(1, allocated[word]) for word in words}
+        query_words = (sorted(words, key=lambda word: allocated[word] == 0)
+                       if budget.requests >= 2 * len(words) else words)
         word_counts = {word: 0 for word in words}
         self.checkpoint()
         sites = [s for s in self.adapter.sites() if s.get('id') in set(selected_sites)]
@@ -298,8 +301,7 @@ class CandidateService:
         buckets = {word: [] for word in words}
         remaining = [budget.requests]
         def run(site):
-            for word in words:
-                if not word_limits[word]:continue
+            for word in query_words:
                 with lock:
                     if expired() or remaining[0]<2 or len(output)>=budget.results:return
                     if word_counts[word]>=word_limits[word]:continue

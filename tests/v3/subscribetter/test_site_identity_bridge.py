@@ -89,6 +89,25 @@ class BridgeTests(unittest.TestCase):
         tiny=self.c.SearchBudget(keywords=1,pages=1,concurrency=1,results=1,requests=2,interval=0)
         self.calls.clear();self.assertEqual(self.run_bridge(budget=tiny)['state'],'UNKNOWN');self.assertEqual(self.calls,[])
 
+    def test_one_result_slot_falls_back_to_primary_trusted_name(self):
+        def selective(site, word, page):
+            self.calls.append(('search', word))
+            return self.rows if word == 'Primary Movie' else []
+        self.service.adapter.search = selective
+        budget = self.c.SearchBudget(keywords=2, pages=1, concurrency=1,
+                                     results=1, requests=4, interval=0)
+        found = self.service.search([1], ['Primary Movie', 'Other Alias'], budget)
+        self.assertEqual(['Other Alias', 'Primary Movie'],
+                         [call[1] for call in self.calls if call[0] == 'search'])
+        self.assertEqual(['site:1:354238'], [row['candidate_key'] for row in found])
+        self.calls.clear()
+        tight = self.c.SearchBudget(keywords=2, pages=1, concurrency=1,
+                                    results=1, requests=2, interval=0)
+        self.assertEqual(['site:1:354238'],
+                         [row['candidate_key'] for row in self.service.search(
+                             [1], ['Primary Movie', 'Other Alias'], tight)])
+        self.assertEqual(['Primary Movie'], [call[1] for call in self.calls if call[0] == 'search'])
+
     def test_tv_title_year_match_without_cross_source_id_stays_unknown(self):
         source=NS(type='电视剧',media_source='douban',media_id='37029663',douban_id='37029663',
             title='侠女内莉',original_title='Neagley',year='2026',

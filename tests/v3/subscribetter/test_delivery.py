@@ -1,5 +1,6 @@
 """W07 real SQLite/files; provider doubles do not assert live acceptance."""
 import copy
+from contextlib import nullcontext
 from datetime import timedelta
 import hashlib
 import json
@@ -7,6 +8,7 @@ import os
 from pathlib import Path
 import tempfile
 import time
+from types import SimpleNamespace as NS
 import unittest
 from unittest.mock import patch
 import test_planner as tp
@@ -383,6 +385,54 @@ class DeliveryTests(unittest.TestCase):
         self.assertIn(destination,self.cloud.objects)
         self.assertFalse(any(path.startswith('/115/incoming/') for path in self.cloud.objects))
         self.assertEqual(1,sum(call[0]=='move' for call in self.cloud.calls))
+
+    def test_partial_sidecar_publication_resumes_on_runtime_safety(self):
+        plan=self.auth.plan('A');snapshot=plan['snapshot']
+        snapshot['targets'][self.key]['action']='SIDECAR_SUPPLEMENT'
+        snapshot['torrent_files'][0].update(path='release/movie.en.srt',role='subtitle',requires=[])
+        moved=self.local/'movie.en.srt'
+        (self.local/'movie.mkv').rename(moved)
+        with self.repo.connection(write=True) as db:
+            db.execute('UPDATE plans SET snapshot=? WHERE id=?',(json.dumps(snapshot),'A'))
+            db.execute('UPDATE organized_assets SET destination=? WHERE plan_id=? AND file_index=0',
+                       (str(moved),'A'))
+        video=dict(cloud_scope_id='cloud',path='/115/media/Movies/Final.mkv',
+                   sha1='f'*40,size=999,account_ref='own')
+        archive=type('Archive',(),{'sidecar_video':lambda _,keys:copy.deepcopy(video)})()
+        self.worker=self.m.Delivery(self.repo,self.auth,archive,self.cloud,rules=[self.rule],
+                                    revalidate=lambda plan:self.publication)
+        bid=self.all_remote()
+        original=self.cloud.move
+        moves=[0]
+        def partial(*args):
+            moves[0]+=1
+            if moves[0]==2:raise TimeoutError('second move not issued')
+            return original(*args)
+        with patch.object(self.cloud,'move',side_effect=partial):
+            self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.worker.publish(
+                bid,now=tp.NOW+timedelta(minutes=5))['state'])
+        self.assertIn('/115/media/Movies/Final.movie.en.srt',self.cloud.objects)
+        self.assertNotIn('/115/media/Movies/Final.movie.zh.srt',self.cloud.objects)
+        restarted=self.m.Delivery(self.repo,self.auth,archive,self.cloud,rules=[self.rule],
+                                  revalidate=lambda plan:self.publication)
+        runtime=object.__new__(tp.load('runtime').Runtime)
+        runtime.repository=self.repo
+        runtime.config=NS(recovery=NS(entries=10,seconds=5))
+        runtime.delivery=restarted
+        runtime.scope_worker=lambda _:restarted
+        runtime.check=lambda:(_ for _ in ()).throw(ValueError('ORDINARY_DISABLED'))
+        runtime.checkpoint=lambda _:None
+        runtime.safety_reads=nullcontext
+        runtime.consumer=lambda _:dict(state=restarted.bundle(bid)['state'])
+        runtime.reason=lambda error:str(error)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',runtime.safety(time.monotonic()+5)[0]['state'])
+        self.assertEqual(1,sum(call[0]=='move' for call in self.cloud.calls))
+        runtime.check=lambda:None
+        self.repo.setting('runtime-bundle-cursor','')
+        result=runtime.safety(time.monotonic()+5)
+        self.assertEqual('WAIT_CONSUMER',result[0]['state'])
+        self.assertIn('/115/media/Movies/Final.movie.zh.srt',self.cloud.objects)
+        self.assertEqual(2,sum(call[0]=='move' for call in self.cloud.calls))
 
     def test_publish_skip_is_conflict_not_success(self):
         bid=self.all_remote();b=self.worker.bundle(bid)

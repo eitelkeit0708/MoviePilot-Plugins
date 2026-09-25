@@ -1002,6 +1002,9 @@ class Runtime:
                     if result['state']=='REMOTE_VERIFIED':result=worker.publish(row['id'])
                 else:
                     with self.safety_reads():result=worker.safety_reconcile(row['id'],limits=limits)
+                    if (ordinary and bundle.get('sidecar_destinations')
+                            and result['state'] in ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN')):
+                        self.checkpoint(deadline);result=worker.publish(row['id'])
                 if bundle.get('publication_action'):result=self.consumer(row['id'])
             except Exception as error:result=dict(state='DEFER',reason=self.reason(error),bundle_id=row['id'])
             results.append(result);self.repository.setting('runtime-bundle-result:'+row['id'],dict(result,at=utcnow()))
