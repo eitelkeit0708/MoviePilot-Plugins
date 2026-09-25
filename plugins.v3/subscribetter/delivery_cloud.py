@@ -242,14 +242,23 @@ class HostDeliveryCloud:
         return dict(state=state,reader_stopped=True,bytes_sent=sent,requests=requests,pause_requested=pause_requested,**({'error':failure} if failure else {}))
 
     def refresh(self,scope,path):
-        self._scope(scope,path);client,pb,meta=self._raw(scope);count=0
-        self._checkpoint()
-        call=client.stub.GetSubFiles(pb.ListSubFileRequest(path=path,forceRefresh=True),metadata=meta,timeout=self.timeout)
-        try:
-            for reply in call:
-                count+=len(reply.subFiles)
-                if count>10000:raise ValueError('REFRESH_LIMIT')
-        finally:call.cancel()
+        config=self._scope(scope,path);client,pb,meta=self._raw(scope);count=0
+        roots=[cloud_path(root) for root in config['allowed_prefixes'] if beneath(path,cloud_path(root))]
+        root=max(roots,key=lambda value:len(PurePosixPath(value).parts))
+        relative=PurePosixPath(path).relative_to(PurePosixPath(root)).parts
+        if len(relative)>32:raise ValueError('REFRESH_LIMIT')
+        paths=[root]
+        for part in relative:paths.append(str(PurePosixPath(paths[-1])/part))
+        deadline=time.monotonic()+self.timeout
+        for current in paths:
+            self._checkpoint();remaining=deadline-time.monotonic()
+            if remaining<=0:raise ValueError('REFRESH_LIMIT')
+            call=client.stub.GetSubFiles(pb.ListSubFileRequest(path=current,forceRefresh=True),metadata=meta,timeout=remaining)
+            try:
+                for reply in call:
+                    count+=len(reply.subFiles)
+                    if count>10000:raise ValueError('REFRESH_LIMIT')
+            finally:call.cancel()
 
     def inventory(self,scope,path,*,limit=10000,seconds=30):
         """Only the exact owned batch subtree, never the library/cloudfs root."""

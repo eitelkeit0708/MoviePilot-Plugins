@@ -31,6 +31,11 @@ class CloudTests(unittest.TestCase):
         self.cloud.move('s','/115/test/staging/b','/115/test/incoming/b')
         req=self.stub.MoveFile.call_args.args[0]
         self.assertEqual(2,req.conflictPolicy);self.assertFalse(req.moveAcrossClouds);self.assertFalse(req.handleConflictRecursively)
+    def test_refresh_walks_authorized_ancestors_for_cloudfs_visibility(self):
+        calls=[]
+        self.stub.GetSubFiles.side_effect=lambda request,**kwargs:(calls.append(request.path) or Call([]))
+        self.cloud.refresh('s','/115/test/media/Movies/Title')
+        self.assertEqual(['/115/test','/115/test/media','/115/test/media/Movies','/115/test/media/Movies/Title'],calls)
     def test_unknown_id_reads_nothing_and_overlap_is_not_completion(self):
         rows=[message('alien','read_data',offset=0,length=9,lazy_read=False),message('own','read_data',offset=0,length=1024*1024,lazy_read=False),message('own','read_data',offset=0,length=1024*1024,lazy_read=False)]
         call=Call(rows);self.stub.RemoteUploadChannel.return_value=call
