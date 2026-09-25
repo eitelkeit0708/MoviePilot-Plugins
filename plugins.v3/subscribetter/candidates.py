@@ -1,5 +1,5 @@
 """Bounded raw site discovery and conservative complete physical torrent tables."""
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from hashlib import sha256
 from itertools import zip_longest
@@ -19,6 +19,8 @@ from .repository import Target, utcnow
 
 VIDEO = VIDEO_SUFFIXES
 SUBTITLE = TEXT_SUBTITLE_SUFFIXES
+# ponytail: four shared workers cap stuck host calls; use host cancellation if it becomes available.
+_SITE_SEARCH_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix='SubscriBetterSite')
 
 
 def _sample_video(path):
@@ -336,12 +338,13 @@ class CandidateService:
         self.checkpoint()
         sites = [s for s in self.adapter.sites() if s.get('id') in set(selected_sites)]
         lock, output, seen = Lock(), [], set()
+        closed = [False]
         buckets = {word: [] for word in words}
         remaining = [budget.requests]
         def run(site):
             for word in query_words:
                 with lock:
-                    if expired() or remaining[0]<(2 if budget.pages>1 else 1) or len(output)>=explore_limit:return
+                    if closed[0] or expired() or remaining[0]<(2 if budget.pages>1 else 1) or len(output)>=explore_limit:return
                     if word_counts[word]>=word_limits[word]:continue
                     if budget.pages>1:remaining[0]-=1
                 size = None
@@ -353,21 +356,24 @@ class CandidateService:
                         pass
                 for page in range(budget.pages if type(size) is int and size>0 else 1):
                     with lock:
-                        if expired() or remaining[0] <= 0 or len(output)>=explore_limit:return
+                        if closed[0] or expired() or remaining[0] <= 0 or len(output)>=explore_limit:return
                         if word_counts[word]>=word_limits[word]:break
                         remaining[0] -= 1
                     self.checkpoint()
+                    if expired():return
                     try:
                         rows = self.adapter.search(site,word,page)
                     except Exception:
-                        with lock:self.search_errors.append('SITE_SEARCH_FAILED:'+str(site['id']))
+                        with lock:
+                            if not closed[0] and not expired():
+                                self.search_errors.append('SITE_SEARCH_FAILED:'+str(site['id']))
                         rows = []
                     for raw in (rows or [])[:budget.results]:
                         if value(raw,'site') != site['id']:
                             continue
                         try:
                             with lock:
-                                if len(output)>=explore_limit:return
+                                if closed[0] or expired() or len(output)>=explore_limit:return
                                 if word_counts[word]>=word_limits[word]:break
                                 row = self.observe(raw)
                                 if row['candidate_key'] not in seen:
@@ -378,8 +384,26 @@ class CandidateService:
                         time.sleep(min(budget.interval,max(0,deadline-time.monotonic())) if deadline else budget.interval)
                     if type(size) is not int or len(rows or [])<size:
                         break
-        with ThreadPoolExecutor(max_workers=budget.concurrency) as pool:
-            list(pool.map(run,sites))
+        if deadline is None:
+            with ThreadPoolExecutor(max_workers=budget.concurrency) as pool:
+                list(pool.map(run,sites))
+        else:
+            remaining_sites, active = iter(sites), set()
+            def schedule():
+                while len(active) < budget.concurrency and not expired():
+                    site = next(remaining_sites, None)
+                    if site is None:break
+                    active.add(_SITE_SEARCH_POOL.submit(run,site))
+            try:
+                schedule()
+                while active and not expired():
+                    done, active = wait(active, timeout=max(0, deadline-time.monotonic()),
+                                        return_when=FIRST_COMPLETED)
+                    for future in done:future.result()
+                    schedule()
+            finally:
+                with lock:closed[0]=True
+                for future in active:future.cancel()
         ordered = [row for group in zip_longest(*(buckets[word] for word in words)) for row in group if row is not None]
         return ordered[:explore_limit]
 
