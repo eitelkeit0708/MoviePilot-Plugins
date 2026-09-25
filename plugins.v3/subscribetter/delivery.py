@@ -656,8 +656,12 @@ class Delivery:
 
     def _publish_sidecars(self,b,r,now):
         try:
-            for _,source,destination in self._sidecar_observe(b,r):
+            pending=self._sidecar_observe(b,r)
+            if any(f.get('move_issued') is not False for f,_,_ in pending):
+                raise ValueError('MOVE_OUTCOME_UNKNOWN')
+            for f,source,destination in pending:
                 if self.dispatch_gate:self.dispatch_gate()
+                f['move_issued']=True;self._save(b)
                 self.cloud.move(r['cloud_scope_id'],source,destination)
         except Exception:
             b.update(state='PUBLISH_OUTCOME_UNKNOWN',reason='MOVE_RESPONSE_UNKNOWN')
@@ -690,6 +694,8 @@ class Delivery:
             checks={name:True for name in ('identity','admission','scope','not_excluded','current_allows','assets_complete','remote_verified')}
             validation=dict(policy_revision=plan['snapshot']['policy_revision'],parse_revision=plan['snapshot']['parse_revision'],current_revisions={k:v['current_revision'] for k,v in b['vector'].items()},checks={k:checks for k in b['vector']})
             aid=b['id']+':publish'
+            if b.get('sidecar_destinations'):
+                for f in b['files']:f['move_issued']=False
             with self.repository.connection(write=True) as db:
                 action=self.authority.begin_publish(aid,b['plan_id'],b['vector'],b['indices'],validation=validation,now=now,exclusion_token=token,db=db)
                 b.update(publication_action=aid,state='PUBLISHING');self._save(b,db)

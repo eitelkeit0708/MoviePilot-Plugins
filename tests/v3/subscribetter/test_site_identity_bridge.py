@@ -108,6 +108,20 @@ class BridgeTests(unittest.TestCase):
                              [1], ['Primary Movie', 'Other Alias'], tight)])
         self.assertEqual(['Primary Movie'], [call[1] for call in self.calls if call[0] == 'search'])
 
+    def test_noisy_alias_cannot_consume_primary_result_slot(self):
+        def selective(site, word, page):
+            self.calls.append(('search', word))
+            return [dict(site=1, torrent_id='99' if word == 'Other Alias' else '42',
+                         title='Unrelated' if word == 'Other Alias' else word,
+                         description='own description')]
+        self.service.adapter.search = selective
+        budget = self.c.SearchBudget(keywords=2, pages=1, concurrency=1,
+                                     results=1, requests=4, interval=0)
+        found = self.service.search([1], ['Primary Movie', 'Other Alias'], budget)
+        self.assertEqual(['Other Alias', 'Primary Movie'],
+                         [call[1] for call in self.calls if call[0] == 'search'])
+        self.assertEqual(['site:1:42'], [row['candidate_key'] for row in found])
+
     def test_tv_title_year_match_without_cross_source_id_stays_unknown(self):
         source=NS(type='电视剧',media_source='douban',media_id='37029663',douban_id='37029663',
             title='侠女内莉',original_title='Neagley',year='2026',

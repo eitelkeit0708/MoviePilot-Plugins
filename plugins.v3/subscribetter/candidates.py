@@ -288,6 +288,7 @@ class CandidateService:
         if not isinstance(keywords,(list,tuple)) or any(not isinstance(w,str) or not 1<=len(w)<=256 for w in keywords):
             raise ValueError('trusted bounded keywords required')
         words = list(dict.fromkeys(keywords))[:budget.keywords]
+        explore_limit = max(budget.results, len(words))
         # Reserve raw-result slots for later trusted aliases before querying a noisy first term.
         base, extra = divmod(budget.results, len(words)) if words else (0, 0)
         allocated = {word: base + (index >= len(words) - extra) for index, word in enumerate(words)}
@@ -303,7 +304,7 @@ class CandidateService:
         def run(site):
             for word in query_words:
                 with lock:
-                    if expired() or remaining[0]<2 or len(output)>=budget.results:return
+                    if expired() or remaining[0]<2 or len(output)>=explore_limit:return
                     if word_counts[word]>=word_limits[word]:continue
                     remaining[0]-=1
                 self.checkpoint()
@@ -313,7 +314,7 @@ class CandidateService:
                     size = None
                 for page in range(budget.pages if type(size) is int and size>0 else 1):
                     with lock:
-                        if expired() or remaining[0] <= 0 or len(output)>=budget.results:return
+                        if expired() or remaining[0] <= 0 or len(output)>=explore_limit:return
                         if word_counts[word]>=word_limits[word]:break
                         remaining[0] -= 1
                     self.checkpoint()
@@ -327,7 +328,7 @@ class CandidateService:
                             continue
                         try:
                             with lock:
-                                if len(output)>=budget.results:return
+                                if len(output)>=explore_limit:return
                                 if word_counts[word]>=word_limits[word]:break
                                 row = self.observe(raw)
                                 if row['candidate_key'] not in seen:
@@ -340,7 +341,12 @@ class CandidateService:
                         break
         with ThreadPoolExecutor(max_workers=budget.concurrency) as pool:
             list(pool.map(run,sites))
-        return [row for group in zip_longest(*(buckets[word] for word in words)) for row in group if row is not None]
+        ordered = [row for group in zip_longest(*(buckets[word] for word in words)) for row in group if row is not None]
+        if budget.results < len(words):
+            exact = [row for word in words for row in buckets[word]
+                     if str(row.get('title') or '').casefold() == word.casefold()]
+            ordered = exact + [row for row in ordered if row not in exact]
+        return ordered[:budget.results]
 
     def refresh(self,key,budget):
         """Cold recovery uses only saved site/resource identity, never old cookies."""
