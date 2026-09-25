@@ -343,9 +343,9 @@ class CandidateService:
             list(pool.map(run,sites))
         ordered = [row for group in zip_longest(*(buckets[word] for word in words)) for row in group if row is not None]
         if budget.results < len(words):
-            exact = [row for word in words for row in buckets[word]
-                     if str(row.get('title') or '').casefold() == word.casefold()]
-            ordered = exact + [row for row in ordered if row not in exact]
+            named = [row for word in words for row in buckets[word]
+                     if word.casefold() in str(row.get('title') or '').casefold()]
+            ordered = named + [row for row in ordered if row not in named]
         return ordered[:budget.results]
 
     def refresh(self,key,budget):

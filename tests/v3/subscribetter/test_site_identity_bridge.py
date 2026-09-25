@@ -122,6 +122,18 @@ class BridgeTests(unittest.TestCase):
                          [call[1] for call in self.calls if call[0] == 'search'])
         self.assertEqual(['site:1:42'], [row['candidate_key'] for row in found])
 
+    def test_primary_release_title_beats_exact_but_wrong_alias(self):
+        def selective(site, word, page):
+            return [dict(site=1, torrent_id='99' if word == 'Other Alias' else '42',
+                         title='Other Alias' if word == 'Other Alias' else 'Primary Movie 2026 1080p',
+                         description='own description', media_source='themoviedb',
+                         media_id='99' if word == 'Other Alias' else '42')]
+        self.service.adapter.search = selective
+        budget = self.c.SearchBudget(keywords=2, pages=1, concurrency=1,
+                                     results=1, requests=4, interval=0)
+        found = self.service.search([1], ['Primary Movie', 'Other Alias'], budget)
+        self.assertEqual(['site:1:42'], [row['candidate_key'] for row in found])
+
     def test_tv_title_year_match_without_cross_source_id_stays_unknown(self):
         source=NS(type='电视剧',media_source='douban',media_id='37029663',douban_id='37029663',
             title='侠女内莉',original_title='Neagley',year='2026',
