@@ -402,7 +402,9 @@ class CandidateService:
                         except (ValueError,TypeError):
                             continue
                         except sqlite3.OperationalError as error:
-                            if deadline is not None and (expired() or 'locked' in str(error).casefold()):return
+                            if expired():return
+                            if deadline is not None and 'locked' in str(error).casefold():
+                                raise ValueError('CANDIDATE_STORE_BUSY') from None
                             raise
                     if budget.interval:
                         time.sleep(min(budget.interval,max(0,deadline-time.monotonic())) if deadline else budget.interval)

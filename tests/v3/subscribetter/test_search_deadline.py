@@ -41,8 +41,8 @@ class SearchDeadlineTests(unittest.TestCase):
             def sites(self): return [dict(id=1)]
             def search(self, site, word, page): return [raw]
 
-        for write in (True, False):
-            with self.subTest(write=write), tempfile.TemporaryDirectory() as directory:
+        for write, short in ((True, True), (False, True), (False, False)):
+            with self.subTest(write=write, short=short), tempfile.TemporaryDirectory() as directory:
                 entered, release, finished = Event(), Event(), Event()
                 repo = repository.Repository(Path(directory) / "state.db")
                 service = candidates.CandidateService(repo, Adapter())
@@ -65,14 +65,19 @@ class SearchDeadlineTests(unittest.TestCase):
                 self.assertTrue(entered.wait(1))
                 start = time.monotonic()
                 try:
-                    rows = service.search([1], ["Locked"], candidates.SearchBudget(1, 1, 1, 10, 1, 0), deadline=start + .04)
+                    if write:
+                        rows = service.search([1], ["Locked"], candidates.SearchBudget(1, 1, 1, 10, 1, 0), deadline=start + .04)
+                    else:
+                        with self.assertRaisesRegex(ValueError, 'CANDIDATE_STORE_BUSY'):
+                            service.search([1], ["Locked"], candidates.SearchBudget(1, 1, 1, 10, 1, 0), deadline=start + (.04 if short else 1))
                     elapsed = time.monotonic() - start
                 finally:
                     release.set()
                     holder.join(1)
                     self.assertTrue(finished.wait(1))
                 self.assertLess(elapsed, .15)
-                self.assertEqual([], rows)
+                if write:
+                    self.assertEqual([], rows)
                 self.assertEqual([], service.records())
 
     def test_slow_site_search_returns_at_deadline_without_late_candidate(self):
