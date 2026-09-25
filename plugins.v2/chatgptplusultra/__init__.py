@@ -95,6 +95,10 @@ class ChatGPTPlusUltra(_PluginBase):
             self._notify = _bool(cfg.get('notify'))
             self._customize_prompt = prompt
             self._errors.clear()
+        gate = getattr(eventmanager, 'enable_event_handler' if enabled and self._recognize and runtime
+                       else 'disable_event_handler', None)
+        if callable(gate):
+            gate(self.recognize)
         if previous:
             previous.close()
         if changed:
