@@ -305,14 +305,16 @@ class CandidateService:
         def run(site):
             for word in query_words:
                 with lock:
-                    if expired() or remaining[0]<2 or len(output)>=explore_limit:return
+                    if expired() or remaining[0]<(2 if budget.pages>1 else 1) or len(output)>=explore_limit:return
                     if word_counts[word]>=word_limits[word]:continue
-                    remaining[0]-=1
-                self.checkpoint()
-                try:
-                    size = self.adapter.page_size(site,word)
-                except Exception:
-                    size = None
+                    if budget.pages>1:remaining[0]-=1
+                size = None
+                if budget.pages>1:
+                    self.checkpoint()
+                    try:
+                        size = self.adapter.page_size(site,word)
+                    except Exception:
+                        pass
                 for page in range(budget.pages if type(size) is int and size>0 else 1):
                     with lock:
                         if expired() or remaining[0] <= 0 or len(output)>=explore_limit:return

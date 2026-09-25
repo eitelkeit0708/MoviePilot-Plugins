@@ -65,7 +65,7 @@ def retired_search():
   service.deadline=time.monotonic()+10
   with f.runtime.stages.lease():
    f.runtime.check()
-   try:service.search([1],['Fixture'],c.SearchBudget(keywords=1,pages=1,concurrency=1,results=10,requests=2,interval=0))
+   try:service.search([1],['Fixture'],c.SearchBudget(keywords=1,pages=2,concurrency=1,results=10,requests=2,interval=0))
    except ValueError:pass
   return dict(calls=calls)
  finally:f.doCleanups()

@@ -1078,7 +1078,8 @@ class DiscoveryService:
             protected = {"STOPPED", "RELEASED"}
             reusable = {"SUBMITTED", "ALREADY_MANAGED", "EXISTING", "INGESTED"}
             if prior and (prior["state"] in protected or
-                          (reuse_resolved and prior["state"] in reusable)):
+                          (reuse_resolved and prior["state"] in reusable
+                           and not (refresh and prior["state"] == "EXISTING"))):
                 states.append(prior["state"]); continue
             try:
                 state = self._process_target(record_id, target, source, media, year, data, save_key)
@@ -1156,7 +1157,7 @@ class DiscoveryService:
     def _link(self, record_id, target, state, reason, data, row, intent="", snapshot_digest="", receipt_ref=None):
         task_id = row.get("id") if row and self.repository.get_task(row.get("id")) else None
         with self.repository.connection(write=True) as db:
-            db.execute("INSERT INTO discovery_targets(record_id,target_key,intent_key,snapshot_digest,task_id,season,episode_group,state,reason,receipt_ref) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(record_id,target_key) DO UPDATE SET intent_key=CASE WHEN excluded.intent_key!='' THEN excluded.intent_key ELSE discovery_targets.intent_key END,snapshot_digest=CASE WHEN excluded.snapshot_digest!='' THEN excluded.snapshot_digest ELSE discovery_targets.snapshot_digest END,task_id=COALESCE(excluded.task_id,discovery_targets.task_id),state=excluded.state,reason=excluded.reason,receipt_ref=COALESCE(excluded.receipt_ref,discovery_targets.receipt_ref)",
+            db.execute("INSERT INTO discovery_targets(record_id,target_key,intent_key,snapshot_digest,task_id,season,episode_group,state,reason,receipt_ref) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(record_id,target_key) DO UPDATE SET intent_key=CASE WHEN excluded.intent_key!='' THEN excluded.intent_key ELSE discovery_targets.intent_key END,snapshot_digest=CASE WHEN excluded.snapshot_digest!='' THEN excluded.snapshot_digest ELSE discovery_targets.snapshot_digest END,task_id=COALESCE(excluded.task_id,discovery_targets.task_id),state=excluded.state,reason=excluded.reason,receipt_ref=excluded.receipt_ref",
                        (record_id, target.key, intent, snapshot_digest, task_id, target.season,
                         target.episode_group, state, reason, receipt_ref or (f"task:{row['id']}" if row and state in {"SUBMITTED", "ALREADY_MANAGED"} else None)))
         return state
@@ -1249,5 +1250,7 @@ class DiscoveryService:
                 if blocked: continue
                 cursor = db.execute("UPDATE discovery_records SET visible=1,state='DEFERRED',reason='REPROCESS_REQUESTED',retry_count=0,next_due=0 WHERE id=?", (record_id,))
                 changed += cursor.rowcount
+                if cursor.rowcount:
+                    db.execute("UPDATE discovery_targets SET state='DEFERRED',reason='REPROCESS_REQUESTED',receipt_ref=NULL WHERE record_id=? AND state='EXISTING'", (record_id,))
             db.execute("INSERT INTO audit(task_id,action,actor,at) VALUES(NULL,?,?,?)", ("DISCOVERY_REPROCESS:" + _digest(ids), "admin", utcnow()))
         return changed

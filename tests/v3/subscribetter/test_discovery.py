@@ -1268,6 +1268,46 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual({"recognition", "intent_ack", "download_acceptance", "delivery_completion", "ingest"},
                          set(service.statistics()["stages"]))
 
+    def test_explicit_reprocess_rechecks_stale_existing_archive(self):
+        media=types.SimpleNamespace(type=types.SimpleNamespace(value="电影"),
+            identity=("themoviedb","7"),title="Fixture",year="2026",category="movie",
+            tmdb_info={"vote_average":8.0})
+        inventory={"state":"PRESENT","evidence_ref":"archive:v1"}
+        owner=Owner()
+        service=self.service(self.config(media_type_allowlist=["电影"],request_budget=ONE_BUDGET),
+            media=media,inventory=lambda _:inventory.copy(),owner=owner,
+            authorized=lambda *_:False)
+        self.wait(service.run())
+        first=service.records()[0]
+        self.assertEqual("EXISTING",first["state"])
+        self.assertEqual("archive:v1",first["targets"][0]["receipt_ref"])
+        inventory.update(state="MISSING",evidence_ref="archive:v2")
+        self.assertEqual(1,service.reprocess([first["id"]]))
+        self.wait(service.run())
+        replayed=service.records()[0]
+        self.assertEqual("DEFERRED",replayed["state"])
+        self.assertEqual("SCOPE_NOT_AUTHORIZED",replayed["reason"])
+        self.assertEqual("DEFERRED",replayed["targets"][0]["state"])
+        self.assertIsNone(replayed["targets"][0]["receipt_ref"])
+        self.assertEqual([],owner.calls)
+
+    def test_reprocess_early_metadata_defer_drops_stale_archive_receipt(self):
+        media=types.SimpleNamespace(type=types.SimpleNamespace(value="电影"),
+            identity=("themoviedb","7"),title="Fixture",year="2026",category="movie",
+            tmdb_info={"vote_average":8.0})
+        service=self.service(self.config(media_type_allowlist=["电影"],request_budget=ONE_BUDGET),
+            media=media,inventory=lambda _:{"state":"PRESENT","evidence_ref":"archive:v1"})
+        self.wait(service.run())
+        first=service.records()[0]
+        self.assertEqual("EXISTING",first["state"])
+        self.assertEqual(1,service.reprocess([first["id"]]))
+        service.meta_service.parse=lambda *_:Correction(Meta("Fixture"),status="DEFER")
+        self.wait(service.run())
+        replayed=service.records()[0]
+        self.assertEqual("META_DEFER",replayed["reason"])
+        self.assertEqual("DEFERRED",replayed["targets"][0]["state"])
+        self.assertIsNone(replayed["targets"][0]["receipt_ref"])
+
     def test_partial_tv_archive_is_linked_without_submission_in_record_only_mode(self):
         media = types.SimpleNamespace(type=types.SimpleNamespace(value="电视剧"), identity=("themoviedb", "1396"),
                                       title="Fixture", year="2008", category="tv",

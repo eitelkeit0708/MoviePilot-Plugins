@@ -48,6 +48,20 @@ class BridgeTests(unittest.TestCase):
         self.assertIn(('recognize','Mayday 2026 1080p',('themoviedb',None),'电影'),self.calls)
         self.assertIn(('parse','Mayday 2026 1080p','own description'),self.calls)
         self.assertNotIn('SECRET',str(result['evidence']));self.assertGreater(self.checks,4)
+
+    def test_default_single_page_budget_searches_original_name(self):
+        def selective(site,word,page):
+            self.calls.append(('search',word))
+            return self.rows if word=='Mayday' else []
+        self.service.adapter.search=selective
+        budget=self.c.SearchBudget(keywords=2,pages=1,concurrency=1,
+                                   results=20,requests=4,interval=0)
+        result=self.run_bridge(budget=budget)
+        self.assertEqual('VERIFIED',result['state'])
+        self.assertEqual(['求救信号','Mayday'],
+                         [call[1] for call in self.calls if call[0]=='search'])
+        self.assertFalse(any(call[0]=='page_size' for call in self.calls))
+        self.assertLessEqual(len([call for call in self.calls if call[0] in ('search','detail','page_size')]),4)
     def test_conflicts_and_wrong_type_never_verified(self):
         for changes in ({'tmdb_info':{'id':999,'imdb_id':'tt28014327'}},{'year':'2025'},{'imdb_id':'tt9'},{'type':'电视剧'},{'douban_id':'999'},{'douban_id':'36439868','douban_info':{'id':'999'}},{'tmdb_info':{'external_ids':{'imdb_id':'tt8'}}}):
             with self.subTest(changes=changes):
@@ -106,7 +120,8 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(['site:1:354238'],
                          [row['candidate_key'] for row in self.service.search(
                              [1], ['Primary Movie', 'Other Alias'], tight)])
-        self.assertEqual(['Primary Movie'], [call[1] for call in self.calls if call[0] == 'search'])
+        self.assertEqual(['Primary Movie','Other Alias'],
+                         [call[1] for call in self.calls if call[0] == 'search'])
 
     def test_noisy_alias_cannot_hide_primary_result(self):
         def selective(site, word, page):
