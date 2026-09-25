@@ -470,6 +470,21 @@ class PassiveTests(unittest.TestCase):
     def test_passive_rss_slow_fetch_obeys_deadline(self):
         self._assert_passive_rss_deadline('rss')
 
+    def test_passive_rss_arrival_deadline_keeps_pending_candidate(self):
+        import time
+        passive=load('runtime_passive')
+        self.runtime.config.passive_libraries={'test':['10']}
+        self.runtime.candidates=SimpleNamespace(adapter=SimpleNamespace(sites=lambda:[dict(id=1)]))
+        self.repo.setting('runtime-rss-site:1',dict(seen={},pending=['site:1:x'],cursor=0,deferred=[]))
+        deadline=time.monotonic()+2;self.runtime.deadline=deadline
+        try:
+            with patch.object(passive.Passive,'arrival',side_effect=ValueError('TICK_DEADLINE')):
+                result=passive.Passive(self.runtime).rss(deadline)
+        finally:self.runtime.deadline=None
+        self.assertEqual('RSS_DEADLINE',result['state'])
+        self.assertEqual(0,self.repo.setting('runtime-rss-site:1')['cursor'])
+        self.assertIsNone(self.repo.setting('runtime-rss-result:site:1:x'))
+
     def test_passive_rss_locked_candidate_does_not_save_late_row_or_cooldown(self):
         import time
         from threading import Event,Thread

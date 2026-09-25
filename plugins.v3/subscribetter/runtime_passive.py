@@ -83,6 +83,7 @@ class Passive:
             cid=state['pending'][state['cursor']]
             try:outcome=self.arrival(cid)
             except Exception as error:
+                if str(error)=='TICK_DEADLINE' or time.monotonic()>=deadline:return dict(state='RSS_DEADLINE',site_id=site['id'])
                 outcome=dict(state='DEFER',reason=r.reason(error));state['deferred'].append(cid)
             self.repo.setting('runtime-rss-result:'+cid,dict(outcome,at=utcnow()))
             state['cursor']+=1;processed+=1;self.repo.setting(key,state)
