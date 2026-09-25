@@ -308,6 +308,8 @@ class CandidateService:
         with self.repository.connection(write=True, timeout=max(0, deadline-time.monotonic()) if deadline is not None else 5) as db:
             if deadline is not None and time.monotonic() >= deadline:
                 raise ValueError('TICK_DEADLINE')
+            if deadline is not None:
+                db.execute('PRAGMA busy_timeout=0')  # COMMIT must not wait past discovery's deadline.
             db.execute('INSERT INTO candidates VALUES(?,?,?,?) ON CONFLICT(candidate_key) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at', (key,encoded(data),now,now))
             if deadline is not None and time.monotonic() >= deadline:
                 raise ValueError('TICK_DEADLINE')
