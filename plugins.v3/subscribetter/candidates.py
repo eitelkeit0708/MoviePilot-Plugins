@@ -288,6 +288,7 @@ class CandidateService:
         if not isinstance(keywords,(list,tuple)) or any(not isinstance(w,str) or not 1<=len(w)<=256 for w in keywords):
             raise ValueError('trusted bounded keywords required')
         words = list(dict.fromkeys(keywords))[:budget.keywords]
+        # ponytail: expose one candidate per trusted name at minimum; raise results for noisy sites.
         explore_limit = max(budget.results, len(words))
         # Reserve raw-result slots for later trusted aliases before querying a noisy first term.
         base, extra = divmod(budget.results, len(words)) if words else (0, 0)
@@ -342,11 +343,7 @@ class CandidateService:
         with ThreadPoolExecutor(max_workers=budget.concurrency) as pool:
             list(pool.map(run,sites))
         ordered = [row for group in zip_longest(*(buckets[word] for word in words)) for row in group if row is not None]
-        if budget.results < len(words):
-            named = [row for word in words for row in buckets[word]
-                     if word.casefold() in str(row.get('title') or '').casefold()]
-            ordered = named + [row for row in ordered if row not in named]
-        return ordered[:budget.results]
+        return ordered[:explore_limit]
 
     def refresh(self,key,budget):
         """Cold recovery uses only saved site/resource identity, never old cookies."""

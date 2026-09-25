@@ -74,7 +74,8 @@ class CandidateTests(unittest.TestCase):
         self.assertEqual('Soul 2020',rows[1]['title'])
         self.assertLessEqual(len(rows),4)
         tiny=self.m.SearchBudget(keywords=2,pages=1,concurrency=1,results=1,requests=4,interval=0)
-        self.assertEqual(['2046'],[row['title'] for row in service.search([1],['心灵','2046'],tiny)])
+        self.assertEqual(['Unrelated 0','2046'],
+                         [row['title'] for row in service.search([1],['心灵','2046'],tiny)])
 
     def test_rss_incomplete_and_secret_redaction(self):
         service = self.m.CandidateService(self.repo, None)

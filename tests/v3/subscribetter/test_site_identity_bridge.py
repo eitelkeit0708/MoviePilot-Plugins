@@ -108,7 +108,7 @@ class BridgeTests(unittest.TestCase):
                              [1], ['Primary Movie', 'Other Alias'], tight)])
         self.assertEqual(['Primary Movie'], [call[1] for call in self.calls if call[0] == 'search'])
 
-    def test_noisy_alias_cannot_consume_primary_result_slot(self):
+    def test_noisy_alias_cannot_hide_primary_result(self):
         def selective(site, word, page):
             self.calls.append(('search', word))
             return [dict(site=1, torrent_id='99' if word == 'Other Alias' else '42',
@@ -120,19 +120,21 @@ class BridgeTests(unittest.TestCase):
         found = self.service.search([1], ['Primary Movie', 'Other Alias'], budget)
         self.assertEqual(['Other Alias', 'Primary Movie'],
                          [call[1] for call in self.calls if call[0] == 'search'])
-        self.assertEqual(['site:1:42'], [row['candidate_key'] for row in found])
+        self.assertEqual(['site:1:42', 'site:1:99'],
+                         [row['candidate_key'] for row in found])
 
-    def test_primary_release_title_beats_exact_but_wrong_alias(self):
+    def test_trusted_words_remain_available_for_identity_check_with_one_result_slot(self):
         def selective(site, word, page):
             return [dict(site=1, torrent_id='99' if word == 'Other Alias' else '42',
-                         title='Other Alias' if word == 'Other Alias' else 'Primary Movie 2026 1080p',
+                         title='Other Alias' if word == 'Other Alias' else 'Primary.Movie.2026.1080p',
                          description='own description', media_source='themoviedb',
                          media_id='99' if word == 'Other Alias' else '42')]
         self.service.adapter.search = selective
         budget = self.c.SearchBudget(keywords=2, pages=1, concurrency=1,
                                      results=1, requests=4, interval=0)
         found = self.service.search([1], ['Primary Movie', 'Other Alias'], budget)
-        self.assertEqual(['site:1:42'], [row['candidate_key'] for row in found])
+        self.assertEqual(['site:1:42', 'site:1:99'],
+                         [row['candidate_key'] for row in found])
 
     def test_tv_title_year_match_without_cross_source_id_stays_unknown(self):
         source=NS(type='电视剧',media_source='douban',media_id='37029663',douban_id='37029663',
