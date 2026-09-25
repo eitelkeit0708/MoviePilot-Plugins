@@ -1,0 +1,117 @@
+{
+  "disclosure": "Historical operator-recorded probe summaries. Selected fields are public; private host/local paths and credentials are redacted. Does not independently attest remote execution. Product and dates are as originally recorded.",
+  "records": [
+    {
+      "source_artifact": "T200-installed-product-tree-efb56bb.json",
+      "original_sha256": "c3b35333d32fe37139010f3c4a2443ca172549cdc87b82ed7d59043f3a8106bb",
+      "content": {
+        "commit": "efb56bb3cdae83aa81ade49e9c4d62d618827ec6",
+        "checked_at_utc": "2026-09-25T16:34:12.730339+00:00",
+        "scope": "All git-tracked plugins.v3/subscribetter files in isolated fnOS local repo; read-only sha256 comparison.",
+        "count": 81,
+        "mismatches": []
+      }
+    },
+    {
+      "source_artifact": "T200-final-state-efb56bb.json",
+      "original_sha256": "70b45e927d0bb0dba27d2920195aa6838ab95cacab854b8f122b806a4ee1ea30",
+      "content": {
+        "diagnostics_http": 200,
+        "config_http": 200,
+        "enabled": false,
+        "dry_run": true,
+        "ordinary_work_active": false,
+        "errors": [],
+        "revision": 271,
+        "passive_libraries": {
+          "subscriBetter Emby test": [
+            "533550"
+          ]
+        },
+        "discovery_enabled": false
+      }
+    },
+    {
+      "source_artifact": "T200-passive-deadline-fnos-efb56bb.json",
+      "original_sha256": "cfd326c3c9f290552092a126f1f5942f578039c7a133dd498c050998012c27f7",
+      "content": {
+        "commit": "efb56bb3cdae83aa81ade49e9c4d62d618827ec6",
+        "checked_at_utc": "2026-09-25T16:37:17.493419+00:00",
+        "environment": "Installed isolated fnOS V3 container with temporary SQLite database and synthetic host stalls.",
+        "result": [
+          {
+            "case": "sites",
+            "elapsed_ms": 50,
+            "state": "RSS_DEADLINE",
+            "stored": 0,
+            "cooldown_saved": false,
+            "cursor_advanced": false
+          },
+          {
+            "case": "rss",
+            "elapsed_ms": 50,
+            "state": "RSS_DEADLINE",
+            "stored": 0,
+            "cooldown_saved": false,
+            "cursor_advanced": false
+          },
+          {
+            "case": "sqlite",
+            "elapsed_ms": 150,
+            "state": "RSS_DEADLINE",
+            "stored": 0,
+            "cooldown_saved": false,
+            "cursor_advanced": false
+          }
+        ],
+        "limits": "Synthetic stalls in installed product, not a real RSSHub or OurBits timeout. Main plugin remains disabled."
+      }
+    },
+    {
+      "source_artifact": "T200-arrival-deadline-fnos-efb56bb.json",
+      "original_sha256": "f767de0ecd2227be671519d17779a037f2f6192e335b5ee800ac1503e4550a6b",
+      "content": {
+        "commit": "efb56bb3cdae83aa81ade49e9c4d62d618827ec6",
+        "checked_at_utc": "2026-09-25T16:34:12.836347+00:00",
+        "result": {
+          "state": "RSS_DEADLINE",
+          "pending_cursor": 0,
+          "receipt_saved": false
+        },
+        "limits": "Installed Linux product bytes with a synthetic arrival deadline; no real source or owner submission."
+      }
+    },
+    {
+      "source_artifact": "T189-current-recheck-efb56bb.json",
+      "original_sha256": "6135ccd1295f54b9272109d468e64847488a04f6dcc6174e5ff8156a9093dc76",
+      "content": {
+        "commit": "efb56bb3cdae83aa81ade49e9c4d62d618827ec6",
+        "result": "passed",
+        "source": "real_current_rsshub_movie_weekly_best",
+        "selected": {
+          "identity": [
+            "themoviedb",
+            "1137844"
+          ],
+          "state": "EXISTING",
+          "reason": "RECORD_ONLY",
+          "archive_item": "533783",
+          "owner_submissions": 0
+        },
+        "unselected": {
+          "state": "DEFERRED",
+          "reason": "INVENTORY_REFRESH_FAILED",
+          "emby_refresh_calls": 0,
+          "owner_submissions": 0
+        },
+        "post_state": {
+          "enabled": false,
+          "dry_run": true,
+          "ordinary_work_active": false,
+          "errors": []
+        },
+        "limits": "Disposable discovery and owner; real source, site identity and Emby test inventory; no download submission."
+      }
+    }
+  ]
+}

@@ -40,3 +40,24 @@ rss_copy.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Local connection credentials
+/fnos.txt
+/docs/subscribetter/deployment/runtime.env
+/.worktrees/
+/.venv/
+!tests/v3/subscribetter/test_*.py
+
+# Private acceptance runs and tool checkouts are not release artifacts.
+/.superpowers/
+/docs/superpowers/
+/.review-venv/
+/docs/subscribetter/*
+!/docs/subscribetter/external-review/
+!/docs/subscribetter/design-v1.2-20260917/
+/docs/subscribetter/design-v1.2-20260917/*
+!/docs/subscribetter/design-v1.2-20260917/输入参考/
+/docs/subscribetter/design-v1.2-20260917/输入参考/*
+!/docs/subscribetter/design-v1.2-20260917/输入参考/01_自定义规则.json
+!/docs/subscribetter/design-v1.2-20260917/输入参考/02_优先级规则组.json
+!/docs/subscribetter/design-v1.2-20260917/输入参考/WEB最小补丁_收紧版_20260914.json

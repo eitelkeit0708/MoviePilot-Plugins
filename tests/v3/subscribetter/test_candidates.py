@@ -27,6 +27,24 @@ class CandidateTests(unittest.TestCase):
         self.assertFalse(self.m.identity_matches(('tmdb', '42'), ('tmdb', '43')))
         self.assertIsNone(self.m.identity_matches(('tmdb', '42'), None))
 
+    def test_same_site_same_text_distinct_ids_remain_independently_selectable(self):
+        rows = [dict(site=1, torrent_id=str(i), title='Same', description='Same', labels=[])
+                for i in (42, 43)]
+        adapter = types.SimpleNamespace(sites=lambda: [dict(id=1)],
+            page_size=lambda site, word: None, search=lambda site, word, page: rows)
+        service = self.m.CandidateService(self.repo, adapter)
+        budget = self.m.SearchBudget(keywords=1, pages=1, concurrency=1,
+                                     results=2, requests=2, interval=0)
+        found = service.search([1], ['Same'], budget)
+        self.assertEqual(['site:1:42', 'site:1:43'], [row['candidate_key'] for row in found])
+        self.assertEqual(2, len(service.records()))
+        exclusions = load('execution').Exclusions(self.repo)
+        exclusions.add('first-only', {'candidate_key': found[0]['candidate_key']}, reason='test')
+        self.assertTrue(exclusions.matches(found[0]))
+        self.assertFalse(exclusions.matches(found[1]))
+        self.assertEqual(found[1]['candidate_key'],
+                         service.supplement(found[1]['candidate_key'], budget)['candidate_key'])
+
     def test_host_provider_identity_uses_only_consistent_payload_ids(self):
         adapter = self.m.HostCandidateAdapter()
         self.assertEqual({'state': 'VERIFIED', 'media_id': '123'},
@@ -83,6 +101,23 @@ class CandidateTests(unittest.TestCase):
         self.assertIn('description', row['missing_fields'])
         self.assertNotIn('SECRET', str(service.records()))
         self.assertEqual('DEFER', row['status'])
+
+    def test_missing_rss_text_defers_until_exact_site_result_supplies_it(self):
+        rows = []
+        adapter = types.SimpleNamespace(sites=lambda: [dict(id=1)],
+            page_size=lambda site, word: None, search=lambda site, word, page: rows)
+        service = self.m.CandidateService(self.repo, adapter)
+        missing = service.observe(dict(site=1, torrent_id='42', title='Special subtitles'), source='rss')
+        budget = self.m.SearchBudget(keywords=1, pages=1, concurrency=1,
+                                     results=1, requests=2, interval=0)
+        self.assertEqual(['description', 'labels'], missing['missing_fields'])
+        self.assertEqual('DEFER', service.supplement(missing['candidate_key'], budget)['status'])
+        self.assertIsNone(service.records()[0]['description'])
+        rows.append(dict(site=1, torrent_id='42', title='Special subtitles',
+                         description='Special Chinese subtitle', labels=['special']))
+        complete = service.supplement(missing['candidate_key'], budget)
+        self.assertEqual('OBSERVED', complete['status'])
+        self.assertEqual([], complete['missing_fields'])
 
     def test_full_table_retains_indices_but_only_video_and_text_subtitles_are_managed(self):
         target = self.r.Target('电影', 'tmdb', '42')

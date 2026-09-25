@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "docs/subscribetter/external-review/architecture.json",
+  "output": "docs/subscribetter/external-review/architecture.html",
+  "specification": {
+    "sha256": "3d373351b5a9ada7700ca91c4b5af48f21c0fbe25ed392f553eda2f0d6d6c587",
+    "bytes": 7523
+  },
+  "artifact": {
+    "sha256": "4545047582af181c05a5583c6039d512f79bea90afb6aaa90f4fa3e14e0efcfd",
+    "bytes": 817430
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  },
+  "evidence": {
+    "verified": true,
+    "repository": "https://github.com/eitelkeit0708/MoviePilot-Plugins",
+    "revision": "efb56bb3cdae83aa81ade49e9c4d62d618827ec6",
+    "references": 23
+  },
+  "archify_commit": "9e35d2b0b39b155553ba9fcfe0b4f2a5198dd993",
+  "browser_evidence": "passed",
+  "visual_review": "passed",
+  "visual_review_scope": "Image inspection: four endpoint screenshots, both themes; no overlaps or clipped nodes/cards observed. Small context text is available in higher-resolution screenshots and HTML zoom. Interactive controls not manually exercised.",
+  "correction_rounds": 1,
+  "redaction": "Local input/output paths replaced by repository-relative paths; deterministic hashes preserved."
+}

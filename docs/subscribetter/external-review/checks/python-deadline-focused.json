@@ -1,0 +1,19 @@
+{
+  "command": [
+    "python",
+    "-B",
+    "-X",
+    "utf8",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests/v3/subscribetter",
+    "-p",
+    "test_runtime_fix2.py",
+    "-v"
+  ],
+  "exit_code": 0,
+  "scope": "Focused rerun after full-suite TICK_DEADLINE error; original full-suite result retained.",
+  "log_sha256": "d98e9845b79390ecc316cf1ae6a84c5024d5085665460ddb08290050793ac503"
+}

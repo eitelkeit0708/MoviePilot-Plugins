@@ -1,0 +1,30 @@
+
+> subscribetter-native-ui@0.1.0 test
+> node --test --test-isolation=none test/*.test.mjs
+
+✔ operation IDs use secure random bytes without secure-context-only randomUUID (1.3893ms)
+✔ instance paths and bare/envelope responses, including false and data-shaped DTO (0.6444ms)
+✔ replacement and unmount discard delayed reads even when adapter ignores abort (0.1428ms)
+✔ one preflight emits exact normalized safe object once; no PUT or postemit read (0.1879ms)
+✔ apply scope cannot expand or mutate immutable receipt (0.1049ms)
+✔ actual Config mount and save omit private initial fields; number controls send numbers; emit once without PUT (22.9602ms)
+✔ actual Page traverses all nine domain views using read-only instance API, with empty states (10.9347ms)
+✔ delayed Config preflight cannot emit after unmount (10.3198ms)
+✔ actual immutable preview confirmation sends only receipt/opid/confirm and honors blockers (3.369ms)
+✔ actual resource sends server pagination and keeps errors distinct from empty (2.3247ms)
+✔ actual diagnostics uses worker revision for the typed local reconcile action (0.8426ms)
+✔ actual scan rows navigate to bounded items and select the persisted mapping-test identity (1.6623ms)
+✔ all domain reads/actions use actual mounted paths and complete Config retains strict safe groups (0.4649ms)
+✔ configured Unicode/space/slash paths retain exact names and explicit numeric validation (0.113ms)
+✔ production helper equals independent Python canonical and digest fixture (0.8003ms)
+✔ raw native roundtrip preserves Python number tokens, numeric key ordering and Unicode escaping (0.0921ms)
+✔ selected old Save preserves unrelated private bytes and verifies before/after full digests (0.7615ms)
+✔ HTTP native hashing does not require Web Crypto subtle (0.2455ms)
+ℹ tests 18
+ℹ suites 0
+ℹ pass 18
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 303.3431

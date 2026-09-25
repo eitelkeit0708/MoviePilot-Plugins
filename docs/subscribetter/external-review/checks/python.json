@@ -1,0 +1,105 @@
+{
+  "command": [
+    "python",
+    "-B",
+    "-X",
+    "utf8",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests/v3/subscribetter",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "started_utc": "2026-09-25T17:16:35.158602+00:00",
+  "elapsed_seconds": 226.828,
+  "exit_code": 0,
+  "tests": 714,
+  "skipped": [
+    "test_private_store_mode_symlinks_and_concurrent_atomic_updates (test_ai.AITests.test_private_store_mode_symlinks_and_concurrent_atomic_updates) ... skipped 'POSIX credential filesystem enforcement requires Linux'",
+    "test_prepare_hash_rejects_same_size_change_with_restored_mtime (test_delivery.DeliveryTests.test_prepare_hash_rejects_same_size_change_with_restored_mtime) ... skipped 'POSIX ctime identity required'",
+    "test_rule_rejects_cloudfs_mount (test_delivery.DeliveryTests.test_rule_rejects_cloudfs_mount) ... skipped 'Linux mountinfo required'",
+    "test_safe_unlink_hardlink_and_symlink_preserve_targets_and_parent_swap (test_delivery.DeliveryTests.test_safe_unlink_hardlink_and_symlink_preserve_targets_and_parent_swap) ... skipped 'Linux dirfd/nofollow acceptance is a separate host gate'",
+    "test_source_hash_checkpoint_detects_same_size_change_with_restored_mtime (test_execution.ExecutionTests.test_source_hash_checkpoint_detects_same_size_change_with_restored_mtime) ... skipped 'POSIX ctime invalidation requires POSIX filesystem'"
+  ],
+  "environment": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "Python 3.12.3",
+    "dependencies": [
+      {
+        "name": "annotated-doc",
+        "version": "0.0.5"
+      },
+      {
+        "name": "annotated-types",
+        "version": "0.8.0"
+      },
+      {
+        "name": "anyio",
+        "version": "4.15.1"
+      },
+      {
+        "name": "certifi",
+        "version": "2026.7.22"
+      },
+      {
+        "name": "fastapi",
+        "version": "0.135.3"
+      },
+      {
+        "name": "h11",
+        "version": "0.16.0"
+      },
+      {
+        "name": "httpcore",
+        "version": "1.0.9"
+      },
+      {
+        "name": "httpx",
+        "version": "0.28.1"
+      },
+      {
+        "name": "idna",
+        "version": "3.20"
+      },
+      {
+        "name": "pip",
+        "version": "24.0"
+      },
+      {
+        "name": "pydantic",
+        "version": "2.11.1"
+      },
+      {
+        "name": "pydantic_core",
+        "version": "2.33.0"
+      },
+      {
+        "name": "regex",
+        "version": "2026.5.9"
+      },
+      {
+        "name": "starlette",
+        "version": "1.7.0"
+      },
+      {
+        "name": "torrentool",
+        "version": "1.2.0"
+      },
+      {
+        "name": "typing_extensions",
+        "version": "4.16.0"
+      },
+      {
+        "name": "typing-inspection",
+        "version": "0.4.4"
+      }
+    ]
+  },
+  "scope": "Offline tests in a clean copy of tracked plus selected publication files; fresh venv, no NAS credentials or private runtime evidence copied.",
+  "product_commit": "efb56bb3cdae83aa81ade49e9c4d62d618827ec6",
+  "install_note": "torrentool 1.2.0 installed from the previously downloaded wheel (SHA256 bc6c55622e23978cf3c1e4aaf8f087971d75608c15b83be5a2c029464d3dd803); other dependencies installed using pip Windows truststore. TLS verification retained.",
+  "log_sha256": "ac3ca403c236c0aa717101ab4be1d70b6b2dfc7dafe7a5e13c8e9cf7395a8c15"
+}

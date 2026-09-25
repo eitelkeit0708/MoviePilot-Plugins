@@ -1,0 +1,362 @@
+{
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "subscriBetter V3 · 订阅交付架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/eitelkeit0708/MoviePilot-Plugins",
+      "revision": "efb56bb3cdae83aa81ade49e9c4d62d618827ec6"
+    }
+  },
+  "schema_version": 1,
+  "components": [
+    {
+      "id": "sources",
+      "label": "自部署 RSSHub / PT",
+      "pos": [
+        60,
+        60
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "豆瓣作品榜单与宿主站点资源",
+      "type": "external",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/discovery.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/candidates.py"
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "label": "管理与策略",
+      "pos": [
+        400,
+        60
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "配置修订、规则、权限与准入",
+      "type": "frontend",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/configuration.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/policy.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/ui.py"
+        }
+      ]
+    },
+    {
+      "id": "host",
+      "label": "MoviePilot V3",
+      "pos": [
+        740,
+        60
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "站点认证、Provider 与下载器",
+      "type": "external",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/mp_adapter.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/host_execution_contract.py"
+        }
+      ]
+    },
+    {
+      "id": "intake",
+      "label": "发现与候选",
+      "pos": [
+        60,
+        300
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "作品身份、资源快照与候选分组",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/discovery.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/candidates.py"
+        }
+      ]
+    },
+    {
+      "id": "control",
+      "label": "任务与执行计划",
+      "pos": [
+        400,
+        300
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "单一所有权入口、审计和重试",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/ownership.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/planner.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/runtime.py"
+        }
+      ]
+    },
+    {
+      "id": "execution",
+      "label": "下载与齐套交付",
+      "pos": [
+        740,
+        300
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "物理文件核验、暂存与发布",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/execution.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery.py"
+        }
+      ]
+    },
+    {
+      "id": "consumers",
+      "label": "Symedia / Emby",
+      "pos": [
+        1080,
+        300
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "归档、STRM 与媒体库事实",
+      "type": "external",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/host_delivery_contract.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/archive.py"
+        }
+      ]
+    },
+    {
+      "id": "meta",
+      "label": "确定性 Meta / AI 辅助",
+      "pos": [
+        60,
+        540
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "保留锁定字段；AI 仅辅助名称",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/meta.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/meta_compat.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/ai.py"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "label": "插件 SQLite",
+      "pos": [
+        400,
+        540
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "修订、任务、租约、回执、缓存",
+      "type": "database",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/repository.py"
+        }
+      ]
+    },
+    {
+      "id": "cloud",
+      "label": "115 / CD2",
+      "pos": [
+        740,
+        540
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "云端上传、文件可见性与路径",
+      "type": "cloud",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py"
+        }
+      ]
+    },
+    {
+      "id": "archive",
+      "label": "库存与入库确认",
+      "pos": [
+        1080,
+        540
+      ],
+      "size": [
+        230,
+        90
+      ],
+      "sublabel": "事实匹配；未知不等于缺失",
+      "type": "backend",
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/archive.py"
+        },
+        {
+          "path": "plugins.v3/subscribetter/archive_scan.py"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "sources",
+      "to": "intake",
+      "label": "新增条目",
+      "labelAt": [
+        175,
+        164
+      ]
+    },
+    {
+      "from": "intake",
+      "to": "control",
+      "label": "候选与身份"
+    },
+    {
+      "from": "intake",
+      "to": "meta",
+      "label": "解析与校验",
+      "labelAt": [
+        175,
+        404
+      ]
+    },
+    {
+      "from": "policy",
+      "to": "control",
+      "label": "准入与修订",
+      "labelAt": [
+        515,
+        164
+      ]
+    },
+    {
+      "from": "control",
+      "to": "db",
+      "label": "持久状态",
+      "labelAt": [
+        515,
+        404
+      ]
+    },
+    {
+      "from": "control",
+      "to": "execution",
+      "label": "冻结执行计划"
+    },
+    {
+      "from": "execution",
+      "to": "host",
+      "label": "下载合同"
+    },
+    {
+      "from": "execution",
+      "to": "cloud",
+      "label": "暂存上传",
+      "labelAt": [
+        855,
+        404
+      ]
+    },
+    {
+      "from": "execution",
+      "to": "consumers",
+      "label": "齐套后发布"
+    },
+    {
+      "from": "consumers",
+      "to": "archive",
+      "label": "入库事实",
+      "labelAt": [
+        1195,
+        404
+      ]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主流程",
+      "items": [
+        "作品榜单与资源 RSS 分开处理",
+        "所有触发归入统一任务入口"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "事实与权限",
+      "items": [
+        "未知身份或库存会延后处理",
+        "实际上传及清理需要对应许可"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "审核边界",
+      "items": [
+        "箭头表示主要逻辑关系，不是完整调用图",
+        "193 / 199 活跃用例已登记通过；6 项未闭环"
+      ]
+    }
+  ]
+}

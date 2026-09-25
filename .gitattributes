@@ -1,0 +1,5 @@
+# Keep published diagram receipt byte hashes stable across Git clients.
+/docs/subscribetter/external-review/** -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+/docs/subscribetter/design-v1.2-20260917/输入参考/*.json text eol=lf
+/tests/v3/subscribetter/** text=auto eol=lf
+/plugins.v3/subscribetter/** text=auto eol=lf

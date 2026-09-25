@@ -1,0 +1,12 @@
+test_cleanup_deadline_blocks_files_and_remove_after_slow_task (test_runtime_fix2.RuntimeFix2Tests.test_cleanup_deadline_blocks_files_and_remove_after_slow_task) ... ok
+test_cleanup_slow_files_suppresses_remove_and_issued_slow_remove_stays_unknown (test_runtime_fix2.RuntimeFix2Tests.test_cleanup_slow_files_suppresses_remove_and_issued_slow_remove_stays_unknown) ... ok
+test_data_cleanup_stops_after_slow_absent_task_read (test_runtime_fix2.RuntimeFix2Tests.test_data_cleanup_stops_after_slow_absent_task_read) ... ok
+test_late_sidecar_with_original_torrent_subtitle_reaches_organizer (test_runtime_fix2.RuntimeFix2Tests.test_late_sidecar_with_original_torrent_subtitle_reaches_organizer) ... ok
+test_mixed_sidecar_wanted_mismatch_still_blocks_organization (test_runtime_fix2.RuntimeFix2Tests.test_mixed_sidecar_wanted_mismatch_still_blocks_organization) ... ok
+test_recognition_checks_after_assist_and_direct_service_deadline (test_runtime_fix2.RuntimeFix2Tests.test_recognition_checks_after_assist_and_direct_service_deadline) ... ok
+test_recognition_deadline_blocks_provider_after_slow_parse (test_runtime_fix2.RuntimeFix2Tests.test_recognition_deadline_blocks_provider_after_slow_parse) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 5.076s
+
+OK

@@ -1,0 +1,6 @@
+# Offline review only; product runtime dependencies remain in pyproject.toml.
+fastapi==0.135.3
+httpx==0.28.1
+pydantic==2.11.1
+regex==2026.5.9
+torrentool==1.2.0

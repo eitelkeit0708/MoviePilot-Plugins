@@ -1,0 +1,52 @@
+{
+  "environment": {
+    "node": "v24.16.0",
+    "npm": "11.17.0"
+  },
+  "scope": "Fresh npm ci from published package-lock; tests and build in clean public checkout. Not deployed-host browser acceptance.",
+  "results": [
+    {
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exit_code": 0,
+      "log": "frontend-tests.log",
+      "log_sha256": "d5a1333d961f8f62f3c729cb59ce0cc9c8812e9a58d13ac80862af485579d783"
+    },
+    {
+      "command": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "exit_code": 0,
+      "log": "frontend-build.log",
+      "log_sha256": "8a6145eb1c6f256d0a2e30d56424056670db618e3fe1c0dc53652962aad46862"
+    }
+  ],
+  "rebuilt_dist_matches_published_bytes": false,
+  "rebuilt_dist": {
+    "index.html": "0d21d1a21d94eeecd36f8194c5db52b8a8c333eb9b65626186a7fe5fdad944e7",
+    "assets/remoteEntry.js": "a04ac3b053b782cedf3d40a693138446cdfc2ecfd916eb49fd69449f104be5ec",
+    "assets/style-C6dZdPNX.js": "0b694e4a371b81a625e94189f582958a7774d76570919e336f137fe9ae8eccf2",
+    "assets/style-D4nvLzLC.css": "822c2a8085989a1d1c4204888652d9d9080045e0e79ae4dab546c31699f7a3cc",
+    "assets/__federation_expose_Config-DEvGRV_b.js": "19395345f145fbb33c87a294d22a50e6f01cc426dc42f14863771031068c7303",
+    "assets/__federation_expose_Page-B2kukoXp.js": "cab20a560ecc410ceba745c1e466dc71eac3fd22b0d6c94d1d2b2996f602128b",
+    "assets/__federation_fn_import-E6wRZccp.js": "11a2d68813601dffb4a4bb619cabf25526a7a445b054e418100e24128f6bdca2"
+  },
+  "published_dist": {
+    "remoteEntry.js": "be87fcba32ca0df9de4bff75f6110c589110fb8697cd37fb5087a7b030039b22",
+    "style-D4nvLzLC.css": "822c2a8085989a1d1c4204888652d9d9080045e0e79ae4dab546c31699f7a3cc",
+    "style-DFdlYqTa.js": "d37449452da0435e3b794e1be4dc9c987659444586ebe13bf1f8b62e7f2b1fc7",
+    "__federation_expose_Config-MIhykeHT.js": "af586ac47466fd76e5c0fdd1dcde1edfd606a403d693a0bf761d9d39b3507d35",
+    "__federation_expose_Page-C7JcUdlD.js": "70879aec3fa5b39eef4447493d38d1897c391e36e6ca050dae18f549267d57ea",
+    "__federation_fn_import-E6wRZccp.js": "11a2d68813601dffb4a4bb619cabf25526a7a445b054e418100e24128f6bdca2"
+  },
+  "finding": {
+    "id": "PUB-01",
+    "status": "open",
+    "summary": "Published dist retains watcher const:false in two schemas and the old disabled label; current source supports optional watcher. Other chunk differences must be assessed against their imported chunk references.",
+    "style_difference_fully_explained": true
+  }
+}
