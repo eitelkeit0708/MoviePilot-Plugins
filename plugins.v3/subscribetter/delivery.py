@@ -229,12 +229,15 @@ class Delivery:
         if r is None or (not r['enabled'] and not safety) or r['transfer_revision']!=b['rule_transfer_revision']:raise ValueError('RULE_CHANGED')
         return r
 
-    def _valid(self,b,*,publication=False):
+    def _valid(self,b,*,publication=False,continuing_publish=False):
         if self.dispatch_gate:self.dispatch_gate()
+        if continuing_publish and b.get('cancel_intent'):raise ValueError('PUBLISH_CANCELLED')
         plan=self.authority.plan(b['plan_id']);s=plan['snapshot']
         with self.repository.connection() as db:
             self.authority._task_active(db,plan);self.authority._revisions(db,s)
-            actual=self.authority._match(db,b['vector'],owner=b['plan_id'])
+            actual=self.authority._match(db,b['vector'],owner=b['plan_id'],allow_barrier=continuing_publish)
+            if continuing_publish and any(actual[k]['current_revision']!=b['vector'][k]['current_revision'] for k in actual):
+                raise ValueError('CURRENT_REAUTHORIZE_REQUIRED')
             if not publication and any(actual[k]['current_revision']!=b['vector'][k]['current_revision'] or actual[k]['current_revision']!=s['current'][k]['revision'] for k in actual):raise ValueError('CURRENT_REAUTHORIZE_REQUIRED')
         fresh=self.validate_publication(plan,b['manifest']['publication'])
         for key in b['vector']:
@@ -660,7 +663,7 @@ class Delivery:
             if any(f.get('move_issued') is not False for f,_,_ in pending):
                 raise ValueError('MOVE_OUTCOME_UNKNOWN')
             for f,source,destination in pending:
-                if self.dispatch_gate:self.dispatch_gate()
+                self._valid(b,publication=True,continuing_publish=True)
                 f['move_issued']=True;self._save(b)
                 self.cloud.move(r['cloud_scope_id'],source,destination)
         except Exception:

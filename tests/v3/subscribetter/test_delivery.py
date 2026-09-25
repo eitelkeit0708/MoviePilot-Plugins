@@ -428,6 +428,12 @@ class DeliveryTests(unittest.TestCase):
         self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',runtime.safety(time.monotonic()+5)[0]['state'])
         self.assertEqual(1,sum(call[0]=='move' for call in self.cloud.calls))
         runtime.check=lambda:None
+        restarted.exclusions.add('block-remaining-sidecar',
+                                 {'candidate_key':'candidate'},reason='test exclusion')
+        self.repo.setting('runtime-bundle-cursor','')
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',runtime.safety(time.monotonic()+5)[0]['state'])
+        self.assertEqual(1,sum(call[0]=='move' for call in self.cloud.calls))
+        restarted.exclusions.revoke('block-remaining-sidecar')
         self.repo.setting('runtime-bundle-cursor','')
         result=runtime.safety(time.monotonic()+5)
         self.assertEqual('WAIT_CONSUMER',result[0]['state'])
@@ -467,6 +473,42 @@ class DeliveryTests(unittest.TestCase):
         self.repo.setting('runtime-bundle-cursor','')
         self.assertEqual('WAIT_CONSUMER',runtime.safety(time.monotonic()+5)[0]['state'])
         self.assertEqual(1,moves[0])
+
+    def test_cancelled_partial_sidecar_never_moves_remaining_asset(self):
+        plan=self.auth.plan('A');snapshot=plan['snapshot']
+        snapshot['targets'][self.key]['action']='SIDECAR_SUPPLEMENT'
+        snapshot['torrent_files'][0].update(path='release/movie.en.srt',role='subtitle',requires=[])
+        moved=self.local/'movie.en.srt';(self.local/'movie.mkv').rename(moved)
+        with self.repo.connection(write=True) as db:
+            db.execute('UPDATE plans SET snapshot=? WHERE id=?',(json.dumps(snapshot),'A'))
+            db.execute('UPDATE organized_assets SET destination=? WHERE plan_id=? AND file_index=0',
+                       (str(moved),'A'))
+        video=dict(cloud_scope_id='cloud',path='/115/media/Movies/Final.mkv',
+                   sha1='f'*40,size=999,account_ref='own')
+        archive=type('Archive',(),{'sidecar_video':lambda _,keys:copy.deepcopy(video)})()
+        self.worker=self.m.Delivery(self.repo,self.auth,archive,self.cloud,rules=[self.rule],
+                                    revalidate=lambda plan:self.publication)
+        bid=self.all_remote();gates=[0]
+        def gate():
+            gates[0]+=1
+            if gates[0]==3:raise ValueError('second move not issued')
+        self.worker.dispatch_gate=gate
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',self.worker.publish(bid)['state'])
+        self.worker.dispatch_gate=None
+        self.assertEqual(1,sum(call[0]=='move' for call in self.cloud.calls))
+        self.worker.cancel(bid,reason='test',exclusion_id='stop-sidecar',
+                           criteria={'candidate_key':'candidate'})
+        restarted=self.m.Delivery(self.repo,self.auth,archive,self.cloud,rules=[self.rule],
+                                  revalidate=lambda plan:self.publication)
+        runtime=object.__new__(tp.load('runtime').Runtime)
+        runtime.repository=self.repo;runtime.config=NS(recovery=NS(entries=10,seconds=5))
+        runtime.delivery=restarted;runtime.scope_worker=lambda _:restarted
+        runtime.check=lambda:None;runtime.checkpoint=lambda _:None
+        runtime.safety_reads=nullcontext;runtime.consumer=lambda _:dict(state=restarted.bundle(bid)['state'])
+        runtime.reason=lambda error:str(error)
+        self.assertEqual('PUBLISH_OUTCOME_UNKNOWN',runtime.safety(time.monotonic()+5)[0]['state'])
+        self.assertEqual(1,sum(call[0]=='move' for call in self.cloud.calls))
+        self.assertNotIn('/115/media/Movies/Final.movie.zh.srt',self.cloud.objects)
 
     def test_publish_skip_is_conflict_not_success(self):
         bid=self.all_remote();b=self.worker.bundle(bid)
