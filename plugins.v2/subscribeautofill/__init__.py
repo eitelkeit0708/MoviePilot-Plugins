@@ -391,12 +391,7 @@ class SubscribeAutofill(_PluginBase):
 
     def __handle_download(self, data: dict):
         history = self._downloadhistoryoper.get_by_hash(data['hash'])
-        if not history or history.type != '电视剧':
-            return
-        tmdbid = getattr(history, 'tmdbid', None)
-        if not tmdbid and str(getattr(history, 'media_source', '')) == 'themoviedb':
-            tmdbid = getattr(history, 'media_id', None)
-        if not tmdbid:
+        if not history or history.type != '电视剧' or not history.tmdbid:
             return
         season_text = str(history.seasons or '')
         match = re.fullmatch(r'S?(\d+)', season_text.strip(), re.I)
@@ -404,14 +399,7 @@ class SubscribeAutofill(_PluginBase):
             logger.warning('订阅自动填充：下载历史没有唯一季号，跳过；不把多季资源回填到全部订阅')
             return
         season = int(match.group(1))
-        legacy_list = getattr(self._subscribeoper, 'list_by_tmdbid', None)
-        if callable(legacy_list):
-            subscribes = legacy_list(tmdbid=tmdbid, season=season) or []
-        else:
-            from app.schemas.types import MediaSource
-            subscribes = [row for row in self._subscribeoper.list_by_media_identity(
-                media_source=MediaSource.TMDB, media_id=str(tmdbid)) or []
-                if row.season == season]
+        subscribes = self._subscribeoper.list_by_tmdbid(tmdbid=history.tmdbid, season=season) or []
         handled = self.get_data('history_handle') or []
         if not isinstance(handled, list):
             handled = []
@@ -419,7 +407,7 @@ class SubscribeAutofill(_PluginBase):
             if subscribe.type != '电视剧' or subscribe.season != season:
                 continue
             # 旧的“电视剧:tmdbid”条目无法区分季，不再用于阻止其他季的回填。
-            key = f'subscribe:{subscribe.id}:{tmdbid}:S{season}'
+            key = f'subscribe:{subscribe.id}:{history.tmdbid}:S{season}'
             if key in handled:
                 continue
             try:
