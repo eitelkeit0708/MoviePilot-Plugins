@@ -582,6 +582,20 @@ class PassiveTests(unittest.TestCase):
         self.runtime.search(saved,['Fiction'])
         self.assertEqual([[1,2],[3,4]],calls)
 
+    def test_expired_search_does_not_advance_site_cursor_or_cooldown(self):
+        import time
+        self.runtime.submit('manual',self.target,{'name':'Fiction'},'admin')
+        with self.repo.connection() as db:opportunity=db.execute('SELECT id FROM opportunities').fetchone()[0]
+        saved=self.repo.setting('runtime-input:'+opportunity)
+        self.runtime.candidates=SimpleNamespace(search=lambda *args:time.sleep(.03) or [])
+        self.runtime.deadline=time.monotonic()+.01
+        try:
+            with self.assertRaisesRegex(ValueError,'TICK_DEADLINE'):
+                self.runtime.search(saved,['Fiction'])
+        finally:
+            self.runtime.deadline=None
+        self.assertIsNone(self.repo.setting('runtime-search:'+opportunity))
+
     def test_policy_reprofile_pages_stored_facts_without_provider_or_clock_writes(self):
         cm=load('candidates');service=cm.CandidateService(self.repo,None)
         for n in range(5):service.observe(dict(site=1,torrent_id=str(n),title='Fiction',description='',labels=[]))

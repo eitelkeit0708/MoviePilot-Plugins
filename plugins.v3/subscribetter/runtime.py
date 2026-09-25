@@ -497,6 +497,7 @@ class Runtime:
         count=min(len(sites),32,max(1,budget.requests//2));start=state['cursor']%len(sites)
         selected=(sites+sites)[start:start+count]
         rows=self.candidates.search(selected,words,budget)
+        self.check()
         from datetime import timedelta
         state.update(cursor=(start+count)%len(sites),next_at=(instant()+timedelta(seconds=saved['effective']['candidates']['refresh_seconds'])).isoformat())
         self.repository.setting(key,state)
