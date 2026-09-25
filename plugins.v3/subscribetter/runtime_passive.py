@@ -3,7 +3,7 @@ import json
 import time
 from datetime import timedelta
 from .archive import digest
-from .candidates import value
+from .candidates import _SITE_SEARCH_POOL,value
 from .planner import encoded
 from .repository import Target,utcnow
 from .scheduler import instant,parse
@@ -36,7 +36,18 @@ class Passive:
     def rss(self,deadline):
         r=self.r;r.check()
         if not self.config.passive_libraries and not self.repo.list_tasks(1):return dict(state='RSS_NO_SCOPE')
-        sites=sorted((s for s in r.candidates.adapter.sites() if s.get('id') in self.config.candidates.site_ids),key=lambda s:s['id'])
+        def bounded(call,*args,**kwargs):
+            future=_SITE_SEARCH_POOL.submit(call,*args,**kwargs)
+            try:return future.result(timeout=max(0,deadline-time.monotonic()))
+            except TimeoutError:
+                future.cancel()
+                raise ValueError('TICK_DEADLINE') from None
+        try:available=bounded(r.candidates.adapter.sites)
+        except ValueError as error:
+            if str(error)=='TICK_DEADLINE':return dict(state='RSS_DEADLINE')
+            raise
+        if time.monotonic()>=deadline:return dict(state='RSS_DEADLINE')
+        sites=sorted((s for s in available if s.get('id') in self.config.candidates.site_ids),key=lambda s:s['id'])
         if not sites:return dict(state='RSS_NO_SELECTED_SITES')
         cursor=self.repo.setting('runtime-rss-site-cursor') or 0
         site=sites[cursor%len(sites)];key='runtime-rss-site:'+str(site['id']);state=self.repo.setting(key) or dict(seen={},pending=[],cursor=0)
@@ -46,15 +57,21 @@ class Passive:
             state['attempt_at']=utcnow();state['next_at']=(instant()+timedelta(seconds=self.config.candidates.refresh_seconds)).isoformat()
             try:
                 r.check()
-                rows=r.candidates.adapter.rss(site,self.config.safety.network_timeout)
+                rows=bounded(r.candidates.adapter.rss,site,min(self.config.safety.network_timeout,max(.001,deadline-time.monotonic())))
                 r.check();pending=[];seen={}
                 for raw in rows:
-                    try:record=r.candidates.observe(raw,source='rss')
-                    except (ValueError,TypeError):continue
+                    r.check()
+                    try:record=bounded(r.candidates.observe,raw,source='rss',deadline=deadline)
+                    except ValueError as error:
+                        if str(error)=='TICK_DEADLINE':raise
+                        continue
+                    except TypeError:continue
                     cid=record['candidate_key'];fingerprint=digest(record);seen[cid]=fingerprint
                     if state['seen'].get(cid)!=fingerprint or cid in state.get('deferred',[]):pending.append(cid)
+                r.check()
                 state.update(seen=seen,pending=list(dict.fromkeys(pending)),cursor=0,deferred=[],watermark=utcnow(),failure=None,count=len(rows))
             except Exception as error:
+                if str(error)=='TICK_DEADLINE' or time.monotonic()>=deadline:return dict(state='RSS_DEADLINE',site_id=site['id'])
                 state['failure']=r.reason(error);self.repo.setting(key,state)
                 return dict(state='RSS_FAILED',site_id=site['id'],reason=state['failure'])
             self.repo.setting(key,state)

@@ -435,6 +435,78 @@ class ColdExecutionTests(unittest.TestCase):
 class PassiveTests(unittest.TestCase):
     setUp=CommonAdmissionTests.setUp
 
+    def _assert_passive_rss_deadline(self,slow):
+        import time
+        from threading import Event
+        passive=load('runtime_passive')
+        self.runtime.config.passive_libraries={'test':['10']}
+        entered,release=Event(),Event()
+        class Adapter:
+            def sites(self):
+                if slow=='sites':entered.set();release.wait(.25)
+                return [dict(id=1)]
+            def rss(self,site,timeout):
+                if slow=='rss':entered.set();release.wait(.25)
+                return []
+        self.runtime.candidates=SimpleNamespace(adapter=Adapter())
+        start=time.monotonic();deadline=start+.04
+        self.runtime.deadline=deadline
+        try:
+            result=passive.Passive(self.runtime).rss(deadline)
+            elapsed=time.monotonic()-start
+        finally:
+            release.set()
+            self.runtime.deadline=None
+        self.assertTrue(entered.wait(.1))
+        self.assertLess(elapsed,.15)
+        self.assertEqual('RSS_DEADLINE',result['state'])
+        self.assertIsNone(self.repo.setting('runtime-rss-site:1'))
+
+    def test_passive_rss_slow_sites_obeys_deadline(self):
+        self._assert_passive_rss_deadline('sites')
+
+    def test_passive_rss_slow_fetch_obeys_deadline(self):
+        self._assert_passive_rss_deadline('rss')
+
+    def test_passive_rss_locked_candidate_does_not_save_late_row_or_cooldown(self):
+        import time
+        from threading import Event,Thread
+        candidates,passive=load('candidates'),load('runtime_passive')
+        self.runtime.config.passive_libraries={'test':['10']}
+        start_writer,entered,release=Event(),Event(),Event()
+        class Adapter:
+            def sites(self):return [dict(id=1)]
+            def rss(self,site,timeout):
+                start_writer.set()
+                if not entered.wait(1):raise AssertionError('writer did not enter')
+                return [dict(site=1,torrent_id='locked',title='Fiction',description='Known',labels=[])]
+        service=candidates.CandidateService(self.repo,Adapter())
+        observing,finished=Event(),Event();observe=service.observe
+        def track_observe(*args,**kwargs):
+            observing.set()
+            try:return observe(*args,**kwargs)
+            finally:finished.set()
+        service.observe=track_observe
+        self.runtime.candidates=service
+        def hold_writer():
+            if not start_writer.wait(1):return
+            with self.repo.connection(write=True):
+                entered.set();release.wait(.5)
+        holder=Thread(target=hold_writer);holder.start()
+        start=time.monotonic();deadline=start+.15;self.runtime.deadline=deadline
+        try:
+            result=passive.Passive(self.runtime).rss(deadline)
+            elapsed=time.monotonic()-start
+        finally:
+            release.set();holder.join(1);self.runtime.deadline=None
+        self.assertTrue(entered.is_set())
+        self.assertTrue(observing.is_set())
+        self.assertTrue(finished.wait(1))
+        self.assertLess(elapsed,.3)
+        self.assertEqual('RSS_DEADLINE',result['state'])
+        self.assertIsNone(self.repo.setting('runtime-rss-site:1'))
+        self.assertEqual([],service.records())
+
     def test_duplicate_site_rss_workers_keep_both_arrivals_and_one_budget(self):
         import concurrent.futures
         import threading
