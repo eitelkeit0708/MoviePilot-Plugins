@@ -79,8 +79,8 @@ def late_assets_chain(bad_readback=False):
   raw=dict(site=1,torrent_id='42',title='2160p REMUX 中文字幕',description='',labels=[])
   class Meta:
    corrector=SimpleNamespace(revision='parse')
-   def parse(self,*args,**kw):return SimpleNamespace(status='OK',meta=object(),record=lambda:{})
-  adapter=SimpleNamespace(sites=lambda:[dict(id=1)],page_size=lambda *a:None,search=lambda *a:[raw],acquire=lambda raw:b'fixture',recognize=lambda *a:object(),identity=lambda media:('themoviedb','42'),classify=lambda media:g.sources.classify_target(key))
+   def parse(self,*args,**kw):return SimpleNamespace(status='OK',meta=SimpleNamespace(en_name='movie'),record=lambda:{})
+  adapter=SimpleNamespace(sites=lambda:[dict(id=1)],page_size=lambda *a:None,search=lambda *a:[raw],acquire=lambda raw:b'fixture',recognize=lambda *a:SimpleNamespace(title='movie'),identity=lambda media:('themoviedb','42'),classify=lambda media:g.sources.classify_target(key))
   service=cm.CandidateService(f.repo,adapter)
   # Original publication fixture used key 'release'; supply exact persisted key
   # through the service observe boundary without changing any frozen plan.

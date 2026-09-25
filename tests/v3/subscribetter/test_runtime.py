@@ -385,7 +385,7 @@ class ColdExecutionTests(unittest.TestCase):
             def classify(s,media):return self.classification
         class Meta:
             corrector=SimpleNamespace(revision='parse-v1')
-            def parse(s,*args,**kwargs):return SimpleNamespace(status='OK',meta=SimpleNamespace(),revision='parse-v1',record=lambda:dict(status='OK'))
+            def parse(s,*args,**kwargs):return SimpleNamespace(status='OK',meta=SimpleNamespace(en_name='Fiction'),revision='parse-v1',record=lambda:dict(status='OK'))
         table=cm.torrent_table(content)[1]
         class Client:
             exists=False;state='PAUSED';wanted={0,1,2}

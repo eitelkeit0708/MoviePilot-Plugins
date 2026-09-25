@@ -247,7 +247,7 @@ class CandidateTests(unittest.TestCase):
         class Meta:
             corrector=types.SimpleNamespace(revision='meta-1')
             def parse(self,*args,**kwargs):
-                return types.SimpleNamespace(status='OK',revision='meta-1',meta=types.SimpleNamespace(begin_season=1,end_season=None,begin_episode=1,end_episode=None),record=lambda:{'status':'OK'})
+                return types.SimpleNamespace(status='OK',revision='meta-1',meta=types.SimpleNamespace(en_name='Show',begin_season=1,end_season=None,begin_episode=1,end_episode=None),record=lambda:{'status':'OK'})
         service=self.m.CandidateService(self.repo,Adapter())
         row=service.observe(dict(site=1,torrent_id='42',title='Show 1080p WEB-DL-HHWEB 中文字幕',description='',labels=[]))
         target=self.r.Target('电视剧','tmdb','42',1);key=planner.TargetUnit(target,1).key
@@ -290,7 +290,7 @@ class CandidateTests(unittest.TestCase):
         policy=p.Policy({'tv':'欧美剧'},7)
         class Adapter:
             def __init__(self,bracket):self.bracket=bracket
-            def recognize(self,meta,declared):return types.SimpleNamespace(title='一瓯春')
+            def recognize(self,meta,declared):return types.SimpleNamespace(title='一瓯春',original_title='Spring Of The Blade')
             def identity(self,media):return ('themoviedb','294990')
             def classify(self,media):return {'state':'complete','policy_revision':7,'effective':{'category_id':'tv'}}
             def acquire(self,raw):
@@ -306,7 +306,7 @@ class CandidateTests(unittest.TestCase):
                 return types.SimpleNamespace(status='OK' if locked else 'DEFER',
                     reasons=() if locked else ('BRACKET_NAME_AMBIGUOUS',),
                     native={'en_name':'Spring Of The Blade'},
-                    meta=types.SimpleNamespace(begin_season=1,end_season=None,begin_episode=13,end_episode=None),
+                    meta=types.SimpleNamespace(en_name='Spring Of The Blade',begin_season=1,end_season=None,begin_episode=13,end_episode=None),
                     record=lambda:{'status':'OK' if locked else 'DEFER'})
         for identifier,bracket,expected in (('1','一瓯春',True),('2','另一部剧',False)):
             with self.subTest(bracket=bracket):

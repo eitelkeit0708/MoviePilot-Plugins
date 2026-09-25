@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 import re
 from threading import Lock
 import time
+import unicodedata
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit
 
 from .meta import BRACKET, _stored
@@ -24,6 +25,41 @@ def _sample_video(path):
     value = PurePosixPath(path)
     return (any(part.casefold() == 'sample' for part in value.parts[:-1])
             or re.search(r'(?i)(?:^|[._ -])sample(?:[._ -]|$)', value.stem) is not None)
+
+
+def _physical_identity_confirmed(physical, recognized, target, path):
+    parsed = physical.meta
+    physical_source, physical_id = value(parsed, 'media_source'), value(parsed, 'media_id')
+    if physical_source or physical_id:
+        def source(text):
+            folded = str(value(text, 'value', text)).casefold()
+            return 'themoviedb' if folded in {'tmdb', 'themoviedb'} else folded
+        if not physical_source or not physical_id or source(physical_source) != source(target.media_source) or str(physical_id) != str(target.media_id):
+            return False
+    actual_type = value(value(parsed, 'type'), 'value', value(parsed, 'type'))
+    if actual_type in {'电影', '电视剧'} and actual_type != target.media_type:
+        return False
+    expected_year = value(recognized['media'], 'year') or value(recognized['meta'], 'year')
+    actual_year = value(parsed, 'year')
+    if expected_year and actual_year and str(expected_year) != str(actual_year):
+        return False
+    def name(text):
+        return ''.join(ch for ch in unicodedata.normalize('NFKC', text).casefold() if ch.isalnum())
+    physical_names = {name(text) for text in (value(parsed, 'cn_name'), value(parsed, 'en_name'))
+                      if isinstance(text, str) and name(text)}
+    provider_names = {name(text) for text in
+                      (value(recognized['media'], field) for field in ('title', 'original_title', 'original_name'))
+                      if isinstance(text, str) and name(text)}
+    if physical_names and physical_names <= provider_names:
+        return True
+    if target.media_type == '电视剧' and physical_names and all(
+            re.fullmatch(r'(?:e(?:p)?\d+|episode\d+|\d+|pilot|第\d+[集话話])', item)
+            for item in physical_names):
+        parents = [part for part in PurePosixPath(path).parts[:-1]
+                   if not re.fullmatch(r'(?i)(?:season[ ._-]*\d+|s\d+|第\d+季)', part.strip())]
+        if parents and name(parents[-1]) in provider_names:
+            return True
+    return False
 
 
 class HostCandidateAdapter:
@@ -586,6 +622,8 @@ class CandidatePipeline:
                                               is_path=True,force_video=True)
             if corrected.status!='OK':
                 return dict(plans=[],reason='PHYSICAL_META_UNCONFIRMED')
+            if not _physical_identity_confirmed(corrected, result, target, path):
+                return dict(plans=[],reason='PHYSICAL_IDENTITY_UNCONFIRMED')
             if target.media_type=='电影':
                 scopes[index]=[TargetUnit(target).key]
             else:

@@ -85,7 +85,7 @@ class PolicyBoundaryTests(unittest.TestCase):
             def parse(self, key, title, *args, **kwargs):
                 match = re.search(r'S(\d+)E(\d+)', title)
                 season, episode = (int(x) for x in match.groups()) if match else (1, 1)
-                return NS(status='OK', meta=NS(begin_season=season, end_season=None, begin_episode=episode, end_episode=None), record=lambda: {'status': 'OK'})
+                return NS(status='OK', meta=NS(en_name='Fiction', begin_season=season, end_season=None, begin_episode=episode, end_episode=None), record=lambda: {'status': 'OK'})
         adapter = Adapter()
         service = fixture.m.CandidateService(fixture.repo, adapter)
         row = service.observe(dict(site=1, torrent_id='scope', title='Fiction 2160p DV WEB-DL-HHWEB 中文字幕', description='', labels=[]))
