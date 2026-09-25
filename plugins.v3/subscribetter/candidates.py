@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path, PurePosixPath
 import re
+import sqlite3
 from threading import Lock
 import time
 import unicodedata
@@ -291,7 +292,7 @@ class CandidateService:
         self.deadline=None
         self.checkpoint=lambda:None
 
-    def observe(self, raw, *, source='search'):
+    def observe(self, raw, *, source='search', deadline=None):
         key = candidate_key(raw)
         fields = ('title','description','labels','size','seeders','pubdate','downloadvolumefactor','media_source','media_id')
         data = {k: value(raw,k) for k in fields}
@@ -302,8 +303,14 @@ class CandidateService:
         data.update(candidate_key=key,site=value(raw,'site'),source=source,status='DEFER' if data['missing_fields'] else 'OBSERVED')
         data = _stored(data)
         now = utcnow()
-        with self.repository.connection(write=True) as db:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise ValueError('TICK_DEADLINE')
+        with self.repository.connection(write=True, timeout=max(0, deadline-time.monotonic()) if deadline is not None else 5) as db:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise ValueError('TICK_DEADLINE')
             db.execute('INSERT INTO candidates VALUES(?,?,?,?) ON CONFLICT(candidate_key) DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at', (key,encoded(data),now,now))
+            if deadline is not None and time.monotonic() >= deadline:
+                raise ValueError('TICK_DEADLINE')
         self.runtime[key] = raw
         while len(self.runtime)>1000:self.runtime.pop(next(iter(self.runtime)))
         return data
@@ -336,7 +343,17 @@ class CandidateService:
                        if budget.requests >= 2 * len(words) else words)
         word_counts = {word: 0 for word in words}
         self.checkpoint()
-        sites = [s for s in self.adapter.sites() if s.get('id') in set(selected_sites)]
+        if deadline is None:
+            available_sites = self.adapter.sites()
+        else:
+            site_future = _SITE_SEARCH_POOL.submit(self.adapter.sites)
+            try:
+                available_sites = site_future.result(timeout=max(0, deadline-time.monotonic()))
+            except TimeoutError:
+                site_future.cancel()
+                return []
+            if expired():return []
+        sites = [s for s in available_sites if s.get('id') in set(selected_sites)]
         lock, output, seen = Lock(), [], set()
         closed = [False]
         buckets = {word: [] for word in words}
@@ -375,11 +392,16 @@ class CandidateService:
                             with lock:
                                 if closed[0] or expired() or len(output)>=explore_limit:return
                                 if word_counts[word]>=word_limits[word]:break
-                                row = self.observe(raw)
+                            row = self.observe(raw, deadline=deadline)
+                            with lock:
+                                if closed[0] or expired():return
                                 if row['candidate_key'] not in seen:
                                     output.append(row); buckets[word].append(row); seen.add(row['candidate_key']); word_counts[word]+=1
                         except (ValueError,TypeError):
                             continue
+                        except sqlite3.OperationalError as error:
+                            if deadline is not None and (expired() or 'locked' in str(error).casefold()):return
+                            raise
                     if budget.interval:
                         time.sleep(min(budget.interval,max(0,deadline-time.monotonic())) if deadline else budget.interval)
                     if type(size) is not int or len(rows or [])<size:

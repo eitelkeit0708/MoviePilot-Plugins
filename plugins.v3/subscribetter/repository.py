@@ -190,8 +190,8 @@ class Repository:
                 db.execute('PRAGMA user_version=12')
 
     @contextmanager
-    def connection(self, write: bool = False) -> Iterator[sqlite3.Connection]:
-        db = sqlite3.connect(self.path, timeout=5)
+    def connection(self, write: bool = False, *, timeout: float = 5) -> Iterator[sqlite3.Connection]:
+        db = sqlite3.connect(self.path, timeout=timeout)
         db.row_factory = sqlite3.Row
         try:
             db.execute("PRAGMA foreign_keys=ON")
