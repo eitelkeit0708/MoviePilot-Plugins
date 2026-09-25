@@ -232,6 +232,7 @@ class DiscoveryTests(unittest.TestCase):
             douban_id='35644140', title='一瓯春', original_title='', year='2026', category='tv', douban_info={'id':'35644140'})
         mapped = types.SimpleNamespace(type='电视剧', identity=('themoviedb','294990'),
             title='一瓯春', original_title='一瓯春', year='2026', category='tv', tmdb_id='294990',
+            douban_id='35644140', douban_info={'id':'35644140'},
             tmdb_info={'id':294990,'seasons':[{'season_number':1,'air_date':'2026-01-01'}]})
         owner, seen = Owner(), []
         body=SYNTHETIC_RSS.replace(b'35322132',b'35644140')
@@ -243,7 +244,7 @@ class DiscoveryTests(unittest.TestCase):
         def bridge(source, media):
             bridge_calls.append((source.id, media.identity))
             return {'state':'VERIFIED','media':mapped,'evidence':{
-                'rule_version':'douban-title-year-v1','media_type':'电视剧','douban_id':'35644140',
+                'rule_version':'douban-linked-title-year-v2','media_type':'电视剧','douban_id':'35644140',
                 'canonical':['themoviedb','294990']}}
         service.identity_bridge = bridge
         self.wait(service.run())
@@ -251,12 +252,32 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn('identity',record,record)
         self.assertEqual('themoviedb', record['identity']['media_source'])
         self.assertEqual('294990', record['identity']['media_id'])
-        self.assertEqual('douban-title-year-v1', record['site_identity']['rule_version'])
+        self.assertEqual('douban-linked-title-year-v2', record['site_identity']['rule_version'])
         self.assertTrue(owner.calls)
         self.assertTrue(any('294990' in key for key in seen))
         self.clock.advance(10)
         self.wait(service.run())
         self.assertEqual([('tv',('douban','35644140'))],bridge_calls)
+
+    def test_unlinked_douban_tv_never_submits_a_native_target(self):
+        original = types.SimpleNamespace(type='电视剧', identity=('douban','35644140'),
+            douban_id='35644140', title='一瓯春', year='2026', category='tv',
+            douban_info={'id':'35644140'},
+            tmdb_info={'seasons':[{'season_number':1,'air_date':'2026-01-01'}]})
+        owner = Owner()
+        body = SYNTHETIC_RSS.replace(b'35322132', b'35644140')
+        config = self.config(request_budget=ONE_BUDGET, season_scope='all_known',
+            sources=[dict(id='tv', kind='rsshub', route_key='tv_real_time_hotest')])
+        service = self.service(config, media=original, owner=owner,
+            fetch=lambda *_: self.d.FetchResult(body),
+            inventory=lambda _: {'state':'MISSING','evidence_ref':'fixture'})
+        service.identity_bridge = lambda *_: {'state':'UNKNOWN', 'evidence':{
+            'reason':'CROSS_SOURCE_ID_REQUIRED'}}
+        self.wait(service.run())
+        record = next(row for row in service.records() if row['raw']['douban_subject_id']=='35644140')
+        self.assertEqual(('DEFERRED','SOURCE_MAPPING_UNKNOWN'), (record['state'],record['reason']))
+        self.assertFalse(owner.calls)
+        self.assertFalse(record['targets'])
 
     def test_linked_site_bridge_revalidates_exact_identity_without_duplicate(self):
         original = types.SimpleNamespace(type='电影', identity=('douban','35322132'),

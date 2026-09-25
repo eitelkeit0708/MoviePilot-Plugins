@@ -1,6 +1,7 @@
 """Only permitted host-private adapter: two V3.0.4 Meta result bridges."""
 import inspect
-from threading import RLock
+from contextlib import contextmanager
+from threading import RLock, local
 
 _INSTALL_LOCK = RLock()
 
@@ -14,7 +15,16 @@ class MetaPatch:
         self.wrappers = {}
         self.result_types = ()
         self.lock = RLock()
+        self.local = local()
         self.last_reason = None
+
+    @contextmanager
+    def bypass(self):
+        self.local.depth = getattr(self.local, 'depth', 0) + 1
+        try:
+            yield
+        finally:
+            self.local.depth -= 1
 
     def _owns(self):
         return all(getattr(self.host, name, None) is wrapper for name, wrapper in self.wrappers.items())
@@ -76,6 +86,8 @@ class MetaPatch:
             return True
 
     def _correct(self, native, title, subtitle=None, custom_words=None, *, context_known=True):
+        if getattr(self.local, 'depth', 0):
+            return native
         if not self.active:
             return native
         if not self._owns():

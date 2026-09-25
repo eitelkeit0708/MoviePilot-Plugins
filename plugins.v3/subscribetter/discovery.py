@@ -981,6 +981,8 @@ class DiscoveryService:
                 mapping = {'state':'VERIFIED', 'source':'douban', 'media_id':declared[1],
                            'basis':proof.get('rule_version','provider_bridge')}
                 data['filter_evidence']['recognized_provider'] = source_id
+        if media_type == '电视剧' and source_id == 'douban' and bridge_eligible:
+            return self._set_record(record_id, 'DEFERRED', 'SOURCE_MAPPING_UNKNOWN', data)
         if any(json.loads(row["target_key"])[:3] != [media_type, source_id, media_id] for row in linked):
             return self._set_record(record_id, "DEFERRED", "IDENTITY_CHANGED", data)
         allowed = set(self.config.media_type_allowlist or ["电影", "电视剧"])

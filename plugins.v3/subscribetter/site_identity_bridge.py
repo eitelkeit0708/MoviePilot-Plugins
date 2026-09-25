@@ -18,8 +18,8 @@ def _name(value_):
 
 def resolve_title_identity(recognizer, meta_service, *, media, douban_id,
                            media_type, deadline, checkpoint):
-    """Resolve a Douban TV item only when trusted names and year agree on one TMDb work."""
-    evidence = {'rule_version':'douban-title-year-v1','observed_at':utcnow(),
+    """Resolve a Douban TV item only when provider identity, names and year agree."""
+    evidence = {'rule_version':'douban-linked-title-year-v2','observed_at':utcnow(),
                 'douban_id':str(douban_id),'media_type':media_type,
                 'canonical_queries':0,'provider_calls':0}
     def result(state, reason, recognized=None):
@@ -43,7 +43,7 @@ def resolve_title_identity(recognizer, meta_service, *, media, douban_id,
         if isinstance(item,str) and item.strip()))[:8]
     trusted={_name(item) for item in names if _name(item)}
     if not trusted:return result('UNKNOWN','TRUSTED_NAMES_REQUIRED')
-    found={}
+    found={};unlinked=False
     for name in names:
         check();evidence['canonical_queries']+=1
         correction=meta_service.parse('douban-title:'+_digest([douban_id,media_type,name,year]),f'{name} ({year})')
@@ -66,9 +66,12 @@ def resolve_title_identity(recognizer, meta_service, *, media, douban_id,
                 or source.get('state')=='CONFLICT'
                 or source.get('state')=='VERIFIED' and source.get('media_id')!=str(douban_id)):
             continue
+        if source.get('state')!='VERIFIED':
+            unlinked=True
+            continue
         found[str(identity[1])]=recognized
     if len(found)>1:return result('CONFLICT','MULTIPLE_WORK_IDENTITIES')
-    if not found:return result('UNKNOWN','NO_VERIFIED_TITLE_YEAR_MAPPING')
+    if not found:return result('UNKNOWN','CROSS_SOURCE_ID_REQUIRED' if unlinked else 'NO_VERIFIED_TITLE_YEAR_MAPPING')
     media_id,recognized=next(iter(found.items()))
     evidence['canonical']=['themoviedb',media_id]
     return result('VERIFIED','TITLE_YEAR_PROVIDER_MATCH',recognized)

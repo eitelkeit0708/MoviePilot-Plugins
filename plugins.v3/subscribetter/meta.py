@@ -1,5 +1,6 @@
 """Bounded corrections after native parsing; no recognition, network or hot-path storage."""
 from copy import deepcopy
+from contextlib import nullcontext
 from dataclasses import dataclass
 from enum import Enum
 import hashlib
@@ -290,8 +291,8 @@ def _stored(value):
 
 class MetaService:
     """Explicit managed entry, separate from the synchronous host wrappers."""
-    def __init__(self, repository, corrector, parser=None):
-        self.repository, self.corrector, self.parser = repository, corrector, parser
+    def __init__(self, repository, corrector, parser=None, patch=None):
+        self.repository, self.corrector, self.parser, self.patch = repository, corrector, parser, patch
 
     def parse(self, key, title, subtitle=None, custom_words=None, locks=(), *, native=None, task_id=None,
               is_path=False, force_video=False):
@@ -305,8 +306,9 @@ class MetaService:
                 from app.sdk.media import MetaInfo, MetaInfoPath
                 parser = MetaInfoPath if is_path else MetaInfo
             try:
-                native = (parser(Path(title), custom_words=custom_words, force_video=force_video) if is_path else
-                          parser(title, subtitle=subtitle, custom_words=custom_words, force_video=force_video))
+                with self.patch.bypass() if locks and self.patch is not None else nullcontext():
+                    native = (parser(Path(title), custom_words=custom_words, force_video=force_video) if is_path else
+                              parser(title, subtitle=subtitle, custom_words=custom_words, force_video=force_video))
             except Exception:
                 native = None
         if native is None:

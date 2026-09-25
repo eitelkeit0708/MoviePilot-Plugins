@@ -89,7 +89,7 @@ class BridgeTests(unittest.TestCase):
         tiny=self.c.SearchBudget(keywords=1,pages=1,concurrency=1,results=1,requests=2,interval=0)
         self.calls.clear();self.assertEqual(self.run_bridge(budget=tiny)['state'],'UNKNOWN');self.assertEqual(self.calls,[])
 
-    def test_tv_without_imdb_resolves_all_trusted_names_to_one_title_year_identity(self):
+    def test_tv_title_year_match_without_cross_source_id_stays_unknown(self):
         source=NS(type='电视剧',media_source='douban',media_id='37029663',douban_id='37029663',
             title='侠女内莉',original_title='Neagley',year='2026',
             douban_info={'id':'37029663','aka':['妮格莉','内格利']})
@@ -108,12 +108,19 @@ class BridgeTests(unittest.TestCase):
             def parse(key,title,*args):return NS(status='OK',meta=NS(title=title),record=lambda:{})
         result=self.module.resolve_title_identity(Adapter(),Meta(),media=source,douban_id='37029663',
             media_type='电视剧',deadline=time.monotonic()+10,checkpoint=self.check)
-        self.assertEqual('VERIFIED',result['state'])
-        self.assertIs(canonical,result['media'])
-        self.assertEqual(['themoviedb','273207'],result['evidence']['canonical'])
-        self.assertEqual('douban-title-year-v1',result['evidence']['rule_version'])
+        self.assertEqual('UNKNOWN',result['state'])
+        self.assertIsNone(result['media'])
+        self.assertEqual('CROSS_SOURCE_ID_REQUIRED',result['evidence']['reason'])
+        self.assertEqual('douban-linked-title-year-v2',result['evidence']['rule_version'])
         self.assertTrue(any(call[1].startswith('侠女内莉') for call in self.calls if call[0]=='title-recognize'))
         self.assertTrue(any(call[1].startswith('Neagley') for call in self.calls if call[0]=='title-recognize'))
+
+        canonical.douban_id='37029663'
+        linked=self.module.resolve_title_identity(Adapter(),Meta(),media=source,douban_id='37029663',
+            media_type='电视剧',deadline=time.monotonic()+10,checkpoint=self.check)
+        self.assertEqual('VERIFIED',linked['state'])
+        self.assertIs(canonical,linked['media'])
+        self.assertEqual(['themoviedb','273207'],linked['evidence']['canonical'])
 
         conflict=NS(**dict(vars(canonical),media_id='999',tmdb_id='999',tmdb_info={'id':999},
                            title='内格利',original_title='Neagley'))

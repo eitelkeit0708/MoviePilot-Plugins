@@ -198,8 +198,8 @@ class SubscriBetter(_PluginBase):
                 self.candidates = CandidateService(self.repository, HostCandidateAdapter())
                 self.transfer_guard = TransferGuard(self.repository)
                 self.meta_corrector = MetaCorrector(self.config.meta_protected_names)
-                self.meta_service = MetaService(self.repository, self.meta_corrector)
                 self.meta_patch = MetaPatch(self.meta_corrector)
+                self.meta_service = MetaService(self.repository, self.meta_corrector, patch=self.meta_patch)
                 if self.configuration.ready and self.config.enabled and not self.config.dry_run and self.config.enhance_host_meta:
                     try:
                         from app.chain.system import SystemChain

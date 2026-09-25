@@ -461,6 +461,23 @@ class BridgeTests(unittest.TestCase):
         if hasattr(self, "bridge"):
             self.bridge.uninstall()
 
+    def test_managed_locks_receive_native_before_global_patch(self):
+        repository = load("repository")
+        corrector = self.m.MetaCorrector()
+        self.bridge = self.b.MetaPatch(corrector, self.host)
+        self.assertTrue(self.bridge.install("v3.0.4"))
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.m.MetaService(
+                repository.Repository(Path(directory) / "state.sqlite3"), corrector,
+                parser=lambda title, subtitle=None, custom_words=None, force_video=False:
+                    self.host._build_python_meta_info(title, subtitle, custom_words))
+            service.patch = self.bridge
+            result = service.parse("locked:gate24", "GATE24", locks=("name", "episode", "type"))
+        self.assertEqual("OK", result.status)
+        self.assertEqual(("GAT", 24, "电视剧"),
+                         (result.meta.en_name, result.meta.begin_episode, result.meta.type))
+        self.assertEqual("GATE24", self.host._build_python_meta_info("GATE24").en_name)
+
     def test_forwarding_result_wrapper_must_disable_instead_of_shadow_correcting(self):
         self.native = Envelope(MetaVideo())
         self.assertTrue(self.bridge.install("v3.0.4"))
