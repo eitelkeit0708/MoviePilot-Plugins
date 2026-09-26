@@ -25,7 +25,7 @@
 
 ## 验证与限制
 
-前端 38 项通过，生产构建 90 个模块成功。最终 Python 回归结果、浏览器布局数据与部署证据见 [compact-verification.json](compact-verification.json)。新增检查覆盖真实质量记录结构、当前生命周期范围、列表与详情一致、只读查询不写库、禁用或过期观察不作为下一步，以及媒体库失联保留和重试恢复。
+前端 38 项通过，生产构建 90 个模块成功。修正版 Python 完整回归 729 项（724 通过、5 跳过）。完整结果、浏览器布局数据与部署证据见 [compact-verification.json](compact-verification.json)。新增检查覆盖真实质量记录结构、当前生命周期范围、列表与详情一致、只读查询不写库、禁用或过期观察不作为下一步，以及媒体库失联保留和重试恢复。
 
 一次完整 Python 回归运行 728 项，出现 1 项 `TICK_DEADLINE` 错误、5 项跳过：原有 `test_cleanup_deadline_blocks_files_and_remove_after_slow_task` 在模拟慢请求开始之前，已超过测试设定的 100 毫秒窗口。未修改测试或放宽阈值；随后该文件 7 项单独通过。完整复跑单独记录，保留这次失败，不用重跑覆盖历史结果。
 
@@ -46,3 +46,7 @@ npm --prefix plugins.v3/subscribetter/frontend run build
 ```
 
 使用仓库已有 Python 测试环境与前端锁定依赖。部署仅针对既有隔离 V3；正式提交和资源哈希见验证记录，生产容器不在本轮更新范围内。
+
+## 修正版隔离部署
+
+产品提交 `658e6d1535636ae40797a6a4dd42594d5edfe4c6` 已安装。151 份部署文件校验通过，宿主返回的 7 份前端资源哈希全部匹配；7 个业务接口返回 200。配置与更新前完整一致，版本 271，enabled=false、dry_run=true、ordinary_work_active=false、errors=[]。API 能正常认证，但浏览器登录未成功；未获得 MP 实机视觉证据。

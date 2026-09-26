@@ -269,12 +269,68 @@
     "dist/index.html": "0d21d1a21d94eeecd36f8194c5db52b8a8c333eb9b65626186a7fe5fdad944e7"
   },
   "deployment": {
-    "status": "not yet run for this product commit"
+    "product_commit": "658e6d1535636ae40797a6a4dd42594d5edfe4c6",
+    "http_checks": {
+      "/tasks?limit=1": 200,
+      "/delivery/bundles?limit=1": 200,
+      "/discovery/sources?limit=1": 200,
+      "/discovery/records?limit=1": 200,
+      "/policies?limit=1": 200,
+      "/configuration/categories": 200,
+      "/policies/catalog": 200
+    },
+    "served_assets_matched": [
+      "dist/assets/__federation_expose_Config-BxicGPw4.js",
+      "dist/assets/__federation_expose_Page-DnO1_bmX.js",
+      "dist/assets/__federation_fn_import-E6wRZccp.js",
+      "dist/assets/media-D3T_rKIi.css",
+      "dist/assets/media-DTzIfito.js",
+      "dist/assets/remoteEntry.js",
+      "dist/index.html"
+    ],
+    "configuration_preserved": true,
+    "revision": 271,
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "errors": [],
+    "evidence_limit": "Read-only APIs and served bytes; MP browser login unsuccessful; no visual acceptance",
+    "status": "installed and verified on existing isolated V3",
+    "staged_hash_verified_files": 151,
+    "test_service_index_entries_preserved": [
+      "CloudDriveDisk",
+      "P115Disk",
+      "SubscriBetterProbe"
+    ],
+    "comparison": "Full configuration equality; no default source-name normalization needed"
   },
   "limits": [
     "No successful screenshot capture",
     "MP browser session not authenticated",
     "DOM metrics are not visual contrast or host focus-loop acceptance",
     "No real download/cloud/ingest acceptance claimed"
-  ]
+  ],
+  "product_commit": "658e6d1535636ae40797a6a4dd42594d5edfe4c6",
+  "python_upgrade_full_run": {
+    "tests": 729,
+    "passed": 724,
+    "skipped": 5,
+    "failed": 0
+  },
+  "upgrade_regressions": {
+    "configuration_tests": 33,
+    "discovery_tests": 72,
+    "all_passed": true,
+    "old_source_digest_regression": "failed before serializer fix; passed after; actual name edits still require preflight"
+  },
+  "first_isolated_install": {
+    "commit": "71b29c53898fb492e4c7d0b919d07e6068efb03b",
+    "install_http": 200,
+    "errors": [
+      "INVALID_OR_STALE_CONFIG"
+    ],
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false
+  }
 }
