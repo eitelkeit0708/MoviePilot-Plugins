@@ -1,0 +1,330 @@
+[
+  {
+    "file": "fixtures/01-list.jpg",
+    "time": "2026-09-26T11:11:28.718Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html"
+  },
+  {
+    "file": "fixtures/02-current-and-upgrade.jpg",
+    "time": "2026-09-26T11:11:59.728Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html"
+  },
+  {
+    "file": "fixtures/03-superseded-history.jpg",
+    "time": "2026-09-26T11:12:00.044Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html"
+  },
+  {
+    "file": "host/01-subscriptions.jpg",
+    "time": "2026-09-26T11:14:45.429Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/02-episode-detail.jpg",
+    "time": "2026-09-26T11:15:13.929Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/03-episode-page2.jpg",
+    "time": "2026-09-26T11:18:31.776Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/04-discovery.jpg",
+    "time": "2026-09-26T11:19:07.514Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/05-config-sources.jpg",
+    "time": "2026-09-26T11:19:46.546Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/06-config-basic.jpg",
+    "time": "2026-09-26T11:19:46.641Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/07-config-policy.jpg",
+    "time": "2026-09-26T11:19:46.718Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/08-config-lifecycle.jpg",
+    "time": "2026-09-26T11:19:46.791Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/09-config-sites.jpg",
+    "time": "2026-09-26T11:19:46.870Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/10-config-schedule.jpg",
+    "time": "2026-09-26T11:19:46.946Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/11-config-delivery.jpg",
+    "time": "2026-09-26T11:19:47.027Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/12-config-recovery.jpg",
+    "time": "2026-09-26T11:19:47.102Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/13-config-cleanup.jpg",
+    "time": "2026-09-26T11:19:47.181Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/14-config-capacity.jpg",
+    "time": "2026-09-26T11:19:47.257Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/15-config-ai.jpg",
+    "time": "2026-09-26T11:19:47.352Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/16-ai-prompt.jpg",
+    "time": "2026-09-26T11:19:55.630Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "fixtures/04-publish-unknown-and-download.jpg",
+    "time": "2026-09-26T11:25:12.163Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html"
+  },
+  {
+    "file": "host/17-mapping-check.jpg",
+    "time": "2026-09-26T11:25:12.209Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "fixtures/05-observation.jpg",
+    "time": "2026-09-26T11:25:30.239Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html"
+  },
+  {
+    "file": "fixtures/06-unknown-targets.jpg",
+    "time": "2026-09-26T11:26:00.030Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html"
+  },
+  {
+    "file": "fixtures/07-detail-wide.jpg",
+    "time": "2026-09-26T11:26:19.258Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html"
+  },
+  {
+    "file": "host/19-transfer-detail.jpg",
+    "time": "2026-09-26T11:26:53.625Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/20-policy.jpg",
+    "time": "2026-09-26T11:27:16.706Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/21-settings.jpg",
+    "time": "2026-09-26T11:27:31.416Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/22-mobile-config.jpg",
+    "time": "2026-09-26T11:27:42.201Z",
+    "viewport": {
+      "dpr": 1,
+      "height": 796,
+      "width": 390
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/23-mobile-sites.jpg",
+    "time": "2026-09-26T11:27:57.735Z",
+    "viewport": {
+      "dpr": 1,
+      "height": 796,
+      "width": 390
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/24-delivery-final.jpg",
+    "file_modified_utc": "2026-09-26T11:28:28.350070+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/25-paths.jpg",
+    "file_modified_utc": "2026-09-26T11:28:28.490257+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/27-mapping-final.jpg",
+    "file_modified_utc": "2026-09-26T11:32:00.708149+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/29-source-inline-test.jpg",
+    "file_modified_utc": "2026-09-26T11:36:58.930404+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins"
+  },
+  {
+    "file": "host/18-transfers.jpg",
+    "time": "2026-09-26T11:40:13.913Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins"
+  }
+]

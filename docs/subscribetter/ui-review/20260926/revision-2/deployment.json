@@ -1,0 +1,17 @@
+{
+  "deployed_commit": "b4c7a3010c00d5d99ecc4b02f3cbab2b30d9ed7e",
+  "staged_hash_verified": 161,
+  "install_http": 200,
+  "success": true,
+  "before_and_after": {
+    "revision": 271,
+    "digest": "b8fedbb7a390b13428692ae856abded034dde5cbdb29bb7ecbaf81cc4cff64b8",
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "generation": 1,
+    "errors": [],
+    "ai_enabled": false
+  },
+  "scope": "isolated V3 only; no configuration save or media execution"
+}

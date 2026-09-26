@@ -1,0 +1,602 @@
+[
+  {
+    "file": "host/01-subscriptions.jpg",
+    "time": "2026-09-26T11:14:45.429Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 63078,
+    "sha256": "2ec2d959b644b348136fe7374b7910e94a8c5224dc42f96175066f928a030c62",
+    "caption": "订阅列表",
+    "environment": "host"
+  },
+  {
+    "file": "host/02-episode-detail.jpg",
+    "time": "2026-09-26T11:15:13.929Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 54764,
+    "sha256": "0ef58a04ce20154b933ebe5f20ab7f736d43acfe19bd36284750cfeae19c0d51",
+    "caption": "全宽作品详情",
+    "environment": "host"
+  },
+  {
+    "file": "host/03-episode-page2.jpg",
+    "time": "2026-09-26T11:18:31.776Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 53369,
+    "sha256": "f3b029a55443dae6496663b9ce0cd212c6ae9ba9f3f9d87a96d4f327c080ae93",
+    "caption": "真实第 26–30 集",
+    "environment": "host"
+  },
+  {
+    "file": "host/04-discovery.jpg",
+    "time": "2026-09-26T11:19:07.514Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 49388,
+    "sha256": "f306a7de5b1cb6e8e10213595ad1b60d555b65532777b7c422c827bb8fb0ab0b",
+    "caption": "作品优先的发现页",
+    "environment": "host"
+  },
+  {
+    "file": "host/05-config-sources.jpg",
+    "time": "2026-09-26T11:19:46.546Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 59503,
+    "sha256": "e10691ef81f6d40a847e35bff25dfec9706f25a83d3418363891699015490fd7",
+    "caption": "RSSHub 与榜单设置",
+    "environment": "host"
+  },
+  {
+    "file": "host/06-config-basic.jpg",
+    "time": "2026-09-26T11:19:46.641Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 50750,
+    "sha256": "a45b55e4078f1217a17dee83a06973a7212df13ef404488ee240a138a7edddb2",
+    "caption": "基本设置",
+    "environment": "host"
+  },
+  {
+    "file": "host/07-config-policy.jpg",
+    "time": "2026-09-26T11:19:46.718Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 55457,
+    "sha256": "1f68bc295de3fac35e4ca5c6d959498dd12654883e33050aeb15f77567731d6a",
+    "caption": "独立策略配置",
+    "environment": "host"
+  },
+  {
+    "file": "host/08-config-lifecycle.jpg",
+    "time": "2026-09-26T11:19:46.791Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 49664,
+    "sha256": "dfa426058bdc208009fc09becb64b89c841e46dc3d9265d1ee24b6a23711b3d2",
+    "caption": "生命周期",
+    "environment": "host"
+  },
+  {
+    "file": "host/09-config-sites.jpg",
+    "time": "2026-09-26T11:19:46.870Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 45094,
+    "sha256": "db5087a8b957c10ab8bc267162b2417a567e464fd1278d04d4dbd85335272713",
+    "caption": "站点名称选择",
+    "environment": "host"
+  },
+  {
+    "file": "host/10-config-schedule.jpg",
+    "time": "2026-09-26T11:19:46.946Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 52188,
+    "sha256": "f022c52e485f654392a40d41f21909e8203805147a653434dfb83af3f5efed2e",
+    "caption": "观察与替换预算",
+    "environment": "host"
+  },
+  {
+    "file": "host/11-config-delivery.jpg",
+    "time": "2026-09-26T11:19:47.027Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 63613,
+    "sha256": "8c5813748e9ce4b70e01601390db3e09819f0bfed944955e849ecba3584cff3f",
+    "caption": "中间版本：多方案摘要过长，已由 24 替代",
+    "environment": "host"
+  },
+  {
+    "file": "host/12-config-recovery.jpg",
+    "time": "2026-09-26T11:19:47.102Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 46433,
+    "sha256": "e099c009e9d7f66663f35c867ec8077d0f640775303a0b0ab8929647eeac37da",
+    "caption": "扫描与恢复",
+    "environment": "host"
+  },
+  {
+    "file": "host/13-config-cleanup.jpg",
+    "time": "2026-09-26T11:19:47.181Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 51776,
+    "sha256": "4c7d469dd21c0630e33aa46cba4a72ee66700acc384d65c900797baa8d44ff48",
+    "caption": "清理权限",
+    "environment": "host"
+  },
+  {
+    "file": "host/14-config-capacity.jpg",
+    "time": "2026-09-26T11:19:47.257Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 47270,
+    "sha256": "4147cfbd37acb4ff670bea90e365399556545e5724bd0f8a63404503d6e3d26b",
+    "caption": "容量与安全",
+    "environment": "host"
+  },
+  {
+    "file": "host/15-config-ai.jpg",
+    "time": "2026-09-26T11:19:47.352Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 57748,
+    "sha256": "cc11f87cfbf8c2606cd4825ca54daec7f05ba7fcb080a8508030eead418650a6",
+    "caption": "AI 连接设置",
+    "environment": "host"
+  },
+  {
+    "file": "host/16-ai-prompt.jpg",
+    "time": "2026-09-26T11:19:55.630Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 80126,
+    "sha256": "bfd7edb0462fa212ace4acbf0f76402c4e871dfb9dcf811f4e817fad2a2d779f",
+    "caption": "全宽提示词",
+    "environment": "host"
+  },
+  {
+    "file": "host/17-mapping-check.jpg",
+    "time": "2026-09-26T11:25:12.209Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 62635,
+    "sha256": "fd254e28207aff8dcb2bbe4cf076755a72d5071b74c57c536b3780076e518275",
+    "caption": "真实路径检查初次通过",
+    "environment": "host"
+  },
+  {
+    "file": "host/18-transfers.jpg",
+    "time": "2026-09-26T11:40:13.913Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 58381,
+    "sha256": "a295f3793cb55ff4371e83271cdf1f9bbd470f850f1fe315fcae9c8c02cd0679",
+    "caption": "传输列表：恢复默认视口后重拍",
+    "environment": "host"
+  },
+  {
+    "file": "host/19-transfer-detail.jpg",
+    "time": "2026-09-26T11:26:53.625Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 42585,
+    "sha256": "2a92b5a604ee37ee30c081a89f1c808d8c881e5a2d3cd01c9fe00db083c4929e",
+    "caption": "全宽交付详情",
+    "environment": "host"
+  },
+  {
+    "file": "host/20-policy.jpg",
+    "time": "2026-09-26T11:27:16.706Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 54912,
+    "sha256": "5c2c290977df70499683e3952f79bb09760d8e8ae3ccf231944cbf83b6e752e9",
+    "caption": "实际策略摘要",
+    "environment": "host"
+  },
+  {
+    "file": "host/21-settings.jpg",
+    "time": "2026-09-26T11:27:31.416Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 61382,
+    "sha256": "ece104db0caeb13c4dd0aa4af72317bf75310be4e0c71da888effad3541070c9",
+    "caption": "设置概览",
+    "environment": "host"
+  },
+  {
+    "file": "host/22-mobile-config.jpg",
+    "time": "2026-09-26T11:27:42.201Z",
+    "viewport": {
+      "dpr": 1,
+      "height": 796,
+      "width": 390
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      368,
+      796
+    ],
+    "bytes": 25525,
+    "sha256": "997ab662fe9d3eaf004575f7c5fffedc0e0c1978befc1099b7b137a495046f5f",
+    "caption": "390px 配置布局",
+    "environment": "host"
+  },
+  {
+    "file": "host/23-mobile-sites.jpg",
+    "time": "2026-09-26T11:27:57.735Z",
+    "viewport": {
+      "dpr": 1,
+      "height": 796,
+      "width": 390
+    },
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      368,
+      796
+    ],
+    "bytes": 20703,
+    "sha256": "9c654d0c86c393d1faec96d592f5d82d5427bb29542d5796f3a4c7c7108a00cd",
+    "caption": "390px 站点选择",
+    "environment": "host"
+  },
+  {
+    "file": "host/24-delivery-final.jpg",
+    "file_modified_utc": "2026-09-26T11:28:28.350070+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 52884,
+    "sha256": "0bd5c23df443c8b6e974d73194cb5ce893bca576c140541348430475ff4f8377",
+    "caption": "最终交付页：选择一个方案查看关联",
+    "environment": "host"
+  },
+  {
+    "file": "host/25-paths.jpg",
+    "file_modified_utc": "2026-09-26T11:28:28.490257+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 64838,
+    "sha256": "156341bf586e2ec5832ee51ceedd2970bae397f6e09949873588b7528420e905",
+    "caption": "四种路径全宽编辑",
+    "environment": "host"
+  },
+  {
+    "file": "host/27-mapping-final.jpg",
+    "file_modified_utc": "2026-09-26T11:32:00.708149+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 63215,
+    "sha256": "4831317d145b634d5955fd7d0560c0223bd0b31fa0322ecb2fad3168e82d19e2",
+    "caption": "最终映射检查与扫描时间",
+    "environment": "host"
+  },
+  {
+    "file": "host/29-source-inline-test.jpg",
+    "file_modified_utc": "2026-09-26T11:36:58.930404+00:00",
+    "viewport": null,
+    "note": "截图已保存；捕获元数据数组在 REPL 重绑定后未写入。仅记录文件修改时间，不冒充捕获时刻或推算 CSS 尺寸。",
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "image_pixels": [
+      1241,
+      884
+    ],
+    "bytes": 53679,
+    "sha256": "a996215c00e6cc84f7d3b64a5f4ace8b8d6123695ab6f92d973e28feeaf15fd0",
+    "caption": "真实榜单原位测试抓取 1 条",
+    "environment": "host"
+  },
+  {
+    "file": "fixtures/01-list.jpg",
+    "time": "2026-09-26T11:11:28.718Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "image_pixels": [
+      1265,
+      712
+    ],
+    "bytes": 55520,
+    "sha256": "85cf6cb248c7171c14b570dcc14dd61818f780bd6824b74ed6e5f5e7693f9bad",
+    "caption": "合成作品列表",
+    "environment": "fixtures"
+  },
+  {
+    "file": "fixtures/02-current-and-upgrade.jpg",
+    "time": "2026-09-26T11:11:59.728Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "image_pixels": [
+      1265,
+      712
+    ],
+    "bytes": 49466,
+    "sha256": "e9ae520f3288c11614710b035234865222f939aaa8d4fc511a5b35d5867e7241",
+    "caption": "在库 1080p 与在途 2160p 并列",
+    "environment": "fixtures"
+  },
+  {
+    "file": "fixtures/03-superseded-history.jpg",
+    "time": "2026-09-26T11:12:00.044Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "image_pixels": [
+      1265,
+      712
+    ],
+    "bytes": 43065,
+    "sha256": "4e1d207d8545144054c59a8edfce296d0fd921074836e4bba599f01a46c7f7f4",
+    "caption": "旧计划被取代的历史",
+    "environment": "fixtures"
+  },
+  {
+    "file": "fixtures/04-publish-unknown-and-download.jpg",
+    "time": "2026-09-26T11:25:12.163Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "image_pixels": [
+      1265,
+      712
+    ],
+    "bytes": 51467,
+    "sha256": "2eed815efc6edbca749a1c6867abfdb5c626f51da52b1cae5b53329536b0cf17",
+    "caption": "发布未知与下载中",
+    "environment": "fixtures"
+  },
+  {
+    "file": "fixtures/05-observation.jpg",
+    "time": "2026-09-26T11:25:30.239Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "image_pixels": [
+      1265,
+      712
+    ],
+    "bytes": 44280,
+    "sha256": "0d1ad83522caf2e512a817f0361d36cb21bd4d84cdeddac4899f56b0a9a19326",
+    "caption": "观察窗口",
+    "environment": "fixtures"
+  },
+  {
+    "file": "fixtures/06-unknown-targets.jpg",
+    "time": "2026-09-26T11:26:00.030Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "image_pixels": [
+      1265,
+      712
+    ],
+    "bytes": 37117,
+    "sha256": "b1e04754542641ca40043a41ff7bb49105b0da8c9d5227bea260d29731eb4641",
+    "caption": "目标范围未知",
+    "environment": "fixtures"
+  },
+  {
+    "file": "fixtures/07-detail-wide.jpg",
+    "time": "2026-09-26T11:26:19.258Z",
+    "viewport": {
+      "dpr": 2,
+      "height": 720,
+      "width": 1280
+    },
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "image_pixels": [
+      1265,
+      712
+    ],
+    "bytes": 49449,
+    "sha256": "3e42c0598d681e42f8726ef13c365638a3c23883a73bf4fd42a95a14941b2f5e",
+    "caption": "桌面活跃态补充",
+    "environment": "fixtures"
+  }
+]

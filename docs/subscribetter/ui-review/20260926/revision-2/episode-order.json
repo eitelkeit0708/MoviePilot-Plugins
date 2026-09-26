@@ -1,0 +1,47 @@
+{
+  "environment": "isolated V3 browser",
+  "media": "一瓯春",
+  "observed_page_1": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25
+  ],
+  "observed_page_2": [
+    26,
+    27,
+    28,
+    29,
+    30
+  ],
+  "page_size": 25,
+  "return_focus": "一瓯春 list row",
+  "scope": "known target units, not a statement of full series episode count",
+  "filter_return_verified": {
+    "query": "一瓯春",
+    "returned_query": "一瓯春",
+    "focused_row": "一瓯春",
+    "scroll_top_before_and_after": 0
+  }
+}
