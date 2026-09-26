@@ -58,6 +58,7 @@ class ConfigPreviewRequest(Strict):
     revision: int = Field(ge=0)
     digest: Digest
     patch: dict
+    mode: Literal['merge','replace'] = 'merge'
 
 
 class ConfigPreview(Strict):
@@ -328,7 +329,7 @@ class Management:
 
     def validate(self,request:ConfigPreviewRequest,user:TokenPayload=Depends(verify_token))->ConfigPreview:
         self._auth(user)
-        with self.plugin.runtime_lock:return self._call(self.plugin.configuration.preview,request.patch,request.revision,request.digest,str(user.username))
+        with self.plugin.runtime_lock:return self._call(self.plugin.configuration.preview,request.patch,request.revision,request.digest,str(user.username),request.mode)
 
     def credential(self,request:CredentialRequest,user:TokenPayload=Depends(verify_token))->CredentialView:
         self._auth(user)

@@ -47,6 +47,25 @@ class Ownership:
                 self._handoff(row)
             return self.repository.get_task(row["id"])
 
+    def resume(self, task_id: int, generation: int, actor: str) -> dict:
+        """Explicit paused-task resume; repeated discovery intents never reactivate it."""
+        with self.lock:
+            task = self.repository.get_task(task_id)
+            if not task or task['generation'] != generation:
+                raise ValueError('STALE_TASK')
+            if task['state'] != 'PAUSED':
+                raise ValueError('TASK_NOT_PAUSED')
+            target = Target.from_task(task)
+            from .execution import Exclusions
+            if Exclusions(self.repository).matches_target(target):
+                raise ValueError('EXCLUDED')
+            native = self.adapter.get(task['native_id']) if task['native_id'] else None
+            if not native or not self.matches(target, native):
+                raise ValueError('NATIVE_IDENTITY_MISMATCH')
+            self.repository.begin_resume(task_id, generation, actor)
+            self._handoff(self.repository.get_task(task_id))
+            return self.repository.get_task(task_id)
+
     def _handoff(self, task: dict):
         task_id = task["id"]
         target = Target.from_task(task)

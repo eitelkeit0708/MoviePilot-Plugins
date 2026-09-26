@@ -1,4 +1,5 @@
 import contract from './contract.json' with {type:'json'};
+import {label} from './labels.mjs';
 export {contract};
 export const clone=value=>JSON.parse(JSON.stringify(value));
 export function resolve(schema={}) {return schema.$ref?{...contract.schemas[schema.$ref.split('/').pop()],...Object.fromEntries(Object.entries(schema).filter(([k])=>k!=='$ref'))}:schema}
@@ -31,6 +32,7 @@ export function clean(schema,value) {
 }
 export function validate(schema,value,path='') {
   const base=resolve(schema),s=variant(base,value),errors=[];
+  const field=key=>[path,label(key)].filter(Boolean).join(' › ');
   if(value===null){if(base.anyOf?.some(v=>v.type==='null')||base.type==='null')return [];return [path+' 不能为空'];}
   if(s.const!==undefined&&value!==s.const)errors.push(path+' 必须为 '+s.const);
   if(s.enum&&!s.enum.includes(value))errors.push(path+' 请选择有效选项');
@@ -42,16 +44,16 @@ export function validate(schema,value,path='') {
   if(s.type==='boolean'&&typeof value!=='boolean')errors.push(path+' 必须为布尔值');
   if(s.type==='string'){
     if(typeof value!=='string')errors.push(path+' 必须为文本');
-    else {if(s.minLength&&value.length<s.minLength||s.maxLength&&value.length>s.maxLength)errors.push(path+' 文本长度不合规');if(s.pattern&&!new RegExp(s.pattern).test(value))errors.push(path+' 格式不合规');}
+    else {if(s.minLength&&value.length<s.minLength||s.maxLength&&value.length>s.maxLength)errors.push(path+(value.length===0?' 请填写此项':' 文本长度不合规'));if(s.pattern&&!new RegExp(s.pattern).test(value))errors.push(path+' 格式不合规');}
   }
   if(s.type==='array') {
     if(!Array.isArray(value))return [path+' 必须为列表'];
     if(s.minItems&&value.length<s.minItems||s.maxItems&&value.length>s.maxItems)errors.push(path+' 条目数超出边界');
-    value.forEach((v,i)=>errors.push(...validate(s.items||{},v,`${path}[${i+1}]`)));
+    value.forEach((v,i)=>errors.push(...validate(s.items||{},v,`${path}（第 ${i+1} 项）`)));
   }
   if(s.properties){
-    for(const key of s.required||[])if(value[key]===undefined)errors.push(path+'.'+key+' 必填');
-    for(const [key,v] of Object.entries(value))if(s.properties[key])errors.push(...validate(s.properties[key],v,path+'.'+key));else if(s.additionalProperties===false)errors.push(path+'.'+key+' 不允许');
+    for(const key of s.required||[])if(value[key]===undefined)errors.push(field(key)+' 必填');
+    for(const [key,v] of Object.entries(value))if(s.properties[key])errors.push(...validate(s.properties[key],v,field(key)));else if(s.additionalProperties===false)errors.push(field(key)+' 不允许');
   }
   return errors;
 }

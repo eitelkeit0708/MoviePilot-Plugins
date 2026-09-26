@@ -14,3 +14,8 @@ test('configured Unicode/space/slash paths retain exact names and explicit numer
  assert.equal(pathFor('/downloads/{downloader}/{infohash}/reconcile',{downloader:'subscriBetter qB test',infohash:'a'.repeat(40)}),'/downloads/subscriBetter%20qB%20test/'+ 'a'.repeat(40)+'/reconcile');
  assert.ok(validate({type:'integer',minimum:0},'9').length);assert.ok(validate({type:'number'},NaN).length);assert.deepEqual(validate({type:'number'},0),[]);
 });
+
+test('nested configuration errors use human field names and item positions',()=>{
+ const errors=validate({type:'object',properties:{delivery:{type:'object',properties:{mappings:{type:'array',items:{type:'object',properties:{cloud_scope_id:{type:'string',minLength:1}}}}}}}},{delivery:{mappings:[{cloud_scope_id:''}]}});
+ assert.equal(errors.length,1);assert.ok(errors[0].includes('两段路径映射（第 1 项）'));assert.ok(errors[0].includes('请填写此项'));assert.ok(!errors[0].includes('cloud_scope_id'));
+});

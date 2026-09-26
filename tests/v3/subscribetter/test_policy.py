@@ -35,6 +35,23 @@ class PolicyTests(unittest.TestCase):
         versions = b if isinstance(b, list) else [self.m.Version("old", b)]
         return self.p.compare(a, versions, self.c, identity_ok=True, scope_ok=True, **kw)
 
+    def test_configured_template_controls_admission_ranking_and_current_comparison(self):
+        template={'resolutions':[1080,2160],'group':'official','source':'movie','dimensions':['source','resolution']}
+        p=self.m.Policy({'stable-id':'欧美剧'},7,templates={'欧美剧':template})
+        candidate=p.normalize({'title':'Fictional 2160p WEB-DL -HHWEB 中文字幕'})
+        current=p.normalize({'title':'Fictional 1080p REMUX -HHWEB 中文字幕'},current=True)
+        result=p.compare(candidate,[self.m.Version('old',current)],self.c,identity_ok=True,scope_ok=True)
+        self.assertEqual('CURRENT_BETTER',result.reason)
+        self.assertEqual('source',result.comparisons[0]['dimension'])
+        self.assertNotEqual(p.semantic_hash,self.p.semantic_hash)
+        template['dimensions'].reverse()
+        self.assertEqual(('source','resolution'),tuple(p.categories['欧美剧'][3]))
+        restricted=self.m.Policy({'stable-id':'欧美剧'},7,templates={'欧美剧':{**template,'resolutions':[1080]}})
+        result=restricted.admit(restricted.normalize({'title':'Fictional 2160p WEB-DL -HHWEB 中文字幕'}),self.c,identity_ok=True,scope_ok=True)
+        self.assertEqual('RESOLUTION_NOT_ALLOWED',result.reason)
+        with self.assertRaises(ValueError):
+            self.m.Policy({'stable-id':'欧美剧'},7,templates={'欧美剧':{**template,'dimensions':['source','source']}})
+
     def test_category_matrix(self):
         matrix = {
             "华语电影": ("2160p WEB-DL 中文字幕", "1080p WEB-DL 中文字幕"),

@@ -1,0 +1,23 @@
+{
+  "base": "945094df8955f1c453da662066556520feb757d1",
+  "python": {
+    "run": 724,
+    "passed": 719,
+    "skipped": 5
+  },
+  "frontend": {
+    "run": 35,
+    "passed": 35
+  },
+  "build_exit_code": 0,
+  "dist_sha256": {
+    "plugins.v3/subscribetter/dist/index.html": "0d21d1a21d94eeecd36f8194c5db52b8a8c333eb9b65626186a7fe5fdad944e7",
+    "plugins.v3/subscribetter/dist/assets/remoteEntry.js": "0a948346842853669c15339ea266364b363c01ddc7aede29ed7024aae94806b4",
+    "plugins.v3/subscribetter/dist/assets/style-BnNoUmbO.js": "631f81e98789be8f14e0653b53be43773b2ef1ea007162b38826e05a1585a215",
+    "plugins.v3/subscribetter/dist/assets/style-DVFyFY9H.css": "97ab5bbdbf321ebdc122616cfd5706ba22918487afdceb9ed5ea75e64b314103",
+    "plugins.v3/subscribetter/dist/assets/__federation_expose_Config-BfJo7XS5.js": "834266cacaf8ecc18dbf607ec3a92ed8a286fb1c9e47cb8f85e082b6f7948c0f",
+    "plugins.v3/subscribetter/dist/assets/__federation_expose_Page-BU7TixHb.js": "30c54e0a25271328699062bf1fc13ea1fdb6cc75fafd31fe2a79e604aa833971",
+    "plugins.v3/subscribetter/dist/assets/__federation_fn_import-E6wRZccp.js": "11a2d68813601dffb4a4bb619cabf25526a7a445b054e418100e24128f6bdca2"
+  },
+  "evidence_limit": "Local automated tests/build and synthetic DOM checks; not real-host visual or external-service acceptance."
+}

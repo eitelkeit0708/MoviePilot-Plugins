@@ -97,6 +97,11 @@ class StateRequest(BaseModel):
     state: Literal["PAUSED", "PASSIVE", "STOPPED"]
 
 
+class ResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    generation: int = Field(ge=1)
+
+
 class ReleasePreview(BaseModel):
     task_id: int
     revision: str
@@ -587,6 +592,17 @@ class SubscriBetter(_PluginBase):
             except ValueError as error:
                 raise HTTPException(409, str(error)) from None
 
+    def resume_task(self, task_id: int, request: ResumeRequest, user: TokenPayload = Depends(verify_token)) -> TaskView:
+        self._authorize(user)
+        with self.runtime_lock:
+            self._writes_enabled()
+            try:
+                row = self.ownership.resume(task_id, request.generation, str(user.username))
+                self.guard.refresh_cache()
+                return TaskView.model_validate(row)
+            except ValueError as error:
+                raise HTTPException(409, Runtime.reason(error)) from None
+
     def release_preview(self, task_id: int, user: TokenPayload = Depends(verify_token)) -> ReleasePreview:
         self._authorize(user)
         try:
@@ -669,6 +685,7 @@ class SubscriBetter(_PluginBase):
                        ("/tasks", "GET", self.tasks, TaskList),
                        ("/intents", "POST", self.submit_intent, TaskView),
                        ("/tasks/{task_id}/state", "POST", self.change_state, TaskView),
+                       ("/tasks/{task_id}/resume", "POST", self.resume_task, TaskView),
                        ("/tasks/{task_id}/release-preview", "GET", self.release_preview, ReleasePreview),
                        ("/tasks/{task_id}/release", "POST", self.release_native, TaskView),
                        ("/tasks/{task_id}/recover", "POST", self.recover_native, TaskView)]

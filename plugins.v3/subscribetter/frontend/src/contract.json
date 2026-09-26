@@ -233,6 +233,71 @@
         }
       }
     },
+    "/tasks/{task_id}/resume": {
+      "post": {
+        "summary": "resume_task",
+        "operationId": "resume_task_tasks__task_id__resume_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/tasks/{task_id}/release-preview": {
       "get": {
         "summary": "release_preview",
@@ -1614,6 +1679,17 @@
               "type": "string",
               "default": "id",
               "title": "Sort"
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 300,
+              "default": "",
+              "title": "Query"
             }
           },
           {
@@ -6736,6 +6812,21 @@
           "type": "string",
           "title": "Id"
         },
+        "title": {
+          "type": "string",
+          "title": "Title"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Task Id"
+        },
         "plan_id": {
           "type": "string",
           "title": "Plan Id"
@@ -6791,6 +6882,8 @@
       "type": "object",
       "required": [
         "id",
+        "title",
+        "task_id",
         "plan_id",
         "rule_id",
         "state",
@@ -7421,6 +7514,15 @@
           "additionalProperties": true,
           "type": "object",
           "title": "Patch"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "merge",
+            "replace"
+          ],
+          "title": "Mode",
+          "default": "merge"
         }
       },
       "additionalProperties": false,
@@ -10173,6 +10275,14 @@
           "additionalProperties": true,
           "title": "Locks",
           "type": "object"
+        },
+        "templates": {
+          "additionalProperties": {
+            "$ref": "#/components/schemas/PolicyTemplate"
+          },
+          "maxProperties": 13,
+          "title": "Templates",
+          "type": "object"
         }
       },
       "title": "PolicyConfig",
@@ -10277,6 +10387,69 @@
       "additionalProperties": false,
       "type": "object",
       "title": "PolicySample"
+    },
+    "PolicyTemplate": {
+      "additionalProperties": false,
+      "properties": {
+        "resolutions": {
+          "items": {
+            "enum": [
+              1080,
+              2160
+            ],
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "title": "Resolutions",
+          "type": "array"
+        },
+        "group": {
+          "enum": [
+            "any",
+            "official",
+            "anime",
+            "hhweb"
+          ],
+          "title": "Group",
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "any",
+            "movie",
+            "web"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "dimensions": {
+          "items": {
+            "enum": [
+              "resolution",
+              "picture",
+              "special",
+              "source",
+              "hq",
+              "audio",
+              "anime"
+            ],
+            "type": "string"
+          },
+          "maxItems": 7,
+          "minItems": 1,
+          "title": "Dimensions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "resolutions",
+        "group",
+        "source",
+        "dimensions"
+      ],
+      "title": "PolicyTemplate",
+      "type": "object"
     },
     "PolicyView": {
       "properties": {
@@ -10977,6 +11150,21 @@
       ],
       "title": "ReplayView"
     },
+    "ResumeRequest": {
+      "properties": {
+        "generation": {
+          "type": "integer",
+          "minimum": 1.0,
+          "title": "Generation"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "generation"
+      ],
+      "title": "ResumeRequest"
+    },
     "Retry": {
       "properties": {
         "config_revision": {
@@ -11558,6 +11746,14 @@
           "type": "integer",
           "title": "Id"
         },
+        "title": {
+          "type": "string",
+          "title": "Title"
+        },
+        "year": {
+          "type": "string",
+          "title": "Year"
+        },
         "media_type": {
           "type": "string",
           "title": "Media Type"
@@ -11621,6 +11817,8 @@
       "type": "object",
       "required": [
         "id",
+        "title",
+        "year",
         "media_type",
         "media_source",
         "media_id",
@@ -13021,7 +13219,8 @@
       "classification_revision": 1,
       "overrides": {},
       "admission": null,
-      "locks": {}
+      "locks": {},
+      "templates": {}
     },
     "lifecycle": {
       "movie_days": 0,

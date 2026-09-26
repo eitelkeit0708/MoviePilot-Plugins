@@ -1,17 +1,19 @@
 <script setup>
 import {computed,ref,onBeforeUnmount} from 'vue';
-import Field from './Field.vue';import Record from './Record.vue';
+import Field from './Field.vue';import Record from './Record.vue';import {reasonText,stateLabel,unitLabel} from './media.mjs';import {label} from './labels.mjs';
 import {bodySchema,parameters,initial,clone,validate,resolve} from './schema.mjs';
-import {pathFor,applyBody,errorText,id} from './client.mjs';
+import {pathFor,applyBody,errorText,id,saveFollowup} from './client.mjs';
 const props=defineProps({action:Array,client:Object,status:Object,context:{type:Object,default:()=>({})}});
-const emit=defineEmits(['close','changed']);let mounted=true;
+const emit=defineEmits(['close','changed','configure']);let mounted=true;
 const schema=bodySchema(props.action[1]);const fields=ref(initial(schema));const paths=ref({});const errors=ref([]),busy=ref(false),preview=ref(null),review=ref(null),result=ref(null),attempted=ref(false);
 const op=id();const hidden=['config_revision','runtime_generation','operation_id'];
 for(const key of Object.keys(schema.properties||{}))if(props.context[key]!==undefined)fields.value[key]=clone(props.context[key]);
 for(const p of parameters(props.action[1]).filter(p=>p.in==='path'))paths.value[p.name]=props.context[p.name]??initial(p.schema);
-const pathParams=parameters(props.action[1]).filter(p=>p.in==='path');
-const editable=computed(()=>Object.entries(schema.properties||{}).filter(([key])=>!hidden.includes(key)));
+const pathParams=parameters(props.action[1]).filter(p=>p.in==='path'&&(!props.context._bound||props.context[p.name]===undefined));
+const editable=computed(()=>Object.entries(schema.properties||{}).filter(([key])=>!hidden.includes(key)&&(!props.context._bound||props.context[key]===undefined)));
 const receiptPath=ref('');
+const scopes=[{value:'monitor',title:'本地监控文件'},{value:'staging',title:'115 暂存文件'},{value:'downloader_task',title:'下载器任务（保留数据）'},{value:'downloader_data',title:'下载器数据'}];
+const retained={monitor:'保留 115 文件与下载器任务；若本地路径同时是下载器数据，删除会影响该本地文件。',staging:'保留本地文件、下载器任务和暂存父目录。',downloader_task:'只移除下载器任务，保留下载数据。',downloader_data:'删除原下载数据，已发布的云盘文件保留。'};
 async function prepare(){if(busy.value)return;errors.value=[];
  const body=clone(fields.value);if(schema.properties?.config_revision){body.config_revision=props.status.current.value.revision;body.runtime_generation=props.status.health.value.generation;}if(schema.properties?.operation_id)body.operation_id=op;
  errors.value=validate(schema,body);if(errors.value.length)return;
@@ -21,10 +23,11 @@ async function execute(){if(busy.value||attempted.value)return;busy.value=true;a
  catch(e){if(mounted)errors.value=[errorText(e)];}finally{if(mounted)busy.value=false;}}
 async function observe(){busy.value=true;try{const r=await props.client.get('/management/operations/'+op);if(mounted)result.value=r;}catch(e){if(mounted)errors.value=[errorText(e)]}finally{if(mounted)busy.value=false}}
 onBeforeUnmount(()=>{mounted=false;fields.value={};review.value=null});
+function continueSave(){saveFollowup(props.client.pluginId,{operation:op});emit('configure')}
 </script>
-<template><div class="sb-root sb-dialog" role="dialog" aria-modal="true" :aria-label="action[0]"><h2>{{action[0]}}</h2>
- <template v-if="!preview&&!review&&!result"><p>只提交当前表单中的精确范围。服务端仍校验当前配置、代次、归属与权限。</p><Field v-for="p in pathParams" :key="p.name" :name="p.name" :schema="p.schema" v-model="paths[p.name]"/><Field v-for="[key,s] in editable" :key="key" :name="key" :schema="s" v-model="fields[key]"/><button :disabled="busy||!status.current.value||!!status.error.value" @click="prepare">{{action[1].endsWith('/preview')?'取得不可变预览':'核对待提交操作'}}</button></template>
- <template v-else-if="!result"><h3>{{preview?'服务端不可变预览':'待提交精确参数'}}</h3><Record :value="preview||review"/><p v-if="preview?.blockers?.length" role="alert" class="sb-error">存在阻塞；不能确认。刷新实际状态后重新预览。</p><p>操作 ID：<span class="sb-value">{{op}}</span></p><button :disabled="busy||attempted||!!preview?.blockers?.length" @click="execute">确认此对象与范围</button></template>
- <template v-if="result"><h3>服务器操作结果</h3><Record :value="result"/><p v-if="result.state==='UNKNOWN'" class="sb-error">结果仍未知；保留原操作 ID，不重发外部动作。</p><p v-if="result.result?.native_save_required">仅生成配置预览，尚未保存。复制操作 ID <strong>{{op}}</strong>，在配置页“从操作回执加载”后通过宿主 Save 提交。</p></template>
+<template><div class="sb-root sb-dialog" role="dialog" aria-modal="true" :aria-label="action[0]"><h2>{{action[0]}}</h2><template v-if="context._bound"><h3>{{context._label}}</h3><p>{{context._description}}</p></template>
+ <template v-if="!preview&&!review&&!result"><p>只提交当前表单中的精确范围。服务端仍校验当前配置、代次、归属与权限。</p><Field v-for="p in pathParams" :key="p.name" :name="p.name" :schema="p.schema" v-model="paths[p.name]"/><Field v-for="[key,s] in editable" :key="key" :name="key" :schema="s" :options="key==='scope'&&action[1].includes('/cleanup/')?scopes:[]" v-model="fields[key]"/><button :disabled="busy||!status.current.value||!!status.error.value" @click="prepare">{{context._bound?'核对操作':action[1].endsWith('/preview')?'取得不可变预览':'核对待提交操作'}}</button></template>
+ <template v-else-if="!result"><h3>{{preview?'服务端不可变预览':'待提交精确参数'}}</h3><template v-if="context._bound"><section v-if="preview&&['cancel','cleanup'].includes(preview.kind)" class="sb-confirm-scope"><h3>{{preview.kind==='cancel'?'取消范围':'将清理的范围'}}</h3><p v-if="preview.kind==='cancel'">取消此交付组；保留文件和下载器任务，不删除数据。</p><template v-else><p><strong>{{scopes.find(s=>s.value===preview.objects.scope)?.title}}</strong></p><p>{{retained[preview.objects.scope]}}</p><p v-if="preview.objects.download">下载器：{{preview.objects.download.downloader}} · 任务标识：{{preview.objects.download.infohash}}</p><ul class="sb-path-current"><li v-for="p in preview.objects.locations||[]" :key="p">{{p}}</li></ul></template><p v-if="preview.objects.authority">作品范围：{{Object.keys(preview.objects.authority).map(target_key=>unitLabel({target_key})).join('、')}}</p><ul class="sb-confirm-files"><li v-for="f in preview.objects.files||[]" :key="f.file_index">{{f.relative_path}}</li></ul><p class="sb-muted">确认后仍会复查文件身份与共享引用；实际处理以服务器回执为准。</p></section><ul v-if="preview?.blockers?.length" class="sb-error"><li v-for="b in preview.blockers" :key="b">{{reasonText(b)}}</li></ul><ul v-if="preview?.permissions"><li v-for="(allowed,key) in preview.permissions" :key="key">{{label(key)}}：{{allowed?'当前已授权':'当前未授权'}}</li></ul><details class="sb-technical"><summary>核对精确对象、权限与操作依据</summary><Record :value="preview||review"/></details></template><Record v-else :value="preview||review"/><p v-if="preview?.blockers?.length" role="alert" class="sb-error">存在阻塞；不能确认。刷新实际状态后重新预览。</p><p v-if="!context._bound">操作 ID：<span class="sb-value">{{op}}</span></p><button :disabled="busy||attempted||!!preview?.blockers?.length" @click="execute">确认此对象与范围</button></template>
+ <template v-if="result"><h3>操作结果</h3><p v-if="result.state">{{stateLabel(result.state)}}</p><p v-if="result.reason">{{reasonText(result.reason)}}</p><ul v-if="result.sources"><li v-for="(stage,key) in result.sources" :key="key">{{context._label||key}}：{{stateLabel(stage.state)}}{{stage.items!==null&&stage.items!==undefined?' · '+stage.items+' 条':''}}<span v-if="stage.reason"> · {{reasonText(stage.reason)}}</span></li></ul><p v-if="result.items!==undefined">本次抓取 {{result.items}} 条，仅验证抓取。</p><p v-if="result.changed!==undefined">已更新 {{result.changed}} 条记录。</p><p v-if="result.state==='UNKNOWN'" class="sb-error">结果仍未知；保留原操作 ID，不重发外部动作。</p><p v-if="result.result?.native_save_required">配置变更已准备好，需要继续保存。页面会自动带入本次操作依据。</p><VBtn v-if="result.result?.native_save_required" color="primary" @click="continueSave">继续保存设置</VBtn><details><summary>查看服务器回执</summary><Record :value="result"/></details></template>
  <ul v-if="errors.length" role="alert" class="sb-error"><li v-for="e in errors" :key="e">{{e}}</li></ul><div class="sb-actions"><button v-if="attempted&&preview" :disabled="busy" @click="observe">按原操作 ID 查询回执</button><button :disabled="busy" @click="emit('close')">关闭</button></div>
 </div></template>

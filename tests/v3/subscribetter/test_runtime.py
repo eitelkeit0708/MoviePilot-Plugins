@@ -263,6 +263,22 @@ class CommonAdmissionTests(unittest.TestCase):
         self.repo.set_state(first['id'],'STOPPED','admin')
         self.assertEqual('STOPPED',self.runtime.submit('later',self.target,{'name':'Fiction'},'admin')['state'])
 
+    def test_resume_preserves_opportunity_budget_and_refreshes_only_input_generation(self):
+        row=self.runtime.submit('manual',self.target,{'name':'Fiction'},'admin')
+        with self.repo.connection() as db:before=dict(db.execute('SELECT * FROM opportunities').fetchone())
+        saved=self.repo.setting('runtime-input:'+before['id'])
+        paused=self.repo.set_state(row['id'],'PAUSED','admin')
+        self.repo.begin_resume(row['id'],paused['generation'],'admin')
+        current=self.repo.get_task(row['id']);self.repo.complete_handoff(row['id'],current['generation'])
+        restored=self.repo.setting('runtime-input:'+before['id'])
+        self.assertEqual({**saved,'task_generation':current['generation']},restored)
+        self.assertEqual('ACTIVE',self.runtime.verify_input(restored)['state'])
+        with self.repo.connection() as db:self.assertEqual(before,dict(db.execute('SELECT * FROM opportunities').fetchone()))
+        paused=self.repo.set_state(row['id'],'PAUSED','admin')
+        with self.repo.connection(write=True) as db:db.execute("UPDATE target_units SET publish_phase='PUBLISH_OUTCOME_UNKNOWN' WHERE task_id=?",(row['id'],))
+        with self.assertRaisesRegex(ValueError,'TASK_PLANS_REQUIRE_RECONCILE'):self.repo.begin_resume(row['id'],paused['generation'],'admin')
+        self.assertEqual('PAUSED',self.repo.get_task(row['id'])['state'])
+
     def test_generation_change_and_unverified_classification_send_no_native_request(self):
         self.plugin.generation=2
         with self.assertRaisesRegex(ValueError,'STALE_OR_DISABLED_RUNTIME'):

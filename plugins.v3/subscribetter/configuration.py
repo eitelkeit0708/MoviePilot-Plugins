@@ -11,7 +11,7 @@ from .ai import AIConfig, digest
 from .discovery import DiscoveryConfig, SourceConfig, RequestBudget, _digest as discovery_digest
 from .scheduler import ScheduleConfig
 from .candidates import SearchBudget
-from .policy import Policy, _lock_value
+from .policy import Policy, _lock_value, category_templates
 from .repository import utcnow
 
 Text = Annotated[str, Field(min_length=1, max_length=256)]
@@ -88,18 +88,27 @@ class Safety(Strict):
     minimum_free_bytes: int = Field(default=1073741824,ge=0,le=10**15)
 
 
+class PolicyTemplate(Strict):
+    resolutions:list[Literal[1080,2160]]=Field(min_length=1,max_length=2)
+    group:Literal['any','official','anime','hhweb']
+    source:Literal['any','movie','web']
+    dimensions:list[Literal['resolution','picture','special','source','hq','audio','anime']]=Field(min_length=1,max_length=7)
+
+
 class PolicyConfig(Strict):
     bindings: dict[str,str] = Field(default_factory=dict,max_length=100)
     classification_revision: int = Field(default=1,ge=1)
     overrides: dict = Field(default_factory=dict)
     admission: dict | None = None
     locks: dict = Field(default_factory=dict)
+    templates:dict[str,PolicyTemplate]=Field(default_factory=dict,max_length=13)
 
     @model_validator(mode='after')
     def policy(self):
-        if self.bindings: Policy(self.bindings,self.classification_revision,overrides=self.overrides,admission=self.admission)
+        templates={k:v.model_dump() for k,v in self.templates.items()};category_templates(templates)
+        if self.bindings: Policy(self.bindings,self.classification_revision,overrides=self.overrides,admission=self.admission,templates=templates)
         elif self.overrides or self.admission: raise ValueError('POLICY_BINDINGS_REQUIRED')
-        if set(self.locks)-{'resolution','season','group','platform'}:raise ValueError('UNKNOWN_POLICY_LOCK')
+        if set(self.locks)-{'resolution','season','group','platform','picture','source','audio','hq'}:raise ValueError('UNKNOWN_POLICY_LOCK')
         for name,value in self.locks.items():
             if name=='season':
                 if type(value)is not int or not 0<=value<=999:raise ValueError('INVALID_SEASON_LOCK')
@@ -353,7 +362,7 @@ def validation_errors(error):
     # extra field names must not be echoed as a disguised credential export.
     known=set()
     for model in (Config,AIConfig,DiscoveryConfig,SourceConfig,RequestBudget,
-                  Permissions,Lifecycle,Candidates,Recovery,Safety,PolicyConfig,Destination,Mapping,CloudScope,DeliveryRule,DeliveryConfig):
+                  Permissions,Lifecycle,Candidates,Recovery,Safety,PolicyConfig,PolicyTemplate,Destination,Mapping,CloudScope,DeliveryRule,DeliveryConfig):
         known.update(model.model_fields)
     return ['.'.join(str(x) if type(x)is int or x in known else '<field>' for x in e['loc'])+':'+e['type']
             for e in error.errors(include_input=False,include_context=False)]
@@ -381,10 +390,11 @@ class Configuration:
         if self.validate_references:self.validate_references(config)
         return config
 
-    def preview(self,patch,revision,expected,actor):
+    def preview(self,patch,revision,expected,actor,mode='merge'):
         current=self.view()
         if revision!=current['revision'] or expected!=current['digest']:raise ValueError('STALE_CONFIGURATION')
-        try:value=self.validate(merge(current['config'],patch))
+        if mode not in ('merge','replace'):raise ValueError('INVALID_CONFIGURATION_MODE')
+        try:value=self.validate(patch if mode=='replace' else merge(current['config'],patch))
         except ValidationError as error:
             return dict(valid=False,errors=validation_errors(error),
                         config=None,receipt_id=None,digest=None,revision=revision,changed_fields=[])
@@ -403,6 +413,11 @@ class Configuration:
     def initialize(self,raw,*,import_marker=None,activate=True):
         current=self.view();persisted_current=deepcopy(current);self.ready=False;self.errors=[]
         try:
+            # Schema-only upgrade: an absent template map means the unchanged
+            # built-in defaults. Do not revoke an already applied configuration.
+            if 'templates' not in current['config']['policy']:
+                current['config']['policy']['templates']={}
+                current['digest']=digest(content(current['config']))
             normalized=AIConfig.remove_legacy_chat(current['config']['ai_assist'])
             if normalized!=current['config']['ai_assist']:
                 current['config']['ai_assist']=normalized
@@ -415,7 +430,10 @@ class Configuration:
                 # from a different monitor/staging cleanup switch.
                 rules=raw.get('delivery',{}).get('rules',[]) if isinstance(raw.get('delivery',{}),dict) else []
                 if isinstance(rules,list):raw['permissions']={p:any(isinstance(r,dict) and r.get(p) is True for r in rules) for p in Permissions.model_fields}
-            value=self.validate(merge(current['config'],raw));new_digest=digest(content(value))
+            # A receipt authorizes an exact complete configuration. Merging it
+            # with the previous value would resurrect deleted map entries.
+            value=self.validate(raw if raw.get('configuration_receipt') else merge(current['config'],raw))
+            new_digest=digest(content(value))
             bootstrap_fence=self.repository.setting(self.key+':bootstrap_fence') is True
             needs_preview=not initial and (new_digest!=current['digest'] or bootstrap_fence
                 or value['configuration_receipt']!=current['config']['configuration_receipt'])

@@ -154,7 +154,7 @@ class Runtime:
         config=self.config.policy
         self.policy=Policy(config.bindings or self.config.delivery.get('policy_bindings',{}),
             config.classification_revision if config.bindings else self.config.delivery.get('classification_revision',1),
-            overrides=config.overrides,admission=config.admission) if config.bindings or self.config.delivery.get('policy_bindings') else None
+            overrides=config.overrides,admission=config.admission,templates={k:v.model_dump() for k,v in config.templates.items()}) if config.bindings or self.config.delivery.get('policy_bindings') else None
         self.pipeline=CandidatePipeline(self.candidates,self.meta,self.policy,self.delivery.archive.current,self.clients,
             current=self.check,locked=config.locks) if self.policy and self.delivery else None
         if self.pipeline:

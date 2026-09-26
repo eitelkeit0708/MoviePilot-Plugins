@@ -51,6 +51,25 @@ CATEGORIES = {
 }
 
 
+def category_templates(overrides=None):
+    """Freeze the editable defaults; existing comparison semantics stay intact."""
+    values=_bounded_copy(overrides or {})
+    if not isinstance(values,dict) or set(values)-set(CATEGORIES):raise ValueError('UNKNOWN_POLICY_TEMPLATE')
+    result=dict(CATEGORIES)
+    for name,value in values.items():
+        if not isinstance(value,dict) or set(value)!={'resolutions','group','source','dimensions'}:raise ValueError('INVALID_POLICY_TEMPLATE')
+        resolutions=value['resolutions'];dimensions=value['dimensions']
+        if (not isinstance(resolutions,list) or not resolutions or len(resolutions)>2
+                or any(type(v)is not int or v not in (1080,2160) for v in resolutions)
+                or len(set(resolutions))!=len(resolutions)):raise ValueError('INVALID_POLICY_RESOLUTIONS')
+        if (not isinstance(dimensions,list) or not dimensions or len(dimensions)>7
+                or any(v not in ('resolution','picture','special','source','hq','audio','anime') for v in dimensions)
+                or len(set(dimensions))!=len(dimensions)):raise ValueError('INVALID_POLICY_DIMENSIONS')
+        if value['group'] not in ('any','official','anime','hhweb') or value['source'] not in ('any','movie','web'):raise ValueError('INVALID_POLICY_ADMISSION')
+        result[name]=(tuple(resolutions),value['group'],value['source'],tuple(dimensions))
+    return result
+
+
 class MissingEvidence(ValueError):
     pass
 
@@ -362,8 +381,9 @@ def _first_known(choices, default=None):
 
 
 class Policy:
-    def __init__(self, bindings: Mapping[str, str], classification_revision: int, *, overrides=None, admission=None):
+    def __init__(self, bindings: Mapping[str, str], classification_revision: int, *, overrides=None, admission=None,templates=None):
         self.bindings = _bounded_copy(dict(bindings))
+        self.categories=category_templates(templates)
         if (type(classification_revision) is not int or classification_revision < 1 or not self.bindings
                 or any(not key or val not in CATEGORIES for key, val in self.bindings.items())):
             raise ValueError("INVALID_POLICY_BINDINGS")
@@ -374,7 +394,7 @@ class Policy:
         self.rules = {**_DEFAULT_RULES, **custom}
         self.admission = _bounded_copy(admission) if admission is not None else {"literal": True}
         self.predicate_hash = _hash({"normalization": 2, "rules": self.rules})
-        self.semantic_hash = _hash({"semantics": 1, "categories": CATEGORIES, "bindings": self.bindings,
+        self.semantic_hash = _hash({"semantics": 1, "categories": self.categories, "bindings": self.bindings,
                                     "rules": self.rules, "admission": self.admission})
 
     def normalize(self, raw: Mapping, current=False) -> Facts:
@@ -529,7 +549,7 @@ class Policy:
         return 0
 
     def rank(self, facts, policy_name):
-        if policy_name not in CATEGORIES:
+        if policy_name not in self.categories:
             raise ValueError("UNKNOWN_POLICY")
         is4k = facts.resolution == 2160
         values = {"resolution": facts.resolution, "picture": facts.picture if is4k else 0,
@@ -537,7 +557,7 @@ class Policy:
                   "source": None if facts.source is None else int(facts.source == "remux"),
                   "hq": facts.hq if is4k and (policy_name == "现场" or facts.source != "remux") else False,
                   "audio": facts.audio, "anime": self._anime(facts)}
-        return tuple(values[key] for key in CATEGORIES[policy_name][3])
+        return tuple(values[key] for key in self.categories[policy_name][3])
 
     def admit(self, facts, classification, *, locked=None, excluded=False, identity_ok=None, scope_ok=None):
         # These explicit constraints always precede any quality/evidence exception.
@@ -574,7 +594,7 @@ class Policy:
             if value is not True:
                 return self._decision("DEFER" if value is None else "REJECT", name, category)
         policy_name = category["policy"]
-        resolutions, group, source, dimensions = CATEGORIES[policy_name]
+        resolutions, group, source, dimensions = self.categories[policy_name]
         if facts.resolution is None:
             return self._decision("DEFER", "RESOLUTION_EVIDENCE_MISSING", category)
         if facts.resolution not in resolutions:
@@ -624,7 +644,7 @@ class Policy:
                 return replace(decision, status="DEFER", reason="CURRENT_REQUIRES_RENORMALIZATION")
             old_rank = self.rank(current, policy_name)
             difference = 0
-            for name, new, old in zip(CATEGORIES[policy_name][3], decision.rank, old_rank):
+            for name, new, old in zip(self.categories[policy_name][3], decision.rank, old_rank):
                 if new is None or old is None:
                     return replace(decision, status="DEFER", reason="CURRENT_EVIDENCE_MISSING:" + name,
                                    comparisons=tuple(comparisons))
@@ -645,7 +665,7 @@ class Policy:
         if not equal and improved:
             return replace(decision, reason="QUALITY_UPGRADE", action="TRANSFER", comparisons=tuple(comparisons))
         keys = []
-        if "special" in CATEGORIES[policy_name][3] and candidate.evidence == "explicit":
+        if "special" in self.categories[policy_name][3] and candidate.evidence == "explicit":
             for version in equal:
                 if version.facts.evidence != "inferred_pgs":
                     return replace(decision, status="REJECT", reason="EQUIVALENT", comparisons=tuple(comparisons))

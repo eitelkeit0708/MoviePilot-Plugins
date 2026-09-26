@@ -44,6 +44,44 @@ class ConfigurationTests(unittest.TestCase):
         self.config.initialize(preview['config'])
         return self.config.view()
 
+    def test_complete_draft_deletions_survive_preview_save_and_restart(self):
+        self.apply({'policy':{'bindings':{'a':'欧美剧','b':'日韩剧'},'locks':{'resolution':2160},
+                              'overrides':{'MyCondition':{'literal':True}}}})
+        current=self.config.view();draft=copy.deepcopy(current['config'])
+        draft['policy']['locks']={};del draft['policy']['bindings']['b'];draft['policy']['overrides']={}
+        preview=self.config.preview(draft,current['revision'],current['digest'],'admin',mode='replace')
+        self.assertTrue(preview['valid'],preview)
+        self.assertEqual({},preview['config']['policy']['locks'])
+        self.assertEqual({'a':'欧美剧'},preview['config']['policy']['bindings'])
+        self.config.initialize(preview['config'])
+        self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual(preview['config'],self.config.view()['config'])
+        self.config.initialize(self.saved[-1])
+        self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual(preview['config'],self.config.view()['config'])
+        with self.assertRaisesRegex(ValueError,'STALE_CONFIGURATION'):
+            self.config.preview(draft,current['revision'],current['digest'],'admin',mode='replace')
+        tampered=copy.deepcopy(preview['config']);tampered['permissions']['cleanup_staging']=True
+        self.config.initialize(tampered)
+        self.assertFalse(self.config.ready)
+        self.assertFalse(self.config.view()['config']['permissions']['cleanup_staging'])
+
+    def test_incremental_patch_keeps_unmentioned_nested_values(self):
+        self.apply({'policy':{'locks':{'resolution':2160,'season':1}}})
+        self.apply({'policy':{'locks':{'season':2}}})
+        self.assertEqual({'resolution':2160,'season':2},self.config.view()['config']['policy']['locks'])
+
+    def test_existing_configuration_adds_empty_template_defaults_without_requiring_new_receipt(self):
+        previous=self.apply({'policy':{'locks':{'resolution':2160}}})
+        previous['config']['policy'].pop('templates',None)
+        previous['digest']=self.c.digest(self.c.content(previous['config']))
+        self.repo.setting(self.config.key,previous)
+        self.config.initialize(previous['config'])
+        self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual(previous['revision'],self.config.view()['revision'])
+        self.assertEqual({},self.config.view()['config']['policy']['templates'])
+        self.assertEqual({'resolution':2160},self.config.view()['config']['policy']['locks'])
+
     def test_historical_chat_receipt_is_readable_but_cannot_advance(self):
         data=dict(features=[{'module':'chat','route_scope':{}}],steps=[],operations={},next_changes=[])
         receipt=self.migration._new('old-chat','CUTOVER','a'*64,'ACTIVE',data)

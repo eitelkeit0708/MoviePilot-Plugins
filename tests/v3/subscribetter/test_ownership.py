@@ -164,6 +164,27 @@ class OwnershipTests(unittest.TestCase):
     def submit(self, key="intent", **kwargs):
         return self.service.submit(key, self.target, {"name": "Fictional"}, "admin", **kwargs)
 
+    def test_explicit_resume_fences_generation_and_reverifies_native_without_creating(self):
+        row = self.submit()
+        paused = self.repo.set_state(row['id'], 'PAUSED', 'admin')
+        with self.assertRaisesRegex(ValueError, 'STALE_TASK'):
+            self.service.resume(row['id'], row['generation'], 'admin')
+        self.host.rows[row['native_id']]['media_id'] = 'changed'
+        with self.assertRaisesRegex(ValueError, 'NATIVE_IDENTITY_MISMATCH'):
+            self.service.resume(row['id'], paused['generation'], 'admin')
+        self.assertEqual('PAUSED', self.repo.get_task(row['id'])['state'])
+        self.host.rows[row['native_id']]['media_id'] = self.target.media_id
+        self.host.rows[row['native_id']]['state'] = 'R'
+        resumed = self.service.resume(row['id'], paused['generation'], 'admin')
+        self.assertEqual('ACTIVE', resumed['state'])
+        self.assertEqual('S', self.host.rows[row['native_id']]['state'])
+        self.assertEqual(1, self.host.creates)
+        with self.assertRaises(ValueError):
+            self.service.resume(row['id'], paused['generation'], 'admin')
+        stopped = self.repo.set_state(row['id'], 'STOPPED', 'admin')
+        with self.assertRaisesRegex(ValueError, 'TASK_NOT_PAUSED'):
+            self.service.resume(row['id'], stopped['generation'], 'admin')
+
     def test_T148_intent_precedes_pause_and_readback_precedes_ack(self):
         self.host.create(self.target, {})
         self.host.rows[42]["state"] = "R"

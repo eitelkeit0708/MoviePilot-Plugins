@@ -49,6 +49,19 @@ class ManagementTests(unittest.TestCase):
         with self.assertRaises(Exception) as error:ui.tasks(limit=25,offset=0,state=None,media_type=None,sort='id',user=None)
         self.assertEqual(503,error.exception.status_code)
 
+    def test_tasks_expose_media_names_and_filter_without_exporting_snapshot(self):
+        ui=load('ui').Views(self.plugin)
+        row=self.repo.submit('human',self.r.Target('电视剧','themoviedb','24',1),
+                             {'name':'GATE24 内格力','year':'2026','username':'PRIVATE_USER','save_path':'/private/test'},'test')
+        self.repo.submit('other',self.r.Target('电影','themoviedb','25'),{'name':'另一个作品'},'test')
+        page=ui.tasks(query='内格力',user=None)
+        self.assertEqual(1,page.total)
+        self.assertEqual(('GATE24 内格力','2026'),(page.items[0].title,page.items[0].year))
+        self.assertNotIn('PRIVATE_USER',page.model_dump_json())
+        self.assertNotIn('/private/test',page.model_dump_json())
+        self.assertEqual('GATE24 内格力',ui.task(row['id'],user=None).task.title)
+        self.assertEqual(0,ui.tasks(query="%' OR 1=1 --",user=None).total)
+
     def test_history_preview_stale_idempotent_and_visibility_independent_metrics(self):
         ui=load('ui').Views(self.plugin);now=self.r.utcnow()
         with self.repo.connection(write=True) as db:
@@ -118,6 +131,8 @@ class ManagementTests(unittest.TestCase):
         self.plugin.config.delivery['rules'][0]['cleanup_abandoned']=True
         p=view.cleanup_preview(bid,m.CleanupPreview(**self.fence(),revision=f.worker.bundle(bid)['revision'],scope='monitor'),user=user)
         self.assertTrue(p.permissions['cleanup_abandoned'])
+        self.assertEqual([x['snapshot']['path'] for x in f.worker.bundle(bid)['files']], p.objects['locations'])
+        self.assertEqual('monitor', p.objects['scope'])
         p=view.cleanup_preview(bid,m.CleanupPreview(**self.fence(),revision=f.worker.bundle(bid)['revision'],scope='downloader_data'),user=user)
         self.assertFalse(p.permissions['delete_downloader_data_enabled'])
 
@@ -133,6 +148,17 @@ class ManagementTests(unittest.TestCase):
         page=view.bundles(plan_id='A',state='ABANDONED',user=None)
         self.assertEqual((1,bid,'SUPERSEDED'),(page.total,page.items[0].id,page.items[0].reason))
         self.assertEqual('SUPERSEDED',view.bundle(bid,user=None).bundle.reason)
+
+    def test_delivery_projection_names_the_work_without_exposing_private_snapshot(self):
+        from test_delivery import DeliveryTests
+        f=self.fixture(DeliveryTests);bid=f.prepared();task_id=f.auth.plan('A')['task_id']
+        with self.repo.connection(write=True) as db:
+            db.execute('UPDATE tasks SET snapshot=? WHERE id=?',(json.dumps({'name':'侠女内莉','username':'PRIVATE_SENTINEL'}),task_id))
+        view=load('ui').Views(self.plugin)
+        page=view.bundles(user=None)
+        self.assertEqual(('侠女内莉',task_id),(page.items[0].title,page.items[0].task_id))
+        self.assertEqual('侠女内莉',view.bundle(bid,user=None).bundle.title)
+        self.assertNotIn('PRIVATE_SENTINEL',page.model_dump_json())
 
     def test_logical_archive_invalidation_preserves_file_and_no_exclusion(self):
         from test_archive import ArchiveTests

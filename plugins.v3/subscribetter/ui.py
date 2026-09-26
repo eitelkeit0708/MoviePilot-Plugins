@@ -48,6 +48,8 @@ class Page(Strict,Generic[T]):
 
 class Task(Strict):
     id:int
+    title:str
+    year:str
     media_type:str
     media_source:str
     media_id:str
@@ -136,6 +138,8 @@ class VersionDetail(Strict):
 
 class Bundle(Strict):
     id:str
+    title:str
+    task_id:int|None
     plan_id:str
     rule_id:str
     state:str
@@ -463,12 +467,16 @@ class Views:
         return self._page(table,Row,self.row,where=where,args=args,order=order,limit=limit,offset=offset,source=source,select=select)
 
     @staticmethod
-    def _task(r):return {k:public(r[k]) for k in Task.model_fields}
+    def _task(r):
+        snapshot=json.loads(r['snapshot'])
+        return dict(title=public(str(snapshot.get('name') or '未命名作品')),
+                    year=public(str(snapshot.get('year') or '')),
+                    **{k:public(r[k]) for k in Task.model_fields if k not in ('title','year')})
 
     def tasks(self,limit:Limit=25,offset:Offset=0,state:Literal['PENDING','ACTIVE','PASSIVE','PAUSED','STOPPED','RELEASING','RELEASED_NATIVE']|None=None,
-              media_type:Literal['电影','电视剧']|None=None,sort:Literal['id','updated_at']='id',user:TokenPayload=Depends(verify_token))->Page[Task]:
+              media_type:Literal['电影','电视剧']|None=None,sort:Literal['id','updated_at']='id',query:Annotated[str,Query(max_length=300)]='',user:TokenPayload=Depends(verify_token))->Page[Task]:
         self._auth(user)
-        return self._page('tasks',Task,self._task,where='(? IS NULL OR state=?) AND (? IS NULL OR media_type=?)',args=(state,state,media_type,media_type),order=sort+',id',limit=limit,offset=offset)
+        return self._page('tasks',Task,self._task,where="(? IS NULL OR state=?) AND (? IS NULL OR media_type=?) AND instr(lower(coalesce(json_extract(snapshot,'$.name'),'')),lower(?))>0",args=(state,state,media_type,media_type,query),order=sort+',id',limit=limit,offset=offset)
 
     def task(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->TaskDetail:
         self._auth(user);task=self._one('tasks','id',task_id)
@@ -539,13 +547,14 @@ class Views:
 
     @staticmethod
     def _bundle(r):
-        d=json.loads(r['data']);return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},reason=d.get('reason',''),file_count=len(d.get('files',[])),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending')))
+        d=json.loads(r['data']);return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},title=r.get('title') or '未命名作品',task_id=r.get('task_id'),reason=d.get('reason',''),file_count=len(d.get('files',[])),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending')))
 
     def bundles(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,plan_id:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Bundle]:
-        self._auth(user);return self._page('delivery_bundles',Bundle,self._bundle,where='(? IS NULL OR state=?) AND (? IS NULL OR plan_id=?)',args=(state,state,plan_id,plan_id),order='due,id',limit=limit,offset=offset)
+        self._auth(user);return self._page('delivery_bundles',Bundle,self._bundle,source='delivery_bundles b LEFT JOIN plans p ON p.id=b.plan_id LEFT JOIN tasks t ON t.id=p.task_id',select="b.*,p.task_id,json_extract(t.snapshot,'$.name') AS title",where='(? IS NULL OR b.state=?) AND (? IS NULL OR b.plan_id=?)',args=(state,state,plan_id,plan_id),order='b.due,b.id',limit=limit,offset=offset)
 
     def bundle(self,bundle_id:Id,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->BundleDetail:
         self._auth(user);r=self._one('delivery_bundles','id',bundle_id);d=json.loads(r['data']);p=self._one('plans','id',r['plan_id']);s=json.loads(p['snapshot'])
+        task=self.repository.get_task(p['task_id']);r.update(task_id=p['task_id'],title=(task or {}).get('snapshot',{}).get('name',''))
         p['snapshot']=encoded({k:v for k,v in s.items() if k not in ('torrent_files','local_assets','targets','current')})
         files=self._page('delivery_bundles',Row,lambda x:dict(id=str(json.loads(x['value'])['file_index']),state=json.loads(x['value'])['state'],revision=str(r['revision']),data=public(json.loads(x['value']))),source="delivery_bundles b,json_each(b.data,'$.files') f",select='f.value',where='b.id=?',args=(bundle_id,),order="json_extract(f.value,'$.file_index')",limit=limit,offset=offset)
         return BundleDetail(bundle=Bundle(**self._bundle(r)),authority=public(dict(plan=self.row(p),target_count=len(d.get('vector',{})),manifest={k:v for k,v in d.get('manifest',{}).items() if k not in ('assets','targets','publication')},rule_revision=d.get('rule_revision'))),files=files,
@@ -555,11 +564,11 @@ class Views:
 
     def policies(self,limit:Limit=25,offset:Offset=0,category_id:CategoryRef|None=None,user:TokenPayload=Depends(verify_token))->Page[PolicyView]:
         self._auth(user)
-        from .policy import CATEGORIES
-        config=self.plugin.configuration.view()['config'];p=config['policy'];runtime=self.plugin.runtime
+        from .policy import category_templates
+        config=self.plugin.configuration.view()['config'];p=config['policy'];runtime=self.plugin.runtime;categories=category_templates(p.get('templates'))
         # The config is one bounded row; JSON1 performs binding paging/counting.
         key=self.plugin.configuration.key
-        return self._page('settings',PolicyView,lambda r:dict(category_id=r['category_id'],binding=r['binding'],publication_revision=p['classification_revision'],policy_revision=runtime.policy.semantic_hash if runtime and runtime.policy else None,dimensions=list(CATEGORIES[r['binding']][3]),configuration=public(dict(overrides=p['overrides'],admission=p['admission'],locks=p['locks'],lifecycle=config['lifecycle'],all_bindings=CATEGORIES))),source="settings s,json_each(s.value,'$.config.policy.bindings') j",select='j.key AS category_id,j.value AS binding',where='s.key=? AND (? IS NULL OR j.key=?)',args=(key,category_id,category_id),order='j.key',limit=limit,offset=offset)
+        return self._page('settings',PolicyView,lambda r:dict(category_id=r['category_id'],binding=r['binding'],publication_revision=p['classification_revision'],policy_revision=runtime.policy.semantic_hash if runtime and runtime.policy else None,dimensions=list(categories[r['binding']][3]),configuration=public(dict(overrides=p['overrides'],admission=p['admission'],locks=p['locks'],lifecycle=config['lifecycle'],all_bindings=categories))),source="settings s,json_each(s.value,'$.config.policy.bindings') j",select='j.key AS category_id,j.value AS binding',where='s.key=? AND (? IS NULL OR j.key=?)',args=(key,category_id,category_id),order='j.key',limit=limit,offset=offset)
 
     def bundle_records(self,bundle_id:Id,section:Literal['vector','assets','publication'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);self._one('delivery_bundles','id',bundle_id)
@@ -637,8 +646,9 @@ class Views:
 
     def policy_catalog(self,user:TokenPayload=Depends(verify_token))->ActionResult:
         self._auth(user)
-        from .policy import CATEGORIES
-        return ActionResult(state='AVAILABLE',result=dict(policies=[dict(binding=k,resolutions=list(v[0]),admission=v[1],source_order=v[2],dimensions=list(v[3])) for k,v in CATEGORIES.items()]))
+        from .policy import CATEGORIES,category_templates
+        categories=category_templates(self.plugin.configuration.view()['config']['policy'].get('templates'))
+        return ActionResult(state='AVAILABLE',result=dict(default_templates={k:dict(resolutions=list(v[0]),group=v[1],source=v[2],dimensions=list(v[3])) for k,v in CATEGORIES.items()},policies=[dict(binding=k,resolutions=list(v[0]),admission=v[1],source_order=v[2],dimensions=list(v[3])) for k,v in categories.items()]))
 
     def local_scan(self,rule_id:Text,section:Literal['stack','directories','failed_paths'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);scope='local:'+rule_id;self._one('reconcile_checkpoints','scope',scope)
@@ -817,6 +827,19 @@ class Views:
             if 'ai' in facts:shown['cache_references']=facts['ai']
             if 'mode_change' in facts:shown['mode_change']=facts['mode_change']
             data['display']=public(shown)
+            if kind == 'cleanup':
+                # Admin-only immutable confirmation needs exact deletion paths.
+                # Whitelist locations; never expose the full plan or transport data.
+                scope = objects['scope']
+                plan = json.loads(facts['plan']['snapshot'])
+                locations = ([f['snapshot']['path'] for f in bundle['files']] if scope == 'monitor' else
+                             [bundle['staging']+'/'+f['relative_path'] for f in bundle['files']] if scope == 'staging' else
+                             [plan['save_path']])
+                if len(locations)>1000 or any(not isinstance(p,str) or len(p)>4096 or '\x00' in p for p in locations):
+                    raise HTTPException(409,'EXACT_PREVIEW_SCOPE_LIMIT')
+                data['display']['locations']=locations
+                if scope.startswith('downloader_'):
+                    data['display']['download']=public({k:plan[k] for k in ('downloader','infohash')})
             data['revisions']=dict(config_revision=request.config_revision,runtime_generation=request.runtime_generation,facts_digest=data['facts_digest'])
             signature=digest([identity,kind,actor,data,expiry]);db.execute('INSERT INTO management_previews VALUES(?,?,?,?,?,?)',(identity,kind,actor,signature,encoded(data),expiry))
         return Preview(preview_id=identity,preview_digest=signature,kind=kind,objects=data['display'],revisions=data['revisions'],permissions=permissions,blockers=blockers,expires_at=expiry)

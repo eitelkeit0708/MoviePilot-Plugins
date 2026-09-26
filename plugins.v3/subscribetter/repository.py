@@ -372,6 +372,17 @@ class Repository:
             db.execute("UPDATE tasks SET native_id=?,updated_at=? WHERE id=? AND native_id IS NULL", (native_id, utcnow(), task_id))
             self._audit(db, task_id, "NATIVE_ID_RETURNED", "host")
 
+    def begin_resume(self, task_id: int, generation: int, actor: str):
+        with self.connection(write=True) as db:
+            if db.execute("SELECT 1 FROM plans WHERE task_id=? AND authorization IN ('PREPARED','ACTIVE') LIMIT 1", (task_id,)).fetchone() or db.execute("SELECT 1 FROM target_units WHERE task_id=? AND publish_phase IN ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','HANDED_OFF') LIMIT 1", (task_id,)).fetchone():
+                raise ValueError('TASK_PLANS_REQUIRE_RECONCILE')
+            changed = db.execute("UPDATE tasks SET state='PENDING',generation=generation+1,updated_at=? WHERE id=? AND state='PAUSED' AND generation=? AND native_id IS NOT NULL", (utcnow(), task_id, generation)).rowcount
+            if not changed:
+                raise ValueError('STALE_TASK')
+            db.execute("INSERT INTO outbox(task_id,operation,state,updated_at) VALUES(?,'HANDOFF','PENDING',?) ON CONFLICT(task_id) DO UPDATE SET operation='HANDOFF',state='PENDING',error_code=NULL,updated_at=excluded.updated_at", (task_id, utcnow()))
+            db.execute("UPDATE settings SET value=json_set(value,'$.task_generation',?) WHERE key IN (SELECT 'runtime-input:'||id FROM opportunities WHERE task_id=? AND state='ACTIVE') AND json_extract(value,'$.task_id')=?", (generation+1, task_id, task_id))
+            self._audit(db, task_id, 'RESUME_REQUESTED', actor)
+
     def complete_handoff(self, task_id: int, generation: int):
         with self.connection(write=True) as db:
             changed = db.execute("UPDATE tasks SET state='ACTIVE',updated_at=? WHERE id=? AND state='PENDING' AND generation=?", (utcnow(), task_id, generation)).rowcount
