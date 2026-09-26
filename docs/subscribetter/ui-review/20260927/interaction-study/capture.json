@@ -1,0 +1,132 @@
+[
+  {
+    "path": "01-subscriptions-desktop.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    }
+  },
+  {
+    "path": "02-episodes-desktop.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    }
+  },
+  {
+    "path": "03-episode-reconcile.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    }
+  },
+  {
+    "path": "04-episodes-mobile.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "390px 嵌入视图 · 非真实手机",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 390
+    }
+  },
+  {
+    "path": "05-candidate-read-error.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    }
+  },
+  {
+    "path": "06-scheme-blank.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    }
+  },
+  {
+    "path": "07-draft-path-check.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1309
+    },
+    "frame": {
+      "height": 840,
+      "width": 1309
+    }
+  },
+  {
+    "path": "08-scheme-saved.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    }
+  },
+  {
+    "path": "09-scheme-mobile-draft.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "390px 嵌入视图 · 非真实手机",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 390
+    }
+  },
+  {
+    "path": "10-episodes-light.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    }
+  }
+]

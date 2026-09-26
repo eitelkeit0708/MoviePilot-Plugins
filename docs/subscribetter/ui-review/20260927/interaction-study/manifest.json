@@ -1,0 +1,152 @@
+[
+  {
+    "path": "01-subscriptions-desktop.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "bytes": 43945,
+    "sha256": "fbd17949979c439ff2b6b820c40cb5143e9cdc19f3e65a24a663c1b24058b8de"
+  },
+  {
+    "path": "02-episodes-desktop.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "bytes": 60770,
+    "sha256": "72e6f3d0ba692470f47c40205224943565905a848d5359c70347ddce9c83d3d7"
+  },
+  {
+    "path": "03-episode-reconcile.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "bytes": 63276,
+    "sha256": "570083768586f313fb46b2a45fe7a51ead410161d756feb0a54ed5786a04dcce"
+  },
+  {
+    "path": "04-episodes-mobile.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "390px 嵌入视图 · 非真实手机",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 390
+    },
+    "bytes": 40067,
+    "sha256": "75e4126e6135c3ca5e55f5e8efdde0422eed6857693a5666f163c8e6651d96b1"
+  },
+  {
+    "path": "05-candidate-read-error.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "bytes": 43190,
+    "sha256": "e6043991e0c1a3dd0c167076dda210f181f517922be97f554c28862b7f66e042"
+  },
+  {
+    "path": "06-scheme-blank.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "bytes": 49992,
+    "sha256": "257c880ac95a565d5a9d026212af3da9fdfb2d16d35c9b3504fa72b9bd9e65b2"
+  },
+  {
+    "path": "07-draft-path-check.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1309
+    },
+    "frame": {
+      "height": 840,
+      "width": 1309
+    },
+    "bytes": 55063,
+    "sha256": "4947f665cd859b5df46207ec9904104174f68974b86e582115b2fa6d7d0537fd"
+  },
+  {
+    "path": "08-scheme-saved.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "bytes": 52127,
+    "sha256": "2ac16554ceed57b45e3034679ba1175db660860a54d6f1660e5c73f5672e61a0"
+  },
+  {
+    "path": "09-scheme-mobile-draft.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "390px 嵌入视图 · 非真实手机",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 390
+    },
+    "bytes": 39247,
+    "sha256": "7e7e0b78ab1bb5db527bcd9749e387216272051dfbeefbbdc60b484f1fa82058"
+  },
+  {
+    "path": "10-episodes-light.jpg",
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "mode": "桌面布局",
+      "width": 1305
+    },
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "bytes": 58399,
+    "sha256": "dfc5b6ffaa2bdef4ab586892bede304deba180ca07fadaf484a32022de99552b"
+  }
+]
