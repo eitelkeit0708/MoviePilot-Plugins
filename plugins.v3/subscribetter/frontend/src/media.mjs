@@ -45,6 +45,6 @@ export function deliveryNext(bundle,health,now=Date.now()){
  if(!health?.ordinary_work_active)return health?.dry_run?'演练中，普通交付不调度':'普通交付未运行';
  const due=new Date(bundle.due).getTime();return Number.isFinite(due)?due>now?'检查时间 '+dateText(bundle.due):'已到检查时间，等待下一轮处理':'尚无明确检查时间';
 }
-Object.assign(states,{RAPID_WAIT:'等待秒传重试',RAPID_IN_FLIGHT:'正在尝试秒传',WAITING_ASSETS:'等待视频或必要字幕齐备',READY_TO_PUBLISH:'等待发布',DOWNLOADING:'正在下载',SUPERSEDED:'已被新计划取代',CANCELLED:'已取消',ATTACHED:'已关联计划',ACQUIRE:'补充缺失版本',UPGRADE:'升级已有版本'});
+Object.assign(states,{INGEST_CONFIRMED:'已记录入库确认',HANDED_OFF:'已交付，等待入库确认',SETTLED:'外部操作已核实结束',RAPID_WAIT:'等待秒传重试',RAPID_IN_FLIGHT:'正在尝试秒传',WAITING_ASSETS:'等待视频或必要字幕齐备',READY_TO_PUBLISH:'等待发布',DOWNLOADING:'正在下载',SUPERSEDED:'已被新计划取代',CANCELLED:'已取消',ATTACHED:'已关联计划',ACQUIRE:'补充缺失版本',UPGRADE:'升级已有版本'});
 export function sourceTitle(source,routes=[]){const s=source?.config||source||{};if(s.name?.trim())return s.name.trim();const route=routes.find(r=>r.key===s.route_key||s.url?.includes('/douban/list/'+r.key));return route?.label||(s.source_type_hint==='Movie'?'自定义电影榜单':s.source_type_hint==='TV'?'自定义剧集榜单':'自定义榜单')}
 export function sourceNotice(source){if(source.last_reason==='SOURCE_CONFIG_CHANGED')return reasonText(source.last_reason);return ['OK','SUCCESS','NEVER'].includes(source.last_state)?'':reasonText(source.last_reason)}

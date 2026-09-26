@@ -13,5 +13,5 @@ defineProps({unit:Object,health:Object});
  <small v-if="unit.current_facts?.state==='PRESENT'" class="sb-muted">已有在库记录继续单独展示；本轮入库尚未确认。</small>
  <details class="sb-technical"><summary>文件与采样详情</summary><p v-for="file in unit.processing.files" :key="file" class="sb-filename">{{file}}</p><p v-if="unit.processing.transfer_file_count>20">共 {{unit.processing.transfer_file_count}} 个文件，此处仅显示前 20 个，完整进展见传输页。</p><p>开始于 {{dateText(unit.processing.started_at)}}</p><p>下载速度 {{unit.processing.download?.speed==null?'未取得':formatBytes(unit.processing.download.speed)+'/s'}}</p><code v-if="unit.processing.reason">{{unit.processing.reason}}</code></details>
  </template><span v-else>{{unit.owner_plan_id?'原处理计划已失效或待核实，当前进展未取得':'当前没有在途版本'}}</span>
- <small v-if="unit.publish_phase!=='NOT_SENT'">交付状态：{{stateLabel(unit.publish_phase)}}</small><small v-if="unit.cooldown_until">冷却记录截止 {{dateText(unit.cooldown_until)}}</small>
+ <small v-if="unit.publish_phase&&unit.publish_phase!=='NOT_SENT'">交付状态：{{stateLabel(unit.publish_phase)}}</small><small v-if="unit.cooldown_until">冷却记录截止 {{dateText(unit.cooldown_until)}}</small>
 </div></template>
