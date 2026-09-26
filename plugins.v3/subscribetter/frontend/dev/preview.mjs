@@ -31,7 +31,7 @@ if(p.endsWith('/delivery/bundles/demo-bundle'))return {bundle:{id:'demo-bundle',
 if(p.endsWith('/policies/catalog'))return {result:{default_templates:{欧美剧:{resolutions:[2160,1080],group:'official',source:'movie',dimensions:['resolution','picture','special','source','hq','audio']}}}};
 if(p.endsWith('/diagnostics'))return {generation:6,ordinary_work_active:true,dry_run:false,safety_active:true,errors:[],snapshot};
 if(p.endsWith('/tasks'))return {items:tasks.filter(t=>(!params.query||t.title.includes(params.query))&&(!params.state||t.state===params.state)),total:3,next_offset:null,snapshot};
-if(/\/tasks\/\d+$/.test(p)&&p.endsWith('/1'))return {...display.scenes[scene.value],task:tasks[0]};
+if(/\/tasks\/\d+$/.test(p)&&p.endsWith('/1'))return {...display.scenes[scene.value],task:{...display.scenes[scene.value].task,title:tasks[0].title}};
 if(p.endsWith('/candidate-decisions'))return display.list;if(p.endsWith('/candidate-decisions/'+encodeURIComponent(display.detail.id)))return display.detail;
 if(/\/tasks\/\d+\/observations$/.test(p))return {items:[{id:'demo-observation',data:{target_key:JSON.stringify(['电视剧','douban','37029663',1,'',5]),deadline:'2099-01-01',last_better:'2026-09-26'}}],total:1,next_offset:null};
 if(/\/tasks\/\d+\/plans$/.test(p))return {items:[{id:'demo-old-plan',state:'SUPERSEDED',data:{transfer_phase:'SUPERSEDED',reason:'QUALITY_UPGRADE',replacement:'demo-new-5'}}],total:1,next_offset:null};
