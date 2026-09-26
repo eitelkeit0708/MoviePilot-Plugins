@@ -1,0 +1,227 @@
+[
+  {
+    "path": "01-subscriptions.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:29:03.752Z",
+    "sha256": "c6ee88d1ecb7ad13a665eb1358420eb8ead6467f9bb01d3bb5f4f307253a1a50",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "02-desktop-differences.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:29:09.482Z",
+    "sha256": "0a8785ddbbe0956f9bcb3ecd42f647f53438b58be53ce9814b35dc0b8c6e56e9",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "03-desktop-first-and-collected.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:29:18.670Z",
+    "sha256": "720d57c3df774e635310c280efa4968524aeada2b5f758cc02c5d044186d0ee2",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "04-reconcile-unknown.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:29:27.698Z",
+    "sha256": "908307c84916c40e0f17779976f9845c84df2f18b144be8d8f6281a5c93ffd68",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "05-mobile-differences.jpg",
+    "frame": {
+      "height": 840,
+      "width": 390
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:29:44.892Z",
+    "sha256": "6b1305c18f57099dea1aa318bf3ba298fc14282f89364fc3b97217959542e88a",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "06-mobile-first-and-collected.jpg",
+    "frame": {
+      "height": 840,
+      "width": 390
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:29:57.169Z",
+    "sha256": "a9d7f5ce4fcaea0acc03dce0306b5e4c5f35ca7287225635d4df29814568e604",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "07-light-differences.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:30:03.762Z",
+    "sha256": "8edbf39b7f4acaa7b4247e6e8b9c8a2398760367f5f847b545c3eb3af62ca78c",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "08-scheme-policy-reference.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:30:20.007Z",
+    "sha256": "1e938a1b0a32cc5e4e5d4d8b55f4530e6e3ef1bbde0cca6a17cb3195a0ca5b06",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "09-full-policy.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:30:36.863Z",
+    "sha256": "a274e9c5a026349b71e4c2021537a93ca00fd047212701dfc2212127ffc2b9c6",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "10-policy-exceptions.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:30:45.406Z",
+    "sha256": "10ec9163ac4f878d5c318afb06ecba13e6c5aba6e2f4cf214216b2ee0d83fc28",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "11-local-path-prefixes.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:30:45.535Z",
+    "sha256": "d2cc1bfa328991bfe263e0771b71c8ab5ae0687cc76d69999bacc48a3f55d556",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "12-local-path-result.jpg",
+    "frame": {
+      "height": 840,
+      "width": 1305
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:31:28.939Z",
+    "sha256": "b3d7d1c974a363f5cc0e80a91212f58be2c968bc1884125cd921536ce6817da4",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "13-mobile-path-result.jpg",
+    "frame": {
+      "height": 840,
+      "width": 390
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:31:29.069Z",
+    "sha256": "b369462bcd378c8161268cb96563e4896279757c8beff06f74b1d9e633cc6809",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "14-mobile-path-complete.jpg",
+    "frame": {
+      "height": 840,
+      "width": 390
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:31:38.774Z",
+    "sha256": "b1b6dc963105ed2aae6df2fa205230d7a39fb14f766d0dcd349a0f90e534adbc",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  },
+  {
+    "path": "15-mobile-wizard.jpg",
+    "frame": {
+      "height": 840,
+      "width": 390
+    },
+    "outer": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1305
+    },
+    "captured_at": "2026-09-26T18:31:38.898Z",
+    "sha256": "8113a64ff94f368ac38a6fe93a25b6abf5eea0b2d2255554b85c32c619f09e23",
+    "source_commit": "e5b39b2d982babafa13b166554c60197e290846a"
+  }
+]
