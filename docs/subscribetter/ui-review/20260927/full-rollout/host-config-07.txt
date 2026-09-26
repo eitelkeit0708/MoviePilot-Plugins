@@ -1,0 +1,245 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 配置":
+    - heading "设置" [level=2]
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "返回工作台":
+      - generic: 返回工作台
+    - main:
+      - generic "配置帮助与重新读取"
+      - navigation "配置分组":
+        - button "下载与入库方案"
+        - button "基本设置与自动接管"
+        - button "独立策略"
+        - button "自动升级期限"
+        - button "站点与搜索"
+        - button "等待与更换版本"
+        - button "媒体库与整理路径" [active]
+        - button "扫描与恢复"
+        - button "清理权限"
+        - button "安全与容量"
+        - button "榜单与 RSS"
+        - button "AI 名称辅助"
+      - heading "媒体库与整理路径" [level=3]
+      - region "媒体库与交付设置":
+        - heading "媒体库与路径映射" [level=3]
+        - paragraph: 方案连接下载器、交付规则和媒体库。下方修改共用同一份草稿，保存时检查关联关系。
+        - heading "方案关联概览" [level=4]
+        - text: 查看下载与入库方案
+        - combobox "查看下载与入库方案":
+          - option "请选择方案查看路径与关联" [selected]
+          - option "动画电影 · 方案 A"
+          - option "动画电影 · 方案 B"
+          - option "动画电影 · 方案 C"
+          - option "动画电影 · 方案 D"
+          - option "动画电影 · 方案 E"
+          - option "动画电影 · 方案 F"
+          - option "测试外语电影分类 · 方案 G"
+          - option "国产剧 · 方案 H"
+        - heading "云盘与写入范围" [level=3]
+        - button "添加云盘范围":
+          - generic: 添加云盘范围
+        - generic "test-115 · /115"
+        - option "选择已安装实例"
+        - option "CloudDrive2储存" [selected]
+        - option "选择已安装实例"
+        - option "115网盘储存" [selected]
+        - heading "媒体库与播放路径" [level=3]
+        - button "添加媒体库映射":
+          - generic: 添加媒体库映射
+        - generic "test-Movies · 测试电影库"
+        - option "选择服务"
+        - option "Emby 测试服务" [selected]
+        - option "选择媒体库"
+        - option "正在热播"
+        - option "欧美剧"
+        - option "国产剧"
+        - option "港台剧"
+        - option "日剧"
+        - option "韩剧"
+        - option "综艺"
+        - option "纪录片"
+        - option "耽美"
+        - option "短剧"
+        - option "欧美电影"
+        - option "华语电影"
+        - option "日韩电影"
+        - option "动画电影"
+        - option "豆瓣TOP250"
+        - option "欧美动漫"
+        - option "国漫"
+        - option "日漫"
+        - option "合集"
+        - option "测试电影库" [selected]
+        - option "测试剧集库"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - text: 转换为 转换为
+        - generic "test-TvShows · 测试剧集库"
+        - option "选择服务"
+        - option "Emby 测试服务" [selected]
+        - option "选择媒体库"
+        - option "正在热播"
+        - option "欧美剧"
+        - option "国产剧"
+        - option "港台剧"
+        - option "日剧"
+        - option "韩剧"
+        - option "综艺"
+        - option "纪录片"
+        - option "耽美"
+        - option "短剧"
+        - option "欧美电影"
+        - option "华语电影"
+        - option "日韩电影"
+        - option "动画电影"
+        - option "豆瓣TOP250"
+        - option "欧美动漫"
+        - option "国漫"
+        - option "日漫"
+        - option "合集"
+        - option "测试电影库"
+        - option "测试剧集库" [selected]
+        - option "选择范围"
+        - option "test-115" [selected]
+        - text: 转换为 转换为
+        - heading "媒体库扫描范围" [level=3]
+        - text: Emby 服务
+        - combobox "Emby 服务":
+          - option "选择 Emby 服务" [disabled]
+          - option "Emby 测试服务" [selected]
+        - button "重试读取":
+          - generic: 重试读取
+        - checkbox "正在热播"
+        - text: 正在热播
+        - checkbox "欧美剧"
+        - text: 欧美剧
+        - checkbox "国产剧"
+        - text: 国产剧
+        - checkbox "港台剧"
+        - text: 港台剧
+        - checkbox "日剧"
+        - text: 日剧
+        - checkbox "韩剧"
+        - text: 韩剧
+        - checkbox "综艺"
+        - text: 综艺
+        - checkbox "纪录片"
+        - text: 纪录片
+        - checkbox "耽美"
+        - text: 耽美
+        - checkbox "短剧"
+        - text: 短剧
+        - checkbox "欧美电影"
+        - text: 欧美电影
+        - checkbox "华语电影"
+        - text: 华语电影
+        - checkbox "日韩电影"
+        - text: 日韩电影
+        - checkbox "动画电影"
+        - text: 动画电影
+        - checkbox "豆瓣TOP250"
+        - text: 豆瓣TOP250
+        - checkbox "欧美动漫"
+        - text: 欧美动漫
+        - checkbox "国漫"
+        - text: 国漫
+        - checkbox "日漫"
+        - text: 日漫
+        - checkbox "合集"
+        - text: 合集
+        - checkbox "测试电影库" [checked]
+        - text: 测试电影库
+        - checkbox "测试剧集库" [checked]
+        - text: 测试剧集库
+        - paragraph: 取消勾选前请检查关联路径映射，保存时会核对引用。
+        - heading "暂存与整理" [level=3]
+        - button "添加交付规则":
+          - generic: 添加交付规则
+        - generic "交付 A · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - generic "交付 B · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - generic "交付 C · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - generic "交付 D · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - generic "交付 E · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - generic "交付 F · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - generic "交付 G · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - generic "交付 H · 已启用"
+        - option "选择范围"
+        - option "test-115" [selected]
+        - heading "在库版本的比较策略" [level=3]
+        - paragraph: 档案与订阅使用各自的分类绑定。可复制当前订阅绑定，再检查是否适合归档规则。
+        - button "使用当前订阅分类绑定":
+          - generic: 使用当前订阅分类绑定
+        - strong: 动画电影
+        - generic: 动画电影
+        - button "移除绑定":
+          - generic: 移除绑定
+        - strong: 测试外语电影分类
+        - generic: 外语电影
+        - button "移除绑定":
+          - generic: 移除绑定
+        - strong: 国产剧
+        - generic: 国产剧
+        - button "移除绑定":
+          - generic: 移除绑定
+        - text: MoviePilot 分类
+        - combobox "MoviePilot 分类":
+          - option "选择分类" [selected]
+          - option "动画电影"
+          - option "华语电影"
+          - option "测试外语电影分类"
+          - option "国漫"
+          - option "日番"
+          - option "欧美漫"
+          - option "纪录片"
+          - option "综艺"
+          - option "国产剧"
+          - option "港台剧"
+          - option "日韩剧"
+          - option "欧美剧"
+          - option "未分类"
+          - option "Album"
+          - option "Album / Compilation"
+          - option "EP"
+          - option "Single"
+        - text: 档案策略
+        - combobox "档案策略":
+          - option "选择策略" [selected]
+          - option "华语电影"
+          - option "外语电影"
+          - option "动画电影"
+          - option "国产剧"
+          - option "欧美剧"
+          - option "日韩剧"
+          - option "港台剧"
+          - option "纪录片"
+          - option "国漫"
+          - option "日番"
+          - option "欧美漫"
+          - option "综艺"
+          - option "现场"
+        - button "绑定档案分类" [disabled]:
+          - generic: 绑定档案分类
+      - generic "高级：手工恢复迁移回执"
+      - option "配置操作" [selected]
+      - option "迁移 / 回退"
+    - button "保存设置":
+      - generic: 保存设置
+    - button "关闭":
+      - generic: 关闭

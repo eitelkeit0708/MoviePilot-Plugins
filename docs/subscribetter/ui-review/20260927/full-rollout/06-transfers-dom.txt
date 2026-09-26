@@ -1,0 +1,61 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输" [active]
+    - button "策略"
+    - button "设置"
+  - main:
+    - region "传输与待处理":
+      - heading "传输与待处理" [level=2]
+      - button "刷新进度":
+        - generic: 刷新进度
+      - text: 处理阶段
+      - combobox "处理阶段":
+        - option "全部阶段" [selected]
+        - option "等待条件"
+        - option "正在上传"
+        - option "结果未知"
+        - option "发布待核实"
+        - option "等待整理与媒体库确认"
+        - option "已确认交付"
+        - option "已取消"
+      - button "GATE24 大机场 · 第 9 集 2 个文件 等待 Emby 确认 等待 Symedia 整理及媒体库确认 已到检查时间，等待下一轮处理":
+        - strong: GATE24 大机场 · 第 9 集
+        - generic: 2 个文件
+        - strong: 等待 Emby 确认
+        - generic: 等待 Symedia 整理及媒体库确认
+        - generic: 已到检查时间，等待下一轮处理
+        - generic: ›
+      - button "上一页" [disabled]:
+        - generic: 上一页
+      - generic: 共 1 组
+      - button "下一页" [disabled]:
+        - generic: 下一页

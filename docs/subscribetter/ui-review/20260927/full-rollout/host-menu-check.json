@@ -1,0 +1,50 @@
+[
+  {
+    "title": "下载与入库方案",
+    "headingPresent": true
+  },
+  {
+    "title": "基本设置与自动接管",
+    "headingPresent": true
+  },
+  {
+    "title": "独立策略",
+    "headingPresent": true
+  },
+  {
+    "title": "自动升级期限",
+    "headingPresent": true
+  },
+  {
+    "title": "站点与搜索",
+    "headingPresent": true
+  },
+  {
+    "title": "等待与更换版本",
+    "headingPresent": true
+  },
+  {
+    "title": "媒体库与整理路径",
+    "headingPresent": true
+  },
+  {
+    "title": "扫描与恢复",
+    "headingPresent": true
+  },
+  {
+    "title": "清理权限",
+    "headingPresent": true
+  },
+  {
+    "title": "安全与容量",
+    "headingPresent": true
+  },
+  {
+    "title": "榜单与 RSS",
+    "headingPresent": true
+  },
+  {
+    "title": "AI 名称辅助",
+    "headingPresent": true
+  }
+]

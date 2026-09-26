@@ -1,0 +1,68 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 管理":
+    - strong: subscriBetter
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "刷新":
+      - generic: 刷新
+    - button "高级诊断":
+      - generic: 高级诊断
+    - button "关闭":
+      - generic: 关闭
+    - navigation "主要功能":
+      - button "订阅"
+      - button "发现" [active]
+      - button "传输"
+      - button "策略"
+      - button "设置"
+    - main:
+      - region "豆瓣榜单":
+        - heading "发现 2" [level=2]
+        - button "管理来源":
+          - generic: 管理来源
+        - text: 榜单来源
+        - combobox "榜单来源":
+          - option "全部来源" [selected]
+          - option "自定义榜单"
+          - option "一周口碑电影榜"
+          - option "一周口碑电影榜"
+          - option "热播新剧国产剧"
+          - option "自定义榜单"
+        - text: 处理结果
+        - combobox "处理结果":
+          - option "全部" [selected]
+          - option "已识别"
+          - option "待识别"
+        - button "刷新":
+          - generic: 刷新
+        - generic "来源状态 · 5 个本页来源 · 本页有来源需要检查"
+        - article:
+          - article:
+            - strong: 求救信号
+            - generic: 一周口碑电影榜
+            - generic: 已提交订阅
+            - generic: 最近出现 2026/9/21 21:33:49
+            - button "重新判定":
+              - generic: 重新判定
+            - button "关联订阅":
+              - generic: 关联订阅
+          - generic "识别依据"
+        - article:
+          - article:
+            - strong: "Sample Film (2013)"
+            - generic: 自定义榜单
+            - generic: 已提交订阅
+            - generic: 最近出现 2026/9/21 03:58:00
+            - button "重新判定":
+              - generic: 重新判定
+            - button "关联订阅":
+              - generic: 关联订阅
+          - generic "识别依据"
+        - button "上一页作品" [disabled]:
+          - generic: 上一页作品
+        - generic: 共 2 条 · 第 1 页
+        - button "下一页作品" [disabled]:
+          - generic: 下一页作品
+        - generic "统计与缓存详情"

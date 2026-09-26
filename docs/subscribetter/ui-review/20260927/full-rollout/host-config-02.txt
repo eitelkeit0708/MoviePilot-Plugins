@@ -1,0 +1,380 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 配置":
+    - heading "设置" [level=2]
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "返回工作台":
+      - generic: 返回工作台
+    - main:
+      - generic "配置帮助与重新读取"
+      - navigation "配置分组":
+        - button "下载与入库方案"
+        - button "基本设置与自动接管" [active]
+        - button "独立策略"
+        - button "自动升级期限"
+        - button "站点与搜索"
+        - button "等待与更换版本"
+        - button "媒体库与整理路径"
+        - button "扫描与恢复"
+        - button "清理权限"
+        - button "安全与容量"
+        - button "榜单与 RSS"
+        - button "AI 名称辅助"
+      - heading "基本设置与自动接管" [level=3]
+      - button "连续配置下载与入库方案":
+        - generic: 连续配置下载与入库方案
+      - region "基本设置与自动接管":
+        - heading "运行设置" [level=4]
+        - strong: 启用订阅追踪
+        - generic: 按已保存的策略接管、追踪作品。
+        - checkbox "启用订阅追踪 按已保存的策略接管、追踪作品。"
+        - strong: 演练模式
+        - generic: 预演配置，不执行普通下载和交付；任务保护仍独立运行。
+        - checkbox "演练模式 预演配置，不执行普通下载和交付；任务保护仍独立运行。" [checked]
+        - heading "自动接管新订阅" [level=4]
+        - checkbox "电影"
+        - text: 电影
+        - checkbox "电视剧"
+        - text: 电视剧
+        - paragraph: 在 MoviePilot 中添加订阅后，符合范围的新订阅由插件接管。
+        - heading "自动寻找更好版本的媒体库" [level=4]
+        - text: Emby 服务
+        - combobox "Emby 服务":
+          - option "选择 Emby 服务" [disabled]
+          - option "Emby 测试服务" [selected]
+        - button "重试读取":
+          - generic: 重试读取
+        - checkbox "正在热播"
+        - text: 正在热播
+        - checkbox "欧美剧"
+        - text: 欧美剧
+        - checkbox "国产剧"
+        - text: 国产剧
+        - checkbox "港台剧"
+        - text: 港台剧
+        - checkbox "日剧"
+        - text: 日剧
+        - checkbox "韩剧"
+        - text: 韩剧
+        - checkbox "综艺"
+        - text: 综艺
+        - checkbox "纪录片"
+        - text: 纪录片
+        - checkbox "耽美"
+        - text: 耽美
+        - checkbox "短剧"
+        - text: 短剧
+        - checkbox "欧美电影"
+        - text: 欧美电影
+        - checkbox "华语电影"
+        - text: 华语电影
+        - checkbox "日韩电影"
+        - text: 日韩电影
+        - checkbox "动画电影"
+        - text: 动画电影
+        - checkbox "豆瓣TOP250"
+        - text: 豆瓣TOP250
+        - checkbox "欧美动漫"
+        - text: 欧美动漫
+        - checkbox "国漫"
+        - text: 国漫
+        - checkbox "日漫"
+        - text: 日漫
+        - checkbox "合集"
+        - text: 合集
+        - checkbox "测试电影库"
+        - text: 测试电影库
+        - checkbox "测试剧集库" [checked]
+        - text: 测试剧集库
+        - paragraph: 仅对所选媒体库进行版本观察，仍需符合质量策略与交付权限。
+        - heading "名称识别" [level=4]
+        - checkbox "辅助 MoviePilot 识别含数字的片名"
+        - text: 辅助 MoviePilot 识别含数字的片名
+        - text: 保护的完整片名
+        - textbox "保护的完整片名 添加片名":
+          - /placeholder: 输入完整片名，按回车添加
+        - button "添加片名" [disabled]:
+          - generic: 添加片名
+        - list:
+          - generic: 荒野机器人
+          - button "移除片名 荒野机器人": ×
+        - generic "片名保护如何生效"
+        - region "下载与入库方案":
+          - heading "下载与入库方案" [level=3]
+          - paragraph: 将分类、下载器和目录保存为方案，接管已有订阅时直接选择。
+          - button "添加方案":
+            - generic: 添加方案
+          - generic "方案 A · 测试下载器 A /mp/review-data/downloads/caminandes":
+            - text: 方案 A · 测试下载器 A
+            - generic: /mp/review-data/downloads/caminandes
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影" [selected]
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A" [selected]
+          - option "交付 B"
+          - option "交付 C"
+          - option "交付 D"
+          - option "交付 E"
+          - option "交付 F"
+          - option "交付 G"
+          - option "交付 H"
+          - generic "方案 B · 测试下载器 A /mp/review-data/downloads/ourbits-20260921":
+            - text: 方案 B · 测试下载器 A
+            - generic: /mp/review-data/downloads/ourbits-20260921
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影" [selected]
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A"
+          - option "交付 B" [selected]
+          - option "交付 C"
+          - option "交付 D"
+          - option "交付 E"
+          - option "交付 F"
+          - option "交付 G"
+          - option "交付 H"
+          - generic "方案 C · 测试下载器 A /mp/review-data/downloads/dahufa-20260921":
+            - text: 方案 C · 测试下载器 A
+            - generic: /mp/review-data/downloads/dahufa-20260921
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影" [selected]
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A"
+          - option "交付 B"
+          - option "交付 C" [selected]
+          - option "交付 D"
+          - option "交付 E"
+          - option "交付 F"
+          - option "交付 G"
+          - option "交付 H"
+          - generic "方案 D · 测试下载器 A /mp/review-data/downloads/nezha2-20260921":
+            - text: 方案 D · 测试下载器 A
+            - generic: /mp/review-data/downloads/nezha2-20260921
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影" [selected]
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A"
+          - option "交付 B"
+          - option "交付 C"
+          - option "交付 D" [selected]
+          - option "交付 E"
+          - option "交付 F"
+          - option "交付 G"
+          - option "交付 H"
+          - generic "方案 E · 测试下载器 A /mp/review-data/downloads/flow-20260921":
+            - text: 方案 E · 测试下载器 A
+            - generic: /mp/review-data/downloads/flow-20260921
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影" [selected]
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A"
+          - option "交付 B"
+          - option "交付 C"
+          - option "交付 D"
+          - option "交付 E" [selected]
+          - option "交付 F"
+          - option "交付 G"
+          - option "交付 H"
+          - generic "方案 F · 测试下载器 A /mp/review-data/downloads/wildrobot-20260921":
+            - text: 方案 F · 测试下载器 A
+            - generic: /mp/review-data/downloads/wildrobot-20260921
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影" [selected]
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A"
+          - option "交付 B"
+          - option "交付 C"
+          - option "交付 D"
+          - option "交付 E"
+          - option "交付 F" [selected]
+          - option "交付 G"
+          - option "交付 H"
+          - generic "方案 G · 测试下载器 A /mp/review-data/downloads/mayday-20260921":
+            - text: 方案 G · 测试下载器 A
+            - generic: /mp/review-data/downloads/mayday-20260921
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影"
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影" [selected]
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A"
+          - option "交付 B"
+          - option "交付 C"
+          - option "交付 D"
+          - option "交付 E"
+          - option "交付 F"
+          - option "交付 G" [selected]
+          - option "交付 H"
+          - generic "方案 H · 测试下载器 A /mp/review-data/downloads/qb/T012-spring-2160":
+            - text: 方案 H · 测试下载器 A
+            - generic: /mp/review-data/downloads/qb/T012-spring-2160
+          - option "请选择分类" [disabled]
+          - option "动画电影 · 电影"
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧" [selected]
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 A · qbittorrent" [selected]
+          - option "测试下载器 B · transmission"
+          - option "不绑定交付规则"
+          - option "交付 A"
+          - option "交付 B"
+          - option "交付 C"
+          - option "交付 D"
+          - option "交付 E"
+          - option "交付 F"
+          - option "交付 G"
+          - option "交付 H" [selected]
+      - text: 转换为 转换为 转换为 转换为
+      - generic "高级：手工恢复迁移回执"
+      - option "配置操作" [selected]
+      - option "迁移 / 回退"
+    - button "保存设置":
+      - generic: 保存设置
+    - button "关闭":
+      - generic: 关闭

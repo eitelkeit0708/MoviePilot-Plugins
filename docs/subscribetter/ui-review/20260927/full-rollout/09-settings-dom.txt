@@ -1,0 +1,93 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输"
+    - button "策略"
+    - button "设置" [active]
+  - main:
+    - region "服务与设置":
+      - heading "服务与设置" [level=2]
+      - button "导出安全配置":
+        - generic: 导出安全配置
+      - generic: 下载器
+      - strong: 尚未绑定
+      - generic: 云盘范围
+      - strong: 未知 个已配置范围
+      - generic: 运行状态
+      - strong: 正在运行
+      - button "下载与入库方案 从下载器到媒体库，连续完成一份方案的配置。":
+        - strong: 下载与入库方案
+        - generic: 从下载器到媒体库，连续完成一份方案的配置。
+        - generic: ›
+      - button "基本设置与自动接管 选择自动接管类型、下载器与目录。":
+        - strong: 基本设置与自动接管
+        - generic: 选择自动接管类型、下载器与目录。
+        - generic: ›
+      - button "媒体库与整理路径 连接媒体库，配置暂存、入口和两段路径映射。":
+        - strong: 媒体库与整理路径
+        - generic: 连接媒体库，配置暂存、入口和两段路径映射。
+        - generic: ›
+      - button "榜单与 RSS 自部署 RSSHub、内置榜单和自定义路由。":
+        - strong: 榜单与 RSS
+        - generic: 自部署 RSSHub、内置榜单和自定义路由。
+        - generic: ›
+      - button "独立策略 分类绑定、比较顺序和明确锁定条件。":
+        - strong: 独立策略
+        - generic: 分类绑定、比较顺序和明确锁定条件。
+        - generic: ›
+      - button "等待与更换版本 发现更好版本后等多久，下载中是否允许更换。":
+        - strong: 等待与更换版本
+        - generic: 发现更好版本后等多久，下载中是否允许更换。
+        - generic: ›
+      - button "自动升级期限 电影、剧集追踪时间及完成后的行为。":
+        - strong: 自动升级期限
+        - generic: 电影、剧集追踪时间及完成后的行为。
+        - generic: ›
+      - button "AI 名称辅助 连接模型，辅助识别复杂资源名称。":
+        - strong: AI 名称辅助
+        - generic: 连接模型，辅助识别复杂资源名称。
+        - generic: ›
+      - button "清理权限 各项删除权限独立配置，默认关闭。":
+        - strong: 清理权限
+        - generic: 各项删除权限独立配置，默认关闭。
+        - generic: ›
+      - heading "诊断与迁移" [level=3]
+      - paragraph: 处理异常、迁移旧配置和查看识别依据。进入页面本身不会执行外部操作。
+      - button "服务诊断":
+        - generic: 服务诊断
+      - button "迁移与处理者冲突":
+        - generic: 迁移与处理者冲突
+      - button "名称识别诊断":
+        - generic: 名称识别诊断
+      - button "扫描与恢复":
+        - generic: 扫描与恢复
+      - button "安全与容量":
+        - generic: 安全与容量

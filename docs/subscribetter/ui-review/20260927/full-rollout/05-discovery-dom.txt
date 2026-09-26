@@ -1,0 +1,102 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现" [active]
+    - button "传输"
+    - button "策略"
+    - button "设置"
+  - main:
+    - region "豆瓣榜单":
+      - heading "发现 3" [level=2]
+      - button "管理来源":
+        - generic: 管理来源
+      - text: 榜单来源
+      - combobox "榜单来源":
+        - option "全部来源" [selected]
+        - option "全球口碑剧集榜"
+      - text: 处理结果
+      - combobox "处理结果":
+        - option "全部" [selected]
+        - option "已识别"
+        - option "待识别"
+      - button "刷新":
+        - generic: 刷新
+      - generic "来源状态 · 1 个本页来源"
+      - article:
+        - article:
+          - strong: GATE24 大机场
+          - generic: 全球口碑剧集榜
+          - generic: 已提交订阅
+          - generic: 最近出现 2026/9/27 03:24:07
+          - button "重新判定":
+            - generic: 重新判定
+          - button "关联订阅":
+            - generic: 关联订阅
+        - generic "识别依据"
+      - article:
+        - article:
+          - strong: 侠女内莉
+          - generic: 全球口碑剧集榜
+          - generic: 已提交订阅
+          - generic: 最近出现 2026/9/26 16:00:00
+          - button "重新判定":
+            - generic: 重新判定
+          - button "关联订阅":
+            - generic: 关联订阅
+        - generic "识别依据"
+      - article:
+        - article:
+          - strong: 一瓯春
+          - generic: 全球口碑剧集榜
+          - generic: 等待重试
+          - generic: 最近出现 2026/9/26 15:00:00
+          - generic: 已安排重新判定
+          - button "重新判定":
+            - generic: 重新判定
+          - button "关联订阅":
+            - generic: 关联订阅
+        - generic "识别依据"
+      - article:
+        - article:
+          - strong: 尚未确认集数的连载作品
+          - generic: 全球口碑剧集榜
+          - generic: 已提交订阅
+          - generic: 最近出现 2026/9/26 15:00:00
+          - button "重新判定":
+            - generic: 重新判定
+          - button "关联订阅":
+            - generic: 关联订阅
+        - generic "识别依据"
+      - button "上一页作品" [disabled]:
+        - generic: 上一页作品
+      - generic: 共 3 条 · 第 1 页
+      - button "下一页作品" [disabled]:
+        - generic: 下一页作品
+      - generic "统计与缓存详情"

@@ -1,5 +1,7 @@
 # subscriBetter V3 外部审核入口
 
+**最新 UI 正式推广（2026-09-27）**：产品提交 [`62275c4`](https://github.com/eitelkeit0708/MoviePilot-Plugins/tree/62275c40ec34d5aa88c4f380b2253463b58ced46)；请先阅读[本轮审核与证据边界](../ui-review/20260927/full-rollout/README.md)和[完整用户步骤](../ui-review/20260927/full-rollout/USER_GUIDE.md)。下面的整体架构、台账及版本表属于历史审核快照，不是最新 UI 的版本号；本轮不重新放行历史业务台账。截图仍阻断，不能用 DOM 文本证明视觉认可。
+
 本资料包供**只能访问 GitHub 的独立审核 agent**使用。代码、设计基线、需求与验收矩阵、可复现测试、架构图和证据边界均在仓库内；不需要本地设计 ZIP、NAS、SSH、站点账户或 `fnos.txt`。资料包是审核输入，不是审核通过证明。
 
 ## 版本与结论边界

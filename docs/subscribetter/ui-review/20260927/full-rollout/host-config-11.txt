@@ -1,0 +1,164 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 配置":
+    - heading "设置" [level=2]
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "返回工作台":
+      - generic: 返回工作台
+    - main:
+      - generic "配置帮助与重新读取"
+      - navigation "配置分组":
+        - button "下载与入库方案"
+        - button "基本设置与自动接管"
+        - button "独立策略"
+        - button "自动升级期限"
+        - button "站点与搜索"
+        - button "等待与更换版本"
+        - button "媒体库与整理路径"
+        - button "扫描与恢复"
+        - button "清理权限"
+        - button "安全与容量"
+        - button "榜单与 RSS" [active]
+        - button "AI 名称辅助"
+      - text: 转换为 转换为 转换为 转换为
+      - heading "榜单与 RSS" [level=3]
+      - region "榜单来源设置":
+        - heading "自部署 RSSHub" [level=3]
+        - paragraph: 使用自己的实例，不依赖公开路由服务。
+        - checkbox "启用榜单发现"
+        - text: 启用榜单发现
+        - text: RSSHub 容器地址
+        - textbox "RSSHub 容器地址":
+          - /placeholder: http://isolated-service.example
+          - text: http://isolated-service.example
+        - text: 允许访问的私网范围
+        - textbox "允许访问的私网范围":
+          - /placeholder: 例如 192.0.2.10/32，每行一个
+          - text: 192.0.2.10/32
+        - text: 刷新计划（Cron）
+        - textbox "刷新计划（Cron）": 0 12 1 1 *
+        - text: 豆瓣详情读取间隔（秒）
+        - spinbutton "豆瓣详情读取间隔（秒）": "5"
+        - paragraph: 同一媒体会复用缓存；间隔约束新增详情读取。使用私网地址时需填写允许访问的范围。
+        - heading "添加榜单" [level=3]
+        - text: 来源方式
+        - combobox "来源方式":
+          - option "内置豆瓣榜单" [selected]
+          - option "自定义地址 / 路由"
+        - text: 选择榜单
+        - combobox "选择榜单":
+          - option "请选择" [disabled] [selected]
+          - option "影院热映 · 电影"
+          - option "实时热门电影 · 电影"
+          - option "一周口碑电影榜 · 电影"
+          - option "实时热门电视 · 电视剧"
+          - option "华语口碑剧集榜 · 电视剧"
+          - option "全球口碑剧集榜 · 电视剧"
+          - option "国内口碑综艺榜 · 电视剧"
+          - option "国外口碑综艺榜 · 电视剧"
+          - option "热播新剧国产剧 · 电视剧"
+          - option "热播新剧欧美剧 · 电视剧"
+          - option "热播新剧日剧 · 电视剧"
+          - option "热播新剧韩剧 · 电视剧"
+          - option "热播新剧动画 · 电视剧"
+          - option "近期热门综艺节目 · 电视剧"
+          - option "近期热门美剧榜 (ECFA5DI7Q) · 电视剧"
+        - paragraph: 自定义地址支持 @@TV / @@Movie；相对路径会使用上方 RSSHub 地址。
+        - button "加入来源列表":
+          - generic: 加入来源列表
+        - generic "自定义榜单 · 已停用":
+          - strong: 自定义榜单
+          - text: · 已停用
+        - option "按识别结果确定" [selected]
+        - option "电视剧"
+        - option "电影"
+        - option "不绑定"
+        - option "方案 A" [selected]
+        - option "方案 B"
+        - option "方案 C"
+        - option "方案 D"
+        - option "方案 E"
+        - option "方案 F"
+        - option "方案 G"
+        - option "方案 H"
+        - option "不绑定" [selected]
+        - option "方案 A"
+        - option "方案 B"
+        - option "方案 C"
+        - option "方案 D"
+        - option "方案 E"
+        - option "方案 F"
+        - option "方案 G"
+        - option "方案 H"
+        - option "不绑定" [selected]
+        - option "方案 A"
+        - option "方案 B"
+        - option "方案 C"
+        - option "方案 D"
+        - option "方案 E"
+        - option "方案 F"
+        - option "方案 G"
+        - option "方案 H"
+        - option "电影" [selected]
+        - option "电视剧"
+        - option "movie" [selected]
+        - option "tv"
+        - option "anime"
+        - generic "一周口碑电影榜 · 已启用":
+          - strong: 一周口碑电影榜
+          - text: · 已启用
+        - option "按识别结果确定" [selected]
+        - option "电视剧"
+        - option "电影"
+        - option "不绑定"
+        - option "方案 A"
+        - option "方案 B"
+        - option "方案 C"
+        - option "方案 D"
+        - option "方案 E"
+        - option "方案 F"
+        - option "方案 G" [selected]
+        - option "方案 H"
+        - option "不绑定" [selected]
+        - option "方案 A"
+        - option "方案 B"
+        - option "方案 C"
+        - option "方案 D"
+        - option "方案 E"
+        - option "方案 F"
+        - option "方案 G"
+        - option "方案 H"
+        - option "不绑定" [selected]
+        - option "方案 A"
+        - option "方案 B"
+        - option "方案 C"
+        - option "方案 D"
+        - option "方案 E"
+        - option "方案 F"
+        - option "方案 G"
+        - option "方案 H"
+        - option "电影" [selected]
+        - option "电视剧"
+        - option "movie" [selected]
+        - option "tv"
+        - option "anime"
+        - generic "全局过滤与请求预算"
+        - option "已识别的季" [selected]
+        - option "所有已知季"
+        - option "仅记录" [selected]
+        - option "在授权范围内纳管"
+      - generic "历史显示选项"
+      - option "all" [selected]
+      - option "latest12"
+      - option "recognized"
+      - option "unrecognized"
+      - option "statistics"
+      - generic "高级：手工恢复迁移回执"
+      - option "配置操作" [selected]
+      - option "迁移 / 回退"
+    - button "保存设置":
+      - generic: 保存设置
+    - button "关闭":
+      - generic: 关闭

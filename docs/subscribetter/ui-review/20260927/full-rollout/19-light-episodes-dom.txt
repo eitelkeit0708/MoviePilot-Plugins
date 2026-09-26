@@ -1,0 +1,150 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应" [selected]
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败"
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输"
+    - button "策略"
+    - button "设置"
+  - main:
+    - region "订阅作品":
+      - region "作品详情":
+        - button "返回列表":
+          - generic: 返回列表
+        - heading "GATE24 大机场" [level=2]
+        - generic: 2026 · 电视剧 · 第 1 季 · 追踪中
+        - generic "作品操作"
+        - navigation "作品详情内容":
+          - button "分集与版本"
+          - button "候选比较"
+          - button "处理记录"
+        - generic "如何理解版本信息"
+        - article:
+          - strong: 第 1 集
+          - generic: 当前在库
+          - generic: 1080p · SDR · 普通音轨
+          - generic: →
+          - generic: 升级目标
+          - strong:
+            - mark: 4K
+            - text: ·
+            - mark: Dolby Vision
+            - text: ·
+            - mark: DDP
+          - strong: ↓ 正在下载
+          - progressbar "第 1 集下载进度"
+          - generic: 25% · 512.0 MiB / 2.0 GiB
+          - generic: 等待下载器更新文件进度
+          - generic "第 1 集版本与处理详情": 详情
+        - article:
+          - strong: 第 2 集
+          - generic: 当前在库
+          - generic: 4K · SDR · DDP
+          - generic: →
+          - generic: 升级目标
+          - strong:
+            - text: 4K ·
+            - mark: Dolby Vision
+            - text: · DDP
+          - strong: ◷ 等待 115 秒传
+          - generic: 未命中 2 / 6 次
+          - generic "2026/9/27 04:32:31": 7 分钟后检查
+          - generic "第 2 集版本与处理详情": 详情
+        - article:
+          - strong: 第 3 集
+          - generic: 当前在库
+          - generic: 4K · Dolby Vision · DDP
+          - generic: →
+          - generic: 升级目标
+          - strong:
+            - text: 4K · Dolby Vision ·
+            - mark: 无损音频
+          - strong: ◷ 等待视频或字幕
+          - generic: 视频或必要字幕尚未齐备
+          - generic "第 3 集版本与处理详情": 详情
+        - article:
+          - strong: 第 4 集
+          - generic: 当前在库
+          - generic: 4K · Dolby Vision · DDP · 特效字幕：PGS 推定
+          - generic: →
+          - generic: 字幕依据更新
+          - strong:
+            - text: 4K · Dolby Vision · DDP ·
+            - mark: 特效字幕：发布者明确标注
+          - generic: 同质量 · 更新特效字幕的声明依据
+          - strong: 等待 Emby 确认
+          - generic: 等待 Symedia 整理及媒体库确认
+          - generic "第 4 集版本与处理详情": 详情
+        - article:
+          - strong: 第 5 集
+          - generic: 当前在库
+          - generic: 1080p · SDR · 无损音频
+          - generic: →
+          - generic: 升级目标
+          - strong:
+            - mark: 4K
+            - text: ·
+            - mark: Dolby Vision
+            - text: · DDP
+          - strong: "! 结果待核实"
+          - generic: 外部结果尚未确认
+          - button "核对结果":
+            - generic: 核对结果
+          - generic "第 5 集版本与处理详情": 详情
+        - article:
+          - strong: 第 6 集
+          - generic: 当前在库
+          - generic: 4K · Dolby Vision · DDP · 特效字幕：PGS 推定
+          - generic: →
+          - generic: 升级目标
+          - strong:
+            - text: 4K · Dolby Vision ·
+            - mark: 无损音频
+            - text: ·
+            - mark: 特效字幕：发布者明确标注
+          - strong: ↑ 正在上传
+          - generic: 等待 CD2 确认云端文件
+          - generic "第 6 集版本与处理详情": 详情
+        - article:
+          - strong: 第 7 集
+          - generic: 当前在库
+          - text: 尚未在库
+          - generic: →
+          - generic: 待下载版本
+          - strong: 4K · Dolby Vision · DDP
+          - strong: 等待下载
+          - generic: 等待下载任务开始
+          - generic "第 7 集版本与处理详情": 详情
+        - article:
+          - strong: 第 8 集
+          - generic: 当前在库
+          - generic: 4K · Dolby Vision · 无损音频
+          - generic: 当前没有在途任务
+          - strong: 已收录
+          - generic "第 8 集版本与处理详情": 详情

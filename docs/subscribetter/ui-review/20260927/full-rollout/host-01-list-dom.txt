@@ -1,0 +1,152 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 管理":
+    - strong: subscriBetter
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "刷新":
+      - generic: 刷新
+    - button "高级诊断":
+      - generic: 高级诊断
+    - button "关闭":
+      - generic: 关闭
+    - navigation "主要功能":
+      - button "订阅"
+      - button "发现"
+      - button "传输"
+      - button "策略"
+      - button "设置"
+    - main:
+      - region "订阅作品":
+        - heading "订阅 14" [level=2]
+        - generic: 新增订阅使用 MoviePilot
+        - button "接管已有订阅":
+          - generic: 接管已有订阅
+        - text: 查找订阅
+        - textbox "查找订阅":
+          - /placeholder: 输入作品名称
+        - text: 状态
+        - combobox "状态":
+          - option "全部状态" [selected]
+          - option "追踪中"
+          - option "已暂停"
+          - option "仅观察"
+          - option "等待接管"
+          - option "已停止"
+          - option "已交还 MP"
+        - text: 类型
+        - combobox "类型":
+          - option "全部类型" [selected]
+          - option "电影"
+          - option "电视剧"
+        - button "查找 / 刷新":
+          - generic: 查找 / 刷新
+        - region "作品列表":
+          - button "搏击俱乐部 1999 · 电影 正片档案待确认 已停止 不再自动检查":
+            - strong: 搏击俱乐部
+            - generic: 1999 · 电影
+            - strong: 正片档案待确认
+            - strong: 已停止
+            - generic: 不再自动检查
+            - generic: ›
+          - button "The Shawshank Redemption 1994 · 电影 正片档案待确认 已停止 不再自动检查":
+            - strong: The Shawshank Redemption
+            - generic: 1994 · 电影
+            - strong: 正片档案待确认
+            - strong: 已停止
+            - generic: 不再自动检查
+            - generic: ›
+          - button "Breaking Bad 2008 · 电视剧 · 第 1 季 已收录 0 集 · 总集数待确认 已暂停 恢复追踪后继续":
+            - strong: Breaking Bad
+            - generic: 2008 · 电视剧 · 第 1 季
+            - strong: 已收录 0 集 · 总集数待确认
+            - strong: 已暂停
+            - generic: 恢复追踪后继续
+            - generic: ›
+          - button "大雄兔 2008 · 电影 尚未在库内找到正片 已暂停 恢复追踪后继续":
+            - strong: 大雄兔
+            - generic: 2008 · 电影
+            - strong: 尚未在库内找到正片
+            - strong: 已暂停
+            - generic: 恢复追踪后继续
+            - generic: ›
+          - 'button "Sample Film 2013 · 电影 已有正片在库 1080p / 720p 已暂停 恢复追踪后继续"':
+            - strong: "Sample Film"
+            - generic: 2013 · 电影
+            - strong: 已有正片在库
+            - generic: 1080p / 720p
+            - strong: 已暂停
+            - generic: 恢复追踪后继续
+            - generic: ›
+          - button "月神 2012 · 电影 尚未在库内找到正片 已暂停 恢复追踪后继续":
+            - strong: 月神
+            - generic: 2012 · 电影
+            - strong: 尚未在库内找到正片
+            - strong: 已暂停
+            - generic: 恢复追踪后继续
+            - generic: ›
+          - button "大护法 2017 · 电影 尚未在库内找到正片 已暂停 恢复追踪后继续":
+            - strong: 大护法
+            - generic: 2017 · 电影
+            - strong: 尚未在库内找到正片
+            - strong: 已暂停
+            - generic: 恢复追踪后继续
+            - generic: ›
+          - button "哪吒之魔童闹海 2025 · 电影 尚未在库内找到正片 已暂停 恢复追踪后继续":
+            - strong: 哪吒之魔童闹海
+            - generic: 2025 · 电影
+            - strong: 尚未在库内找到正片
+            - strong: 已暂停
+            - generic: 恢复追踪后继续
+            - generic: ›
+          - button "Flow 2024 · 电影 尚未在库内找到正片 已暂停 恢复追踪后继续":
+            - strong: Flow
+            - generic: 2024 · 电影
+            - strong: 尚未在库内找到正片
+            - strong: 已暂停
+            - generic: 恢复追踪后继续
+            - generic: ›
+          - button "荒野机器人 2024 · 电影 已有正片在库 1080p 等待新资源 演练中，不执行下载交付":
+            - strong: 荒野机器人
+            - generic: 2024 · 电影
+            - strong: 已有正片在库
+            - generic: 1080p
+            - strong: 等待新资源
+            - generic: 演练中，不执行下载交付
+            - generic: ›
+          - button "求救信号 2026 · 电影 已有正片在库 4K 等待新资源 演练中，不执行下载交付":
+            - strong: 求救信号
+            - generic: 2026 · 电影
+            - strong: 已有正片在库
+            - generic: 4K
+            - strong: 等待新资源
+            - generic: 演练中，不执行下载交付
+            - generic: ›
+          - button "一瓯春 2026 · 电视剧 · 第 1 季 已收录 2 集 · 总集数待确认 4K 等待新资源 演练中，不执行下载交付":
+            - strong: 一瓯春
+            - generic: 2026 · 电视剧 · 第 1 季
+            - strong: 已收录 2 集 · 总集数待确认
+            - generic: 4K
+            - strong: 等待新资源
+            - generic: 演练中，不执行下载交付
+            - generic: ›
+          - button "漫长的季节 2023 · 电视剧 · 第 1 季 已收录 0 集 · 总集数待确认 已交还 MoviePilot 由 MoviePilot 继续管理":
+            - strong: 漫长的季节
+            - generic: 2023 · 电视剧 · 第 1 季
+            - strong: 已收录 0 集 · 总集数待确认
+            - strong: 已交还 MoviePilot
+            - generic: 由 MoviePilot 继续管理
+            - generic: ›
+          - button "隐秘的角落 2020 · 电视剧 · 第 1 季 已收录 0 集 · 总集数待确认 已交还 MoviePilot 由 MoviePilot 继续管理":
+            - strong: 隐秘的角落
+            - generic: 2020 · 电视剧 · 第 1 季
+            - strong: 已收录 0 集 · 总集数待确认
+            - strong: 已交还 MoviePilot
+            - generic: 由 MoviePilot 继续管理
+            - generic: ›
+          - button "上一页" [disabled]:
+            - generic: 上一页
+          - generic: 共 14 部 · 第 1 页
+          - button "下一页" [disabled]:
+            - generic: 下一页

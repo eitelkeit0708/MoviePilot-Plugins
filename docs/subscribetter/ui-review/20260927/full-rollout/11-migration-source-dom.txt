@@ -1,0 +1,60 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输"
+    - button "策略"
+    - button "设置"
+  - main:
+    - button "返回设置":
+      - generic: 返回设置
+    - region "迁移旧插件":
+      - heading "迁移旧插件" [level=2]
+      - paragraph: 先备份旧配置。导入会保留历史记录，下载和识别功能需要另外切换。
+      - navigation "迁移方式":
+        - button "导入备份"
+        - button "读取旧榜单" [active]
+        - button "切换功能"
+      - text: 来源插件
+      - textbox "来源插件":
+        - /placeholder: 例如 ChatGPTPlusUltra
+        - text: ChatGPTPlusUltra
+      - text: 原插件版本
+      - textbox "原插件版本":
+        - /placeholder: 例如 1.4.2
+      - text: 原记录的时区
+      - textbox "原记录的时区":
+        - /placeholder: 未记录时可留空
+      - text: 导出的 JSON 文件
+      - button "导出的 JSON 文件 最多 2 MiB；文件仅用于这次私密导入。"
+      - generic: 最多 2 MiB；文件仅用于这次私密导入。
+      - button "预览导入内容" [disabled]:
+        - generic: 预览导入内容
+      - generic "恢复之前的迁移记录"

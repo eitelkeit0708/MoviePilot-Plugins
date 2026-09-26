@@ -1,0 +1,48 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 配置":
+    - heading "设置" [level=2]
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "返回工作台":
+      - generic: 返回工作台
+    - main:
+      - generic "配置帮助与重新读取"
+      - navigation "配置分组":
+        - button "下载与入库方案"
+        - button "基本设置与自动接管"
+        - button "独立策略"
+        - button "自动升级期限"
+        - button "站点与搜索"
+        - button "等待与更换版本" [active]
+        - button "媒体库与整理路径"
+        - button "扫描与恢复"
+        - button "清理权限"
+        - button "安全与容量"
+        - button "榜单与 RSS"
+        - button "AI 名称辅助"
+      - heading "等待与更换版本" [level=3]
+      - region "调度设置":
+        - strong: 下载前等一等
+        - generic: 等待更好资源出现；最长等待到期后，重新按实际候选和权限判定。
+        - checkbox "下载前等一等 等待更好资源出现；最长等待到期后，重新按实际候选和权限判定。"
+        - paragraph: 不等待观察窗口，符合其他条件后再决定是否执行。
+        - heading "在途版本替换" [level=4]
+        - status: 当前不允许质量替换：次数预算为 0。
+        - text: 每轮替换次数
+        - spinbutton "每轮替换次数 0 表示禁止替换，不是不限制。": "0"
+        - generic: 0 表示禁止替换，不是不限制。
+        - generic "确认失败后的恢复预算"
+        - strong: 入库后暂缓升级
+        - generic: 成功入库后，暂缓下一轮质量升级；补缺不受升级冷却限制。
+        - checkbox "入库后暂缓升级 成功入库后，暂缓下一轮质量升级；补缺不受升级冷却限制。"
+        - paragraph: 没有额外的入库后升级冷却。
+      - text: 转换为 转换为 转换为 转换为
+      - generic "高级：手工恢复迁移回执"
+      - option "配置操作" [selected]
+      - option "迁移 / 回退"
+    - button "保存设置":
+      - generic: 保存设置
+    - button "关闭":
+      - generic: 关闭

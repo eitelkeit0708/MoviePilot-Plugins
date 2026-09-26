@@ -1,0 +1,94 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应" [selected]
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败"
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输"
+    - button "策略"
+    - button "设置"
+  - main:
+    - region "订阅作品":
+      - heading "订阅 4" [level=2]
+      - generic: 新增订阅使用 MoviePilot
+      - button "接管已有订阅":
+        - generic: 接管已有订阅
+      - text: 查找订阅
+      - textbox "查找订阅":
+        - /placeholder: 输入作品名称
+      - text: 状态
+      - combobox "状态":
+        - option "全部状态" [selected]
+        - option "追踪中"
+        - option "已暂停"
+        - option "仅观察"
+        - option "等待接管"
+        - option "已停止"
+        - option "已交还 MP"
+      - text: 类型
+      - combobox "类型":
+        - option "全部类型" [selected]
+        - option "电影"
+        - option "电视剧"
+      - button "查找 / 刷新":
+        - generic: 查找 / 刷新
+      - region "作品列表":
+        - button "GATE24 大机场 2026 · 电视剧 · 第 1 季 已收录 7 集 · 总集数待确认 1080p 第 5 集 结果待核实 · 第 1 集 正在下载 · 第 6 集 正在上传 需要核对外部操作结果":
+          - strong: GATE24 大机场
+          - generic: 2026 · 电视剧 · 第 1 季
+          - strong: 已收录 7 集 · 总集数待确认
+          - generic: 1080p
+          - strong: 第 5 集 结果待核实 · 第 1 集 正在下载 · 第 6 集 正在上传
+          - generic: 需要核对外部操作结果
+          - generic: ›
+        - button "侠女内莉 2026 · 电视剧 · 第 1 季 已收录 2 集 · 总集数待确认 4K 已暂停 恢复追踪后继续":
+          - strong: 侠女内莉
+          - generic: 2026 · 电视剧 · 第 1 季
+          - strong: 已收录 2 集 · 总集数待确认
+          - generic: 4K
+          - strong: 已暂停
+          - generic: 恢复追踪后继续
+          - generic: ›
+        - button "一瓯春 2026 · 电视剧 · 第 1 季 集数范围待确认 已停止 不再自动检查":
+          - strong: 一瓯春
+          - generic: 2026 · 电视剧 · 第 1 季
+          - strong: 集数范围待确认
+          - strong: 已停止
+          - generic: 不再自动检查
+          - generic: ›
+        - button "尚未确认集数的连载作品 2026 · 电视剧 · 第 1 季 集数范围待确认 尚未取得进度":
+          - strong: 尚未确认集数的连载作品
+          - generic: 2026 · 电视剧 · 第 1 季
+          - strong: 集数范围待确认
+          - strong: 尚未取得进度
+          - generic: ›
+        - button "上一页" [disabled]:
+          - generic: 上一页
+        - generic: 共 4 部 · 第 1 页
+        - button "下一页" [disabled]:
+          - generic: 下一页

@@ -1,0 +1,78 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 管理":
+    - strong: subscriBetter
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "刷新":
+      - generic: 刷新
+    - button "高级诊断":
+      - generic: 高级诊断
+    - button "关闭":
+      - generic: 关闭
+    - navigation "主要功能":
+      - button "订阅"
+      - button "发现"
+      - button "传输" [active]
+      - button "策略"
+      - button "设置"
+    - main:
+      - region "传输与待处理":
+        - heading "传输与待处理" [level=2]
+        - button "刷新进度":
+          - generic: 刷新进度
+        - text: 处理阶段
+        - combobox "处理阶段":
+          - option "全部阶段" [selected]
+          - option "等待条件"
+          - option "正在上传"
+          - option "结果未知"
+          - option "发布待核实"
+          - option "等待整理与媒体库确认"
+          - option "已确认交付"
+          - option "已取消"
+        - button "大雄兔 10 个文件 ! 结果待核实 CD2 上传结果尚未确认 先核对发布结果，再决定后续动作":
+          - strong: 大雄兔
+          - generic: 10 个文件
+          - strong: "! 结果待核实"
+          - generic: CD2 上传结果尚未确认
+          - generic: 先核对发布结果，再决定后续动作
+          - generic: ›
+        - button "大雄兔 10 个文件 等待 Emby 确认 等待 Symedia 整理及媒体库确认 演练中，普通交付不调度":
+          - strong: 大雄兔
+          - generic: 10 个文件
+          - strong: 等待 Emby 确认
+          - generic: 等待 Symedia 整理及媒体库确认
+          - generic: 演练中，普通交付不调度
+          - generic: ›
+        - 'button "Sample Film 5 个文件 正在取消交付 文件读取或云端操作尚未结束，取消仍在等待 等待文件读取和云端操作结束后完成取消"':
+          - strong: "Sample Film"
+          - generic: 5 个文件
+          - strong: 正在取消交付
+          - generic: 文件读取或云端操作尚未结束，取消仍在等待
+          - generic: 等待文件读取和云端操作结束后完成取消
+          - generic: ›
+        - button "荒野机器人 1 个文件 已确认 已结束本次交付；时间见处理记录":
+          - strong: 荒野机器人
+          - generic: 1 个文件
+          - strong: 已确认
+          - generic: 已结束本次交付；时间见处理记录
+          - generic: ›
+        - button "求救信号 1 个文件 已确认 已结束本次交付；时间见处理记录":
+          - strong: 求救信号
+          - generic: 1 个文件
+          - strong: 已确认
+          - generic: 已结束本次交付；时间见处理记录
+          - generic: ›
+        - button "一瓯春 2 个文件 已确认 已结束本次交付；时间见处理记录":
+          - strong: 一瓯春
+          - generic: 2 个文件
+          - strong: 已确认
+          - generic: 已结束本次交付；时间见处理记录
+          - generic: ›
+        - button "上一页" [disabled]:
+          - generic: 上一页
+        - generic: 共 6 组
+        - button "下一页" [disabled]:
+          - generic: 下一页

@@ -1,0 +1,19 @@
+{
+  "product_commit": "62275c40ec34d5aa88c4f380b2253463b58ced46",
+  "records": [
+    {
+      "staged_commit": "62275c40ec34d5aa88c4f380b2253463b58ced46",
+      "staged_hash_verified": 188,
+      "test_service_index_entries_preserved": [
+        "CloudDriveDisk",
+        "P115Disk",
+        "SubscriBetterProbe"
+      ]
+    },
+    {
+      "install_http": 200,
+      "success": true
+    }
+  ],
+  "diagnostic_errors": []
+}

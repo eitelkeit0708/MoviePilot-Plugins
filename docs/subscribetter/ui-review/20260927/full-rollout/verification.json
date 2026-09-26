@@ -1,0 +1,37 @@
+{
+  "product_commit": "62275c40ec34d5aa88c4f380b2253463b58ced46",
+  "observed_at": "2026-09-26T20:48:11.264443+00:00",
+  "python": {
+    "version": "3.12.3",
+    "run": 298,
+    "passed": 297,
+    "failed": 0,
+    "skipped": 1,
+    "platform": "Windows",
+    "skip": "POSIX ctime file identity check"
+  },
+  "node": {
+    "version": "24.16.0",
+    "tests": 60,
+    "passed": 60,
+    "failed": 0
+  },
+  "build": "PASS",
+  "browser": {
+    "local": "formal Vue components with synthetic API",
+    "host": "isolated V3",
+    "host_config_menu_groups": 12,
+    "host_main_pages": 5,
+    "viewport": "390x844 CSS viewport; reset afterward",
+    "screenshots": "BLOCKED",
+    "physical_touch": "NOT_RUN",
+    "nonzero_scroll_restore": "PASS one keyboard-open and semantic-click-return scenario; 1095.20 -> 1095.20, same focus"
+  },
+  "business_end_to_end": "NOT_RUN in this UI rollout; no new download/upload/cleanup/AI/cutover acceptance",
+  "commits": [
+    "ce1fab39b717ee9a4cc6e08da42c61aceb1896c0",
+    "dd342bb264de4f215aac8a6d3b8499ee83ca79f9",
+    "b4293f2904fdf62b111a7875fe5c098adf861b2f",
+    "62275c40ec34d5aa88c4f380b2253463b58ced46"
+  ]
+}

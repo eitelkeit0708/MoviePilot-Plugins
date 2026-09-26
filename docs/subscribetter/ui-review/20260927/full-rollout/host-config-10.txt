@@ -1,0 +1,54 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 配置":
+    - heading "设置" [level=2]
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "返回工作台":
+      - generic: 返回工作台
+    - main:
+      - generic "配置帮助与重新读取"
+      - navigation "配置分组":
+        - button "下载与入库方案"
+        - button "基本设置与自动接管"
+        - button "独立策略"
+        - button "自动升级期限"
+        - button "站点与搜索"
+        - button "等待与更换版本"
+        - button "媒体库与整理路径"
+        - button "扫描与恢复"
+        - button "清理权限"
+        - button "安全与容量" [active]
+        - button "榜单与 RSS"
+        - button "AI 名称辅助"
+      - text: 转换为 转换为 转换为 转换为
+      - heading "安全与容量" [level=3]
+      - text: 本地磁盘至少保留
+      - spinbutton "本地磁盘至少保留": "1"
+      - combobox "本地磁盘至少保留单位":
+        - option "B"
+        - option "KiB"
+        - option "MiB"
+        - option "GiB" [selected]
+      - generic: 这是剩余空间阈值，不是可写目录授权。
+      - text: 网络请求超时
+      - spinbutton "网络请求超时": "15"
+      - combobox "网络请求超时单位":
+        - option "秒" [selected]
+        - option "分钟"
+        - option "小时"
+        - option "天"
+      - text: 同时运行的工作数
+      - spinbutton "同时运行的工作数": "2"
+      - heading "授权试验目录" [level=4]
+      - paragraph: 仅填写已经允许用于试验的绝对路径；不会自动推导或扩大范围。
+      - button "添加试验目录":
+        - generic: 添加试验目录
+      - generic "高级：手工恢复迁移回执"
+      - option "配置操作" [selected]
+      - option "迁移 / 回退"
+    - button "保存设置":
+      - generic: 保存设置
+    - button "关闭":
+      - generic: 关闭

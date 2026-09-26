@@ -1,0 +1,93 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输"
+    - button "策略" [active]
+    - button "设置"
+  - main:
+    - region "质量策略":
+      - heading "质量策略" [level=2]
+      - button "编辑策略":
+        - generic: 编辑策略
+      - navigation "策略分类":
+        - button "欧美剧 欧美剧":
+          - strong: 欧美剧
+          - generic: 欧美剧
+      - heading "欧美剧" [level=3]
+      - paragraph: 使用「欧美剧」策略 · 修改后影响绑定该策略的分类。
+      - heading "收录条件" [level=4]
+      - generic: 允许分辨率
+      - strong: 2160p、1080p
+      - generic: 发布组
+      - generic: 需符合官方发布组规则
+      - generic: 片源
+      - generic: 需符合影视片源规则
+      - paragraph: 还需通过身份、范围、中文音轨或字幕及基础过滤检查；资料不全会等待补充。
+      - generic "发布组与片源的具体条件"
+      - heading "优先顺序" [level=4]
+      - paragraph: 按以下顺序比较，第一个不同的条件决定优劣。
+      - list:
+        - strong: 分辨率
+        - generic: 2160p › 1080p
+        - strong: HDR / 画质
+        - text: Dolby Vision › HDR › 普通画面
+        - generic: 仅 2160p 比较画面类型
+        - strong: 特效字幕
+        - generic: 有中文特效字幕 › 无中文特效字幕
+        - strong: 片源
+        - generic: REMUX › 其他已准入片源
+        - strong: 高码率
+        - text: 高码率 › 普通码率
+        - generic: 仅 2160p 比较；REMUX 不比较此项
+        - strong: 音轨
+        - generic: 无损音轨 › 沉浸音轨 › Dolby Digital Plus › 其他音轨
+      - heading "锁定与额外条件" [level=4]
+      - paragraph: 没有额外锁定条件。
+      - generic "高级规则与版本依据"
+      - heading "用真实候选预演" [level=4]
+      - paragraph: 比较已保存规则，不执行下载。对照资源仅用作本次样本。
+      - text: 分类
+      - combobox "分类":
+        - option "选择分类"
+        - option "欧美剧" [selected]
+      - text: 待比较资源
+      - combobox "待比较资源":
+        - option "选择已有候选" [selected]
+      - text: 对照资源
+      - combobox "对照资源":
+        - option "无对照，仅检查准入" [selected]
+      - paragraph: 尚无真实候选。正常订阅搜索后会积累候选记录。
+      - button "预演当前策略" [disabled]:
+        - generic: 预演当前策略
+      - button "上一页候选" [disabled]:
+        - generic: 上一页候选
+      - button "下一页候选" [disabled]:
+        - generic: 下一页候选

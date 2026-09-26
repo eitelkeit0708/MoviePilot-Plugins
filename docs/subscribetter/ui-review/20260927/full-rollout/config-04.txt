@@ -1,0 +1,68 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 配置":
+  - heading "设置" [level=2]
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "返回工作台":
+    - generic: 返回工作台
+  - main:
+    - generic "配置帮助与重新读取"
+    - navigation "配置分组":
+      - button "下载与入库方案"
+      - button "基本设置与自动接管"
+      - button "独立策略"
+      - button "自动升级期限" [active]
+      - button "站点与搜索"
+      - button "等待与更换版本"
+      - button "媒体库与整理路径"
+      - button "扫描与恢复"
+      - button "清理权限"
+      - button "安全与容量"
+      - button "榜单与 RSS"
+      - button "AI 名称辅助"
+    - heading "自动升级期限" [level=3]
+    - paragraph: 追踪期限与一次性补集机会分别计时；0 天表示不限制追踪期限。
+    - text: 电影追踪期限（天）
+    - spinbutton "电影追踪期限（天）": "0"
+    - text: 剧集追踪期限（天）
+    - spinbutton "剧集追踪期限（天）": "0"
+    - text: 期限从何时起算
+    - combobox "期限从何时起算":
+      - option "目标收集完成后" [selected]
+      - option "最后一次确认入库后"
+    - text: 完结剧集的处理方式
+    - combobox "完结剧集的处理方式":
+      - option "按集比较" [selected]
+      - option "按整包比较"
+    - text: 一次性机会时长
+    - spinbutton "一次性机会时长": "1"
+    - combobox "一次性机会时长单位":
+      - option "秒"
+      - option "分钟"
+      - option "小时"
+      - option "天" [selected]
+    - text: 转换为 转换为
+    - generic "高级：手工恢复迁移回执"
+    - option "配置操作" [selected]
+    - option "迁移 / 回退"
+  - button "保存设置":
+    - generic: 保存设置
+  - button "关闭":
+    - generic: 关闭

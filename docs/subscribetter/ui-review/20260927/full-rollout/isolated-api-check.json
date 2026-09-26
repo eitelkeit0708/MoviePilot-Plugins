@@ -1,0 +1,184 @@
+{
+  "product_commit": "62275c40ec34d5aa88c4f380b2253463b58ced46",
+  "observed_at": "2026-09-26T20:38:03.529362+00:00",
+  "revision": "CONFIG_REVISION_A",
+  "enabled": false,
+  "dry_run": true,
+  "ordinary_work_active": false,
+  "errors": [],
+  "checks": [
+    {
+      "name": "samples test-Movies",
+      "http": 200,
+      "state": "SAMPLES_READ",
+      "count": 9
+    },
+    {
+      "name": "mapping test-Movies",
+      "http": 200,
+      "state": "DRAFT_MAPPING_VERIFIED",
+      "result": {
+        "state": "DRAFT_MAPPING_VERIFIED",
+        "locations": [
+          {
+            "emby_path": "/emby/strm/review/Movies/Sample Film (2013) {tmdb-sample}/Sample Film (2013) - 1080p.SDR.VP8.Vorbis.ReviewSample.strm",
+            "local_strm_path": "/mp/strm/review/Movies/Sample Film (2013) {tmdb-sample}/Sample Film (2013) - 1080p.SDR.VP8.Vorbis.ReviewSample.strm",
+            "content_path": "/mnt/cd2/CloudDrive/115/review/media/Movies/Sample Film (2013) {tmdb-sample}/Sample Film (2013) - 1080p.SDR.VP8.Vorbis.ReviewSample.mkv",
+            "cd2_path": "/115/review/media/Movies/Sample Film (2013) {tmdb-sample}/Sample Film (2013) - 1080p.SDR.VP8.Vorbis.ReviewSample.mkv"
+          }
+        ],
+        "checked_at": "2026-09-26T20:38:03.862315+00:00",
+        "mapping_digest": "REDACTED_DIGEST",
+        "cloud_file_verified": false
+      }
+    },
+    {
+      "name": "new read root remains unauthorized",
+      "http": 200,
+      "state": "READ_SCOPE_REQUIRED",
+      "result": {
+        "state": "READ_SCOPE_REQUIRED",
+        "locations": [
+          {
+            "emby_path": "/emby/strm/review/Movies/Sample Film (2013) {tmdb-sample}/Sample Film (2013) - 1080p.SDR.VP8.Vorbis.ReviewSample.strm",
+            "local_strm_path": "/Sample Film (2013) {tmdb-sample}/Sample Film (2013) - 1080p.SDR.VP8.Vorbis.ReviewSample.strm",
+            "content_path": null,
+            "cd2_path": null,
+            "reason": "STRM_ROOT_NOT_AUTHORIZED"
+          }
+        ],
+        "checked_at": "2026-09-26T20:38:04.042055+00:00",
+        "mapping_digest": "REDACTED_DIGEST",
+        "cloud_file_verified": false
+      }
+    },
+    {
+      "name": "outside library rejected",
+      "http": 409,
+      "state": null
+    },
+    {
+      "name": "stale generation rejected",
+      "http": 409,
+      "state": null
+    },
+    {
+      "name": "saved policy described",
+      "http": 200,
+      "state": "DRAFT_POLICY",
+      "policy_name": "动画电影",
+      "summary": {
+        "resolutions": [
+          2160,
+          1080
+        ],
+        "group": "不限制发布组",
+        "source": "需符合影视片源规则",
+        "comparison": [
+          {
+            "dimension": "resolution",
+            "order": [
+              "2160p",
+              "1080p"
+            ],
+            "note": ""
+          },
+          {
+            "dimension": "picture",
+            "order": [
+              "Dolby Vision",
+              "HDR",
+              "普通画面"
+            ],
+            "note": "仅 2160p 比较画面类型"
+          },
+          {
+            "dimension": "special",
+            "order": [
+              "有中文特效字幕",
+              "无中文特效字幕"
+            ],
+            "note": ""
+          },
+          {
+            "dimension": "source",
+            "order": [
+              "REMUX",
+              "其他已准入片源"
+            ],
+            "note": ""
+          },
+          {
+            "dimension": "hq",
+            "order": [
+              "高码率",
+              "普通码率"
+            ],
+            "note": "仅 2160p 比较；REMUX 不比较此项"
+          },
+          {
+            "dimension": "audio",
+            "order": [
+              "无损音轨",
+              "沉浸音轨",
+              "Dolby Digital Plus",
+              "其他音轨"
+            ],
+            "note": ""
+          }
+        ],
+        "rule_details": [
+          {
+            "name": "RemuxSource",
+            "title": "REMUX 片源",
+            "summary": "匹配独立的 REMUX 标记。",
+            "explanation": "（（标题与描述 匹配正则（忽略大小写） (?<![A-Za-z0-9])(?:REMUX)(?![A-Za-z0-9])））"
+          },
+          {
+            "name": "MovieSource",
+            "title": "影视片源",
+            "summary": "WEB-DL / WEBRip，或带编码声明的 Blu-ray / BDRip / BRRip；位置与边界条件见匹配表达式。",
+            "explanation": "（（标题与描述 匹配正则（忽略大小写） (?:(?<![A-Za-z0-9])(?:WEB[\\s._/\\-]*(?:DL|RIP)|WEB(?=[\\s._/\\-]+(?:H\\.?26[45]|x26[45]|HEVC|AVC)))(?![A-Za-z0-9]))|(?:\\A(?=[\\s\\S]*(?:(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:(?:BD|BR)[\\s._\\-]*RIP)(?![A-Za-z0-9]))|\\A(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:Blu[\\s._/\\-]*Ray)(?![A-Za-z0-9]))))(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:x[._\\-]?26[45]|ENCODE|ENCODED)(?![A-Za-z0-9]))))[\\s\\S]*)))[\\s\\S]*)））"
+          }
+        ]
+      }
+    },
+    {
+      "name": "/tasks?limit=5",
+      "http": 200,
+      "state": null,
+      "count": 5
+    },
+    {
+      "name": "/discovery/sources?limit=5",
+      "http": 200,
+      "state": null,
+      "count": 5
+    },
+    {
+      "name": "/delivery/bundles?limit=5",
+      "http": 200,
+      "state": null,
+      "count": 5
+    },
+    {
+      "name": "/policies?limit=5",
+      "http": 200,
+      "state": null,
+      "count": 3
+    },
+    {
+      "name": "/migration/owners",
+      "http": 200,
+      "state": null,
+      "count": 0
+    }
+  ],
+  "configuration_unchanged": true,
+  "final": {
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "errors": []
+  }
+}

@@ -1,0 +1,70 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输"
+    - button "策略"
+    - button "设置"
+  - main:
+    - region "订阅作品":
+      - region "作品详情":
+        - button "返回列表":
+          - generic: 返回列表
+        - heading "GATE24 大机场" [level=2]
+        - generic: 2026 · 电视剧 · 第 1 季 · 追踪中
+        - generic "作品操作"
+        - navigation "作品详情内容":
+          - button "分集与版本"
+          - button "候选比较"
+          - button "处理记录"
+        - text: ↓ ◷ ◷ ! ↑
+        - heading "候选比较记录" [level=3]
+        - article:
+          - strong: GATE24.S01.2160p.WEB-DL（合成候选）
+          - generic: 符合策略
+          - generic: 2026/9/27 03:24:07
+          - list:
+            - strong: 第 1–6 集
+            - generic: 符合策略
+            - generic: 候选版本质量更优
+            - generic: 比较项：分辨率、HDR / 画质
+            - strong: 第 7–8 集
+            - generic: 符合策略
+            - generic: 补充尚未在库的版本
+          - generic: 摘要覆盖 8 / 16 条结果，其余需展开读取。
+          - button "收起比较依据" [expanded] [active]:
+            - generic: 收起比较依据
+          - region "本次比较依据":
+            - alert:
+              - paragraph: 比较详情暂时无法加载。已显示的摘要保留。
+              - button "重新加载":
+                - generic: 重新加载
+              - generic "错误详情"
+              - text: HTTP 503 · 服务暂时无法完成请求。

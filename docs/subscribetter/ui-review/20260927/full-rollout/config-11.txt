@@ -1,0 +1,89 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 配置":
+  - heading "设置" [level=2]
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "返回工作台":
+    - generic: 返回工作台
+  - main:
+    - generic "配置帮助与重新读取"
+    - navigation "配置分组":
+      - button "下载与入库方案"
+      - button "基本设置与自动接管"
+      - button "独立策略"
+      - button "自动升级期限"
+      - button "站点与搜索"
+      - button "等待与更换版本"
+      - button "媒体库与整理路径"
+      - button "扫描与恢复"
+      - button "清理权限"
+      - button "安全与容量"
+      - button "榜单与 RSS" [active]
+      - button "AI 名称辅助"
+    - text: 转换为 转换为
+    - heading "榜单与 RSS" [level=3]
+    - region "榜单来源设置":
+      - heading "自部署 RSSHub" [level=3]
+      - paragraph: 使用自己的实例，不依赖公开路由服务。
+      - checkbox "启用榜单发现"
+      - text: 启用榜单发现
+      - text: RSSHub 容器地址
+      - textbox "RSSHub 容器地址":
+        - /placeholder: http://isolated-service.example
+      - text: 允许访问的私网范围
+      - textbox "允许访问的私网范围":
+        - /placeholder: 例如 192.0.2.10/32，每行一个
+      - text: 刷新计划（Cron）
+      - textbox "刷新计划（Cron）": 0 8 * * *
+      - text: 豆瓣详情读取间隔（秒）
+      - spinbutton "豆瓣详情读取间隔（秒）": "5"
+      - paragraph: 同一媒体会复用缓存；间隔约束新增详情读取。使用私网地址时需填写允许访问的范围。
+      - heading "添加榜单" [level=3]
+      - text: 来源方式
+      - combobox "来源方式":
+        - option "内置豆瓣榜单" [selected]
+        - option "自定义地址 / 路由"
+      - text: 选择榜单
+      - combobox "选择榜单":
+        - option "请选择" [disabled] [selected]
+        - option "全球口碑剧集榜 · 电视剧"
+        - option "实时热门电影 · 电影"
+      - paragraph: 自定义地址支持 @@TV / @@Movie；相对路径会使用上方 RSSHub 地址。
+      - button "加入来源列表":
+        - generic: 加入来源列表
+      - paragraph: 尚未添加榜单。选择来源后，再为该来源绑定下载方案。
+      - generic "全局过滤与请求预算"
+      - option "已识别的季" [selected]
+      - option "所有已知季"
+      - option "仅记录" [selected]
+      - option "在授权范围内纳管"
+    - generic "历史显示选项"
+    - option "all" [selected]
+    - option "latest12"
+    - option "recognized"
+    - option "unrecognized"
+    - option "statistics"
+    - generic "高级：手工恢复迁移回执"
+    - option "配置操作" [selected]
+    - option "迁移 / 回退"
+  - button "保存设置":
+    - generic: 保存设置
+  - button "关闭":
+    - generic: 关闭

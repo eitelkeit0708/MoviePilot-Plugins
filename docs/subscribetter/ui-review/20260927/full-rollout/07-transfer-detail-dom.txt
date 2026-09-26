@@ -1,0 +1,52 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 管理":
+  - strong: subscriBetter
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "刷新":
+    - generic: 刷新
+  - button "高级诊断":
+    - generic: 高级诊断
+  - button "关闭":
+    - generic: 关闭
+  - navigation "主要功能":
+    - button "订阅"
+    - button "发现"
+    - button "传输"
+    - button "策略"
+    - button "设置"
+  - main:
+    - region "传输与待处理":
+      - heading "GATE24 大机场 · 第 9 集" [level=2]
+      - button "返回交付列表":
+        - generic: 返回交付列表
+      - generic: 等待 Emby 确认
+      - paragraph: 等待 Symedia 整理及媒体库确认
+      - paragraph: 已交付，等待 Symedia 整理及媒体库确认。
+      - button "继续处理":
+        - generic: 继续处理
+      - button "取消交付":
+        - generic: 取消交付
+      - heading "文件与字幕" [level=3]
+      - strong: GATE24.S01E09.mkv
+      - generic: 1.1 GiB · 文件已验证
+      - strong: GATE24.S01E09.zh.srt
+      - generic: 66.4 KiB · 文件已验证
+      - generic "外部回执与安全清理"

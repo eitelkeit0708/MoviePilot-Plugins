@@ -1,0 +1,80 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 配置":
+    - heading "设置" [level=2]
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "返回工作台":
+      - generic: 返回工作台
+    - main:
+      - generic "配置帮助与重新读取"
+      - navigation "配置分组":
+        - button "下载与入库方案" [active]
+        - button "基本设置与自动接管"
+        - button "独立策略"
+        - button "自动升级期限"
+        - button "站点与搜索"
+        - button "等待与更换版本"
+        - button "媒体库与整理路径"
+        - button "扫描与恢复"
+        - button "清理权限"
+        - button "安全与容量"
+        - button "榜单与 RSS"
+        - button "AI 名称辅助"
+      - region "按方案连续配置":
+        - heading "下载与入库方案" [level=3]
+        - paragraph: 为一类作品选择下载器、云盘和媒体库。
+        - button "方案 A 测试下载器 A · 动画电影 /mp/review-data/downloads/caminandes":
+          - strong: 方案 A
+          - generic: 测试下载器 A · 动画电影
+          - generic: /mp/review-data/downloads/caminandes
+          - generic: ›
+        - button "方案 B 测试下载器 A · 动画电影 /mp/review-data/downloads/ourbits-20260921":
+          - strong: 方案 B
+          - generic: 测试下载器 A · 动画电影
+          - generic: /mp/review-data/downloads/ourbits-20260921
+          - generic: ›
+        - button "方案 C 测试下载器 A · 动画电影 /mp/review-data/downloads/dahufa-20260921":
+          - strong: 方案 C
+          - generic: 测试下载器 A · 动画电影
+          - generic: /mp/review-data/downloads/dahufa-20260921
+          - generic: ›
+        - button "方案 D 测试下载器 A · 动画电影 /mp/review-data/downloads/nezha2-20260921":
+          - strong: 方案 D
+          - generic: 测试下载器 A · 动画电影
+          - generic: /mp/review-data/downloads/nezha2-20260921
+          - generic: ›
+        - button "方案 E 测试下载器 A · 动画电影 /mp/review-data/downloads/flow-20260921":
+          - strong: 方案 E
+          - generic: 测试下载器 A · 动画电影
+          - generic: /mp/review-data/downloads/flow-20260921
+          - generic: ›
+        - button "方案 F 测试下载器 A · 动画电影 /mp/review-data/downloads/wildrobot-20260921":
+          - strong: 方案 F
+          - generic: 测试下载器 A · 动画电影
+          - generic: /mp/review-data/downloads/wildrobot-20260921
+          - generic: ›
+        - button "方案 G 测试下载器 A · 测试外语电影分类 /mp/review-data/downloads/mayday-20260921":
+          - strong: 方案 G
+          - generic: 测试下载器 A · 测试外语电影分类
+          - generic: /mp/review-data/downloads/mayday-20260921
+          - generic: ›
+        - button "方案 H 测试下载器 A · 国产剧 /mp/review-data/downloads/qb/T012-spring-2160":
+          - strong: 方案 H
+          - generic: 测试下载器 A · 国产剧
+          - generic: /mp/review-data/downloads/qb/T012-spring-2160
+          - generic: ›
+        - text: 新方案名称
+        - textbox "新方案名称":
+          - /placeholder: 例如：剧集升级
+        - button "新建方案" [disabled]:
+          - generic: 新建方案
+      - text: 转换为 转换为 转换为 转换为
+      - generic "高级：手工恢复迁移回执"
+      - option "配置操作" [selected]
+      - option "迁移 / 回退"
+    - button "保存设置":
+      - generic: 保存设置
+    - button "关闭":
+      - generic: 关闭

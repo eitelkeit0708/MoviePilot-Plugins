@@ -1,0 +1,136 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 管理":
+    - strong: subscriBetter
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "刷新":
+      - generic: 刷新
+    - button "高级诊断":
+      - generic: 高级诊断
+    - button "关闭":
+      - generic: 关闭
+    - navigation "主要功能":
+      - button "订阅"
+      - button "发现"
+      - button "传输"
+      - button "策略" [active]
+      - button "设置"
+    - main:
+      - region "质量策略":
+        - heading "质量策略" [level=2]
+        - button "编辑策略":
+          - generic: 编辑策略
+        - navigation "策略分类":
+          - button "测试外语电影分类 外语电影":
+            - strong: 测试外语电影分类
+            - generic: 外语电影
+          - button "动画电影 动画电影":
+            - strong: 动画电影
+            - generic: 动画电影
+          - button "国产剧 国产剧":
+            - strong: 国产剧
+            - generic: 国产剧
+        - heading "测试外语电影分类" [level=3]
+        - paragraph: 使用「外语电影」策略 · 修改后影响绑定该策略的分类。
+        - heading "收录条件" [level=4]
+        - generic: 允许分辨率
+        - strong: 2160p
+        - generic: 发布组
+        - generic: 不限制发布组
+        - generic: 片源
+        - generic: 需符合影视片源规则
+        - paragraph: 还需通过身份、范围、中文音轨或字幕及基础过滤检查；资料不全会等待补充。
+        - generic "发布组与片源的具体条件"
+        - heading "优先顺序" [level=4]
+        - paragraph: 按以下顺序比较，第一个不同的条件决定优劣。
+        - list:
+          - strong: 分辨率
+          - generic: 2160p › 1080p
+          - strong: HDR / 画质
+          - text: Dolby Vision › HDR › 普通画面
+          - generic: 仅 2160p 比较画面类型
+          - strong: 特效字幕
+          - generic: 有中文特效字幕 › 无中文特效字幕
+          - strong: 片源
+          - generic: REMUX › 其他已准入片源
+          - strong: 高码率
+          - text: 高码率 › 普通码率
+          - generic: 仅 2160p 比较；REMUX 不比较此项
+          - strong: 音轨
+          - generic: 无损音轨 › 沉浸音轨 › Dolby Digital Plus › 其他音轨
+        - heading "锁定与额外条件" [level=4]
+        - paragraph: 没有额外锁定条件。
+        - paragraph: 存在自定义准入或识别规则，请结合下方真实候选预演核对结果。
+        - generic "高级规则与版本依据"
+        - heading "用真实候选预演" [level=4]
+        - paragraph: 比较已保存规则，不执行下载。对照资源仅用作本次样本。
+        - text: 分类
+        - combobox "分类":
+          - option "选择分类"
+          - option "测试外语电影分类" [selected]
+          - option "动画电影"
+          - option "国产剧"
+        - text: 待比较资源
+        - combobox "待比较资源":
+          - option "选择已有候选" [selected]
+          - option "El Camino A Breaking Bad Movie 2019 2160p NF WEB-DL DDP5.1 Atmos DoVi HDR H.265-FLUX"
+          - option "Breaking Bad S01 2008 1080p NF WEB-DL HEVC DDP 5.1 5Audio-AGSVWEB"
+          - option "Breaking Bad S04 2011 1080p NF WEB-DL HEVC DDP 5.1 5Audio-AGSVWEB"
+          - option "Breaking Bad S03 2160p AMZN WEB-DL DTS-HD MA 5.1 SDR H.265-VoX"
+          - option "Breaking Bad S04 2160p AMZN WEB-DL DDP5.1 HEVC-HOTLiPS"
+          - option "Breaking Bad S02 2160p AMZN WEB-DL DTS-HD MA 5.1 SDR H.265-VoX"
+          - option "Breaking Bad S01 2160p AMZN WEB-DL DTS-HD MA 5.1 SDR H.265-VoX"
+          - option "El Camino A Breaking Bad Movie 2019 BluRay 1080p x264 DTS 5.1-CMCT"
+          - option "Breaking Bad S02 2009 1080p BluRay DTS HD MA 5.1 x265 10bit-CHD"
+          - option "Breaking Bad S01 REPACK 1080p BluRay DTS-HD MA 5.1 x265 10bit-CHD"
+          - option "Breaking Bad S05 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S04 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S03 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S02 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S01 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S04 BluRay 1080p AVC DTS-HD MA 5.1-GKD@Audies"
+          - option "Breaking Bad S01 2008 1080p BluRay x265 10bit DTS-ADE"
+          - option "Breaking Bad S02 2008 1080p BluRay x265 10bit DTS-ADE"
+          - option "The Bad News Bears in Breaking Training 1977 1080p AUS Blu-ray AVC LPCM 2.0-CultFilms™"
+          - option "Breaking Bad S05 2160p WEB-DL DTS-HD MA5.1 x264-TrollUHD"
+          - option "Caminandes.Gran.Dillama.2013.1080p.WEB-DL.VP8.Vorbis"
+          - option "La Luna 2011 1080p BluRay x264 DD 5.1-WiKi"
+          - option "La luna 1979 1080p Blu-ray AVC DTS-HD MA 2.0-IWUBEN@OurBits"
+          - option "La teta y la luna 1994 Blu-ray 1080p AVC LPCM 2.0"
+          - option "La Luna 1979 BluRay 1080p x264 DTS-CMCT"
+        - text: 对照资源
+        - combobox "对照资源":
+          - option "无对照，仅检查准入" [selected]
+          - option "El Camino A Breaking Bad Movie 2019 2160p NF WEB-DL DDP5.1 Atmos DoVi HDR H.265-FLUX"
+          - option "Breaking Bad S01 2008 1080p NF WEB-DL HEVC DDP 5.1 5Audio-AGSVWEB"
+          - option "Breaking Bad S04 2011 1080p NF WEB-DL HEVC DDP 5.1 5Audio-AGSVWEB"
+          - option "Breaking Bad S03 2160p AMZN WEB-DL DTS-HD MA 5.1 SDR H.265-VoX"
+          - option "Breaking Bad S04 2160p AMZN WEB-DL DDP5.1 HEVC-HOTLiPS"
+          - option "Breaking Bad S02 2160p AMZN WEB-DL DTS-HD MA 5.1 SDR H.265-VoX"
+          - option "Breaking Bad S01 2160p AMZN WEB-DL DTS-HD MA 5.1 SDR H.265-VoX"
+          - option "El Camino A Breaking Bad Movie 2019 BluRay 1080p x264 DTS 5.1-CMCT"
+          - option "Breaking Bad S02 2009 1080p BluRay DTS HD MA 5.1 x265 10bit-CHD"
+          - option "Breaking Bad S01 REPACK 1080p BluRay DTS-HD MA 5.1 x265 10bit-CHD"
+          - option "Breaking Bad S05 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S04 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S03 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S02 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S01 2160p Netflix WEB-DL DDP5.1 H.265-HHWEB"
+          - option "Breaking Bad S04 BluRay 1080p AVC DTS-HD MA 5.1-GKD@Audies"
+          - option "Breaking Bad S01 2008 1080p BluRay x265 10bit DTS-ADE"
+          - option "Breaking Bad S02 2008 1080p BluRay x265 10bit DTS-ADE"
+          - option "The Bad News Bears in Breaking Training 1977 1080p AUS Blu-ray AVC LPCM 2.0-CultFilms™"
+          - option "Breaking Bad S05 2160p WEB-DL DTS-HD MA5.1 x264-TrollUHD"
+          - option "Caminandes.Gran.Dillama.2013.1080p.WEB-DL.VP8.Vorbis"
+          - option "La Luna 2011 1080p BluRay x264 DD 5.1-WiKi"
+          - option "La luna 1979 1080p Blu-ray AVC DTS-HD MA 2.0-IWUBEN@OurBits"
+          - option "La teta y la luna 1994 Blu-ray 1080p AVC LPCM 2.0"
+          - option "La Luna 1979 BluRay 1080p x264 DTS-CMCT"
+        - button "预演当前策略" [disabled]:
+          - generic: 预演当前策略
+        - button "上一页候选" [disabled]:
+          - generic: 上一页候选
+        - button "下一页候选":
+          - generic: 下一页候选

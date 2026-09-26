@@ -1,0 +1,7 @@
+{
+  "mode": "redacted-public-evidence",
+  "retained": "HTTP outcomes, mapping stages, UI labels and test assertions",
+  "removed": "Private host addresses, mount prefixes, service and scheme names, library IDs, configuration digests; host background UI",
+  "original_retained_locally": true,
+  "originals_uploaded": false
+}

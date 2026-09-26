@@ -1,0 +1,68 @@
+- text: 界面验收预览 · 全部为合成数据 · 保存仅在当前页面模拟
+- combobox "合成场景":
+  - option "六集混合进度" [selected]
+  - option "已有版本＋秒传等待"
+  - option "下载进行中"
+  - option "等待附件"
+  - option "发布结果未知"
+  - option "旧计划晚到结果"
+- combobox "异常场景":
+  - option "正常响应"
+  - option "密钥保存失败"
+  - option "配置保存结果未知"
+  - option "候选详情读取失败" [selected]
+  - option "读取中（3 秒）"
+- link "空白配置":
+  - /url: "?blank=1"
+- button "切换主题"
+- region "subscriBetter 配置":
+  - generic: 下载与入库方案
+  - heading "测试剧集" [level=2]
+  - status:
+    - strong: 正在运行
+    - generic "查看运行模式与保护状态": 详情
+  - button "返回方案列表":
+    - generic: 返回方案列表
+  - main:
+    - region "按方案连续配置":
+      - navigation "方案配置步骤":
+        - button "第 1 步：下载与分类":
+          - generic: "1"
+          - generic: 下载与分类
+        - button "第 2 步：云盘与写入范围":
+          - generic: "2"
+          - generic: 云盘与写入范围
+        - button "第 3 步：媒体库与播放路径":
+          - generic: "3"
+          - generic: 媒体库与播放路径
+        - button "第 4 步：暂存与整理":
+          - generic: "4"
+          - generic: 暂存与整理
+        - button "第 5 步：检查并保存":
+          - generic: "5"
+          - generic: 检查并保存
+      - heading "下载与分类" [level=3]
+      - region "下载与入库方案":
+        - text: 方案名称
+        - textbox "方案名称": 测试剧集
+        - text: MoviePilot 分类
+        - combobox "MoviePilot 分类":
+          - option "请选择分类" [disabled]
+          - option "欧美剧 · 电视剧" [selected]
+        - text: 下载器
+        - combobox "下载器":
+          - option "请选择宿主下载器" [disabled]
+          - option "测试下载器 · qbittorrent" [selected]
+        - text: 下载目录
+        - combobox "下载目录": /downloads/test
+      - text: 收录与升级策略
+      - combobox "收录与升级策略 同一 MoviePilot 分类的订阅共用此策略。":
+        - option "选择这类作品采用的策略"
+        - option "欧美剧" [selected]
+      - generic: 同一 MoviePilot 分类的订阅共用此策略。
+      - button "上一步" [disabled]:
+        - generic: 上一步
+      - generic: 与已保存设置一致
+      - button "继续":
+        - generic: 继续
+    - text: 转换为 转换为

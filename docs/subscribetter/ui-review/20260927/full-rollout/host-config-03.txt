@@ -1,0 +1,295 @@
+# 脱敏后的宿主 DOM；服务、路径及对象标识已替换，不是截图。
+- dialog:
+  - region "subscriBetter 配置":
+    - heading "设置" [level=2]
+    - status:
+      - strong: 演练模式
+      - generic "查看运行模式与保护状态": 详情
+    - button "返回工作台":
+      - generic: 返回工作台
+    - main:
+      - generic "配置帮助与重新读取"
+      - navigation "配置分组":
+        - button "下载与入库方案"
+        - button "基本设置与自动接管"
+        - button "独立策略" [active]
+        - button "自动升级期限"
+        - button "站点与搜索"
+        - button "等待与更换版本"
+        - button "媒体库与整理路径"
+        - button "扫描与恢复"
+        - button "清理权限"
+        - button "安全与容量"
+        - button "榜单与 RSS"
+        - button "AI 名称辅助"
+      - heading "独立策略" [level=3]
+      - region "分类质量策略":
+        - heading "分类与策略" [level=3]
+        - paragraph: 选择 MoviePilot 分类，为它绑定质量策略。未绑定的分类不会被默认为其他分类。
+        - strong: 动画电影
+        - generic: 动画电影
+        - button "编辑策略":
+          - generic: 编辑策略
+        - button "移除绑定":
+          - generic: 移除绑定
+        - strong: 测试外语电影分类
+        - generic: 外语电影
+        - button "编辑策略":
+          - generic: 编辑策略
+        - button "移除绑定":
+          - generic: 移除绑定
+        - strong: 国产剧
+        - generic: 国产剧
+        - button "编辑策略":
+          - generic: 编辑策略
+        - button "移除绑定":
+          - generic: 移除绑定
+        - text: MoviePilot 分类
+        - combobox "MoviePilot 分类":
+          - option "选择分类" [disabled] [selected]
+          - option "动画电影 · 电影"
+          - option "华语电影 · 电影"
+          - option "测试外语电影分类 · 电影"
+          - option "国漫 · 电视剧"
+          - option "日番 · 电视剧"
+          - option "欧美漫 · 电视剧"
+          - option "纪录片 · 电视剧"
+          - option "综艺 · 电视剧"
+          - option "国产剧 · 电视剧"
+          - option "港台剧 · 电视剧"
+          - option "日韩剧 · 电视剧"
+          - option "欧美剧 · 电视剧"
+          - option "未分类 · 音乐"
+          - option "Album · 音乐"
+          - option "Album / Compilation · 音乐"
+          - option "EP · 音乐"
+          - option "Single · 音乐"
+        - text: 质量策略
+        - combobox "质量策略":
+          - option "选择默认策略" [disabled] [selected]
+          - option "华语电影"
+          - option "外语电影"
+          - option "动画电影"
+          - option "国产剧"
+          - option "欧美剧"
+          - option "日韩剧"
+          - option "港台剧"
+          - option "纪录片"
+          - option "国漫"
+          - option "日番"
+          - option "欧美漫"
+          - option "综艺"
+          - option "现场"
+        - button "绑定 / 更新分类" [disabled]:
+          - generic: 绑定 / 更新分类
+        - text: 查看与编辑策略
+        - combobox "查看与编辑策略":
+          - option "选择策略" [disabled] [selected]
+          - option "华语电影"
+          - option "外语电影"
+          - option "动画电影"
+          - option "国产剧"
+          - option "欧美剧"
+          - option "日韩剧"
+          - option "港台剧"
+          - option "纪录片"
+          - option "国漫"
+          - option "日番"
+          - option "欧美漫"
+          - option "综艺"
+          - option "现场"
+        - heading "明确锁定条件" [level=3]
+        - paragraph: 锁定条件优先于质量比较；选择“不锁定”会移除该条件。
+        - text: 分辨率
+        - combobox "分辨率":
+          - option "不锁定" [selected]
+          - option "1080p"
+          - option "2160p"
+        - text: 画质 / HDR
+        - combobox "画质 / HDR":
+          - option "不锁定" [selected]
+          - option "普通画质"
+          - option "HDR"
+          - option "Dolby Vision"
+        - text: 片源
+        - combobox "片源":
+          - option "不锁定" [selected]
+          - option "WEB"
+          - option "Blu-ray"
+          - option "REMUX"
+        - text: 音轨
+        - combobox "音轨":
+          - option "不锁定" [selected]
+          - option "基础音轨"
+          - option "Dolby Digital Plus"
+          - option "沉浸式音轨"
+          - option "无损音轨"
+        - text: 高码率
+        - combobox "高码率":
+          - option "不锁定" [selected]
+          - option "非 HQ"
+          - option "HQ"
+        - text: 发布组
+        - textbox "发布组":
+          - /placeholder: 不锁定
+        - text: 平台
+        - textbox "平台":
+          - /placeholder: 不锁定
+        - generic "高级：季锁与自定义准入条件"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表" [selected]
+        - option "空值"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射" [selected]
+        - option "列表"
+        - option "空值"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表" [selected]
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本"
+        - option "数值" [selected]
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射" [selected]
+        - option "列表"
+        - option "空值"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表" [selected]
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本"
+        - option "数值" [selected]
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射" [selected]
+        - option "列表"
+        - option "空值"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表" [selected]
+        - option "空值"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射" [selected]
+        - option "列表"
+        - option "空值"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表" [selected]
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射" [selected]
+        - option "列表"
+        - option "空值"
+        - option "文本"
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表" [selected]
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "空值"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+        - option "文本" [selected]
+        - option "数值"
+        - option "开关"
+        - option "条件 / 映射"
+        - option "列表"
+      - text: 转换为 转换为 转换为 转换为
+      - generic "高级：手工恢复迁移回执"
+      - option "配置操作" [selected]
+      - option "迁移 / 回退"
+    - button "保存设置":
+      - generic: 保存设置
+    - button "关闭":
+      - generic: 关闭

@@ -1,0 +1,11 @@
+{
+  "input": "keyboard Enter opens last row; semantic click on return",
+  "before": {
+    "focus": "隐秘的角落2020 · 电视剧 · 第 1 季已收录 0 集 · 总集数待确认已交还 MoviePilot由 MoviePilot 继续管理›",
+    "top": 1095.199951171875
+  },
+  "after": {
+    "focus": "隐秘的角落2020 · 电视剧 · 第 1 季已收录 0 集 · 总集数待确认已交还 MoviePilot由 MoviePilot 继续管理›",
+    "top": 1095.199951171875
+  }
+}
