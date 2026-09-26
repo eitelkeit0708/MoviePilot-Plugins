@@ -1,0 +1,779 @@
+[
+  {
+    "file": "host/01-subscriptions.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T12:57:28.240Z",
+    "sha256": "c95dc84682dabf44861ccdd7f8dd49beed14b9f0751c84f09dba684c0860b268",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 0,
+        "total": 1473
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 61346,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/02-list-nonzero.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T12:57:41.363Z",
+    "sha256": "9c876763fc020f20e8321d61dda5bca4c406fbf750c16d4ca2f593be90a49ca4",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 917.5,
+        "total": 1473
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 66961,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/03-episodes.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T12:57:59.006Z",
+    "sha256": "569964e4264173b8acb6697b844215cf882b6e5ef687b18d52312887749fa818",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 0,
+        "total": 2989
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 55185,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/04-candidate-summary.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T12:58:08.524Z",
+    "sha256": "4e71d0559226b7a8f06d32e19d1849a913f363a4651d4ccb467639e9b4c688b6",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 0,
+        "total": 2223
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 73955,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/05-candidate-detail.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T12:58:30.760Z",
+    "sha256": "09dd4272d56dcffcff0b31ebd93392659a3bd8cb94f8245c140188131ac71a21",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 326,
+        "total": 4086
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 64187,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/06-recent-plans.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T12:58:45.151Z",
+    "sha256": "c0c2f906d92fcce6a5b3e7cafba7fdb8d901995460f0c44dafa8c570563b7195",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 0,
+        "total": 538
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 44885,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/07-list-restored.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T12:58:45.235Z",
+    "sha256": "b1b378daa4bdcb192554e7688af7b4c55c301bd2c537bd4a829d538fffaa6739",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 917.5,
+        "total": 1473
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 65418,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/08-plan-download.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:22:51.787Z",
+    "sha256": "5baeb4783cb523845389fb4f8e41ea3385669b355fcd54e044ce2759a131b6fc",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 0,
+        "total": 756
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 42965,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "host/09-plan-cloud.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:22:52.127Z",
+    "sha256": "bdf8ab4b7ffb0abc90a6e2b8c041f988bd890f70bfcf45446732662b6683d0c4",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 187,
+        "total": 893
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 57994,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "host/10-plan-library.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:22:52.474Z",
+    "sha256": "199dec3bb7ca0ee4d246cdbca5fc0a46de110925264e9a2c0575049e53dc1e70",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 187,
+        "total": 2213
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 57929,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "host/10b-plan-paths.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:00:28.209Z",
+    "sha256": "1c42545b4d2e6fcb8e2934caa8cc14d61531335062c7bca94591b609986206d0",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 512,
+        "total": 2213
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 63332,
+    "product_commit": "188ec2d4797137f9e01449947d1404888f3bf783"
+  },
+  {
+    "file": "host/11-plan-delivery.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:22:52.825Z",
+    "sha256": "8a1d8b5e26cb531fa4d39aec7e2c2e66a94a7315766dd1f048c52683d6c83347",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 187,
+        "total": 1007
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 54891,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "host/12-plan-review.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:22:53.170Z",
+    "sha256": "8ba2b9357ee277258151a42e46aa3fbed75455f56eaa602856b4283b75c8cb4b",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 187,
+        "total": 720
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 63850,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "host/13-ai-states.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:23:16.004Z",
+    "sha256": "1105e2e620aa0c8f7227c0bf9bae4ae90faeb9ef82c5dfb1ffdb6e1fe78f8c92",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 0,
+        "total": 1246
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 51539,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "host/14-narrow-episodes.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:08:37.118Z",
+    "sha256": "9f1a1a4aa99ba2c5ef72b8c8344b431ca1a51dfaa3af23b62c3e42b85503674a",
+    "dpr": 1,
+    "height": 844,
+    "scroll": [
+      {
+        "height": 541,
+        "top": 0,
+        "total": 5327
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 390,
+    "image_width": 390,
+    "image_height": 844,
+    "bytes": 32422,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "host/15-narrow-history-final.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:08:37.200Z",
+    "sha256": "96b16d6fc66385e82240f6d114940abc0efcf4ab9bdfcfc0b759986514a4a79a",
+    "dpr": 1,
+    "height": 844,
+    "scroll": [
+      {
+        "height": 541,
+        "top": 0,
+        "total": 606
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 390,
+    "image_width": 390,
+    "image_height": 844,
+    "bytes": 39096,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "host/16-narrow-plan.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:08:58.369Z",
+    "sha256": "b0edeb392c2693cb7d27e83d5cc24700da348cf9e87b093767c4a2d3752cdcd9",
+    "dpr": 1,
+    "height": 844,
+    "scroll": [
+      {
+        "height": 541,
+        "top": 261,
+        "total": 1171
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 390,
+    "image_width": 390,
+    "image_height": 844,
+    "bytes": 37522,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "host/17-ingest-confirmed-final.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:11:09.197Z",
+    "sha256": "a2f398d06dd4b784399d67858300553b57f68f5a819609f39a5c291d5a156ac0",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 1320,
+        "total": 2989
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 62290,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "host/18-history-final.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:11:09.302Z",
+    "sha256": "0eadf44a1f92c878c849d6c1ff75d84fe8fb94e7eb856a80460af47054e7d17f",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 0,
+        "total": 538
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 55757,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "host/19-fresh-tab-pointer-ai.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:16:23.199Z",
+    "sha256": "d6726925e805f6c88fbe360263853d06d642862a977cbca8682ad609b4c51ca4",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 259.5,
+        "total": 2088
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 48867,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "host/20-pointer-ai-fixed.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:22:32.389Z",
+    "sha256": "1105e2e620aa0c8f7227c0bf9bae4ae90faeb9ef82c5dfb1ffdb6e1fe78f8c92",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 399,
+        "top": 0,
+        "total": 1246
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1280,
+    "image_width": 1270,
+    "image_height": 714,
+    "bytes": 51539,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "host/21-original-window-pointer-limit.jpg",
+    "kind": "host",
+    "captured_at": "2026-09-26T13:24:53.668Z",
+    "sha256": "3e8e7184890d3bc2af11b0f39e5eaac501bbdabcad0b68cdfd07ecadfe183d55",
+    "dpr": 2,
+    "height": 884,
+    "scroll": [
+      {
+        "height": 538,
+        "top": 0,
+        "total": 866
+      }
+    ],
+    "url": "http://192.168.50.6:13000/#/plugins",
+    "width": 1309,
+    "image_width": 1241,
+    "image_height": 884,
+    "bytes": 60589,
+    "product_commit": "164e496a531f54d18a7afccb51d4638706dda4bb"
+  },
+  {
+    "file": "synthetic/01-current-and-target.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:03:51.050Z",
+    "sha256": "c18ebd6e1691e3ce0ed008d3860f9876495329944bb83af3cb06e969a195e23d",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 0,
+        "total": 493
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 52289,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/01b-target-next.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:11:59.042Z",
+    "sha256": "33827e077b265e6504553751fb65e75c369812696277e002211e0a1c7662e575",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 92,
+        "total": 493
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 54184,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/02-candidate-summary.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:04:03.820Z",
+    "sha256": "edf4628f640c200ad3db031280ce9fe58046fb1e6b6dc3f250ba710895b61419",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 0,
+        "total": 414
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 44902,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/03-candidate-detail.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:04:04.122Z",
+    "sha256": "50fa784891024e142b3bde17a6233b6f335676aa990f7a7a69fb10ec577cc55f",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 14,
+        "total": 735
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 46998,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/03b-comparison-outcomes.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:12:13.494Z",
+    "sha256": "b351d0681961fcfd379167047d008f85d036b3ce54a0a3a040ebb405fd2ed5ef",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 334.5,
+        "total": 735
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 45429,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/04-downloading.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:10:46.931Z",
+    "sha256": "c0603c9849b2349d7ee514079675e3bd49c6e6d9c82f06a0790590d7e84a775a",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 0,
+        "total": 519
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 51317,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/04b-downloading-next.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:11:58.710Z",
+    "sha256": "5b8a34db23b08aa0e995694590224c62e9c4980a940a79b12e941817cfbe5d87",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 118,
+        "total": 519
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 53492,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/05-waiting-assets.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:10:47.240Z",
+    "sha256": "458bc7d7423b23186d06d1f2fc0a485c244e5a3ff2fd05650210a7c5ddf266fd",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 0,
+        "total": 462
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 53050,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/06-unknown-publication.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:10:47.567Z",
+    "sha256": "12587179dce520cbeb17b8ee1513c5a929e77357625cb46d70fbba385152e37a",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 0,
+        "total": 481
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 52816,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/07-stale-plan.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:10:47.884Z",
+    "sha256": "03a4c2ae3a82be14784ba95ea0e9250e9556bad064de471fa2fe26d0ddef3d21",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 401,
+        "top": 0,
+        "total": 401
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 45013,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/08-plan-download.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:03:29.455Z",
+    "sha256": "711aa58dd8ca343217c0abb4f97e861633bc1f0a845e269d2df0340d7b4f73cf",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 403,
+        "top": 5.5,
+        "total": 698
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 49802,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/09-plan-cloud.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:03:29.765Z",
+    "sha256": "6ac9f9055122f307cde4c42c80c0e6ffdbfd2b0a72ddd21965e5bca9cc5e02eb",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 403,
+        "top": 187,
+        "total": 823
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 56371,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/10-plan-library.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:03:30.066Z",
+    "sha256": "0f01964f3791311a8032dc9b9bb96f04812398e1511dedb4a0fea8dd30aaee09",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 403,
+        "top": 187,
+        "total": 1297
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 51875,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/11-plan-delivery.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:03:30.372Z",
+    "sha256": "63a9f8945993eea26d04d84bab31d78b9b5266f2d5a5a9702513e126becbcd23",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 403,
+        "top": 187,
+        "total": 935
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 49371,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  },
+  {
+    "file": "synthetic/12-plan-review.jpg",
+    "kind": "synthetic",
+    "captured_at": "2026-09-26T13:03:30.689Z",
+    "sha256": "a02d9baeb86f28b6cdd8882a8080e9ca641103efc385dc6009c3cb20effcffe5",
+    "dpr": 2,
+    "height": 720,
+    "scroll": [
+      {
+        "height": 403,
+        "top": 187,
+        "total": 660
+      }
+    ],
+    "url": "http://127.0.0.1:4179/dev/index.html",
+    "width": 1280,
+    "image_width": 1265,
+    "image_height": 712,
+    "bytes": 54895,
+    "product_commit": "0736735a8c6785cdc1068b6be220836138a0f4cc"
+  }
+]

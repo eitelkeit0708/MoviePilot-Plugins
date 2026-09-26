@@ -1,0 +1,36 @@
+{
+  "nonzero_return": {
+    "host_css_viewport": [
+      1309,
+      884
+    ],
+    "before_css_scroll_top": 917.5,
+    "after_css_scroll_top": 917.5,
+    "filter": "",
+    "focus_restored_to": "一瓯春",
+    "input": "keyboard"
+  },
+  "final_short_desktop": {
+    "host_css_viewport": [
+      1280,
+      720
+    ],
+    "dpr": 2,
+    "AI_pointer_selected": true,
+    "AI_element_hit_text": "AI 名称辅助",
+    "AI_bottom": 552.09375,
+    "content_bottom": 575,
+    "pointer_step_2_to_5": "aria-current=step after each click"
+  },
+  "original_window_remaining_limit": {
+    "host_css_viewport": [
+      1309,
+      884
+    ],
+    "requested_pointer_target": "AI 名称辅助",
+    "actual_selected": "榜单与 RSS",
+    "keyboard_enter_selected_correctly": true,
+    "root_cause": "not established for this separate coordinate mismatch"
+  },
+  "physical_touch_tested": false
+}
