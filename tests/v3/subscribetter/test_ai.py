@@ -78,6 +78,32 @@ class AITests(unittest.TestCase):
         runtime.assistance_gate=unavailable
         self.assertEqual('owner_not_unique',runtime.extract('Example').reason)
 
+    def test_explicit_probe_while_disabled_preserves_production_gate_and_shared_budget(self):
+        runtime=self.runtime(enabled=False,name_assistance_enabled=False)
+        runtime.current=lambda:False
+        runtime.probe_current=lambda:True
+        snapshot=dict(fingerprint='a'*64,overlaps=[],unclassified=['own_feature_inactive'])
+        runtime.owner_snapshot=lambda *args:snapshot
+        runtime.assistance_gate=lambda:False
+        self.assertIsNone(runtime.extract('Example').identity)
+        self.assertEqual([],self.requests)
+        self.replies.append('{"name":"The Matrix","year":"1999"}')
+        first=runtime.connection_probe()
+        self.assertEqual('accepted',first.reason)
+        self.assertFalse(runtime.config.enabled)
+        self.assertFalse(runtime.live())
+        self.assertEqual(1,len(self.requests))
+        self.assertEqual('cache',runtime.connection_probe().source)
+        snapshot['overlaps']=['other-handler']
+        self.assertIsNone(runtime.connection_probe().identity)
+        self.assertEqual(1,len(self.requests))
+        snapshot['overlaps']=[];snapshot['unclassified']=['own_config_changed']
+        self.assertIsNone(runtime.connection_probe().identity)
+        self.assertEqual(1,len(self.requests))
+        snapshot['unclassified']=[];runtime.probe_current=lambda:False
+        self.assertIsNone(runtime.connection_probe().identity)
+        self.assertEqual(1,len(self.requests))
+
     def test_strict_schema_and_grounded_source_boundaries(self):
         invalid = ['[]','null','42','"hello"','',None,'{','{"name":null,"year":null}',
                    '{"name":"Example","year":2024}', '{"name":"Example","year":"","season":0}',

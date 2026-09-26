@@ -23,14 +23,14 @@ test('historical due dates never promise a future run and known targets do not i
  assert.equal(deliveryNext({state:'UPLOADING',due},{dry_run:true},now),'演练中，普通交付不调度');
  assert.equal(deliveryNext({state:'PUBLISH_OUTCOME_UNKNOWN',due},health,now),'先核对发布结果，再决定后续动作');
  assert.match(taskNext({state:'ACTIVE',progress:{observation_until:due}},health,now),/记录已到期/);
- assert.equal(taskProgress({media_type:'电视剧',progress:{targets:2,present:1}}),'已知 2 集 · 最近档案在库 1');
+ assert.equal(taskProgress({media_type:'电视剧',progress:{targets:2,present:1}}),'已知 2 集 · 在库 1');
 });
 test('display separates unconfirmed results, stale source errors, paused tasks and unknown scope',()=>{
  assert.equal(reasonText('CD2_REMOTE_UNSETTLED'),'CD2 上传结果尚未确认');
  assert.equal(sourceNotice({last_state:'OK',last_reason:'OLD_ERROR'}),'');
  assert.equal(sourceNotice({last_state:'OK',last_reason:'SOURCE_CONFIG_CHANGED'}),'来源设置已变更，尚未重新检查');
  assert.equal(taskNext({state:'PAUSED',progress:{observation_until:'2099-01-01'}},{ordinary_work_active:true}),'恢复追踪后继续');
- assert.equal(taskProgress({progress:{targets:0,confirmed:0}}),'目标范围待确认');
+ assert.equal(taskProgress({progress:{targets:0,confirmed:0}}),'集数范围待确认');
  assert.equal(sourceTitle({name:'每周口碑',url:'http://private/path'}),'每周口碑');
 });
 
@@ -40,7 +40,7 @@ test('quality distinguishes picture, four audio tiers and explicit versus inferr
  const a=qualitySummary({...base,picture:0,audio:1,special_zh_subtitles:false});
  const b=qualitySummary({...base,picture:2,audio:3,special_zh_subtitles:true,evidence:'explicit'});
  assert.notEqual(a,b);assert.match(a,/SDR/);assert.match(a,/DDP/);assert.match(b,/Dolby Vision/);assert.match(b,/无损/);assert.match(b,/特效字幕/);
- for(const [audio,label] of [[0,'基础音频'],[1,'DDP'],[2,'沉浸式'],[3,'无损']])assert.ok(qualitySummary({audio}).includes(label));
+ for(const [audio,label] of [[0,'普通音轨'],[1,'DDP'],[2,'沉浸式'],[3,'无损']])assert.ok(qualitySummary({audio}).includes(label));
  assert.match(qualitySummary({audio:null,picture:null}),/音频未知/);assert.match(qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}),/PGS.*推断/);
  assert.ok(!qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}).includes('特效字幕已确认'));
 });

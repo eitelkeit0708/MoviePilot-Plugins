@@ -505,7 +505,29 @@ class Views:
                 WHERE o.state='ACTIVE' AND json_extract(o.config,'$.observation_enabled')=1 AND ot.fulfilled=0 AND b.deadline>?
                 GROUP BY o.task_id) b ON b.task_id=t.id"""
         now=utcnow()
-        return self._page('tasks',Task,self._task,source=source,select='t.*,u.targets,u.present,u.confirmed,u.processing,u.owned,u.resolutions,u.cooldown_until,b.observation_until',where=where,args=(now,now,*args),order='t.'+sort+',t.id',limit=limit,offset=offset)
+        return self._page('tasks',Task,self._task_summary,with_db=True,source=source,select='t.*,u.targets,u.present,u.confirmed,u.processing,u.owned,u.resolutions,u.cooldown_until,b.observation_until',where=where,args=(now,now,*args),order='t.'+sort+',t.id',limit=limit,offset=offset)
+
+    def _task_summary(self,r,db):
+        from .display import processing
+        value=self._task(r);stages={}
+        # ponytail: inspect at most six owned episodes per row; page totals remain
+        # explicit. Replace with a persisted projection if profiling requires it.
+        rows=db.execute("""SELECT u.*,p.snapshot plan_snapshot,p.transfer_phase plan_phase,
+            p.created_at plan_created_at,pt.transfer_phase target_phase,pt.state target_state,
+            pt.generation target_generation,p.authorization,p.task_generation plan_task_generation,
+            t.generation task_generation FROM target_units u JOIN tasks t ON t.id=u.task_id
+            JOIN plans p ON p.id=u.owner_plan_id AND p.task_id=u.task_id
+            JOIN plan_targets pt ON pt.plan_id=p.id AND pt.target_key=u.target_key
+            LEFT JOIN task_lifecycle l ON l.task_id=u.task_id
+            WHERE u.task_id=? AND p.authorization='ACTIVE' AND pt.state='ACTIVE'
+            AND pt.generation=u.generation AND p.task_generation=t.generation
+            AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))
+            ORDER BY u.target_key LIMIT 6""",(r['id'],)).fetchall()
+        for row in rows:
+            item=processing(db,row)
+            if item:stages[item['phase']]=stages.get(item['phase'],0)+1
+        value['progress'].update(stages=[dict(phase=k,count=v) for k,v in stages.items()],stage_sample_count=sum(stages.values()))
+        return value
 
     def _unit(self,r,db):
         from .display import current_quality,processing
@@ -723,10 +745,10 @@ class Views:
 
     async def ai_probe(self,request:Fence,user:TokenPayload=Depends(verify_token))->ActionResult:
         self._auth(user);self.fence(request);service=self.plugin.ai
-        if not service or not service.live():raise HTTPException(409,'AI_DISABLED')
+        if not service:raise HTTPException(409,'AI_CONNECTION_UNCONFIGURED')
         # Reuse the real bounded provider, cooldown, cache and ownership gate.
         # No identity is submitted to MoviePilot or the subscription pipeline.
-        result=await asyncio.to_thread(service.extract,'The Matrix 1999 1080p WEB-DL',parser_revision='ui-connection-probe-v1')
+        result=await asyncio.to_thread(service.connection_probe)
         self.fence(request)
         state='MODEL_RESPONDED' if result.identity and result.source=='api' and result.attempts>0 else 'CACHED' if result.source in ('cache','coalesced') else 'NOT_VERIFIED'
         return ActionResult(state=state,result=dict(reason=result.reason,source=result.source,attempts=result.attempts,elapsed_ms=result.elapsed_ms))

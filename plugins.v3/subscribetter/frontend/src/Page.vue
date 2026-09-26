@@ -10,7 +10,7 @@ const emit=defineEmits(['close','switch','layout','action']);
 const client=createClient(props.api,props.pluginId,props.sourcePluginId),status=useStatus(client);
 const selected=ref('tasks'),resource=ref(views[0].resources[0]),resourceKey=ref(0),resourceComponent=ref(null),action=ref(null),context=ref({}),trail=ref([]);
 const section=ref('subscriptions'),advanced=ref(false),content=ref(null);provide('subscribetter:scroll',content);
-const sections=[['subscriptions','订阅','tasks'],['discovery','发现','discovery'],['delivery','传输与待处理','delivery'],['policy','策略','policy'],['settings','设置','health']];
+const sections=[['subscriptions','订阅','tasks'],['discovery','发现','discovery'],['delivery','传输','delivery'],['policy','策略','policy'],['settings','设置','health']];
 function navigate(item){if(content.value)content.value.scrollTop=0;section.value=item[0];advanced.value=false;choose(views.find(v=>v.id===item[2]))}
 function configure(group){saveFollowup(props.pluginId,{...readFollowup(props.pluginId),group});emit('switch')}
 function invoke(a,c){context.value=c;action.value=a}
@@ -25,7 +25,7 @@ function changed(){refresh()}
 function exportSafe(){if(!status.current.value)return;const data={format:'subscribetter-safe-configuration-v1',instance:props.pluginId,revision:status.current.value.revision,digest:status.current.value.digest,config:status.current.value.config};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='subscribetter-safe-configuration.json';a.click();URL.revokeObjectURL(url)}
 onMounted(()=>{emit('layout',{maxWidth:'1280px'});status.refresh()});onBeforeUnmount(()=>{context.value={};action.value=null});
 </script>
-<template><section class="sb-root sb-app" aria-label="subscriBetter 管理"><header class="sb-app-header"><div><strong>subscriBetter</strong></div><div class="sb-actions"><VBtn variant="text" @click="refresh">刷新</VBtn><VBtn variant="text" @click="advanced=!advanced">{{advanced?'返回工作台':'高级诊断'}}</VBtn><VBtn variant="text" @click="emit('close')">关闭</VBtn></div></header><Status :status="status"/>
+<template><section class="sb-root sb-app" aria-label="subscriBetter 管理"><header class="sb-app-header"><div><strong>subscriBetter</strong><Status :status="status"/></div><div class="sb-actions"><VBtn variant="text" @click="refresh">刷新</VBtn><VBtn variant="text" @click="advanced=!advanced">{{advanced?'返回管理':'高级诊断'}}</VBtn><VBtn variant="text" @click="emit('close')">关闭</VBtn></div></header>
  <nav class="sb-primary-nav" aria-label="主要功能"><button v-for="item in sections" :key="item[0]" :aria-current="!advanced&&section===item[0]" @click="navigate(item)">{{item[1]}}</button></nav>
  <main ref="content" class="sb-app-content"><Subscriptions v-if="!advanced&&section==='subscriptions'&&status.current.value&&status.health.value" ref="resourceComponent" :api="api" :client="client" :status="status" @diagnostic="diagnostic" @action="invoke" @changed="status.refresh()"/>
  <Discovery v-else-if="!advanced&&section==='discovery'" ref="resourceComponent" :client="client" :status="status" @configure="configure" @action="invoke" @diagnostic="diagnostic"/>

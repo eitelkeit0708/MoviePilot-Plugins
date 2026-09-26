@@ -287,6 +287,7 @@ def safe_text(value, secrets=(), limit=240):
 
 from collections import OrderedDict
 from concurrent.futures import Future, TimeoutError as FutureTimeout
+from contextvars import ContextVar
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import timezone
@@ -634,7 +635,7 @@ def host_owner_snapshot(plugin,module,instance_id,config_digest,route_scope):
 class AIService:
     def __init__(self,repository,config,client_factory,credential_resolver,*,generation,
                  current,instance_id='SubscriBetter',proxy=None,clock=time.time,
-                 owner_check=None,owner_snapshot=None,notify=None,assistance_gate=None):
+                 owner_check=None,owner_snapshot=None,notify=None,assistance_gate=None,probe_current=None):
         config=config.model_copy(deep=True)
         self.repository,self.config=repository,config
         self.factory,self.resolve=client_factory,credential_resolver
@@ -642,6 +643,8 @@ class AIService:
         self.clock,self.proxy=clock,proxy
         self.owner_check,self.owner_snapshot,self.notify=owner_check,owner_snapshot,notify
         self.assistance_gate=assistance_gate
+        self.probe_current=probe_current
+        self.probing=ContextVar('subscribetter_ai_probe',default=False)
         self.config_digest=digest(config.model_dump())
         self.scope=digest([instance_id,self.config_digest])
         self.lock=RLock();self.closed=False;self.epoch=0
@@ -658,7 +661,25 @@ class AIService:
             state=self._runtime(db);state['instance_id']=instance_id;self._save_runtime(db,state)
 
     def live(self):
-        return not self.closed and self.config.enabled and bool(self.current())
+        probe=self.probing.get() and self.probe_current is not None and self.probe_current()
+        return not self.closed and (probe or self.config.enabled and bool(self.current()))
+
+    def connection_probe(self):
+        """An explicit administrator sample; never enables a listener or a worker."""
+        if self.probe_current is None:return Result(reason='probe_unavailable')
+        token=self.probing.set(True)
+        try:
+            return self.extract('The Matrix 1999 1080p WEB-DL',parser_revision='ui-connection-probe-v1',gate=self._probe_owner)
+        finally:self.probing.reset(token)
+
+    def _probe_owner(self):
+        try:
+            snapshot=self.owner_snapshot('name_assistance',self.instance_id,self.config_digest,'internal')
+            # A manual sample may run while production is disabled. Conflicting
+            # handlers, changed configuration and unknown ownership still block it.
+            return (isinstance(snapshot.get('fingerprint'),str) and bool(re.fullmatch('[a-f0-9]{64}',snapshot['fingerprint']))
+                    and snapshot.get('overlaps')==[] and set(snapshot.get('unclassified',['unknown']))<={'own_feature_inactive'})
+        except Exception:return False
 
     def _durable_live(self,db):
         row=db.execute('SELECT generation FROM ai_runtime WHERE scope=?',(self.scope,)).fetchone()
@@ -713,8 +734,8 @@ class AIService:
 
     def extract(self,title,subtitle='',*,context=None,parser_revision='',team=None,gate=None,started=None):
         started=time.monotonic() if started is None else started;result=Result(generation=self.generation)
-        if not self.live() or not self.config.name_assistance_enabled:return result
-        if self.assistance_gate is not None:
+        if not self.live() or not self.config.name_assistance_enabled and not self.probing.get():return result
+        if self.assistance_gate is not None and not self.probing.get():
             prior_gate=gate
             def gate():
                 try:return bool(self.assistance_gate()) and (prior_gate is None or prior_gate())

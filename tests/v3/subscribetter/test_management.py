@@ -56,11 +56,11 @@ class ManagementTests(unittest.TestCase):
         with self.assertRaises(Exception) as error:asyncio.run(views.ai_probe(request,user=None))
         self.assertEqual(409,error.exception.status_code)
         result=SimpleNamespace(identity={'name':'PRIVATE_MODEL_OUTPUT'},source='api',attempts=1,reason='accepted',elapsed_ms=25)
-        self.plugin.ai=SimpleNamespace(live=lambda:True,extract=lambda *a,**k:(calls.append((a,k)) or result))
+        self.plugin.ai=SimpleNamespace(connection_probe=lambda:(calls.append('fixed-sample') or result))
         answer=asyncio.run(views.ai_probe(request,user=None))
         self.assertEqual('MODEL_RESPONDED',answer.state)
         self.assertNotIn('PRIVATE_MODEL_OUTPUT',answer.model_dump_json())
-        self.assertEqual('ui-connection-probe-v1',calls[0][1]['parser_revision'])
+        self.assertEqual(['fixed-sample'],calls)
         result.source='cache';result.attempts=0
         self.assertEqual('CACHED',asyncio.run(views.ai_probe(request,user=None)).state)
 

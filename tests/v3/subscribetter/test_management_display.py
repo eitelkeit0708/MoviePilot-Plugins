@@ -83,9 +83,13 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(2,unit.processing['transfer_files'][0]['misses'])
         self.assertEqual(6,unit.processing['transfer_files'][0]['miss_limit'])
         self.assertEqual(1,len(unit.processing['transfer_files']))
+        summary=self.views.task(self.task_id,user=None).task.progress
+        self.assertEqual([{'phase':'RAPID_WAIT','count':1}],summary['stages'])
+        self.assertEqual(1,summary['stage_sample_count'])
         with self.repo.connection() as db:self.assertEqual(before,list(db.iterdump()))
         with self.repo.connection(write=True) as db:db.execute('UPDATE target_units SET generation=3')
         self.assertIsNone(self.views.task(self.task_id,user=None).units.items[0].processing)
+        self.assertEqual([],self.views.task(self.task_id,user=None).task.progress['stages'])
 
         with self.repo.connection(write=True) as db:
             db.execute('UPDATE target_units SET generation=2')

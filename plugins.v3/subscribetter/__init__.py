@@ -236,7 +236,7 @@ class SubscriBetter(_PluginBase):
                     self.discovery_errors.append("INVALID_DISCOVERY_CONFIG")
                 try:
                     ai_config=AIConfig.model_validate(self.config.ai_assist)
-                    if ai_config.enabled:
+                    if ai_config.enabled or ai_config.endpoint_ref and ai_config.credential_refs and ai_config.model:
                         import httpx
                         proxy=None
                         if ai_config.proxy:
@@ -247,11 +247,12 @@ class SubscriBetter(_PluginBase):
                             self.secret_store.resolve,generation=generation,
                             current=lambda:self._ordinary_work_active() and self.generation==generation,
                             instance_id=self.__class__.__name__,proxy=proxy,
+                            probe_current=lambda:self.generation==generation and self.configuration.ready,
                             owner_check=self._ai_owner,owner_snapshot=self._ai_snapshot,notify=self._ai_notify,
                             assistance_gate=lambda:self._ai_owner('name_assistance',self.__class__.__name__,
                                 self.ai.config_digest,'internal') is not None)
                         self.candidates.ai=self.ai
-                        if ai_config.name_recognize_bridge:self.ai_listeners.append((ChainEventType.NameRecognize,self.ai_name))
+                        if ai_config.enabled and ai_config.name_recognize_bridge:self.ai_listeners.append((ChainEventType.NameRecognize,self.ai_name))
                         for event,callback in self.ai_listeners:eventmanager.add_event_listener(event,callback,priority=30)
                 except Exception:
                     if self.ai:self.ai.close()
