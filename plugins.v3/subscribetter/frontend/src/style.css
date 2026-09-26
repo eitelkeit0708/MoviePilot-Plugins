@@ -19,6 +19,8 @@
 /* One content scroll surface; lists and details never compete for width. */
 .sb-app{width:100%;height:85vh;max-height:960px;display:flex;flex-direction:column;overflow:hidden}
 .sb-app-content{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;padding:0 4px 12px;overscroll-behavior:contain}
+.sb-config>.sb-app-content{container-type:size}
+.sb-config-nav{max-height:calc(100cqh - 24px);overflow-y:auto;overscroll-behavior:contain}
 .sb-app>.sb-primary-nav{margin-bottom:12px;flex:none}.sb-app>.sb-status{margin-bottom:4px;flex:none}
 .sb-detail-header{position:sticky;top:0;background:rgb(var(--v-theme-surface));z-index:1;padding-bottom:10px;border-bottom:1px solid var(--sb-line)}
 .sb-root .sb-detail-header .sb-eyebrow{margin:0!important}.sb-root .sb-search{margin:8px 0 12px}
