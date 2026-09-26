@@ -17,6 +17,7 @@ const savedDraft=ref(null),draftBase=ref(null),refreshing=ref(false),draft=ref(n
 const content=ref(null),credentialBusy=ref(false),credentialPending=ref(false),editing=ref({name:'',step:0}),planSetup=ref(null),leave=ref(''),draftNotice=ref('');
 const cacheKey='subscribetter:draft:'+props.pluginId;
 const dirty=computed(()=>!!draft.value&&canonical(draft.value)!==canonical(savedDraft.value||{}));
+watch(dirty,value=>{if(value)status.saveState.value=''})
 function protect(event){if(dirty.value||credentialPending.value){event.preventDefault();event.returnValue=''}}
 function requestLeave(action){if(credentialBusy.value||busy.value)return;if(dirty.value||credentialPending.value)leave.value=action;else performLeave(action)}
 function performLeave(action){leave.value='';if(action==='refresh'){try{sessionStorage.removeItem(cacheKey)}catch{};refresh();}else emit(action)}
