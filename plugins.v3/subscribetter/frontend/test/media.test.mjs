@@ -20,6 +20,8 @@ test('policy ALLOW is shown as eligible',()=>assert.equal(stateLabel('ALLOW'),'�
 test('historical due dates never promise a future run and known targets do not imply full season scope',()=>{
  const health={ordinary_work_active:true},due='2026-01-01T00:00:00Z',now=Date.parse('2026-09-26');
  assert.equal(deliveryNext({state:'CONFIRMED',due},health,now),'已结束本次交付；时间见处理记录');
+ assert.equal(stateLabel('CANCEL_PENDING'),'正在取消交付');assert.match(reasonText('READER_OR_REMOTE_UNSETTLED'),/取消仍在等待/);
+ assert.match(deliveryNext({state:'CANCEL_PENDING'},{dry_run:true}),/完成取消/);
  assert.equal(deliveryNext({state:'UPLOADING',due},{dry_run:true},now),'演练中，普通交付不调度');
  assert.equal(deliveryNext({state:'PUBLISH_OUTCOME_UNKNOWN',due},health,now),'先核对发布结果，再决定后续动作');
  assert.match(taskNext({state:'ACTIVE',progress:{observation_until:due}},health,now),/记录已到期/);
