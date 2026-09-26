@@ -1,0 +1,1052 @@
+[
+  {
+    "id": "01-subscriptions",
+    "file": "screenshots/01-subscriptions.jpg",
+    "time_utc": "2026-09-26T09:13:35.313Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "订阅列表：默认状态",
+    "sha256": "1384efb82b0e481d1216d8cc74378c9668080a219d978835f74737b5dc4b536e",
+    "bytes": 68690,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "02-subscription-detail-top",
+    "file": "screenshots/02-subscription-detail-top.jpg",
+    "time_utc": "2026-09-26T09:14:03.807Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "订阅详情：一瓯春及分集上段",
+    "sha256": "616f8ec7e630c041aa60542b755c74d5f57d5707855c58aeff70e27c0d1e423c",
+    "bytes": 66423,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "03-subscription-detail-bottom",
+    "file": "screenshots/03-subscription-detail-bottom.jpg",
+    "time_utc": "2026-09-26T09:14:40.291Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "最终保存的是重新滚动后截取的候选依据下段；清单只保留该文件的最后一次采集时间。左侧大面积留白属于实际页面。完整分集次序另见 episode-order-observation.json。",
+    "title": "订阅详情：长页底部与候选依据",
+    "sha256": "eed6f4a98e81faa74b8135b5acf3457d14b419038961a69699389ab21c1dc191",
+    "bytes": 61697,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "04-pause-confirmation",
+    "file": "screenshots/04-pause-confirmation.jpg",
+    "time_utc": "2026-09-26T09:14:15.928Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "仅打开确认框；没有暂停任务。",
+    "title": "暂停追踪确认框（未提交）",
+    "sha256": "0601e1ce7159af652c6eb1da3d990ac4701b7f8ec9472f15930257ec10f02fe2",
+    "bytes": 30347,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "05-adopt-existing-list",
+    "file": "screenshots/05-adopt-existing-list.jpg",
+    "time_utc": "2026-09-26T09:14:49.792Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "当前实际原生订阅列表；没有提交纳管。",
+    "title": "从 MP 纳管：原生订阅分页列表",
+    "sha256": "7715d730adc610b8e19662120d318f750a0bea68c2e5b5fb24931aaca0435e98",
+    "bytes": 54968,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "06-adopt-confirm",
+    "file": "screenshots/06-adopt-confirm.jpg",
+    "time_utc": "2026-09-26T09:15:09.792Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "演练模式下按钮不可提交；不是成功纳管截图。",
+    "title": "纳管确认：方案选择与演练限制",
+    "sha256": "7d3083267ecf0dbec4ba7e99c8ee004a13936a97f0c35c3eb5c95892e6d732a8",
+    "bytes": 50298,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "07-discovery",
+    "file": "screenshots/07-discovery.jpg",
+    "time_utc": "2026-09-26T09:15:22.388Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "发现：作品结果优先显示",
+    "sha256": "c996da68e0d03baefbedd66024978df6972874ce3e06a0cc09e3613cb9cf576f",
+    "bytes": 48748,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "08-discovery-sources",
+    "file": "screenshots/08-discovery-sources.jpg",
+    "time_utc": "2026-09-26T09:15:42.020Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "发现：展开来源状态",
+    "sha256": "1f7b3d6d506453b02b9ed92042dc3760b3c5849fb4ba9470db05b979ac8ac44e",
+    "bytes": 64710,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "09-discovery-test-dialog",
+    "file": "screenshots/09-discovery-test-dialog.jpg",
+    "time_utc": "2026-09-26T09:15:51.831Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "来源已选定后仍出现 source 对象编辑。没有发送测试抓取请求。",
+    "title": "发现：已选来源的测试抓取表单",
+    "sha256": "3ef3c1019102faac43bbfcb2ee6fddbc3711c6b51d0b389a711efd6502c2d2da",
+    "bytes": 43296,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "10-transfers",
+    "file": "screenshots/10-transfers.jpg",
+    "time_utc": "2026-09-26T09:16:17.688Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "显示历史测试数据；“下一次检查”的旧日期不证明本轮产生了调度故障。",
+    "title": "传输与待处理：全部交付",
+    "sha256": "bf514510819f4a763dbd78078d60179f09e72e4e06d6650e6d66f09b9d086379",
+    "bytes": 60140,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "11-transfer-detail",
+    "file": "screenshots/11-transfer-detail.jpg",
+    "time_utc": "2026-09-26T09:16:37.657Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "历史测试对象；旧 IDX/SUB、字体、许可附件不重新计入处理要求。",
+    "title": "交付详情：历史未知结果与文件列表",
+    "sha256": "4f222b8c688cde77daf4cc15c72dd5fca67e9760b8d45f8f792d515cfc0648d4",
+    "bytes": 84496,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "12-transfer-review",
+    "file": "screenshots/12-transfer-review.jpg",
+    "time_utc": "2026-09-26T09:16:59.576Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "仅打开操作核对，没有发送最终对账请求。",
+    "title": "交付核对：准备操作界面",
+    "sha256": "e42f06285bd84679be365cabd0c189db95ff89d9600437f04374f0e80f7e4182",
+    "bytes": 44530,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "13-policy",
+    "file": "screenshots/13-policy.jpg",
+    "time_utc": "2026-09-26T09:17:06.785Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "策略：分类与真实规则摘要",
+    "sha256": "3ad17561f6d2e01306b70a19a02b6c1882711d671b5ef75408a8c8e206c1aaec",
+    "bytes": 57152,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "14-policy-preview",
+    "file": "screenshots/14-policy-preview.jpg",
+    "time_utc": "2026-09-26T09:17:34.858Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "本轮一次真实确定性策略预演，结果为拒绝；截图只覆盖当前可视部分，没有执行下载。",
+    "title": "策略：已有候选的确定性预演",
+    "sha256": "a35cd1fe3649afa01909d6e5cdf82a62bdefaf529535a7acbde3d8ba176c450c",
+    "bytes": 61027,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "15-settings-overview",
+    "file": "screenshots/15-settings-overview.jpg",
+    "time_utc": "2026-09-26T09:17:44.144Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "设置概览：八个入口与服务摘要",
+    "sha256": "b5a5cf179ac1ca0cfac3161d74703b92ee2708803959f7d118974bd59acaa275",
+    "bytes": 69960,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "16-config-basic-top",
+    "file": "screenshots/16-config-basic-top.jpg",
+    "time_utc": "2026-09-26T09:17:55.047Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "基本设置：总开关、演练、自动类型",
+    "sha256": "1deaced89b68a431bc86d3345e5d3a6cf1de229959ddfd4b0b4b46efaffebe59",
+    "bytes": 59351,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "17-config-library-names",
+    "file": "screenshots/17-config-library-names.jpg",
+    "time_utc": "2026-09-26T09:18:15.178Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "基本设置：实际媒体库名称与保护片名",
+    "sha256": "28a07f54958a1db0a1443ca48f6096769386f385e53e1895009696805c89aab7",
+    "bytes": 62859,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "18-config-destination-editor",
+    "file": "screenshots/18-config-destination-editor.jpg",
+    "time_utc": "2026-09-26T09:18:55.198Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "下载与入库方案编辑器",
+    "sha256": "89c635f510acdc9c8b2ca648ce93277546494cf08961ca78e19092621c1e4158",
+    "bytes": 74777,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "19-config-policy-bindings",
+    "file": "screenshots/19-config-policy-bindings.jpg",
+    "time_utc": "2026-09-26T09:19:14.208Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "独立策略：分类绑定",
+    "sha256": "1d2bde020ad93fd50819b1fddd1ea90466825176a67738f7c50a0f99a54b61c2",
+    "bytes": 64269,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "20-config-policy-editor",
+    "file": "screenshots/20-config-policy-editor.jpg",
+    "time_utc": "2026-09-26T09:19:23.883Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "独立策略：模板编辑",
+    "sha256": "e37d1a6e6a8f83081d8d3ddae27172ded7ef4576f3fada950bbb42e4ac257af8",
+    "bytes": 65559,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "21-config-lifecycle",
+    "file": "screenshots/21-config-lifecycle.jpg",
+    "time_utc": "2026-09-26T09:19:37.446Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "生命周期",
+    "sha256": "8e988c4a6a2d63739f8a2cf4c1e0b20a4e3d3853a0e3e166cc44173c315452c0",
+    "bytes": 52524,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "22-config-candidates",
+    "file": "screenshots/22-config-candidates.jpg",
+    "time_utc": "2026-09-26T09:19:48.220Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "站点与搜索：默认字段",
+    "sha256": "ed0843a8a60666be7c3c338a807c7986aa440e87526c2c37449f0e8cdaecd3b3",
+    "bytes": 61101,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "23-config-site-ids",
+    "file": "screenshots/23-config-site-ids.jpg",
+    "time_utc": "2026-09-26T09:20:08.635Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "站点与搜索：高级站点 ID 列表",
+    "sha256": "0886234ec7292618326be44f9649da17e766bfe910378dc8d6a0449ea5bb37f7",
+    "bytes": 59474,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "24-config-schedule",
+    "file": "screenshots/24-config-schedule.jpg",
+    "time_utc": "2026-09-26T09:20:34.183Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "观察、冷却、抢占：继承控件",
+    "sha256": "343b7251e24430c1eca8bff5a05a16cd043aa5278aea290becefbfab1865e30d",
+    "bytes": 72280,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "25-config-delivery",
+    "file": "screenshots/25-config-delivery.jpg",
+    "time_utc": "2026-09-26T09:20:42.031Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "交付与映射：分步配置入口",
+    "sha256": "428309b653ef256cf44e0aacfa9a64f87eac9387d24ffc50826caf2ec0f9fb8c",
+    "bytes": 62633,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "26-config-cloud-scope",
+    "file": "screenshots/26-config-cloud-scope.jpg",
+    "time_utc": "2026-09-26T09:20:52.694Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际云盘服务选择器；列表包含其他已安装插件，不代表它们具备所需能力。",
+    "title": "云盘范围与服务选择",
+    "sha256": "1b8db6c29cf3776f704bd94a1fbf16488a2c30f1d5cce85e8abebf1f8e3b338d",
+    "bytes": 68105,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "27-config-mapping-editor",
+    "file": "screenshots/27-config-mapping-editor.jpg",
+    "time_utc": "2026-09-26T09:21:11.552Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "媒体库与两段路径映射编辑器",
+    "sha256": "626bc658cc8ded1f66c3a2435104931fdaf25b29fcab77ac1c48e1cc980ea29e",
+    "bytes": 79765,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "28-config-delivery-rule",
+    "file": "screenshots/28-config-delivery-rule.jpg",
+    "time_utc": "2026-09-26T09:21:29.220Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "本地到云端与整理入口的交付规则",
+    "sha256": "3412434f693a6b4e36a522874a3a3f5d4df91848be3024dc97242ce42b008cf1",
+    "bytes": 69763,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "29-config-recovery",
+    "file": "screenshots/29-config-recovery.jpg",
+    "time_utc": "2026-09-26T09:21:36.983Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "扫描与恢复",
+    "sha256": "902264a2161c4cefc85c196bffb57f60b35d830da6a4f254e5fb79996dcca0ce",
+    "bytes": 54272,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "30-config-cleanup",
+    "file": "screenshots/30-config-cleanup.jpg",
+    "time_utc": "2026-09-26T09:21:46.172Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "清理权限：五类授权开关",
+    "sha256": "9ef86663e2d3dbc834a5b25799e2b934474204a4624eb8b87261488160ecd540",
+    "bytes": 62837,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "31-config-safety",
+    "file": "screenshots/31-config-safety.jpg",
+    "time_utc": "2026-09-26T09:21:58.381Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "安全与容量",
+    "sha256": "6191d6a0e2e8f061370d49a73233a8a95ec7c8a7e153833d03d5c7c0064dfb17",
+    "bytes": 47384,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "32-config-rsshub",
+    "file": "screenshots/32-config-rsshub.jpg",
+    "time_utc": "2026-09-26T09:22:11.785Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "榜单与 RSS：自部署 RSSHub 与内置来源",
+    "sha256": "8fb7f21521777afdd91c2fc20335996e5f5c6725751b594ddb21145fa2379503",
+    "bytes": 68431,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "33-config-source-editor",
+    "file": "screenshots/33-config-source-editor.jpg",
+    "time_utc": "2026-09-26T09:22:32.148Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "具体来源：名称、过滤与方案绑定",
+    "sha256": "0d835eb7ef211b3b600af2333f7c531a94cef011c529569999e233cf8b3c4771",
+    "bytes": 62846,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "34-config-ai-top",
+    "file": "screenshots/34-config-ai-top.jpg",
+    "time_utc": "2026-09-26T09:22:44.376Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "私密端点引用不是端点凭据本身；截图没有 API key。",
+    "title": "AI 名称辅助：启用、模型和端点引用",
+    "sha256": "2b6cf6c8359ffd55e633d62681579539dccc9080cfa76440d07f41654b69f222",
+    "bytes": 59921,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "35-config-ai-prompt",
+    "file": "screenshots/35-config-ai-prompt.jpg",
+    "time_utc": "2026-09-26T09:22:53.522Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "当前已保存提示词和配置的展示；本轮没有编辑或调用模型。",
+    "title": "AI 名称辅助：提示词与备用配置",
+    "sha256": "97355774b5afe20cb35b4f11c13a52a7447c0c637c7459ca0b1cc2dc1cb030a7",
+    "bytes": 59751,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "36-advanced-tasks",
+    "file": "screenshots/36-advanced-tasks.jpg",
+    "time_utc": "2026-09-26T09:23:29.259Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：目标与任务",
+    "sha256": "0080ebe1a501147e5428e6d5745177e57aefe7cbfa8df1777e088de948ff865d",
+    "bytes": 66716,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "37-advanced-candidates",
+    "file": "screenshots/37-advanced-candidates.jpg",
+    "time_utc": "2026-09-26T09:23:29.507Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：候选决策",
+    "sha256": "911d04cbf655920f059ed868e28b16862d6f1f5614fdf6c5de3eb4409bbd8a9c",
+    "bytes": 74861,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "38-advanced-archive",
+    "file": "screenshots/38-advanced-archive.jpg",
+    "time_utc": "2026-09-26T09:23:29.663Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：版本档案",
+    "sha256": "61a8bf87d999aa458c5f8a280cf746c05d788c7fca95bce087fde1471ef326e1",
+    "bytes": 79346,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "39-advanced-delivery",
+    "file": "screenshots/39-advanced-delivery.jpg",
+    "time_utc": "2026-09-26T09:23:39.834Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：交付队列",
+    "sha256": "fda324e577adc43730c33a76256e00860bde9479a3b0570e91612d79072fada5",
+    "bytes": 73476,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "40-advanced-policy",
+    "file": "screenshots/40-advanced-policy.jpg",
+    "time_utc": "2026-09-26T09:23:39.960Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：策略与预演",
+    "sha256": "6c5ee4c373b6d418672b29396fd5f2f4ad33c9a73508c95850431a15da96e9b4",
+    "bytes": 71078,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "41-advanced-health",
+    "file": "screenshots/41-advanced-health.jpg",
+    "time_utc": "2026-09-26T09:23:40.208Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：服务与健康",
+    "sha256": "1ac97dd36e54a0990a2957e499d835296858dc709f9ab13ec57bef48d0b11132",
+    "bytes": 110749,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "42-advanced-discovery",
+    "file": "screenshots/42-advanced-discovery.jpg",
+    "time_utc": "2026-09-26T09:23:52.756Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：榜单发现",
+    "sha256": "9e21183ea25297ceb2c3c77927d1d7f9bc8ffb50855a6ad43d8446feb8d345ef",
+    "bytes": 73756,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "43-advanced-ai",
+    "file": "screenshots/43-advanced-ai.jpg",
+    "time_utc": "2026-09-26T09:24:04.236Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "显示预算和私密引用等诊断字段；不表示本轮模型连通测试成功。",
+    "title": "高级诊断：解析与 AI",
+    "sha256": "d98bb2822e7f92fc097517c608c2b164bc180a23e91abd63f75cda7e6403baf0",
+    "bytes": 63114,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "44-private-input",
+    "file": "screenshots/44-private-input.jpg",
+    "time_utc": "2026-09-26T09:24:16.621Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "空白私密输入表单；没有写入或轮换任何凭据。",
+    "title": "私密凭据写入：空白表单",
+    "sha256": "d82c35416d66828fd25b9b41d65c5e2441095982e0eaeb21924605c6aecefd19",
+    "bytes": 73538,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "45-advanced-migration",
+    "file": "screenshots/45-advanced-migration.jpg",
+    "time_utc": "2026-09-26T09:24:16.970Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际页面展示；本轮未保存配置或提交业务变更。",
+    "title": "高级诊断：整合迁移",
+    "sha256": "c83448bc8d68003ec649689ddd3024fb6f3efed90f0712d98f97366a98c5d1dc",
+    "bytes": 78123,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "46-migration-forms",
+    "file": "screenshots/46-migration-forms.jpg",
+    "time_utc": "2026-09-26T09:24:41.969Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "仅展开迁移表单，没有导入、停旧实例、激活或回退。",
+    "title": "迁移：离线导入与唯一处理者表单",
+    "sha256": "2a7b5acba7650a2e1d3fa7e930e58aedca084a34c487b36113e302b9e896dab6",
+    "bytes": 92571,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "47-native-directory-picker",
+    "file": "screenshots/47-native-directory-picker.jpg",
+    "time_utc": "2026-09-26T09:25:23.269Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "只读浏览 MP 容器目录；没有选择目录或创建目录，不是云盘文件树。",
+    "title": "MoviePilot 原生目录选择器",
+    "sha256": "6138df0d4a3b4e35fc9f6af9975eff28be322ba94f1d7d28e69958741d36750a",
+    "bytes": 56801,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "48-config-ai-references",
+    "file": "screenshots/48-config-ai-references.jpg",
+    "time_utc": "2026-09-26T09:25:42.214Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "显示服务端私密引用，不是密钥值。",
+    "title": "AI 名称辅助：密钥引用列表",
+    "sha256": "2ac762271728a028dd9fbb5f31731a64c513f47df9269a007c2ee0c3c51265be",
+    "bytes": 57429,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "49-config-custom-route",
+    "file": "screenshots/49-config-custom-route.jpg",
+    "time_utc": "2026-09-26T09:29:16.736Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "只切换表单显示方式，没有添加来源或保存。",
+    "title": "榜单与 RSS：自定义地址/路由入口",
+    "sha256": "6eb64140328004fdaa9af45dd5c87049e05065e50e040a4d584e4fbfb4c28d79",
+    "bytes": 68263,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  },
+  {
+    "id": "50-host-entry",
+    "file": "screenshots/50-host-entry.jpg",
+    "time_utc": "2026-09-26T09:29:58.120Z",
+    "surface": "isolated MoviePilot V3; real persisted test data",
+    "viewport": {
+      "dpr": 2,
+      "height": 884,
+      "width": 1309
+    },
+    "note": "实际卡片菜单；可从“查看数据”进工作台、“设置”进配置。",
+    "title": "MoviePilot 宿主插件卡片菜单",
+    "sha256": "3142846a45e04b01d7ad6a0c1e844f914794e4de8afedcab6faefbf215939544",
+    "bytes": 99874,
+    "image_dimensions": {
+      "width": 1241,
+      "height": 884
+    },
+    "mime_type": "image/jpeg",
+    "saved_file_visually_inspected": true
+  }
+]

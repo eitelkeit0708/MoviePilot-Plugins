@@ -1,0 +1,54 @@
+{
+  "product_commit": "658e6d1535636ae40797a6a4dd42594d5edfe4c6",
+  "repository_baseline_commit": "132c3121d3e7be283e9c9da73c0b42a508869d02",
+  "environment": "existing isolated MoviePilot V3; dark theme; persisted historical test data",
+  "scope": {
+    "business_pages": 5,
+    "configuration_groups": 11,
+    "advanced_domain_entry_pages": 9,
+    "screenshots": 50
+  },
+  "final_readonly_probe": {
+    "observed_at": "2026-09-26T09:30:47.694563+00:00",
+    "configuration_http": 200,
+    "diagnostics_http": 200,
+    "revision": 271,
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "errors": []
+  },
+  "actions": {
+    "deterministic_policy_simulations": 1,
+    "configuration_saves": 0,
+    "adoptions": 0,
+    "source_fetch_tests_submitted": 0,
+    "source_runs_submitted": 0,
+    "downloads_started": 0,
+    "reconciliations_submitted": 0,
+    "cancellations_submitted": 0,
+    "deletions": 0,
+    "credential_writes": 0,
+    "migration_mutations": 0
+  },
+  "not_covered": [
+    "all rows and nested advanced resource pages",
+    "all success and failure outcomes",
+    "new blank installation",
+    "mobile",
+    "light theme",
+    "contrast measurement",
+    "screen reader",
+    "complete keyboard focus traversal",
+    "mouse navigation acceptance",
+    "live end-to-end media acquisition and ingestion"
+  ],
+  "capture_notes": [
+    "Original viewport JPEGs; no crops, composites or visual modifications.",
+    "Interface returned JPEG bytes; initial .png filenames corrected to .jpg without changing bytes.",
+    "DOM CSS viewport and image dimensions reported separately.",
+    "Repeated capture of 03 kept only the final saved image entry.",
+    "Historical test attachments are not new product scope."
+  ],
+  "probe_stderr": "SSH sudo reported host-name resolution warning; read-only API probe nevertheless returned both HTTP 200 results."
+}
