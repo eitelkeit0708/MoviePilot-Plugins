@@ -49,6 +49,42 @@ class ManagementTests(unittest.TestCase):
         with self.assertRaises(Exception) as error:ui.tasks(limit=25,offset=0,state=None,media_type=None,sort='id',user=None)
         self.assertEqual(503,error.exception.status_code)
 
+    def test_connection_probe_reuses_provider_and_distinguishes_cache_without_returning_model_content(self):
+        import asyncio
+        ui=load('ui');views=ui.Views(self.plugin);calls=[]
+        request=ui.Fence(config_revision=self.config.view()['revision'],runtime_generation=4)
+        with self.assertRaises(Exception) as error:asyncio.run(views.ai_probe(request,user=None))
+        self.assertEqual(409,error.exception.status_code)
+        result=SimpleNamespace(identity={'name':'PRIVATE_MODEL_OUTPUT'},source='api',attempts=1,reason='accepted',elapsed_ms=25)
+        self.plugin.ai=SimpleNamespace(live=lambda:True,extract=lambda *a,**k:(calls.append((a,k)) or result))
+        answer=asyncio.run(views.ai_probe(request,user=None))
+        self.assertEqual('MODEL_RESPONDED',answer.state)
+        self.assertNotIn('PRIVATE_MODEL_OUTPUT',answer.model_dump_json())
+        self.assertEqual('ui-connection-probe-v1',calls[0][1]['parser_revision'])
+        result.source='cache';result.attempts=0
+        self.assertEqual('CACHED',asyncio.run(views.ai_probe(request,user=None)).state)
+
+    def test_mapping_check_reads_real_strm_while_ordinary_work_is_off_and_keeps_database_unchanged(self):
+        import asyncio
+        ui=load('ui');archive=load('archive');root=Path(self.tmp.name)/'strm';root.mkdir()
+        (root/'test.strm').write_text('/playback/media/test.mkv',encoding='utf-8')
+        rule=dict(id='map',revision='r',emby_service='emby',library_id='library',cloud_scope_id='test',local_strm_prefix=str(root),emby_prefix='/emby',playback_prefix='/playback',cd2_prefix='/115')
+        raw=dict(Name='真实样本',Path='/emby/test.strm',MediaSources=[dict(Path='/emby/test.strm')],Password='PRIVATE_SENTINEL')
+        with self.repo.connection(write=True) as db:
+            db.execute("INSERT INTO archive_scans VALUES('scan','emby','library','COMPLETE','{}')")
+            db.execute('INSERT INTO archive_scan_items VALUES(?,?,?,NULL)',('scan','item',json.dumps(raw)))
+        class Stages:
+            async def run(self,fn):return fn()
+        self.plugin.runtime=SimpleNamespace(lock=threading.RLock(),busy=False,config=self.plugin.config,candidates=SimpleNamespace(deadline=None),stages=Stages(),delivery=SimpleNamespace(archive=SimpleNamespace(mappings=archive.Mappings([rule]))),check=lambda:self.fail('ordinary execution must remain off'))
+        views=ui.Views(self.plugin)
+        rows=views.archive_scan_items('scan',user=None)
+        self.assertEqual('真实样本',rows.items[0].data['name']);self.assertNotIn('PRIVATE_SENTINEL',rows.model_dump_json())
+        with self.repo.connection() as db:before=list(db.iterdump())
+        answer=asyncio.run(views.mapping_test(ui.MappingTest(config_revision=self.config.view()['revision'],runtime_generation=4,scan_id='scan',item_id='item',mapping_id='map'),user=None))
+        self.assertEqual('MAPPING_VERIFIED',answer.state)
+        self.assertEqual('/115/media/test.mkv',answer.result['locations'][0]['cd2_path'])
+        with self.repo.connection() as db:self.assertEqual(before,list(db.iterdump()))
+
     def test_tasks_expose_media_names_and_filter_without_exporting_snapshot(self):
         ui=load('ui').Views(self.plugin)
         row=self.repo.submit('human',self.r.Target('电视剧','themoviedb','24',1),
@@ -61,6 +97,33 @@ class ManagementTests(unittest.TestCase):
         self.assertNotIn('/private/test',page.model_dump_json())
         self.assertEqual('GATE24 内格力',ui.task(row['id'],user=None).task.title)
         self.assertEqual(0,ui.tasks(query="%' OR 1=1 --",user=None).total)
+
+    def test_episode_pagination_is_numeric_and_keeps_current_and_inflight_facts_separate(self):
+        ui=load('ui').Views(self.plugin)
+        target=self.r.Target('电视剧','themoviedb','42',1)
+        task=self.repo.submit('episodes',target,{'name':'作品'},'test')
+        keys=[json.dumps(['电视剧','themoviedb','42',1,'',i],ensure_ascii=False,separators=(',',':')) for i in range(1,31)]
+        with self.repo.connection(write=True) as db:
+            for key in reversed(keys):
+                db.execute('INSERT INTO target_units(target_key,task_id,identity,current_facts) VALUES(?,?,?,?)',
+                    (key,task['id'],key,json.dumps({'state':'PRESENT','versions':[{'reliable':True,'raw':{'technical':{'resolution':1080}}}]})))
+            db.execute("INSERT INTO opportunities(id,task_id,scope,mode,state,config,created_at,updated_at) VALUES(?,?,'[]','CONTINUOUS','ACTIVE','{}',?,?)",('round',task['id'],NOW.isoformat(),NOW.isoformat()))
+            snap={'targets':{keys[0]:{'action':'QUALITY_UPGRADE','reason':'QUALITY_UPGRADE'}},'candidate_key':'candidate',
+                  'torrent_files':[{'index':0,'path':'Series.S01E01.2160p.mkv','role':'video','targets':[keys[0]]}],
+                  'selected_indices':[0],'password':'PRIVATE_SENTINEL'}
+            db.execute("INSERT INTO plans(id,opportunity_id,task_id,snapshot,authorization,transfer_phase,created_at) VALUES(?,?,?,?,?,?,?)",('upgrade','round',task['id'],json.dumps(snap),'ACTIVE','RAPID_WAIT',NOW.isoformat()))
+            db.execute("INSERT INTO plan_targets(plan_id,target_key,state,action,transfer_phase) VALUES(?,?,'ACTIVE','QUALITY_UPGRADE','RAPID_WAIT')",('upgrade',keys[0]))
+            db.execute("UPDATE target_units SET owner_plan_id='upgrade' WHERE target_key=?",(keys[0],))
+        with self.repo.connection() as db:before='\n'.join(db.iterdump())
+        one=ui.task(task['id'],limit=25,offset=0,user=None)
+        two=ui.task(task['id'],limit=25,offset=25,user=None)
+        self.assertEqual(list(range(1,31)),[json.loads(u.target_key)[5] for u in one.units.items+two.units.items])
+        unit=one.units.items[0]
+        self.assertEqual(1080,unit.current_facts['versions'][0]['raw']['technical']['resolution'])
+        self.assertEqual('RAPID_WAIT',unit.processing['phase'])
+        self.assertEqual(['Series.S01E01.2160p.mkv'],unit.processing['files'])
+        self.assertNotIn('PRIVATE_SENTINEL',one.model_dump_json())
+        with self.repo.connection() as db:self.assertEqual(before,'\n'.join(db.iterdump()))
 
     def test_task_summary_counts_all_targets_and_read_does_not_write(self):
         ui=load('ui').Views(self.plugin)

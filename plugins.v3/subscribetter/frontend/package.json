@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build --config ../vite.config.mjs",
-    "test": "node --test --test-isolation=none test/*.test.mjs"
+    "test": "node --test --test-isolation=none test/*.test.mjs",
+    "dev": "vite --config dev/vite.config.mjs"
   },
   "dependencies": {
     "@noble/hashes": "1.8.0",

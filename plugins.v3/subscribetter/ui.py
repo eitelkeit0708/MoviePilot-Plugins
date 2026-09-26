@@ -5,6 +5,7 @@ import json
 import sqlite3
 import time
 import inspect
+import asyncio
 from functools import wraps
 from typing import Annotated, Generic, Literal, TypeVar
 from uuid import uuid4
@@ -75,6 +76,7 @@ class Unit(Strict):
     current_facts:JsonValue
     last_ingest_confirmed_at:str|None
     cooldown_until:str|None
+    processing:dict[str,JsonValue]|None=None
 
 
 class Row(Strict):
@@ -502,12 +504,31 @@ class Views:
         now=utcnow()
         return self._page('tasks',Task,self._task,source=source,select='t.*,u.targets,u.present,u.confirmed,u.processing,u.resolutions,u.cooldown_until,b.observation_until',where=where,args=(now,now,*args),order='t.'+sort+',t.id',limit=limit,offset=offset)
 
+    @staticmethod
+    def _unit(r):
+        value={k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields if k!='processing'}
+        value['processing']=None
+        if r['owner_plan_id']:
+            snapshot=json.loads(r['plan_snapshot'] or '{}')
+            target=snapshot.get('targets',{}).get(r['target_key'],{})
+            selected=set(snapshot.get('selected_indices',[]))
+            files=[f.get('path','').rsplit('/',1)[-1] for f in snapshot.get('torrent_files',[])
+                   if f.get('index') in selected and r['target_key'] in f.get('targets',[]) and f.get('role')=='video']
+            value['processing']=public(dict(plan_id=r['owner_plan_id'],phase=r['target_phase'] or r['plan_phase'] or 'UNKNOWN',
+                state=r['target_state'] or 'UNKNOWN',action=target.get('action'),reason=target.get('reason'),files=files[:20],
+                started_at=r['plan_created_at']))
+        return value
+
     def task(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->TaskDetail:
         self._auth(user);task=self._one('tasks','id',task_id)
         with self.repository.connection() as db:
             life=db.execute('SELECT * FROM task_lifecycle WHERE task_id=?',(task_id,)).fetchone();snap=self.snapshot(db)
         effective=self.repository.setting('runtime-task:'+str(task_id))
-        units=self._page('target_units',Unit,lambda r:{k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields},source='target_units u LEFT JOIN task_lifecycle l ON l.task_id=u.task_id',select='u.*',where='u.task_id=? AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))',args=(task_id,),order='u.target_key',limit=limit,offset=offset)
+        units=self._page('target_units',Unit,self._unit,
+            source='target_units u LEFT JOIN task_lifecycle l ON l.task_id=u.task_id LEFT JOIN plans p ON p.id=u.owner_plan_id AND p.task_id=u.task_id LEFT JOIN plan_targets pt ON pt.plan_id=p.id AND pt.target_key=u.target_key',
+            select='u.*,p.snapshot plan_snapshot,p.transfer_phase plan_phase,p.created_at plan_created_at,pt.transfer_phase target_phase,pt.state target_state',
+            where='u.task_id=? AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))',args=(task_id,),
+            order="CASE WHEN json_valid(u.target_key) THEN CAST(json_extract(u.target_key,'$[3]') AS INTEGER) END, CASE WHEN json_valid(u.target_key) THEN CAST(json_extract(u.target_key,'$[5]') AS INTEGER) END,u.target_key",limit=limit,offset=offset)
         return TaskDetail(task=self._task_page(where='t.id=?',args=(task_id,),limit=1).items[0],lifecycle=self.row(dict(life))['data'] if life else None,
             effective=public(effective) if effective else None,units=units,opportunities=self.rows('opportunities',where='task_id=?',args=(task_id,),order='created_at,id'),
             plans=self.rows('plans',where='task_id=?',args=(task_id,),order='created_at,id'),snapshot=snap)
@@ -561,8 +582,8 @@ class Views:
     def archive_scan_items(self,scan_id:Id,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);scan=self._one('archive_scans','id',scan_id)
         return self._page('archive_scan_items',Row,lambda r:dict(id=r['item_id'],state='PROCESSED' if r['resolved'] else 'PENDING',revision='',
-            data=public(dict(scan_id=scan_id,item_id=r['item_id'],service=scan['service'],library=scan['library']))),
-            select='item_id,resolved IS NOT NULL AS resolved',where='scan_id=?',args=(scan_id,),order='item_id',limit=limit,offset=offset)
+            data=public(dict(scan_id=scan_id,item_id=r['item_id'],service=scan['service'],library=scan['library'],name=r['name'],episode=r['episode']))),
+            select="item_id,resolved IS NOT NULL AS resolved,COALESCE(json_extract(data,'$.item.Name'),json_extract(data,'$.Name')) AS name,COALESCE(json_extract(data,'$.item.IndexNumber'),json_extract(data,'$.IndexNumber')) AS episode",where='scan_id=?',args=(scan_id,),order='item_id',limit=limit,offset=offset)
 
     def version(self,version_id:Id,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->VersionDetail:
         self._auth(user);r=self._one('archive_versions','id',version_id)
@@ -690,6 +711,16 @@ class Views:
             provider=public({k:v for k,v in state.items() if k not in ('prompt','prompt_backup','prompt_previous_backup')}),runtime=public(p.ai.stats()) if p.ai else None,
             prompt=c.prompt,prompt_backup=c.prompt_backup,prompt_previous_backup=c.prompt_previous_backup,
             meta=public(p.meta_patch.diagnostics()) if hasattr(p,'meta_patch') else {'state':'UNAVAILABLE'},bridge=c.name_recognize_bridge,errors=p.ai_errors)
+
+    async def ai_probe(self,request:Fence,user:TokenPayload=Depends(verify_token))->ActionResult:
+        self._auth(user);self.fence(request);service=self.plugin.ai
+        if not service or not service.live():raise HTTPException(409,'AI_DISABLED')
+        # Reuse the real bounded provider, cooldown, cache and ownership gate.
+        # No identity is submitted to MoviePilot or the subscription pipeline.
+        result=await asyncio.to_thread(service.extract,'The Matrix 1999 1080p WEB-DL',parser_revision='ui-connection-probe-v1')
+        self.fence(request)
+        state='MODEL_RESPONDED' if result.identity and result.source=='api' and result.attempts>0 else 'CACHED' if result.source in ('cache','coalesced') else 'NOT_VERIFIED'
+        return ActionResult(state=state,result=dict(reason=result.reason,source=result.source,attempts=result.attempts,elapsed_ms=result.elapsed_ms))
 
     def diagnostics(self,user:TokenPayload=Depends(verify_token))->Health:
         self._auth(user);p=self.plugin
@@ -1130,6 +1161,7 @@ class Views:
         return await self.run(request,user,action)
 
     async def mapping_test(self,request:MappingTest,user:TokenPayload=Depends(verify_token))->ActionResult:
+        locations=[]
         def action(runtime):
             if not runtime.delivery:raise ValueError('ARCHIVE_UNAVAILABLE')
             archive=runtime.delivery.archive;scan=self._one('archive_scans','id',request.scan_id)
@@ -1143,9 +1175,14 @@ class Views:
                 rule,internal,check=archive.mappings.resolve(scan['service'],scan['library'],item_path,path)
                 if rule['id']!=request.mapping_id:raise ValueError('MAPPING_SCOPE_CHANGED')
                 proof.append(dict(mapping_id=rule['id'],mapping_revision=archive.mappings.revision,raw_hash=check,internal_path_ref=digest(internal)))
+                # Exact paths are limited to this administrator-requested, scoped
+                # mapping check, like the existing immutable cleanup confirmation.
+                locations.append(dict(emby_path=item_path,local_strm_path=check.get('path') if check else None,cd2_path=internal))
             if not proof:raise ValueError('MEDIA_SOURCES_INCOMPLETE')
             return dict(state='MAPPING_VERIFIED',steps=proof)
-        return await self.run(request,user,action)
+        result=await self.run(request,user,action,ordinary=False)
+        result.result['locations']=locations
+        return result
 
     async def health_reconcile(self,request:Reconcile,user:TokenPayload=Depends(verify_token))->ActionResult:
         def action(runtime):
@@ -1258,4 +1295,5 @@ class Views:
         for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:
             routes.append(dict(path=path,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))
         for route in routes:route['endpoint']=self.boundary(route['endpoint'])
+        routes.append(dict(path='/ai/connection-test',methods=['POST'],endpoint=self.boundary(self.ai_probe),response_model=ActionResult,auth='bear',route_class_override=PrivateRoute))
         return routes

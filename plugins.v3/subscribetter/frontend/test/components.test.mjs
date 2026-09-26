@@ -23,7 +23,7 @@ test('saved confirmation requires applied readback and disappears when a later r
 function fixture(component,{get,post,extra={}}={}){const calls=[];const config=structuredClone(contract.defaults);const current={revision:4,digest:'a'.repeat(64),config};const health={generation:6,dry_run:true,ordinary_work_active:false,safety_active:true,errors:[],snapshot:{config_revision:4,runtime_generation:6}};const api={get:async(p,o)=>{calls.push(['get',p,o]);if(get)return get(p,o,current,health);if(p.endsWith('/configuration'))return current;if(p.endsWith('/diagnostics'))return health;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],total:0,next_offset:null,truncated:false,snapshot:{config_revision:4,runtime_generation:6,high_watermark:'0'}}},post:async(p,b)=>{calls.push(['post',p,b]);return post?post(p,b):{valid:true,errors:[],config:{...config,configuration_receipt:'p'}}}};const saves=[];const root={children:[]};const app=renderer.createApp(component,{api,pluginId:'Clone',sourcePluginId:'SubscriBetter',initialConfig:{...config,password:'SENTINEL'},...extra,onSave:x=>saves.push(x)});app.config.warnHandler=()=>{};app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);return {root,app,calls,saves,current}}
 test('actual Config mount and save omit private initial fields; number controls send numbers; emit once without PUT',async()=>{
  const f=fixture(Config);await settle();assert.equal(f.calls.filter(c=>c[1].endsWith('/configuration')).length,1);
- const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影期限'))[0];const number=walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0];assert.ok(number);number.props.onInput({target:{value:'9'}});await settle();
+ const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];const number=walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0];assert.ok(number);number.props.onInput({target:{value:'9'}});await settle();
  const save=walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0];assert.ok(save);await save.props.onClick();await settle();assert.equal(f.saves.length,1);assert.ok(!JSON.stringify(f.saves).includes('SENTINEL'));assert.ok(!JSON.stringify(f.calls.filter(c=>c[0]==='post')).includes('SENTINEL'));assert.equal(f.calls.find(c=>c[0]==='post')[2].patch.lifecycle.movie_days,9);assert.ok(f.calls.filter(c=>c[0]==='post').every(c=>c[1].endsWith('/configuration/preview')));await save.props.onClick();assert.equal(f.saves.length,1);f.app.unmount();
 });
 test('Config navigation shows only the selected group and preserves unsaved edits across groups',async()=>{
@@ -37,12 +37,12 @@ test('Config navigation shows only the selected group and preserves unsaved edit
    assert.equal(visible.length,1,text(button));
    assert.equal(walk(visible[0],n=>n.type==='h3')[0].text,text(button));
    if(text(button)==='生命周期'){
-    const lifetime=walk(visible[0],n=>n.type==='label'&&text(n).includes('电影期限'))[0];
+    const lifetime=walk(visible[0],n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];
     walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.onInput({target:{value:'9'}});await settle();
    }
   }
   walk(nav,n=>n.type==='button'&&text(n)==='生命周期')[0].props.onClick();await settle();
-  const lifetime=walk(content,n=>n.type==='label'&&text(n).includes('电影期限'))[0];
+  const lifetime=walk(content,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];
   assert.equal(walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.value,9);
   assert.equal(f.calls.filter(c=>c[0]==='post').length,0);
  }finally{f.app.unmount()}
@@ -165,6 +165,29 @@ test('library picker preserves unavailable choices and removes only the explicit
  try{await settle();assert.equal(updates.length,0);assert.ok(text(f.root).includes('名称暂不可用'));assert.ok(!text(f.root).includes('533550'));const retry=walk(f.root,n=>n.type==='button'&&text(n)==='重试读取')[0];fail=false;await retry.props.onClick();await settle();assert.ok(text(f.root).includes('测试电影'));assert.ok(text(f.root).includes('新增服务'));assert.ok(!text(f.root).includes('暂时无法读取 Emby 服务'));walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.onChange({target:{checked:false}});assert.deepEqual(updates[0],{active:['keep']});assert.deepEqual(modelValue,{retired:['533550'],active:['keep']})}finally{f.app.unmount()}
 });
 
+test('saved source test stays inline and sends only the selected source without an object editor',async()=>{
+ const f=fixture(Page,{get:async(p,o,c,h)=>{
+  if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;
+  if(p.endsWith('/discovery/sources'))return {items:[{source_id:'weekly',last_state:'OK',config:{name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}}],total:1,next_offset:null};
+  return {items:[],total:0,next_offset:null,result:{},categories:[]};},post:async()=>({items:12,state:'SUCCESS'})});await settle();
+ try{walk(f.root,n=>n.type==='button'&&text(n)==='发现')[0].props.onClick();await settle();
+  await walk(f.root,n=>n.type==='button'&&text(n)==='测试抓取')[0].props.onClick();await settle();
+  const writes=f.calls.filter(c=>c[0]==='post');assert.equal(writes.length,1);assert.deepEqual(writes[0].slice(1),['plugin/Clone/discovery/test',{source_id:'weekly'}]);
+  assert.ok(text(f.root).includes('抓取 12 条'));assert.ok(!text(f.root).includes('条目名称（精确配置引用）'));
+ }finally{f.app.unmount()}
+});
+
+test('opening a subscription uses a full-width detail and returning retains list filters',async()=>{
+ const task={id:3,title:'GATE24',state:'ACTIVE',generation:2};const client={get:async p=>p==='/tasks'?{items:[task],total:1,next_offset:null}:p==='/tasks/3'?{task,units:{items:[],total:0,next_offset:null},opportunities:{items:[]}}:{items:[]}};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({}),error:ref('')}}});await settle();
+ try{walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].props['onUpdate:modelValue']('GATE24');
+  await walk(f.root,n=>n.type==='button'&&n.props.class==='sb-subscription-card')[0].props.onClick();await settle();
+  const list=walk(f.root,n=>n.props?.['aria-label']==='作品列表')[0];assert.equal(list.style.display,'none');
+  walk(f.root,n=>n.type==='button'&&text(n)==='返回列表')[0].props.onClick();await settle();
+  assert.notEqual(list.style.display,'none');assert.equal(walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].value,'GATE24');
+ }finally{f.app.unmount()}
+});
+
 test('basic settings update typed choices and protected names while keeping the rest of the saved draft',async()=>{
  const f=fixture(Config);await settle();try{
   const basic=walk(f.root,n=>n.type==='section'&&n.props?.['aria-label']==='基本设置与自动接管')[0];
@@ -177,4 +200,29 @@ test('cleanup confirmation visibly names exact immutable locations and retained 
  const preview={kind:'cleanup',preview_id:'p',preview_digest:'d',objects:{scope:'monitor',locations:['/local/media/video.mkv'],files:[{file_index:0,relative_path:'video.mkv'}]},permissions:{cleanup_success:true},blockers:[]};
  const f=fixture(Action,{extra:{action:['清理','/delivery/{bundle_id}/cleanup/preview'],context:{_bound:true,bundle_id:'b',revision:1,scope:'monitor',reason:'ADMIN_CLEANUP'},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')},client:{post:async()=>preview}}});
  try{await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='核对操作')[0].props.onClick();await settle();const shown=walk(f.root,n=>n.type==='section'&&n.props.class==='sb-confirm-scope')[0];assert.ok(shown);assert.ok(text(shown).includes('/local/media/video.mkv'));assert.ok(text(shown).includes('保留 115 文件与下载器任务'));assert.equal(walk(shown,n=>n.type==='details').length,0)}finally{f.app.unmount()}
+});
+
+test('duration units change presentation without rounding or converting null to zero',async()=>{
+ const {default:Quantity}=await import(pathToFileURL(path.join(out,'Quantity.mjs')));const changes=[];
+ const f=fixture(Quantity,{extra:{label:'等待',modelValue:61,'onUpdate:modelValue':v=>changes.push(v)}});await settle();
+ try{const input=walk(f.root,n=>n.type==='input')[0],units=walk(f.root,n=>n.type==='select')[0];assert.equal(input.value,61);units.props['onUpdate:modelValue'](60);await settle();assert.equal(changes.length,0);assert.equal(input.value,61/60);input.props.onInput({target:{value:'1.5'}});assert.equal(changes.at(-1),90);input.props.onInput({target:{value:''}});assert.equal(changes.at(-1),null)}finally{f.app.unmount()}
+});
+
+test('site choices preserve unavailable IDs and never expose cookie fields',async()=>{
+ const {default:SitePicker}=await import(pathToFileURL(path.join(out,'SitePicker.mjs')));const changes=[];const saved=[9,42];
+ const f=fixture(SitePicker,{extra:{api:{get:async()=>[{id:9,name:'OurBits',cookie:'COOKIE_SENTINEL'}]},modelValue:saved,'onUpdate:modelValue':v=>changes.push(v)}});await settle();
+ try{assert.ok(text(f.root).includes('OurBits'));assert.ok(text(f.root).includes('名称暂不可用'));assert.ok(!text(f.root).includes('COOKIE_SENTINEL'));assert.ok(!text(f.root).includes('42'));walk(f.root,n=>n.type==='input')[0].props.onChange({target:{checked:false}});assert.deepEqual(changes,[[42]]);assert.deepEqual(saved,[9,42])}finally{f.app.unmount()}
+});
+
+test('AI credentials enter the draft by reference while partial failure preserves existing keys',async()=>{
+ const {default:AISettings}=await import(pathToFileURL(path.join(out,'AISettings.mjs')));const changes=[],writes=[];const old='secret:'+'b'.repeat(32),fresh='secret:'+'a'.repeat(32);
+ const modelValue={...contract.defaults.ai_assist,credential_refs:[old]};const f=fixture(AISettings,{extra:{modelValue,base:{revision:4,digest:'d'},client:{post:async(p,b)=>{writes.push([p,b]);if(b.kind==='key')throw {status:503};return {reference:fresh}}},'onUpdate:modelValue':v=>changes.push(v)}});await settle();
+ try{const inputs=walk(f.root,n=>n.type==='input'&&n.props.type==='password');inputs[0].props['onUpdate:modelValue']('https://ai.test/v1');inputs[1].props['onUpdate:modelValue']('KEY_SENTINEL');await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='应用连接信息到草稿')[0].props.onClick();await settle();assert.equal(writes.length,2);assert.equal(writes[0][1].revision,4);assert.equal(changes.at(-1).endpoint_ref,fresh);assert.deepEqual(changes.at(-1).credential_refs,[old]);assert.ok(!JSON.stringify(changes).includes('KEY_SENTINEL'));assert.equal(inputs[1].value,'');assert.ok(text(f.root).includes('已成功写入的部分保留'))}finally{f.app.unmount()}
+});
+
+test('mapping checks send the selected persisted sample and refuse an unsaved mapping',async()=>{
+ const {default:MappingCheck}=await import(pathToFileURL(path.join(out,'MappingCheck.mjs')));const writes=[];
+ const f=fixture(MappingCheck,{extra:{saved:true,mapping:{id:'m',emby_service:'Emby',library_id:'library'},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')},client:{get:async p=>p.startsWith('/health/')?{items:[{id:'scan',state:'COMPLETE',data:{service:'Emby',library:'library'}}],next_offset:null}:{items:[{id:'item',data:{name:'测试媒体'}}],next_offset:null},post:async(p,b)=>{writes.push([p,b]);return {state:'MAPPING_VERIFIED',result:{locations:[]}}}}}});await settle();
+ try{await walk(f.root,n=>n.type==='button'&&text(n)==='读取此媒体库的扫描样本')[0].props.onClick();await settle();const scans=walk(f.root,n=>n.type==='select')[0];scans.props['onUpdate:modelValue']('scan');scans.props.onChange();await settle();walk(f.root,n=>n.type==='select')[1].props['onUpdate:modelValue']('item');await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='检查这条映射')[0].props.onClick();assert.deepEqual(writes,[['/archive/mapping-test',{config_revision:4,runtime_generation:6,scan_id:'scan',item_id:'item',mapping_id:'m'}]])}finally{f.app.unmount()}
+ const unavailable=fixture(MappingCheck,{extra:{saved:false,mapping:{id:'m'},status:{error:ref('')},client:{get:async()=>assert.fail('unsaved check')}}});await settle();try{assert.equal(walk(unavailable.root,n=>n.type==='button'&&text(n)==='读取此媒体库的扫描样本')[0].props.disabled,true)}finally{unavailable.app.unmount()}
 });

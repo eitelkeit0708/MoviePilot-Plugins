@@ -1,5 +1,5 @@
 <script setup>
-import {ref,computed,onMounted,onBeforeUnmount} from 'vue';
+import {ref,computed,onMounted,onBeforeUnmount,provide} from 'vue';
 import Status from './Status.vue';import Resource from './Resource.vue';import Action from './Action.vue';import Migration from './Migration.vue';import PrivateInput from './PrivateInput.vue';import Record from './Record.vue';
 import {createClient} from './client.mjs';import {useStatus} from './status.mjs';import {views} from './catalog.mjs';
 import './style.css';
@@ -9,9 +9,9 @@ const props=defineProps({api:{type:Object,required:true},pluginId:{type:String,r
 const emit=defineEmits(['close','switch','layout','action']);
 const client=createClient(props.api,props.pluginId,props.sourcePluginId),status=useStatus(client);
 const selected=ref('tasks'),resource=ref(views[0].resources[0]),resourceKey=ref(0),resourceComponent=ref(null),action=ref(null),context=ref({}),trail=ref([]);
-const section=ref('subscriptions'),advanced=ref(false);
+const section=ref('subscriptions'),advanced=ref(false),content=ref(null);provide('subscribetter:scroll',content);
 const sections=[['subscriptions','订阅','tasks'],['discovery','发现','discovery'],['delivery','传输与待处理','delivery'],['policy','策略','policy'],['settings','设置','health']];
-function navigate(item){section.value=item[0];advanced.value=false;choose(views.find(v=>v.id===item[2]))}
+function navigate(item){if(content.value)content.value.scrollTop=0;section.value=item[0];advanced.value=false;choose(views.find(v=>v.id===item[2]))}
 function configure(group){saveFollowup(props.pluginId,{...readFollowup(props.pluginId),group});emit('switch')}
 function invoke(a,c){context.value=c;action.value=a}
 function diagnostic(domain,ctx={}){advanced.value=true;choose(views.find(v=>v.id===domain));if(Array.isArray(ctx)){resource.value=ctx;context.value={...ctx[2]};return}if(domain==='candidates'&&ctx.task_id){resource.value=['此作品的候选比较','/candidate-decisions',{task_id:ctx.task_id}];context.value=ctx;return}if(domain==='tasks'&&ctx.task_id){resource.value=['作品处理依据','/tasks/{task_id}',ctx];context.value=ctx}}
@@ -27,7 +27,7 @@ onMounted(()=>{emit('layout',{maxWidth:'1280px'});status.refresh()});onBeforeUnm
 </script>
 <template><section class="sb-root sb-app" aria-label="subscriBetter 管理"><header class="sb-app-header"><div><strong>subscriBetter</strong></div><div class="sb-actions"><VBtn variant="text" @click="refresh">刷新</VBtn><VBtn variant="text" @click="advanced=!advanced">{{advanced?'返回工作台':'高级诊断'}}</VBtn><VBtn variant="text" @click="emit('close')">关闭</VBtn></div></header><Status :status="status"/>
  <nav class="sb-primary-nav" aria-label="主要功能"><button v-for="item in sections" :key="item[0]" :aria-current="!advanced&&section===item[0]" @click="navigate(item)">{{item[1]}}</button></nav>
- <Subscriptions v-if="!advanced&&section==='subscriptions'&&status.current.value&&status.health.value" ref="resourceComponent" :api="api" :client="client" :status="status" @diagnostic="diagnostic" @action="invoke" @changed="status.refresh()"/>
+ <main ref="content" class="sb-app-content"><Subscriptions v-if="!advanced&&section==='subscriptions'&&status.current.value&&status.health.value" ref="resourceComponent" :api="api" :client="client" :status="status" @diagnostic="diagnostic" @action="invoke" @changed="status.refresh()"/>
  <Discovery v-else-if="!advanced&&section==='discovery'" ref="resourceComponent" :client="client" :status="status" @configure="configure" @action="invoke" @diagnostic="diagnostic"/>
  <Transfers v-else-if="!advanced&&section==='delivery'" ref="resourceComponent" :client="client" :status="status" @action="invoke" @diagnostic="diagnostic"/>
  <PolicyOverview v-else-if="!advanced&&section==='policy'" ref="resourceComponent" :client="client" :status="status" @configure="configure"/>
@@ -43,5 +43,5 @@ onMounted(()=>{emit('layout',{maxWidth:'1280px'});status.refresh()});onBeforeUnm
  <div class="sb-actions"><button v-for="a in view.actions" :key="a[1]" :disabled="!status.current.value||!!status.error.value" @click="action=a">{{a[0]}}</button></div>
  <VBtn v-if="section==='settings'" color="primary" @click="emit('switch')">打开设置面板</VBtn>
  </template>
- <v-dialog :model-value="!!action" max-width="860" persistent @update:model-value="value=>{if(!value)action=null}"><Action v-if="action" :key="action[1]" :action="action" :client="client" :status="status" :context="context" @close="action=null" @changed="changed" @configure="action=null;emit('switch')"/></v-dialog>
+ </main><v-dialog :model-value="!!action" max-width="860" persistent @update:model-value="value=>{if(!value)action=null}"><Action v-if="action" :key="action[1]" :action="action" :client="client" :status="status" :context="context" @close="action=null" @changed="changed" @configure="action=null;emit('switch')"/></v-dialog>
 </section></template>
