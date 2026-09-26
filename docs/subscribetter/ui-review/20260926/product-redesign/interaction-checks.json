@@ -1,0 +1,42 @@
+{
+  "scrollBefore": [
+    {
+      "cls": "sb-app-content",
+      "height": 647,
+      "tag": "MAIN",
+      "top": 827.5
+    }
+  ],
+  "scrollAfter": {
+    "focus": "一瓯春2026 · 电视剧 · 第 1 季已知 30 集 · 在库 22160p等待新资源追踪中演练中，不执行下载交付查看详情 ›",
+    "scrolls": [
+      {
+        "cls": "sb-app-content",
+        "height": 647,
+        "tag": "MAIN",
+        "top": 827.5
+      }
+    ]
+  },
+  "zoom": {
+    "attempt": "ctrl+plus",
+    "observedChange": false,
+    "verified": false
+  },
+  "touchVerified": false,
+  "draftRefresh": {
+    "environment": "synthetic localhost",
+    "reloaded": true,
+    "restoredNotice": true,
+    "restoredPath": "/downloads/长中文目录/需要恢复的草稿",
+    "productionWrite": false
+  },
+  "ai": {
+    "environment": "isolated MoviePilot V3",
+    "model": "deepseek-flash",
+    "result": "MODEL_RESPONDED",
+    "requests": 1,
+    "productionEnabled": false,
+    "productCommit": "b6157957fb5b2233599793c392fc8867edd11c2b"
+  }
+}

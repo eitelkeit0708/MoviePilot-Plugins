@@ -1,0 +1,20 @@
+{
+  "time_utc": "2026-09-26T15:17:55.740014+00:00",
+  "commit": "30c0bd105e5c6800b1c94d806a342eaeaf67f9a8",
+  "exit_code": 0,
+  "records": [
+    {
+      "staged_commit": "30c0bd105e5c6800b1c94d806a342eaeaf67f9a8",
+      "staged_hash_verified": 169,
+      "test_service_index_entries_preserved": [
+        "CloudDriveDisk",
+        "P115Disk",
+        "SubscriBetterProbe"
+      ]
+    },
+    {
+      "install_http": 200,
+      "success": true
+    }
+  ]
+}

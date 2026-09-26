@@ -1,0 +1,486 @@
+{
+  "product_commit": "30c0bd105e5c6800b1c94d806a342eaeaf67f9a8",
+  "images": [
+    {
+      "path": "synthetic/10-shared-change.png",
+      "label": "实际共享字段修改影响",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2880,
+      "height": 1800,
+      "viewport": {},
+      "sha256": "a2b9f5e2619696df562e274a47438c8a48b7e550d34aec822a0b01573f8b3f66",
+      "bytes": 213306
+    },
+    {
+      "path": "synthetic/11-ai-unconfigured.png",
+      "label": "AI 未配置",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2880,
+      "height": 1800,
+      "viewport": {},
+      "sha256": "4d56ae1f5e19aa8a0b5499c07eab0eb89726775239d8f2e4127c91eb2ad79ed8",
+      "bytes": 266671
+    },
+    {
+      "path": "synthetic/12-ai-partial-save.png",
+      "label": "AI 私密写入部分成功",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2880,
+      "height": 1800,
+      "viewport": {},
+      "sha256": "b6a03af47cba9a122623b8735afa77679a8e2d59bf49d99a10b673a47409686a",
+      "bytes": 283399
+    },
+    {
+      "path": "synthetic/13-ai-saving.png",
+      "label": "AI 保存中",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2880,
+      "height": 1800,
+      "viewport": {},
+      "sha256": "9d0c22a36778b7acdfb042ac87cd3270bcb5f09c74754db8544835a0625adde0",
+      "bytes": 245492
+    },
+    {
+      "path": "synthetic/14-ai-configured.png",
+      "label": "AI 已配置待测试",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2880,
+      "height": 1800,
+      "viewport": {},
+      "sha256": "596c83db1b00afc73e17352b8868e1dcb9f4faa724906a3158c00e51b96df018",
+      "bytes": 262751
+    },
+    {
+      "path": "synthetic/15-ai-testing.png",
+      "label": "AI 测试中",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2880,
+      "height": 1800,
+      "viewport": {},
+      "sha256": "9d85c6688554edb32c5e19bbac9b60797fdb67c6874b578e14e5c592778aca87",
+      "bytes": 267958
+    },
+    {
+      "path": "synthetic/16-ai-test-failure.png",
+      "label": "AI 合成失败",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2880,
+      "height": 1800,
+      "viewport": {},
+      "sha256": "c0d53df88fc9f368ec53deec95ddc04e6e8fc3ade7f3e95a37a03bef4e9e1fca",
+      "bytes": 270500
+    },
+    {
+      "path": "synthetic/17-blank-required-fields.png",
+      "label": "空白方案缺项检查",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2560,
+      "height": 1440,
+      "viewport": {},
+      "sha256": "0a07ca14d5bca7f50ae2a69518d2f71fe2b0fce33493a15d3329d3fc872d8e1f",
+      "bytes": 203351
+    },
+    {
+      "path": "synthetic/18-mapping-long-paths-1280.png",
+      "label": "空白方案长路径",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2560,
+      "height": 1440,
+      "viewport": {},
+      "sha256": "3db7dde85e02a20595723f25f875ef3752eb923fed373cbc5b3131048bcac089",
+      "bytes": 186871
+    },
+    {
+      "path": "synthetic/19-blank-review-before-save.png",
+      "label": "空白方案保存前",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2560,
+      "height": 1440,
+      "viewport": {},
+      "sha256": "7e2d2fb75687d9f43bfdd65d232e5c008c42ceea6b8a17760bb221a7e95c9ce0",
+      "bytes": 212299
+    },
+    {
+      "path": "synthetic/20-blank-saved.png",
+      "label": "空白方案模拟保存完成",
+      "environment": "synthetic",
+      "source_boundary": "实现阶段，83df7c4 提交前的工作区快照",
+      "width": 2560,
+      "height": 1440,
+      "viewport": {},
+      "sha256": "013857ffa3c4dafa4ce8ffe12dc6c8fb0f8de7a0d183d348379e91e8d30fd1cf",
+      "bytes": 199113
+    },
+    {
+      "path": "synthetic/27-expanded-final.jpg",
+      "label": "1280 展开版本详情",
+      "environment": "synthetic",
+      "source_boundary": "c8d2165 实现阶段快照",
+      "width": 1265,
+      "height": 712,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "dpr": 1
+      },
+      "sha256": "e8dc0e3abe27059bda9cb58197156518899e5f763fa742ba2677b7d131e56212",
+      "bytes": 60740
+    },
+    {
+      "path": "synthetic/28-focused-mobile-final.jpg",
+      "label": "390 聚焦编辑",
+      "environment": "synthetic",
+      "source_boundary": "c8d2165 实现阶段快照",
+      "width": 375,
+      "height": 812,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "sha256": "74cedc38de7c74d41d286895fb2d57e052bdbf144cc09bedfa51e3291ea3189b",
+      "bytes": 27808
+    },
+    {
+      "path": "synthetic/29-leave-guard-final.jpg",
+      "label": "离开草稿保护",
+      "environment": "synthetic",
+      "source_boundary": "c8d2165 实现阶段快照",
+      "width": 375,
+      "height": 812,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "sha256": "ee8d44188714bc5d21577297131f6fac527ba0be86f0d0bb3459ff324b96d60c",
+      "bytes": 30819
+    },
+    {
+      "path": "synthetic/30-draft-restored.jpg",
+      "label": "返回恢复草稿",
+      "environment": "synthetic",
+      "source_boundary": "c8d2165 实现阶段快照",
+      "width": 375,
+      "height": 812,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "sha256": "bd4a30aa411c6a5fec7f61ea6c59d1cada09ba46da5fb4c271d640f7fd76a358",
+      "bytes": 30287
+    },
+    {
+      "path": "33-host-episodes.jpg",
+      "label": "真实档案分集",
+      "environment": "isolated-host",
+      "source_boundary": "c8d2165 / b615795 部署过渡期间，标签未刷新；非最终构建证明",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "59202f2045d1f8b36dae924dda915c1fe00c0559bb625b684f8179c06b0b1d93",
+      "bytes": 79567
+    },
+    {
+      "path": "34-host-candidate-summary.jpg",
+      "label": "真实候选部分摘要",
+      "environment": "isolated-host",
+      "source_boundary": "c8d2165 / b615795 部署过渡期间，标签未刷新；非最终构建证明",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "31c788ce03d4be887ff9eada11c87143e9e27efe2f462af620f68f49914be3ea",
+      "bytes": 67102
+    },
+    {
+      "path": "35-host-discovery.jpg",
+      "label": "发现",
+      "environment": "isolated-host",
+      "source_boundary": "c8d2165 / b615795 部署过渡期间，标签未刷新；非最终构建证明",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "4891b9ecbc8eda1dbb74cac19a60d2e2f16c569ea435fad21887d1c2d9d201eb",
+      "bytes": 52616
+    },
+    {
+      "path": "37-host-policy.jpg",
+      "label": "质量策略",
+      "environment": "isolated-host",
+      "source_boundary": "c8d2165 / b615795 部署过渡期间，标签未刷新；非最终构建证明",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "0fb58f5a137c74ddc0da18f29c475ca6b1a5e17c89e353579ff326a7dbaf4f4d",
+      "bytes": 65167
+    },
+    {
+      "path": "38-host-settings.jpg",
+      "label": "设置入口",
+      "environment": "isolated-host",
+      "source_boundary": "c8d2165 / b615795 部署过渡期间，标签未刷新；非最终构建证明",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "9ee9afd16c50d0d4add31d1f93cd007498785606e04003ecaa4f43ea4d7155ef",
+      "bytes": 69500
+    },
+    {
+      "path": "39-host-focused-plan.jpg",
+      "label": "聚焦方案",
+      "environment": "isolated-host",
+      "source_boundary": "c8d2165 / b615795 部署过渡期间，标签未刷新；非最终构建证明",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "f8d009316a6d5ddb01e35ca00b93991699e585d2dcfaafc35b5c65b2c1bbf496",
+      "bytes": 53403
+    },
+    {
+      "path": "41-host-mobile-plan.jpg",
+      "label": "390 宿主路径表单",
+      "environment": "isolated-host",
+      "source_boundary": "c8d2165 / b615795 部署过渡期间，标签未刷新；非最终构建证明",
+      "width": 390,
+      "height": 844,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "sha256": "29eb89a077069e9421ea6a0cf9cd905b07d5350611ba492fc13456b93e98665b",
+      "bytes": 41433
+    },
+    {
+      "path": "42-host-ai-configured.jpg",
+      "label": "真实 AI 已配置",
+      "environment": "isolated-host",
+      "source_boundary": "b615795",
+      "width": 1270,
+      "height": 714,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "dpr": 1
+      },
+      "sha256": "5b830f8bbabe36c592f6fdd0629152f2b87e9d27a12080697ec211ad4f12fe69",
+      "bytes": 50638
+    },
+    {
+      "path": "43-host-ai-testing.jpg",
+      "label": "真实 AI 测试中",
+      "environment": "isolated-host",
+      "source_boundary": "b615795",
+      "width": 1270,
+      "height": 714,
+      "viewport": {
+        "width": 1280,
+        "height": 720,
+        "dpr": 1
+      },
+      "sha256": "d85bfdb2ecaab9876fb8b61ff149297e4f94c17e9e4dd324d889bb43c1de9c34",
+      "bytes": 53221
+    },
+    {
+      "path": "44-host-ai-result.jpg",
+      "label": "真实 AI 成功",
+      "environment": "isolated-host",
+      "source_boundary": "b615795",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "778c1ea49f3b9ef695c77c8e625c5da67990adfae2fb6f1cb8d854076f4441e8",
+      "bytes": 67629
+    },
+    {
+      "path": "45-host-list-final.jpg",
+      "label": "最终真实订阅列表",
+      "environment": "isolated-host",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "a58f56ae684a412c2d43942145af217f648db7046969ad7c4380b486d2aedbf5",
+      "bytes": 76024
+    },
+    {
+      "path": "46-host-candidate-detail-final.jpg",
+      "label": "最终真实候选详情数值排序",
+      "environment": "isolated-host",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "9f8594ea843eed84a8ea0c77ff1fdf10540a34e6e048d0ad7da59ceef46d5580",
+      "bytes": 66199
+    },
+    {
+      "path": "47-host-cancel-wait-final.jpg",
+      "label": "最终真实取消等待",
+      "environment": "isolated-host",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "02fa864b29772367e1b0dd30a7878ce72194dcf01c5d02c63764a6d92a976134",
+      "bytes": 75393
+    },
+    {
+      "path": "48-host-library-recovery-final.jpg",
+      "label": "最终真实多媒体库扫描恢复",
+      "environment": "isolated-host",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1430,
+      "height": 894,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "85a1712cc3a34b9ab39691010514ca31b0287c3048bf070d84153b197014b030",
+      "bytes": 71473
+    },
+    {
+      "path": "49-synthetic-list-final.jpg",
+      "label": "最终合成混合任务列表",
+      "environment": "synthetic",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1425,
+      "height": 891,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "adb299aa75470917813fda87958242db236f331b5adec18c699728e82fe5d9d2",
+      "bytes": 67170
+    },
+    {
+      "path": "50-synthetic-episodes-final.jpg",
+      "label": "最终合成版本与进展",
+      "environment": "synthetic",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1425,
+      "height": 891,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "046394850bf18f0844e14b273629d064604c4d42fbc3a9165ca74778af57e5bc",
+      "bytes": 85212
+    },
+    {
+      "path": "51-synthetic-sixth-and-unknown.jpg",
+      "label": "最终合成未知及第6集上传",
+      "environment": "synthetic",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1425,
+      "height": 891,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "ddbc3bb87eae681837a7e09b8196d4d348a7a42effa12adfc184232fe767bf97",
+      "bytes": 89197
+    },
+    {
+      "path": "52-synthetic-candidate-failure-final.jpg",
+      "label": "最终合成比较读取失败",
+      "environment": "synthetic",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1425,
+      "height": 891,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "f137a4aca51cb832cc6858b47c6492d7833f69af8cbbf12892e90670a6ece05e",
+      "bytes": 52083
+    },
+    {
+      "path": "53-synthetic-candidate-loading-final.jpg",
+      "label": "最终合成比较加载中",
+      "environment": "synthetic",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 1425,
+      "height": 891,
+      "viewport": {
+        "width": 1440,
+        "height": 900,
+        "dpr": 1
+      },
+      "sha256": "075dd7ca97caea8c3b47a5ae4c0af75d2cb9693a11c11c2e8e5583b5a0c7e62f",
+      "bytes": 49423
+    },
+    {
+      "path": "54-synthetic-mobile-final.jpg",
+      "label": "最终合成390分集",
+      "environment": "synthetic",
+      "source_boundary": "30c0bd1 最终构建",
+      "width": 375,
+      "height": 812,
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "dpr": 1
+      },
+      "sha256": "8506bdbf31d4fe5e5815fed1f9f4f6fd920877c8538947a0ff859678d5c84ebe",
+      "bytes": 32709
+    }
+  ]
+}

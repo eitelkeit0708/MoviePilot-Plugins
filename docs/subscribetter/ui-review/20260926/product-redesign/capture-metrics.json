@@ -1,0 +1,308 @@
+[
+  {
+    "path": "synthetic/10-shared-change.png",
+    "viewport": {},
+    "pixel_width": 2880,
+    "pixel_height": 1800
+  },
+  {
+    "path": "synthetic/11-ai-unconfigured.png",
+    "viewport": {},
+    "pixel_width": 2880,
+    "pixel_height": 1800
+  },
+  {
+    "path": "synthetic/12-ai-partial-save.png",
+    "viewport": {},
+    "pixel_width": 2880,
+    "pixel_height": 1800
+  },
+  {
+    "path": "synthetic/13-ai-saving.png",
+    "viewport": {},
+    "pixel_width": 2880,
+    "pixel_height": 1800
+  },
+  {
+    "path": "synthetic/14-ai-configured.png",
+    "viewport": {},
+    "pixel_width": 2880,
+    "pixel_height": 1800
+  },
+  {
+    "path": "synthetic/15-ai-testing.png",
+    "viewport": {},
+    "pixel_width": 2880,
+    "pixel_height": 1800
+  },
+  {
+    "path": "synthetic/16-ai-test-failure.png",
+    "viewport": {},
+    "pixel_width": 2880,
+    "pixel_height": 1800
+  },
+  {
+    "path": "synthetic/17-blank-required-fields.png",
+    "viewport": {},
+    "pixel_width": 2560,
+    "pixel_height": 1440
+  },
+  {
+    "path": "synthetic/18-mapping-long-paths-1280.png",
+    "viewport": {},
+    "pixel_width": 2560,
+    "pixel_height": 1440
+  },
+  {
+    "path": "synthetic/19-blank-review-before-save.png",
+    "viewport": {},
+    "pixel_width": 2560,
+    "pixel_height": 1440
+  },
+  {
+    "path": "synthetic/20-blank-saved.png",
+    "viewport": {},
+    "pixel_width": 2560,
+    "pixel_height": 1440
+  },
+  {
+    "path": "synthetic/27-expanded-final.jpg",
+    "viewport": {
+      "width": 1280,
+      "height": 720,
+      "dpr": 1
+    },
+    "pixel_width": 1265,
+    "pixel_height": 712
+  },
+  {
+    "path": "synthetic/28-focused-mobile-final.jpg",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "dpr": 1
+    },
+    "pixel_width": 375,
+    "pixel_height": 812
+  },
+  {
+    "path": "synthetic/29-leave-guard-final.jpg",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "dpr": 1
+    },
+    "pixel_width": 375,
+    "pixel_height": 812
+  },
+  {
+    "path": "synthetic/30-draft-restored.jpg",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "dpr": 1
+    },
+    "pixel_width": 375,
+    "pixel_height": 812
+  },
+  {
+    "path": "33-host-episodes.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "34-host-candidate-summary.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "35-host-discovery.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "37-host-policy.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "38-host-settings.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "39-host-focused-plan.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "41-host-mobile-plan.jpg",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "dpr": 1
+    },
+    "pixel_width": 390,
+    "pixel_height": 844
+  },
+  {
+    "path": "42-host-ai-configured.jpg",
+    "viewport": {
+      "width": 1280,
+      "height": 720,
+      "dpr": 1
+    },
+    "pixel_width": 1270,
+    "pixel_height": 714
+  },
+  {
+    "path": "43-host-ai-testing.jpg",
+    "viewport": {
+      "width": 1280,
+      "height": 720,
+      "dpr": 1
+    },
+    "pixel_width": 1270,
+    "pixel_height": 714
+  },
+  {
+    "path": "44-host-ai-result.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "45-host-list-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "46-host-candidate-detail-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "47-host-cancel-wait-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "48-host-library-recovery-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1430,
+    "pixel_height": 894
+  },
+  {
+    "path": "49-synthetic-list-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1425,
+    "pixel_height": 891
+  },
+  {
+    "path": "50-synthetic-episodes-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1425,
+    "pixel_height": 891
+  },
+  {
+    "path": "51-synthetic-sixth-and-unknown.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1425,
+    "pixel_height": 891
+  },
+  {
+    "path": "52-synthetic-candidate-failure-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1425,
+    "pixel_height": 891
+  },
+  {
+    "path": "53-synthetic-candidate-loading-final.jpg",
+    "viewport": {
+      "width": 1440,
+      "height": 900,
+      "dpr": 1
+    },
+    "pixel_width": 1425,
+    "pixel_height": 891
+  },
+  {
+    "path": "54-synthetic-mobile-final.jpg",
+    "viewport": {
+      "width": 390,
+      "height": 844,
+      "dpr": 1
+    },
+    "pixel_width": 375,
+    "pixel_height": 812
+  }
+]
