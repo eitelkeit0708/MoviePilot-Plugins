@@ -99,6 +99,35 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual('剧集热榜',applied['config']['discovery']['sources'][0]['name'])
         self.assertEqual(previous['revision']+1,applied['revision'])
 
+    def test_destination_name_upgrade_keeps_revision_and_rename_requires_receipt(self):
+        previous=self.apply({'policy':{'bindings':{'tv':'欧美剧'}},'destination_templates':[
+            {'id':'stable','category_id':'tv','downloader':'qbt','save_path':'/downloads'}]})
+        previous['config']['destination_templates'][0].pop('display_name')
+        previous['digest']=self.c.digest(self.c.content(previous['config']))
+        self.repo.setting(self.config.key,previous)
+        self.config.initialize(previous['config'])
+        self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual(previous['revision'],self.config.view()['revision'])
+        self.assertEqual('',self.config.view()['config']['destination_templates'][0]['display_name'])
+        edited=copy.deepcopy(self.config.view()['config']);edited['destination_templates'][0]['display_name']='剧集升级'
+        self.config.initialize(edited)
+        self.assertFalse(self.config.ready)
+        current=self.apply({'destination_templates':edited['destination_templates']})
+        self.assertEqual('剧集升级',current['config']['destination_templates'][0]['display_name'])
+        runtime=load('runtime').Runtime.__new__(load('runtime').Runtime)
+        runtime.config=self.c.Config.model_validate(current['config'])
+        runtime.policy=object()
+        runtime.delivery=type('Delivery',(),{'rules':{'rule':{'enabled':True}}})()
+        runtime.clients=lambda _:object()
+        runtime.config.destination_templates[0].organized_rule='rule'
+        runtime.config.destination_templates[0].sites=[1]
+        runtime.policy=type('Policy',(),{'classification_revision':1})()
+        scope={'classification':{'state':'complete','policy_revision':1,'effective':{'category_id':'tv'}}}
+        first=runtime.destination(scope,'stable')
+        runtime.config.destination_templates[0].display_name='改名'
+        self.assertEqual(first,runtime.destination(scope,'stable'))
+        self.assertNotIn('display_name',first)
+
     def test_historical_chat_receipt_is_readable_but_cannot_advance(self):
         data=dict(features=[{'module':'chat','route_scope':{}}],steps=[],operations={},next_changes=[])
         receipt=self.migration._new('old-chat','CUTOVER','a'*64,'ACTIVE',data)

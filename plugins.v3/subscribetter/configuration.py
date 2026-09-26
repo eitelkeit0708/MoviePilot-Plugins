@@ -419,6 +419,9 @@ class Configuration:
             if 'templates' not in current['config']['policy']:
                 current['config']['policy']['templates']={}
                 current['digest']=digest(content(current['config']))
+            if any('display_name' not in t for t in current['config']['destination_templates']):
+                for t in current['config']['destination_templates']:t.setdefault('display_name','')
+                current['digest']=digest(content(current['config']))
             normalized=AIConfig.remove_legacy_chat(current['config']['ai_assist'])
             if normalized!=current['config']['ai_assist']:
                 current['config']['ai_assist']=normalized

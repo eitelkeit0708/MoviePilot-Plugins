@@ -219,7 +219,7 @@ class Runtime:
         category=classification.get('effective',{}).get('category_id')
         templates=[t for t in self.config.destination_templates if t.category_id==category and (template_id is None or t.id==template_id)]
         if len(templates)!=1:raise ValueError('EXACT_DESTINATION_TEMPLATE_REQUIRED')
-        template=templates[0].model_dump()
+        template=templates[0].model_dump(exclude={'display_name'})
         if not self.delivery or template['organized_rule'] not in self.delivery.rules or not self.delivery.rules[template['organized_rule']]['enabled']:
             raise ValueError('DELIVERY_RULE_UNAVAILABLE')
         if not template['sites'] or self.clients(template['downloader']) is None:raise ValueError('SEARCH_DOWNLOAD_CONFIG_REQUIRED')
@@ -398,7 +398,7 @@ class Runtime:
         if (request.get('policy_revision',saved['effective']['policy_revision']),
             request.get('parse_revision',saved['effective']['parse_revision']))!=revisions:raise ValueError('REVIEWED_REVISIONS_CHANGED')
         if not keys or not set(keys)<=set(json.loads(opportunity['scope'])):raise ValueError('TARGET_EXPANSION_FORBIDDEN')
-        templates=[t.model_dump() for t in self.config.destination_templates if t.id==request['destination_template']]
+        templates=[t.model_dump(exclude={'display_name'}) for t in self.config.destination_templates if t.id==request['destination_template']]
         if len(templates)!=1 or templates[0]['category_id']!=saved['effective']['template']['category_id']:raise ValueError('DESTINATION_SCOPE_CHANGED')
         template=templates[0]
         if not self.delivery or template['organized_rule'] not in self.delivery.rules:raise ValueError('DELIVERY_RULE_UNAVAILABLE')
