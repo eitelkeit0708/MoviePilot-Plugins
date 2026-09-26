@@ -24,6 +24,9 @@ test('historical due dates never promise a future run and known targets do not i
  assert.equal(deliveryNext({state:'PUBLISH_OUTCOME_UNKNOWN',due},health,now),'先核对发布结果，再决定后续动作');
  assert.match(taskNext({state:'ACTIVE',progress:{observation_until:due}},health,now),/记录已到期/);
  assert.equal(taskProgress({media_type:'电视剧',progress:{targets:2,present:1}}),'已知 2 集 · 在库 1');
+ assert.equal(taskProgress({media_type:'电影',progress:{targets:1,present:1}}),'已有正片在库');
+ assert.equal(taskProgress({media_type:'电影',progress:{targets:1,present:0}}),'尚未在库内找到正片');
+ assert.equal(taskProgress({media_type:'电影',progress:{targets:0}}),'正片档案待确认');
 });
 test('display separates unconfirmed results, stale source errors, paused tasks and unknown scope',()=>{
  assert.equal(reasonText('CD2_REMOTE_UNSETTLED'),'CD2 上传结果尚未确认');

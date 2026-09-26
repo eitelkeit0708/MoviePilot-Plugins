@@ -245,7 +245,9 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
  try{
   assert.match(text(root),/候选版本质量更优/);assert.match(text(root),/分辨率/);assert.equal(calls.length,0);
   button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/正在读取完整比较依据/);
-  resolve(dto.detail);await settle();assert.ok(text(root).includes('QUALITY_UPGRADE'));
+  const detail=structuredClone(dto.detail);for(const episode of [10,2,1])detail.evidence.evaluation.decisions[JSON.stringify(['电视剧','tmdb','numeric',1,'',episode])]={status:'ALLOW',reason:'QUALITY_UPGRADE'};
+  resolve(detail);await settle();assert.ok(text(root).includes('QUALITY_UPGRADE'));
+  const displayed=walk(root,n=>n.props?.class==='sb-comparison-outcome').map(text).join('|');assert.ok(displayed.indexOf('第 2 集')<displayed.indexOf('第 10 集'),displayed);
   decision.value={...dto.list.items[0],id:'second'};await settle();button('查看本次比较依据').props.onClick();await settle();const late=resolve;
   decision.value={...dto.list.items[0],id:'third'};await settle();late(dto.detail);await settle();assert.ok(!text(root).includes('QUALITY_UPGRADE'));
   mode='fail';button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/HTTP 503/);assert.ok(!text(root).includes('没有保存完整比较依据'));
