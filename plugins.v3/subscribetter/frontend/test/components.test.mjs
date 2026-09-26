@@ -167,12 +167,12 @@ test('library picker preserves unavailable choices and removes only the explicit
 
 test('saved source test stays inline and sends only the selected source without an object editor',async()=>{
  const f=fixture(Page,{get:async(p,o,c,h)=>{
-  if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;
-  if(p.endsWith('/discovery/sources'))return {items:[{source_id:'weekly',last_state:'OK',config:{name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}}],total:1,next_offset:null};
+  if(p.endsWith('/configuration')){c.config.discovery.sources=[{id:'weekly',name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}];return c;}if(p.endsWith('/diagnostics'))return h;
+  if(p.endsWith('/discovery/sources'))return {items:[{source_id:'weekly',last_state:'OK',config:{name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}},{source_id:'removed',config:{name:'已移除'}}],total:2,next_offset:null};
   return {items:[],total:0,next_offset:null,result:{},categories:[]};},post:async()=>({items:12,state:'SUCCESS'})});await settle();
  try{walk(f.root,n=>n.type==='button'&&text(n)==='发现')[0].props.onClick();await settle();
   await walk(f.root,n=>n.type==='button'&&text(n)==='测试抓取')[0].props.onClick();await settle();
-  const writes=f.calls.filter(c=>c[0]==='post');assert.equal(writes.length,1);assert.deepEqual(writes[0].slice(1),['plugin/Clone/discovery/test',{source_id:'weekly'}]);
+  const old=walk(f.root,n=>n.type==='button'&&text(n)==='测试抓取')[1];assert.equal(old.props.disabled,true);await old.props.onClick();await settle();const writes=f.calls.filter(c=>c[0]==='post');assert.equal(writes.length,1);assert.deepEqual(writes[0].slice(1),['plugin/Clone/discovery/test',{source_id:'weekly'}]);
   assert.ok(text(f.root).includes('抓取 12 条'));assert.ok(!text(f.root).includes('条目名称（精确配置引用）'));
  }finally{f.app.unmount()}
 });
