@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {media,highlights,exampleScheme,blankScheme,issues,mappingKey,samples,simulatePathCheck} from '../dev/study/model.mjs';
+import * as study from '../dev/study/model.mjs';
 
 test('design study: exact episode highlights, bounded draft checks and stable scheme identity',()=>{
  assert.deepEqual(highlights(media[0]).map(u=>u.number),[5,1,6]);
@@ -15,4 +16,30 @@ test('design study: exact episode highlights, bounded draft checks and stable sc
  assert.equal(simulatePathCheck(renamed,{...samples[0],content:'http://different.example/file'}).ok,false);
  assert.notEqual(mappingKey(renamed),mappingKey({...renamed,local:'/changed'}));
  assert.equal(mappingKey(renamed),mappingKey({...renamed,name:'Only display name changes'}));
+});
+
+test('review cases use declared differences, trustworthy totals and local STRM prefixes',()=>{
+ assert.equal(typeof study.versionChange,'function');
+ const audio=study.episodes.find(u=>u.change?.dimensions.includes('audio'));
+ assert.equal(study.versionChange(audio).before,'DDP');
+ assert.equal(study.versionChange(audio).after,'无损音频');
+ const picture=study.episodes.find(u=>u.change?.dimensions.includes('picture'));
+ assert.equal(study.versionChange(picture).before,'SDR');
+ assert.equal(study.versionChange(picture).after,'Dolby Vision');
+ const evidence=study.episodes.find(u=>u.change?.kind==='evidence');
+ assert.equal(study.versionChange(evidence).after,'明确特效声明');
+ assert.equal(evidence.current.special_zh_subtitles,evidence.target.special_zh_subtitles);
+ const acquire=study.episodes.find(u=>u.change?.kind==='acquire');
+ assert.equal(study.versionChange(acquire).before,'尚未在库');
+ assert.match(study.versionChange(study.episodes.find(u=>u.phase==='PRESENT')).label,/已收录/);
+ assert.equal(study.versionChange({...audio,change:{kind:'quality',dimensions:[]}}).before,'变更依据未取得');
+ assert.equal(study.collectionText({present:6,known:6,seasonTotal:null}),'已收录 6 集 · 总集数待确认');
+ assert.equal(study.collectionText({present:6,seasonTotal:6,totalReliable:true}),'6 / 6 集在库');
+ const mapped=simulatePathCheck(exampleScheme,samples[0]);
+ assert.ok(mapped.content.startsWith('/vol3/1000/docker/clouddrive2/CloudNAS/CloudDrive/115/'));
+ assert.equal(mapped.remote,'/115/series/GATE24/S01E01.mkv');
+ assert.ok(issues({...exampleScheme,playback:'relative/path'},2).some(e=>e.key==='playback'));
+ assert.ok(study.policies.some(p=>p.id===exampleScheme.policy&&p.revision===exampleScheme.policyRevision));
+ assert.ok(issues({...exampleScheme,policy:'missing'},0).some(e=>e.key==='policy'));
+ assert.ok(issues({...exampleScheme,policyRevision:'stale'},0).some(e=>e.key==='policy'));
 });

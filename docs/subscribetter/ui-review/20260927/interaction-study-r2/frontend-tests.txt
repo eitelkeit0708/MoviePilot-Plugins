@@ -1,0 +1,66 @@
+
+> subscribetter-native-ui@0.1.0 test
+> node --test --test-isolation=none test/*.test.mjs
+
+✔ save continuation contains references only and is scoped to one plugin instance (1.2014ms)
+✔ operation IDs use secure random bytes without secure-context-only randomUUID (0.5767ms)
+✔ instance paths and bare/envelope responses, including false and data-shaped DTO (0.3061ms)
+✔ replacement and unmount discard delayed reads even when adapter ignores abort (0.1335ms)
+✔ one preflight emits exact normalized safe object once; no PUT or postemit read (0.2002ms)
+✔ apply scope cannot expand or mutate immutable receipt (0.1091ms)
+✔ saved confirmation requires applied readback and disappears when a later refresh fails (3.0071ms)
+✔ actual Config mount and save omit private initial fields; number controls send numbers; emit once without PUT (48.7156ms)
+✔ Config navigation shows only the selected group and preserves unsaved edits across groups (35.003ms)
+✔ Page offers human workflow navigation and keeps all nine diagnostic domains reachable without writes (11.7411ms)
+✔ delayed Config preflight cannot emit after unmount (16.3582ms)
+✔ configuration refresh cannot save an older draft using the newly fetched revision (14.9647ms)
+✔ actual immutable preview confirmation sends only receipt/opid/confirm and honors blockers (3.2219ms)
+✔ actual resource sends server pagination and keeps errors distinct from empty (1.957ms)
+✔ actual diagnostics uses worker revision for the typed local reconcile action (0.7708ms)
+✔ actual scan rows navigate to bounded items and select the persisted mapping-test identity (1.3219ms)
+✔ subscription cards show titles; late detail cannot replace the selected work; failed reads retain marked stale data (2.8044ms)
+✔ adoption UI reads native subscriptions and confirms unchanged identity without creating a subscription (1.6269ms)
+✔ adoption blocks changed native identity and does not submit after the dialog closes (1.6504ms)
+✔ business pages replace generic first screens and bind source actions to the chosen source (4.8137ms)
+✔ business action binds object IDs without editable internal keys and submits only the server receipt (0.9543ms)
+✔ source editor accepts a private RSSHub route with type suffix (1.7234ms)
+✔ configuration service failures stay inline without exposing server details (15.0116ms)
+✔ episode action carries only the selected unit and current opportunity (2.457ms)
+✔ library picker preserves unavailable choices and removes only the explicitly unchecked library (1.2043ms)
+✔ saved source test stays inline and sends only the selected source without an object editor (2.6144ms)
+✔ opening a subscription uses a full-width detail and returning retains list filters (1.5483ms)
+✔ basic settings update typed choices and protected names while keeping the rest of the saved draft (24.1838ms)
+✔ cleanup confirmation visibly names exact immutable locations and retained scope (1.1192ms)
+✔ duration units change presentation without rounding or converting null to zero (0.574ms)
+✔ site choices preserve unavailable IDs and never expose cookie fields (0.7911ms)
+✔ AI credentials enter the draft by reference while partial failure preserves existing keys (2.9313ms)
+✔ mapping checks send the selected persisted sample and refuse an unsaved mapping (2.4224ms)
+✔ candidate comparison uses actual SQLite list DTO and lazy detail; errors, empty and late responses are distinct (963.9877ms)
+✔ blank configuration creates a linked plan, completes its steps and retains the draft after rejected save (183.4938ms)
+✔ native save with lost reply locks duplicate submission until exact applied readback (24.3114ms)
+✔ scan recovery follows the selected mapping when two libraries share a cloud scope (10.032ms)
+✔ all domain reads/actions use actual mounted paths and complete Config retains strict safe groups (0.4226ms)
+✔ configured Unicode/space/slash paths retain exact names and explicit numeric validation (0.0958ms)
+✔ nested configuration errors use human field names and item positions (0.0775ms)
+✔ design study: exact episode highlights, bounded draft checks and stable scheme identity (0.4919ms)
+✔ review cases use declared differences, trustworthy totals and local STRM prefixes (0.3544ms)
+✔ production helper equals independent Python canonical and digest fixture (0.8623ms)
+✔ raw native roundtrip preserves Python number tokens, numeric key ordering and Unicode escaping (0.079ms)
+✔ selected old Save preserves unrelated private bytes and verifies before/after full digests (0.743ms)
+✔ HTTP native hashing does not require Web Crypto subtle (0.2352ms)
+✔ adoption requires an existing native ID and preserves provider, season and episode group (0.165ms)
+✔ display uses target episodes and actual quality facts, not internal keys or made-up totals (0.0811ms)
+✔ policy ALLOW is shown as eligible (0.0357ms)
+✔ historical due dates never promise a future run and known targets do not imply full season scope (0.1775ms)
+✔ display separates unconfirmed results, stale source errors, paused tasks and unknown scope (0.1442ms)
+✔ quality distinguishes picture, four audio tiers and explicit versus inferred subtitles without defaulting unknown (0.1695ms)
+✔ episode grouping preserves different reasons, seasons and incomplete coverage; progress refuses missing counters (0.2003ms)
+✔ step validation blocks missing dependencies and reports only actually changed shared fields (0.2522ms)
+ℹ tests 54
+ℹ suites 0
+ℹ pass 54
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1723.4734
