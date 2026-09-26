@@ -226,3 +226,63 @@ test('mapping checks send the selected persisted sample and refuse an unsaved ma
  try{await walk(f.root,n=>n.type==='button'&&text(n)==='读取此媒体库的扫描样本')[0].props.onClick();await settle();assert.ok(text(f.root).includes('2026-09-26T08:00:00Z'));const scans=walk(f.root,n=>n.type==='select')[0];scans.props['onUpdate:modelValue']('scan');scans.props.onChange();await settle();walk(f.root,n=>n.type==='select')[1].props['onUpdate:modelValue']('item');await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='检查这条映射')[0].props.onClick();assert.deepEqual(writes,[['/archive/mapping-test',{config_revision:4,runtime_generation:6,scan_id:'scan',item_id:'item',mapping_id:'m'}]])}finally{f.app.unmount()}
  const unavailable=fixture(MappingCheck,{extra:{saved:false,mapping:{id:'m'},status:{error:ref('')},client:{get:async()=>assert.fail('unsaved check')}}});await settle();try{assert.equal(walk(unavailable.root,n=>n.type==='button'&&text(n)==='读取此媒体库的扫描样本')[0].props.disabled,true)}finally{unavailable.app.unmount()}
 });
+
+
+test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, empty and late responses are distinct',async()=>{
+ const {spawnSync}=await import('node:child_process');
+ const cwd=fileURLToPath(new URL('../../../../',import.meta.url));
+ const run=spawnSync(path.join(cwd,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'),['-X','utf8','tests/v3/subscribetter/test_management_display.py','--fixture'],{cwd,encoding:'utf8'});
+ assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
+ const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
+ for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','等待视频和必要字幕'],['unknown','不应重复提交'],['superseded','已失效或待核实']]){
+  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'))}finally{f.app.unmount()}
+ }
+ const {default:CandidateDecision}=await import(pathToFileURL(path.join(out,'CandidateDecision.mjs')));
+ let resolve,mode='wait';const calls=[];const decision=ref(dto.list.items[0]);
+ const client={get:(p)=>{calls.push(p);if(mode==='fail')return Promise.reject({status:503});if(mode==='empty')return Promise.resolve({id:decision.value.id,evidence:{}});return new Promise(r=>resolve=r)}};
+ const root={children:[]},app=renderer.createApp({setup:()=>()=>h(CandidateDecision,{decision:decision.value,client})});app.component('VBtn',{setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.mount(root);
+ const button=label=>walk(root,n=>n.type==='button'&&text(n)===label)[0];
+ try{
+  assert.match(text(root),/候选版本质量更优/);assert.match(text(root),/分辨率/);assert.equal(calls.length,0);
+  button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/正在读取完整比较依据/);
+  resolve(dto.detail);await settle();assert.ok(text(root).includes('QUALITY_UPGRADE'));
+  decision.value={...dto.list.items[0],id:'second'};await settle();button('查看本次比较依据').props.onClick();await settle();const late=resolve;
+  decision.value={...dto.list.items[0],id:'third'};await settle();late(dto.detail);await settle();assert.ok(!text(root).includes('QUALITY_UPGRADE'));
+  mode='fail';button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/HTTP 503/);assert.ok(!text(root).includes('没有保存完整比较依据'));
+  mode='empty';await button('重新读取').props.onClick();await settle();assert.match(text(root),/没有保存完整比较依据/);
+ }finally{app.unmount()}
+});
+
+
+test('blank configuration creates a linked plan, completes its steps and retains the draft after rejected save',async()=>{
+ const f=fixture(Config,{get:async(p,o,c,h)=>{
+  if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;
+  if(p.endsWith('/configuration/categories'))return {revision:1,categories:[{id:'tv',name:'剧集',media_type:'电视剧',enabled:true}]};
+  if(p.endsWith('/policies/catalog'))return {result:{default_templates:{欧美剧:{}}}};
+  if(p==='download/clients')return [{name:'qbt',type:'qbittorrent'}];if(p==='download/paths')return [];
+  if(p==='plugin/')return [{id:'CloudDriveDisk'},{id:'P115Disk'}];if(p==='mediaserver/clients')return [{name:'Emby',type:'emby'}];if(p==='mediaserver/library')return [{id:'L',name:'剧集库'}];return {items:[],result:{}};
+ },post:async()=>({valid:false,errors:['测试：服务暂不可用，未保存']})});await settle();
+ const btn=(root,label)=>walk(root,n=>n.type==='button'&&text(n)===label)[0];
+ try{
+  btn(f.root,'连续配置下载与入库方案').props.onClick();await settle();
+  const root=walk(f.root,n=>n.props?.['aria-label']==='按方案连续配置')[0];
+  function visible(n){for(let p=n;p;p=p.parent)if(p.props?.hidden||p.style?.display==='none')return false;return true}
+  async function field(label,value,type='input'){const parent=walk(root,n=>n.type==='label'&&text(n).startsWith(label)&&visible(n))[0];assert.ok(parent,label);const el=walk(parent,n=>n.type===type)[0];assert.ok(el,label+' '+type);if(el.props.onInput)el.props.onInput({target:{value}});else if(el.props.onChange)el.props.onChange({target:{value}});else el.props['onUpdate:modelValue'](value);await settle()}
+  await field('新方案名称','首次剧集方案');walk(root,n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});await settle();
+  await field('MoviePilot 分类','tv','select');await field('下载器','qbt','select');await field('下载目录','/downloads');await field('收录与升级策略','欧美剧','select');
+  btn(root,'继续：云盘与写入范围').props.onClick();await settle();
+  await field('CD2 插件实例','CloudDriveDisk','select');await field('115 插件实例','P115Disk','select');await field('云盘根目录','/115');await field('允许写入的路径','/115/test','textarea');
+  btn(root,'继续：媒体库与播放路径').props.onClick();await settle();await field('Emby 服务','Emby','select');await field('媒体库','L','select');
+  for(const [label,path] of [['Emby 中的 STRM','/strm'],['MP 可以读取','/strm'],['STRM 内容','/play'],['CD2 内部','/115']])await field(label,path);
+  btn(root,'使用当前订阅分类绑定').props.onClick();await settle();
+  btn(root,'继续：暂存与整理').props.onClick();await settle();
+  for(const [label,path] of [['本地监控','/organized'],['115 暂存','/115/test/staging'],['Symedia 接收','/115/test/incoming']])await field(label,path);
+  await field('Symedia 监控目录','/115/test/incoming','textarea');btn(root,'继续：检查并保存').props.onClick();await settle();
+  await btn(root,'检查这份草稿').props.onClick();await settle();
+  const request=f.calls.filter(c=>c[0]==='post').at(-1);assert.ok(request,'valid local form reaches backend');assert.ok(request[1].endsWith('/configuration/preview'));
+  const draft=request[2].patch,t=draft.destination_templates[0],rule=draft.delivery.rules[0],mapping=draft.delivery.mappings[0];assert.equal(t.organized_rule,rule.id);assert.equal(mapping.cloud_scope_id,rule.cloud_scope_id);assert.deepEqual(draft.delivery.libraries,{Emby:['L']});assert.ok(draft.delivery.cloud_scopes[rule.cloud_scope_id]);assert.equal(draft.enabled,false);assert.equal(draft.dry_run,true);
+  assert.match(text(root),/服务暂不可用/);assert.equal(f.saves.length,0);
+  await btn(f.root,'保存设置').props.onClick();await settle();assert.equal(f.saves.length,0);assert.deepEqual(f.calls.filter(c=>c[0]==='post').at(-1)[2].patch,draft);
+  btn(root,'上一步').props.onClick();await settle();assert.ok(text(root).includes('暂存与整理'));assert.equal(walk(root,n=>n.type==='input'&&n.props.value==='/115/test/staging').length,1);
+ }finally{f.app.unmount()}
+});

@@ -112,8 +112,9 @@ class ManagementTests(unittest.TestCase):
                   'torrent_files':[{'index':0,'path':'Series.S01E01.2160p.mkv','role':'video','targets':[keys[0]]}],
                   'selected_indices':[0],'password':'PRIVATE_SENTINEL'}
             db.execute("INSERT INTO plans(id,opportunity_id,task_id,snapshot,authorization,transfer_phase,created_at) VALUES(?,?,?,?,?,?,?)",('upgrade','round',task['id'],json.dumps(snap),'ACTIVE','RAPID_WAIT',NOW.isoformat()))
-            db.execute("INSERT INTO plan_targets(plan_id,target_key,state,action,transfer_phase) VALUES(?,?,'ACTIVE','QUALITY_UPGRADE','RAPID_WAIT')",('upgrade',keys[0]))
+            db.execute("INSERT INTO plan_targets(plan_id,target_key,generation,state,action,transfer_phase) VALUES(?,?,0,'ACTIVE','QUALITY_UPGRADE','RAPID_WAIT')",('upgrade',keys[0]))
             db.execute("UPDATE target_units SET owner_plan_id='upgrade' WHERE target_key=?",(keys[0],))
+            db.execute("UPDATE plans SET task_generation=? WHERE id='upgrade'",(task['generation'],))
         with self.repo.connection() as db:before='\n'.join(db.iterdump())
         one=ui.task(task['id'],limit=25,offset=0,user=None)
         two=ui.task(task['id'],limit=25,offset=25,user=None)
@@ -134,7 +135,8 @@ class ManagementTests(unittest.TestCase):
                     (str(i),task['id'],'{}',json.dumps({'state':'PRESENT','versions':[{'raw':{'technical':{'resolution':1080}},'reliable':True}]}) if i<29 else None,NOW.isoformat() if i<29 else None,'plan' if i==30 else None,'2099-01-01T00:00:00+00:00' if i==29 else None))
         with self.repo.connection() as db:before='\n'.join(db.iterdump())
         progress=ui.tasks(limit=1,user=None).items[0].progress
-        self.assertEqual((31,29,1),(progress['targets'],progress['confirmed'],progress['processing']))
+        self.assertEqual((31,29,0),(progress['targets'],progress['confirmed'],progress['processing']))
+        self.assertEqual(1,progress['unsettled'])
         self.assertEqual([1080],progress['resolutions'])
         self.assertEqual(29,progress['present'])
         self.assertEqual(progress,ui.task(task['id'],user=None).task.progress)

@@ -978,8 +978,9 @@ class Planner:
                                                  'facts': {k: dict(value) if hasattr(value, 'items') else value for k, value in vars(v.facts).items()}}
                                                 for v in baseline.get('versions', [])]}
         snapshot = {key: candidate[key] for key in ('candidate_key', 'infohash', 'downloader', 'save_path', 'parse_revision')}
+        from .policy import quality_facts
         snapshot.update(policy_revision=self.policy.semantic_hash, current=frozen_current,
-                        targets={k: {**{name: decisions[k][name] for name in ('action', 'reason', 'evidence_keys', 'evidence_source')}, 'quality': decisions[k]['rank']} for k in sorted(covered)},
+                        targets={k: {**{name: decisions[k][name] for name in ('action', 'reason', 'evidence_keys', 'evidence_source')}, 'quality': decisions[k]['rank'], 'quality_facts':quality_facts(candidate['facts'][k])} for k in sorted(covered)},
                         torrent_files=candidate['torrent_files'], selected_indices=sorted(selected),
                         verified=dict(identity=True, scope=True, admission=True, files=True, configuration=True))
         if candidate.get('local_assets'):snapshot.update(local_assets=candidate['local_assets'],source_plan=candidate['source_plan'])

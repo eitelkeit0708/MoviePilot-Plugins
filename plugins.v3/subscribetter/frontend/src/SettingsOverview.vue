@@ -1,6 +1,6 @@
 <script setup>
 const props=defineProps({status:Object});const emit=defineEmits(['configure','diagnostic','export']);
-const sections=[['ownership','基本设置与自动接管','选择自动接管类型、下载器与目录。'],['delivery','交付与映射','连接媒体库，配置暂存、入口和两段路径映射。'],['discovery','榜单与 RSS','自部署 RSSHub、内置榜单和自定义路由。'],['policy','独立策略','分类绑定、比较顺序和明确锁定条件。'],['schedule','观察、冷却、抢占','观察时间、冷却和抢占预算。'],['lifecycle','生命周期','电影、剧集追踪时间及完成后的行为。'],['ai','AI 名称辅助','仅辅助名称识别，不提供聊天入口。'],['permissions','清理权限','各项删除权限独立配置，默认关闭。']];
+const sections=[['plans','下载与入库方案','从下载器到媒体库，连续完成一份方案的配置。'],['ownership','基本设置与自动接管','选择自动接管类型、下载器与目录。'],['delivery','交付与映射','连接媒体库，配置暂存、入口和两段路径映射。'],['discovery','榜单与 RSS','自部署 RSSHub、内置榜单和自定义路由。'],['policy','独立策略','分类绑定、比较顺序和明确锁定条件。'],['schedule','观察、冷却、抢占','观察时间、冷却和抢占预算。'],['lifecycle','生命周期','电影、剧集追踪时间及完成后的行为。'],['ai','AI 名称辅助','仅辅助名称识别，不提供聊天入口。'],['permissions','清理权限','各项删除权限独立配置，默认关闭。']];
 </script>
 <template><section aria-label="服务与设置"><header class="sb-heading"><div><h2>服务与设置</h2></div><VBtn variant="tonal" @click="emit('export')">导出安全配置</VBtn></header>
  <div class="sb-service-strip"><div><span class="sb-muted">下载器</span><strong>{{[...new Set(status.health.value?.services?.configured_downloaders||[])].join('、')||'尚未绑定'}}</strong></div><div><span class="sb-muted">云盘范围</span><strong>{{status.health.value?.services?.cloud_scopes?.length||0}} 个已配置范围</strong></div><div><span class="sb-muted">运行状态</span><strong>{{status.health.value?.ordinary_work_active?'正在运行':status.health.value?.dry_run?'演练模式':'当前未运行'}}</strong></div></div><p class="sb-muted">已配置或能力可用不代表远端连接已探测；实际错误会在处理记录中显示。</p>

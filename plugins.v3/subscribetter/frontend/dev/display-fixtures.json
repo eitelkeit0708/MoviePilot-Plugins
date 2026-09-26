@@ -1,0 +1,1843 @@
+{
+  "list": {
+    "items": [
+      {
+        "id": "decision:e2587e644489413597fc1d2dc746d68a",
+        "candidate_key": "candidate",
+        "task_id": 1,
+        "opportunity_id": null,
+        "status": "ACCEPT",
+        "simulation": false,
+        "digest": "623f7283d2f223b9f86dfb0024e5b617ad85656af4b6e61177a5ab8afb30dcb5",
+        "created_at": "2026-09-26T12:48:29.321310+00:00",
+        "evidence": {
+          "candidate_key": "candidate",
+          "mode": "episode",
+          "observed": {
+            "title": "契约测试资源"
+          },
+          "plan_digests": [
+            "56e463f908d221bd90d7878d1d27acd6682bcee1f425f6d376a3a3ef87477e7d"
+          ],
+          "revisions": {
+            "exclusion": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+          },
+          "scope": [
+            "[\"电视剧\",\"themoviedb\",\"42\",1,\"\",7]"
+          ],
+          "simulation": false
+        },
+        "summary": {
+          "reason": "READY_FOR_OBSERVATION_AND_CLAIM",
+          "total": 2,
+          "outcomes": [
+            {
+              "target_key": "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]",
+              "status": "ALLOW",
+              "reason": "QUALITY_UPGRADE",
+              "dimensions": [
+                "resolution"
+              ]
+            },
+            {
+              "target_key": "[\"电视剧\",\"tmdb\",\"42\",1,\"\",8]",
+              "status": "ALLOW",
+              "reason": "MISSING",
+              "dimensions": []
+            }
+          ]
+        }
+      }
+    ],
+    "total": 1,
+    "next_offset": null,
+    "truncated": false,
+    "snapshot": {
+      "config_revision": 1,
+      "runtime_generation": 4,
+      "high_watermark": "1"
+    }
+  },
+  "detail": {
+    "id": "decision:e2587e644489413597fc1d2dc746d68a",
+    "candidate_key": "candidate",
+    "task_id": 1,
+    "opportunity_id": null,
+    "status": "ACCEPT",
+    "simulation": false,
+    "digest": "623f7283d2f223b9f86dfb0024e5b617ad85656af4b6e61177a5ab8afb30dcb5",
+    "created_at": "2026-09-26T12:48:29.321310+00:00",
+    "evidence": {
+      "candidate_key": "candidate",
+      "evaluation": {
+        "plans": [
+          {
+            "candidate_key": "A",
+            "current": {
+              "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]": {
+                "revision": 1,
+                "state": "PRESENT",
+                "versions": [
+                  {
+                    "active": true,
+                    "facts": {
+                      "anime_platform": false,
+                      "audio": 0,
+                      "base": true,
+                      "bglobal": false,
+                      "current": true,
+                      "errors": [],
+                      "evidence": "none",
+                      "group": "hhweb",
+                      "hhweb": true,
+                      "hq": false,
+                      "language": true,
+                      "missing": [],
+                      "official": true,
+                      "picture": 0,
+                      "platform": null,
+                      "predicate_hash": "6d02741fe0d7223a46299848f36769206b36db3c19203b66300336cff60ece47",
+                      "raw": {
+                        "description": "",
+                        "labels": [],
+                        "original_language": "",
+                        "subtitle_description": "",
+                        "text": "Fictional 1080p WEB-DL -HHWEB 中文字幕  ",
+                        "title": "Fictional 1080p WEB-DL -HHWEB 中文字幕"
+                      },
+                      "resolution": 1080,
+                      "source": "web",
+                      "source_admission": {
+                        "movie": true,
+                        "web": true
+                      },
+                      "special_zh_subtitles": false,
+                      "vcb": false
+                    },
+                    "reliable": true,
+                    "version_id": "old"
+                  }
+                ]
+              },
+              "[\"电视剧\",\"tmdb\",\"42\",1,\"\",8]": {
+                "revision": 0,
+                "state": "MISSING",
+                "versions": []
+              }
+            },
+            "downloader": "test",
+            "infohash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "parse_revision": "parse-1",
+            "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+            "save_path": "[PATH]",
+            "selected_indices": [
+              0,
+              1
+            ],
+            "targets": {
+              "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]": {
+                "action": "QUALITY_UPGRADE",
+                "evidence_keys": [],
+                "evidence_source": "none",
+                "quality": [
+                  2160,
+                  2,
+                  false,
+                  0,
+                  false,
+                  1
+                ],
+                "quality_facts": {
+                  "audio": 1,
+                  "basis": {
+                    "audio": "release",
+                    "picture": "release",
+                    "resolution": "release"
+                  },
+                  "evidence": "none",
+                  "group": "hhweb",
+                  "hq": false,
+                  "picture": 2,
+                  "platform": null,
+                  "resolution": 2160,
+                  "source": "web",
+                  "special_zh_subtitles": false
+                },
+                "reason": "QUALITY_UPGRADE"
+              },
+              "[\"电视剧\",\"tmdb\",\"42\",1,\"\",8]": {
+                "action": "ACQUIRE",
+                "evidence_keys": [],
+                "evidence_source": "none",
+                "quality": [
+                  2160,
+                  2,
+                  false,
+                  0,
+                  false,
+                  1
+                ],
+                "quality_facts": {
+                  "audio": 1,
+                  "basis": {
+                    "audio": "release",
+                    "picture": "release",
+                    "resolution": "release"
+                  },
+                  "evidence": "none",
+                  "group": "hhweb",
+                  "hq": false,
+                  "picture": 2,
+                  "platform": null,
+                  "resolution": 2160,
+                  "source": "web",
+                  "special_zh_subtitles": false
+                },
+                "reason": "MISSING"
+              }
+            },
+            "torrent_files": [
+              {
+                "index": 0,
+                "path": "E7.mkv",
+                "requires": [],
+                "role": "video",
+                "size": 2147483648,
+                "targets": [
+                  "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]"
+                ]
+              },
+              {
+                "index": 1,
+                "path": "E8.mkv",
+                "requires": [],
+                "role": "video",
+                "size": 2147483648,
+                "targets": [
+                  "[\"电视剧\",\"tmdb\",\"42\",1,\"\",8]"
+                ]
+              }
+            ],
+            "verified": {
+              "admission": true,
+              "configuration": true,
+              "files": true,
+              "identity": true,
+              "scope": true
+            }
+          }
+        ],
+        "decisions": {
+          "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]": {
+            "status": "ALLOW",
+            "action": "QUALITY_UPGRADE",
+            "reason": "QUALITY_UPGRADE",
+            "evidence_keys": [],
+            "rank": [
+              2160,
+              2,
+              false,
+              0,
+              false,
+              1
+            ],
+            "evidence_source": "none",
+            "comparisons": [
+              {
+                "version_id": "old",
+                "dimension": "resolution",
+                "candidate": 2160,
+                "current": 1080,
+                "order": 1
+              }
+            ]
+          },
+          "[\"电视剧\",\"tmdb\",\"42\",1,\"\",8]": {
+            "status": "ALLOW",
+            "action": "ACQUIRE",
+            "reason": "MISSING",
+            "evidence_keys": [],
+            "rank": [
+              2160,
+              2,
+              false,
+              0,
+              false,
+              1
+            ],
+            "evidence_source": "none",
+            "comparisons": []
+          }
+        },
+        "enrichments": [],
+        "reason": "READY_FOR_OBSERVATION_AND_CLAIM"
+      },
+      "mode": "episode",
+      "observed": {
+        "title": "契约测试资源"
+      },
+      "plan_digests": [
+        "56e463f908d221bd90d7878d1d27acd6682bcee1f425f6d376a3a3ef87477e7d"
+      ],
+      "revisions": {
+        "exclusion": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "scope": [
+        "[\"电视剧\",\"themoviedb\",\"42\",1,\"\",7]"
+      ],
+      "simulation": false
+    },
+    "summary": {}
+  },
+  "scenes": {
+    "rapid": {
+      "task": {
+        "id": 1,
+        "title": "展示契约",
+        "year": "",
+        "media_type": "电视剧",
+        "media_source": "themoviedb",
+        "media_id": "42",
+        "season": 1,
+        "episode_group": "",
+        "state": "ACTIVE",
+        "native_id": null,
+        "generation": 1,
+        "actor": "test",
+        "created_at": "2026-09-26T12:48:29.311779+00:00",
+        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "progress": {
+          "targets": 1,
+          "present": 1,
+          "confirmed": 0,
+          "processing": 1,
+          "unsettled": 0,
+          "resolutions": [
+            1080
+          ],
+          "observation_until": null,
+          "cooldown_until": null
+        }
+      },
+      "lifecycle": null,
+      "effective": null,
+      "units": {
+        "items": [
+          {
+            "target_key": "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]",
+            "task_id": 1,
+            "generation": 2,
+            "owner_plan_id": "p6",
+            "publish_phase": "NOT_SENT",
+            "publish_action_id": null,
+            "current_revision": 0,
+            "current_facts": {
+              "state": "PRESENT",
+              "versions": [
+                {
+                  "version_id": "old",
+                  "reliable": true,
+                  "raw": {
+                    "title": "Example 1080p WEB-DL",
+                    "description": "",
+                    "labels": [],
+                    "subtitle_description": "",
+                    "technical": {
+                      "resolution": 1080,
+                      "picture": 0,
+                      "audio": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "last_ingest_confirmed_at": null,
+            "cooldown_until": null,
+            "processing": {
+              "plan_id": "p6",
+              "phase": "RAPID_WAIT",
+              "state": "ACTIVE",
+              "action": "QUALITY_UPGRADE",
+              "reason": "QUALITY_UPGRADE",
+              "quality": {
+                "audio": 1,
+                "basis": {
+                  "audio": "release",
+                  "picture": "release",
+                  "resolution": "release"
+                },
+                "evidence": "none",
+                "group": "hhweb",
+                "hq": false,
+                "picture": 2,
+                "platform": null,
+                "resolution": 2160,
+                "source": "web",
+                "special_zh_subtitles": false
+              },
+              "files": [
+                "E7.mkv"
+              ],
+              "started_at": "2026-09-26T00:00:05+00:00",
+              "download": {
+                "total_bytes": 2147483648,
+                "downloaded_bytes": 536870912,
+                "speed": 107374182,
+                "sampled_at": "2026-09-19T00:00:00+00:00",
+                "shared_file": false,
+                "file_count": 1
+              },
+              "transfer_files": [
+                {
+                  "file_index": 0,
+                  "name": "E7.mkv",
+                  "role": "video",
+                  "state": "PENDING",
+                  "misses": 2,
+                  "miss_limit": 6,
+                  "due": "2099-01-01T00:00:00+00:00",
+                  "local_bytes_sent": null,
+                  "remote_verified": false
+                }
+              ],
+              "transfer_file_count": 1,
+              "attachments": {
+                "required": 0,
+                "local_ready": 0,
+                "remote_verified": 0
+              },
+              "next_step": "CHECK_TRANSFER",
+              "next_at": "2099-01-01T00:00:00+00:00"
+            },
+            "current_quality": [
+              {
+                "version_id": "old",
+                "quality": {
+                  "resolution": 1080,
+                  "picture": 0,
+                  "source": "web",
+                  "hq": false,
+                  "audio": 0,
+                  "special_zh_subtitles": false,
+                  "evidence": "none",
+                  "group": null,
+                  "platform": null,
+                  "basis": {
+                    "resolution": "measured",
+                    "picture": "measured",
+                    "audio": "measured"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "opportunities": {
+        "items": [
+          {
+            "id": "round",
+            "state": "ACTIVE",
+            "revision": "2026-09-19T00:00:00+00:00",
+            "data": {
+              "id": "round",
+              "task_id": 1,
+              "scope": [],
+              "mode": "CONTINUOUS",
+              "state": "ACTIVE",
+              "config": {},
+              "supersessions": 0,
+              "failures": 0,
+              "created_at": "2026-09-19T00:00:00+00:00",
+              "updated_at": "2026-09-19T00:00:00+00:00"
+            }
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "plans": {
+        "items": [
+          {
+            "id": "p0",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p0",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:00+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p1",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p1",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:01+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p2",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p2",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:02+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p3",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p3",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:03+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p4",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p4",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:04+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p5",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p5",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p6",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p6",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {
+                "candidate_key": "A",
+                "downloader": "test",
+                "infohash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "parse_revision": "parse-1",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "save_path": "[PATH]",
+                "selected_indices": [
+                  0,
+                  1
+                ],
+                "verified": {
+                  "admission": true,
+                  "configuration": true,
+                  "files": true,
+                  "identity": true,
+                  "scope": true
+                }
+              },
+              "file_count": 2
+            }
+          }
+        ],
+        "total": 7,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "7"
+        }
+      },
+      "snapshot": {
+        "config_revision": 1,
+        "runtime_generation": 4,
+        "high_watermark": "1"
+      }
+    },
+    "downloading": {
+      "task": {
+        "id": 1,
+        "title": "展示契约",
+        "year": "",
+        "media_type": "电视剧",
+        "media_source": "themoviedb",
+        "media_id": "42",
+        "season": 1,
+        "episode_group": "",
+        "state": "ACTIVE",
+        "native_id": null,
+        "generation": 1,
+        "actor": "test",
+        "created_at": "2026-09-26T12:48:29.311779+00:00",
+        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "progress": {
+          "targets": 1,
+          "present": 1,
+          "confirmed": 0,
+          "processing": 1,
+          "unsettled": 0,
+          "resolutions": [
+            1080
+          ],
+          "observation_until": null,
+          "cooldown_until": null
+        }
+      },
+      "lifecycle": null,
+      "effective": null,
+      "units": {
+        "items": [
+          {
+            "target_key": "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]",
+            "task_id": 1,
+            "generation": 2,
+            "owner_plan_id": "p6",
+            "publish_phase": "NOT_SENT",
+            "publish_action_id": null,
+            "current_revision": 0,
+            "current_facts": {
+              "state": "PRESENT",
+              "versions": [
+                {
+                  "version_id": "old",
+                  "reliable": true,
+                  "raw": {
+                    "title": "Example 1080p WEB-DL",
+                    "description": "",
+                    "labels": [],
+                    "subtitle_description": "",
+                    "technical": {
+                      "resolution": 1080,
+                      "picture": 0,
+                      "audio": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "last_ingest_confirmed_at": null,
+            "cooldown_until": null,
+            "processing": {
+              "plan_id": "p6",
+              "phase": "DOWNLOADING",
+              "state": "ACTIVE",
+              "action": "QUALITY_UPGRADE",
+              "reason": "QUALITY_UPGRADE",
+              "quality": {
+                "audio": 1,
+                "basis": {
+                  "audio": "release",
+                  "picture": "release",
+                  "resolution": "release"
+                },
+                "evidence": "none",
+                "group": "hhweb",
+                "hq": false,
+                "picture": 2,
+                "platform": null,
+                "resolution": 2160,
+                "source": "web",
+                "special_zh_subtitles": false
+              },
+              "files": [
+                "E7.mkv"
+              ],
+              "started_at": "2026-09-26T00:00:05+00:00",
+              "download": {
+                "total_bytes": 2147483648,
+                "downloaded_bytes": 536870912,
+                "speed": 107374182,
+                "sampled_at": "2026-09-19T00:00:00+00:00",
+                "shared_file": false,
+                "file_count": 1
+              },
+              "transfer_files": [],
+              "transfer_file_count": 0,
+              "attachments": {
+                "required": 0,
+                "local_ready": 0,
+                "remote_verified": 0
+              },
+              "next_step": "CHECK_DOWNLOAD",
+              "next_at": null
+            },
+            "current_quality": [
+              {
+                "version_id": "old",
+                "quality": {
+                  "resolution": 1080,
+                  "picture": 0,
+                  "source": "web",
+                  "hq": false,
+                  "audio": 0,
+                  "special_zh_subtitles": false,
+                  "evidence": "none",
+                  "group": null,
+                  "platform": null,
+                  "basis": {
+                    "resolution": "measured",
+                    "picture": "measured",
+                    "audio": "measured"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "opportunities": {
+        "items": [
+          {
+            "id": "round",
+            "state": "ACTIVE",
+            "revision": "2026-09-19T00:00:00+00:00",
+            "data": {
+              "id": "round",
+              "task_id": 1,
+              "scope": [],
+              "mode": "CONTINUOUS",
+              "state": "ACTIVE",
+              "config": {},
+              "supersessions": 0,
+              "failures": 0,
+              "created_at": "2026-09-19T00:00:00+00:00",
+              "updated_at": "2026-09-19T00:00:00+00:00"
+            }
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "plans": {
+        "items": [
+          {
+            "id": "p0",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p0",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:00+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p1",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p1",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:01+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p2",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p2",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:02+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p3",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p3",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:03+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p4",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p4",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:04+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p5",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p5",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p6",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p6",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {
+                "candidate_key": "A",
+                "downloader": "test",
+                "infohash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "parse_revision": "parse-1",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "save_path": "[PATH]",
+                "selected_indices": [
+                  0,
+                  1
+                ],
+                "verified": {
+                  "admission": true,
+                  "configuration": true,
+                  "files": true,
+                  "identity": true,
+                  "scope": true
+                }
+              },
+              "file_count": 2
+            }
+          }
+        ],
+        "total": 7,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "7"
+        }
+      },
+      "snapshot": {
+        "config_revision": 1,
+        "runtime_generation": 4,
+        "high_watermark": "1"
+      }
+    },
+    "assets": {
+      "task": {
+        "id": 1,
+        "title": "展示契约",
+        "year": "",
+        "media_type": "电视剧",
+        "media_source": "themoviedb",
+        "media_id": "42",
+        "season": 1,
+        "episode_group": "",
+        "state": "ACTIVE",
+        "native_id": null,
+        "generation": 1,
+        "actor": "test",
+        "created_at": "2026-09-26T12:48:29.311779+00:00",
+        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "progress": {
+          "targets": 1,
+          "present": 1,
+          "confirmed": 0,
+          "processing": 1,
+          "unsettled": 0,
+          "resolutions": [
+            1080
+          ],
+          "observation_until": null,
+          "cooldown_until": null
+        }
+      },
+      "lifecycle": null,
+      "effective": null,
+      "units": {
+        "items": [
+          {
+            "target_key": "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]",
+            "task_id": 1,
+            "generation": 2,
+            "owner_plan_id": "p6",
+            "publish_phase": "NOT_SENT",
+            "publish_action_id": null,
+            "current_revision": 0,
+            "current_facts": {
+              "state": "PRESENT",
+              "versions": [
+                {
+                  "version_id": "old",
+                  "reliable": true,
+                  "raw": {
+                    "title": "Example 1080p WEB-DL",
+                    "description": "",
+                    "labels": [],
+                    "subtitle_description": "",
+                    "technical": {
+                      "resolution": 1080,
+                      "picture": 0,
+                      "audio": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "last_ingest_confirmed_at": null,
+            "cooldown_until": null,
+            "processing": {
+              "plan_id": "p6",
+              "phase": "WAITING_ASSETS",
+              "state": "ACTIVE",
+              "action": "QUALITY_UPGRADE",
+              "reason": "QUALITY_UPGRADE",
+              "quality": {
+                "audio": 1,
+                "basis": {
+                  "audio": "release",
+                  "picture": "release",
+                  "resolution": "release"
+                },
+                "evidence": "none",
+                "group": "hhweb",
+                "hq": false,
+                "picture": 2,
+                "platform": null,
+                "resolution": 2160,
+                "source": "web",
+                "special_zh_subtitles": false
+              },
+              "files": [
+                "E7.mkv"
+              ],
+              "started_at": "2026-09-26T00:00:05+00:00",
+              "download": {
+                "total_bytes": 2147483648,
+                "downloaded_bytes": 536870912,
+                "speed": 107374182,
+                "sampled_at": "2026-09-19T00:00:00+00:00",
+                "shared_file": false,
+                "file_count": 1
+              },
+              "transfer_files": [],
+              "transfer_file_count": 0,
+              "attachments": {
+                "required": 0,
+                "local_ready": 0,
+                "remote_verified": 0
+              },
+              "next_step": "WAIT_ASSETS",
+              "next_at": null
+            },
+            "current_quality": [
+              {
+                "version_id": "old",
+                "quality": {
+                  "resolution": 1080,
+                  "picture": 0,
+                  "source": "web",
+                  "hq": false,
+                  "audio": 0,
+                  "special_zh_subtitles": false,
+                  "evidence": "none",
+                  "group": null,
+                  "platform": null,
+                  "basis": {
+                    "resolution": "measured",
+                    "picture": "measured",
+                    "audio": "measured"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "opportunities": {
+        "items": [
+          {
+            "id": "round",
+            "state": "ACTIVE",
+            "revision": "2026-09-19T00:00:00+00:00",
+            "data": {
+              "id": "round",
+              "task_id": 1,
+              "scope": [],
+              "mode": "CONTINUOUS",
+              "state": "ACTIVE",
+              "config": {},
+              "supersessions": 0,
+              "failures": 0,
+              "created_at": "2026-09-19T00:00:00+00:00",
+              "updated_at": "2026-09-19T00:00:00+00:00"
+            }
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "plans": {
+        "items": [
+          {
+            "id": "p0",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p0",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:00+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p1",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p1",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:01+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p2",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p2",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:02+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p3",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p3",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:03+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p4",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p4",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:04+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p5",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p5",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p6",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p6",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {
+                "candidate_key": "A",
+                "downloader": "test",
+                "infohash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "parse_revision": "parse-1",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "save_path": "[PATH]",
+                "selected_indices": [
+                  0,
+                  1
+                ],
+                "verified": {
+                  "admission": true,
+                  "configuration": true,
+                  "files": true,
+                  "identity": true,
+                  "scope": true
+                }
+              },
+              "file_count": 2
+            }
+          }
+        ],
+        "total": 7,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "7"
+        }
+      },
+      "snapshot": {
+        "config_revision": 1,
+        "runtime_generation": 4,
+        "high_watermark": "1"
+      }
+    },
+    "unknown": {
+      "task": {
+        "id": 1,
+        "title": "展示契约",
+        "year": "",
+        "media_type": "电视剧",
+        "media_source": "themoviedb",
+        "media_id": "42",
+        "season": 1,
+        "episode_group": "",
+        "state": "ACTIVE",
+        "native_id": null,
+        "generation": 1,
+        "actor": "test",
+        "created_at": "2026-09-26T12:48:29.311779+00:00",
+        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "progress": {
+          "targets": 1,
+          "present": 1,
+          "confirmed": 0,
+          "processing": 1,
+          "unsettled": 0,
+          "resolutions": [
+            1080
+          ],
+          "observation_until": null,
+          "cooldown_until": null
+        }
+      },
+      "lifecycle": null,
+      "effective": null,
+      "units": {
+        "items": [
+          {
+            "target_key": "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]",
+            "task_id": 1,
+            "generation": 2,
+            "owner_plan_id": "p6",
+            "publish_phase": "PUBLISH_OUTCOME_UNKNOWN",
+            "publish_action_id": null,
+            "current_revision": 0,
+            "current_facts": {
+              "state": "PRESENT",
+              "versions": [
+                {
+                  "version_id": "old",
+                  "reliable": true,
+                  "raw": {
+                    "title": "Example 1080p WEB-DL",
+                    "description": "",
+                    "labels": [],
+                    "subtitle_description": "",
+                    "technical": {
+                      "resolution": 1080,
+                      "picture": 0,
+                      "audio": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "last_ingest_confirmed_at": null,
+            "cooldown_until": null,
+            "processing": {
+              "plan_id": "p6",
+              "phase": "PUBLISH_OUTCOME_UNKNOWN",
+              "state": "ACTIVE",
+              "action": "QUALITY_UPGRADE",
+              "reason": "QUALITY_UPGRADE",
+              "quality": {
+                "audio": 1,
+                "basis": {
+                  "audio": "release",
+                  "picture": "release",
+                  "resolution": "release"
+                },
+                "evidence": "none",
+                "group": "hhweb",
+                "hq": false,
+                "picture": 2,
+                "platform": null,
+                "resolution": 2160,
+                "source": "web",
+                "special_zh_subtitles": false
+              },
+              "files": [
+                "E7.mkv"
+              ],
+              "started_at": "2026-09-26T00:00:05+00:00",
+              "download": {
+                "total_bytes": 2147483648,
+                "downloaded_bytes": 536870912,
+                "speed": 107374182,
+                "sampled_at": "2026-09-19T00:00:00+00:00",
+                "shared_file": false,
+                "file_count": 1
+              },
+              "transfer_files": [],
+              "transfer_file_count": 0,
+              "attachments": {
+                "required": 0,
+                "local_ready": 0,
+                "remote_verified": 0
+              },
+              "next_step": "RECONCILE",
+              "next_at": null
+            },
+            "current_quality": [
+              {
+                "version_id": "old",
+                "quality": {
+                  "resolution": 1080,
+                  "picture": 0,
+                  "source": "web",
+                  "hq": false,
+                  "audio": 0,
+                  "special_zh_subtitles": false,
+                  "evidence": "none",
+                  "group": null,
+                  "platform": null,
+                  "basis": {
+                    "resolution": "measured",
+                    "picture": "measured",
+                    "audio": "measured"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "opportunities": {
+        "items": [
+          {
+            "id": "round",
+            "state": "ACTIVE",
+            "revision": "2026-09-19T00:00:00+00:00",
+            "data": {
+              "id": "round",
+              "task_id": 1,
+              "scope": [],
+              "mode": "CONTINUOUS",
+              "state": "ACTIVE",
+              "config": {},
+              "supersessions": 0,
+              "failures": 0,
+              "created_at": "2026-09-19T00:00:00+00:00",
+              "updated_at": "2026-09-19T00:00:00+00:00"
+            }
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "plans": {
+        "items": [
+          {
+            "id": "p0",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p0",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:00+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p1",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p1",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:01+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p2",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p2",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:02+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p3",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p3",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:03+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p4",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p4",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:04+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p5",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p5",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p6",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p6",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {
+                "candidate_key": "A",
+                "downloader": "test",
+                "infohash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "parse_revision": "parse-1",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "save_path": "[PATH]",
+                "selected_indices": [
+                  0,
+                  1
+                ],
+                "verified": {
+                  "admission": true,
+                  "configuration": true,
+                  "files": true,
+                  "identity": true,
+                  "scope": true
+                }
+              },
+              "file_count": 2
+            }
+          }
+        ],
+        "total": 7,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "7"
+        }
+      },
+      "snapshot": {
+        "config_revision": 1,
+        "runtime_generation": 4,
+        "high_watermark": "1"
+      }
+    },
+    "superseded": {
+      "task": {
+        "id": 1,
+        "title": "展示契约",
+        "year": "",
+        "media_type": "电视剧",
+        "media_source": "themoviedb",
+        "media_id": "42",
+        "season": 1,
+        "episode_group": "",
+        "state": "ACTIVE",
+        "native_id": null,
+        "generation": 1,
+        "actor": "test",
+        "created_at": "2026-09-26T12:48:29.311779+00:00",
+        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "progress": {
+          "targets": 1,
+          "present": 1,
+          "confirmed": 0,
+          "processing": 0,
+          "unsettled": 1,
+          "resolutions": [
+            1080
+          ],
+          "observation_until": null,
+          "cooldown_until": null
+        }
+      },
+      "lifecycle": null,
+      "effective": null,
+      "units": {
+        "items": [
+          {
+            "target_key": "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]",
+            "task_id": 1,
+            "generation": 3,
+            "owner_plan_id": "p6",
+            "publish_phase": "PUBLISH_OUTCOME_UNKNOWN",
+            "publish_action_id": null,
+            "current_revision": 0,
+            "current_facts": {
+              "state": "PRESENT",
+              "versions": [
+                {
+                  "version_id": "old",
+                  "reliable": true,
+                  "raw": {
+                    "title": "Example 1080p WEB-DL",
+                    "description": "",
+                    "labels": [],
+                    "subtitle_description": "",
+                    "technical": {
+                      "resolution": 1080,
+                      "picture": 0,
+                      "audio": 0
+                    }
+                  }
+                }
+              ]
+            },
+            "last_ingest_confirmed_at": null,
+            "cooldown_until": null,
+            "processing": null,
+            "current_quality": [
+              {
+                "version_id": "old",
+                "quality": {
+                  "resolution": 1080,
+                  "picture": 0,
+                  "source": "web",
+                  "hq": false,
+                  "audio": 0,
+                  "special_zh_subtitles": false,
+                  "evidence": "none",
+                  "group": null,
+                  "platform": null,
+                  "basis": {
+                    "resolution": "measured",
+                    "picture": "measured",
+                    "audio": "measured"
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "opportunities": {
+        "items": [
+          {
+            "id": "round",
+            "state": "ACTIVE",
+            "revision": "2026-09-19T00:00:00+00:00",
+            "data": {
+              "id": "round",
+              "task_id": 1,
+              "scope": [],
+              "mode": "CONTINUOUS",
+              "state": "ACTIVE",
+              "config": {},
+              "supersessions": 0,
+              "failures": 0,
+              "created_at": "2026-09-19T00:00:00+00:00",
+              "updated_at": "2026-09-19T00:00:00+00:00"
+            }
+          }
+        ],
+        "total": 1,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "1"
+        }
+      },
+      "plans": {
+        "items": [
+          {
+            "id": "p0",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p0",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:00+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p1",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p1",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:01+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p2",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p2",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:02+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p3",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p3",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:03+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p4",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p4",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:04+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p5",
+            "state": "ACTIVE",
+            "revision": "",
+            "data": {
+              "id": "p5",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "ACTIVE",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {},
+              "file_count": null
+            }
+          },
+          {
+            "id": "p6",
+            "state": "SUPERSEDED",
+            "revision": "",
+            "data": {
+              "id": "p6",
+              "opportunity_id": "round",
+              "task_id": 1,
+              "authorization": "SUPERSEDED",
+              "transfer_phase": "DOWNLOADING",
+              "created_at": "2026-09-26T00:00:05+00:00",
+              "task_generation": 1,
+              "snapshot": {
+                "candidate_key": "A",
+                "downloader": "test",
+                "infohash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "parse_revision": "parse-1",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "save_path": "[PATH]",
+                "selected_indices": [
+                  0,
+                  1
+                ],
+                "verified": {
+                  "admission": true,
+                  "configuration": true,
+                  "files": true,
+                  "identity": true,
+                  "scope": true
+                }
+              },
+              "file_count": 2
+            }
+          }
+        ],
+        "total": 7,
+        "next_offset": null,
+        "truncated": false,
+        "snapshot": {
+          "config_revision": 1,
+          "runtime_generation": 4,
+          "high_watermark": "7"
+        }
+      },
+      "snapshot": {
+        "config_revision": 1,
+        "runtime_generation": 4,
+        "high_watermark": "1"
+      }
+    }
+  }
+}

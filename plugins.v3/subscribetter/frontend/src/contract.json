@@ -2065,6 +2065,20 @@
             }
           },
           {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "oldest",
+                "newest"
+              ],
+              "type": "string",
+              "default": "oldest",
+              "title": "Sort"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -4232,6 +4246,20 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "oldest",
+                "newest"
+              ],
+              "type": "string",
+              "default": "oldest",
+              "title": "Sort"
             }
           },
           {
@@ -7958,6 +7986,13 @@
           },
           "type": "object",
           "title": "Evidence"
+        },
+        "summary": {
+          "additionalProperties": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "type": "object",
+          "title": "Summary"
         }
       },
       "additionalProperties": false,
@@ -12128,6 +12163,16 @@
             }
           ],
           "title": "Processing"
+        },
+        "current_quality": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object"
+          },
+          "type": "array",
+          "title": "Current Quality"
         }
       },
       "additionalProperties": false,

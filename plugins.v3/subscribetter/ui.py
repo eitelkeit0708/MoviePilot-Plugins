@@ -77,6 +77,7 @@ class Unit(Strict):
     last_ingest_confirmed_at:str|None
     cooldown_until:str|None
     processing:dict[str,JsonValue]|None=None
+    current_quality:list[dict[str,JsonValue]]=Field(default_factory=list)
 
 
 class Row(Strict):
@@ -117,6 +118,7 @@ class Decision(Strict):
     digest:str
     created_at:str
     evidence:dict[str,JsonValue]
+    summary:dict[str,JsonValue]=Field(default_factory=dict)
 
 
 class ArchiveTarget(Strict):
@@ -436,7 +438,7 @@ class Views:
         high=db.execute(f'SELECT coalesce(max(rowid),0) FROM {table}').fetchone()[0]
         return Snapshot(config_revision=config['revision'],runtime_generation=self.plugin.generation,high_watermark=str(high))
 
-    def _page(self,table,model,project,*,where='1',args=(),order='rowid',limit=25,offset=0,select='*',source=None):
+    def _page(self,table,model,project,*,where='1',args=(),order='rowid',limit=25,offset=0,select='*',source=None,with_db=False):
         if type(limit)is not int or not 1<=limit<=100 or type(offset)is not int or offset<0:raise HTTPException(422,'INVALID_PAGINATION')
         source=source or table
         try:
@@ -445,7 +447,7 @@ class Views:
                 total=db.execute(f'SELECT count(*) FROM {source} WHERE {where}',args).fetchone()[0]
                 rows=db.execute(f'SELECT {select} FROM {source} WHERE {where} ORDER BY {order} LIMIT ? OFFSET ?',(*args,limit,offset)).fetchall()
                 snap=self.snapshot(db,table)
-                items=[model.model_validate(project(dict(row))) for row in rows]
+                items=[model.model_validate(project(dict(row),db) if with_db else project(dict(row))) for row in rows]
             end=offset+len(items)
             return Page[model](items=items,total=total,next_offset=end if end<total else None,truncated=end<total,snapshot=snap)
         except (sqlite3.Error,OSError,AttributeError):raise HTTPException(503,'MANAGEMENT_STORE_UNAVAILABLE') from None
@@ -476,7 +478,7 @@ class Views:
         return dict(title=public(str(snapshot.get('name') or '未命名作品')),
                     year=public(str(snapshot.get('year') or '')),
                     progress=dict(targets=r['targets'] or 0,present=r['present'] or 0,confirmed=r['confirmed'] or 0,processing=r['processing'] or 0,
-                                  resolutions=sorted({int(v) for v in (r['resolutions'] or '').split(',') if v.isdigit()},reverse=True),
+                                  unsettled=(r['owned'] or 0)-(r['processing'] or 0),resolutions=sorted({int(v) for v in (r['resolutions'] or '').split(',') if v.isdigit()},reverse=True),
                                   observation_until=r['observation_until'],cooldown_until=r['cooldown_until']) if 'targets' in r else None,
                     **{k:public(r[k]) for k in Task.model_fields if k not in ('title','year','progress')})
 
@@ -488,7 +490,8 @@ class Views:
     def _task_page(self,*,where,args,sort='id',limit=25,offset=0):
         source="""tasks t LEFT JOIN (
             SELECT s.task_id,count(*) targets,sum(s.last_ingest_confirmed_at IS NOT NULL) confirmed,
-                sum(s.owner_plan_id IS NOT NULL) processing,
+                sum(s.owner_plan_id IS NOT NULL) owned,
+                sum(EXISTS(SELECT 1 FROM plans p JOIN plan_targets pt ON pt.plan_id=p.id AND pt.target_key=s.target_key JOIN tasks task ON task.id=p.task_id WHERE p.id=s.owner_plan_id AND p.task_id=s.task_id AND p.authorization='ACTIVE' AND pt.state='ACTIVE' AND pt.generation=s.generation AND p.task_generation=task.generation)) processing,
                 sum(json_extract(s.current_facts,'$.state')='PRESENT' AND EXISTS(SELECT 1 FROM json_each(s.current_facts,'$.versions') v WHERE json_extract(v.value,'$.reliable')=1)) present,
                 group_concat(CASE WHEN json_extract(s.current_facts,'$.state')='PRESENT' THEN
                     (SELECT group_concat(DISTINCT json_extract(v.value,'$.raw.technical.resolution')) FROM json_each(s.current_facts,'$.versions') v WHERE json_extract(v.value,'$.reliable')=1) END) resolutions,
@@ -502,21 +505,14 @@ class Views:
                 WHERE o.state='ACTIVE' AND json_extract(o.config,'$.observation_enabled')=1 AND ot.fulfilled=0 AND b.deadline>?
                 GROUP BY o.task_id) b ON b.task_id=t.id"""
         now=utcnow()
-        return self._page('tasks',Task,self._task,source=source,select='t.*,u.targets,u.present,u.confirmed,u.processing,u.resolutions,u.cooldown_until,b.observation_until',where=where,args=(now,now,*args),order='t.'+sort+',t.id',limit=limit,offset=offset)
+        return self._page('tasks',Task,self._task,source=source,select='t.*,u.targets,u.present,u.confirmed,u.processing,u.owned,u.resolutions,u.cooldown_until,b.observation_until',where=where,args=(now,now,*args),order='t.'+sort+',t.id',limit=limit,offset=offset)
 
-    @staticmethod
-    def _unit(r):
-        value={k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields if k!='processing'}
-        value['processing']=None
-        if r['owner_plan_id']:
-            snapshot=json.loads(r['plan_snapshot'] or '{}')
-            target=snapshot.get('targets',{}).get(r['target_key'],{})
-            selected=set(snapshot.get('selected_indices',[]))
-            files=[f.get('path','').rsplit('/',1)[-1] for f in snapshot.get('torrent_files',[])
-                   if f.get('index') in selected and r['target_key'] in f.get('targets',[]) and f.get('role')=='video']
-            value['processing']=public(dict(plan_id=r['owner_plan_id'],phase=r['target_phase'] or r['plan_phase'] or 'UNKNOWN',
-                state=r['target_state'] or 'UNKNOWN',action=target.get('action'),reason=target.get('reason'),files=files[:20],
-                started_at=r['plan_created_at']))
+    def _unit(self,r,db):
+        from .display import current_quality,processing
+        value={k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields if k not in ('processing','current_quality')}
+        archive=getattr(getattr(self.plugin.runtime,'delivery',None),'archive',None)
+        value['current_quality']=public(current_quality(json.loads(r['current_facts']) if r['current_facts'] else None,getattr(archive,'policy',None)))
+        value['processing']=public(processing(db,r))
         return value
 
     def task(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->TaskDetail:
@@ -525,8 +521,8 @@ class Views:
             life=db.execute('SELECT * FROM task_lifecycle WHERE task_id=?',(task_id,)).fetchone();snap=self.snapshot(db)
         effective=self.repository.setting('runtime-task:'+str(task_id))
         units=self._page('target_units',Unit,self._unit,
-            source='target_units u LEFT JOIN task_lifecycle l ON l.task_id=u.task_id LEFT JOIN plans p ON p.id=u.owner_plan_id AND p.task_id=u.task_id LEFT JOIN plan_targets pt ON pt.plan_id=p.id AND pt.target_key=u.target_key',
-            select='u.*,p.snapshot plan_snapshot,p.transfer_phase plan_phase,p.created_at plan_created_at,pt.transfer_phase target_phase,pt.state target_state',
+            source='target_units u JOIN tasks t ON t.id=u.task_id LEFT JOIN task_lifecycle l ON l.task_id=u.task_id LEFT JOIN plans p ON p.id=u.owner_plan_id AND p.task_id=u.task_id LEFT JOIN plan_targets pt ON pt.plan_id=p.id AND pt.target_key=u.target_key',
+            select='u.*,p.snapshot plan_snapshot,p.transfer_phase plan_phase,p.created_at plan_created_at,pt.transfer_phase target_phase,pt.state target_state,pt.generation target_generation,p.authorization,p.task_generation plan_task_generation,t.generation task_generation',with_db=True,
             where='u.task_id=? AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))',args=(task_id,),
             order="CASE WHEN json_valid(u.target_key) THEN CAST(json_extract(u.target_key,'$[3]') AS INTEGER) END, CASE WHEN json_valid(u.target_key) THEN CAST(json_extract(u.target_key,'$[5]') AS INTEGER) END,u.target_key",limit=limit,offset=offset)
         return TaskDetail(task=self._task_page(where='t.id=?',args=(task_id,),limit=1).items[0],lifecycle=self.row(dict(life))['data'] if life else None,
@@ -551,10 +547,23 @@ class Views:
         return self._page('candidates',Row,lambda r:dict(id=str(r['key']),state='OBSERVED',revision='',data=public(json.loads(r['value']))),source='candidates c,json_each(c.data,?) f',select='f.key,f.value',where='c.candidate_key=?',args=('$.'+section,candidate_key),order='f.key',limit=limit,offset=offset)
 
     @staticmethod
-    def _decision(r):return public(dict(**{k:r[k] for k in ('id','candidate_key','task_id','opportunity_id','status','digest','created_at')},simulation=bool(r['simulation']),evidence=json.loads(r['data'])))
+    def _decision(r):return public(dict(**{k:r[k] for k in ('id','candidate_key','task_id','opportunity_id','status','digest','created_at')},simulation=bool(r['simulation']),evidence=json.loads(r['data']),summary=json.loads(r.get('summary') or '{}')))
 
-    def decisions(self,limit:Limit=25,offset:Offset=0,candidate_key:Id|None=None,task_id:int|None=Query(None,gt=0),status:Literal['ACCEPT','REJECT','DEFER','ENRICH']|None=None,user:TokenPayload=Depends(verify_token))->Page[Decision]:
-        self._auth(user);return self._page('candidate_decisions',Decision,self._decision,select="id,candidate_key,task_id,opportunity_id,status,simulation,digest,created_at,json_remove(data,'$.evaluation','$.observed.torrent_files','$.observed.file_parse','$.observed.last_decision') AS data",where='(? IS NULL OR candidate_key=?) AND (? IS NULL OR task_id=?) AND (? IS NULL OR status=?)',args=(candidate_key,candidate_key,task_id,task_id,status,status),order='created_at,id',limit=limit,offset=offset)
+    def decisions(self,limit:Limit=25,offset:Offset=0,candidate_key:Id|None=None,task_id:int|None=Query(None,gt=0),status:Literal['ACCEPT','REJECT','DEFER','ENRICH']|None=None,sort:Literal['oldest','newest']='oldest',user:TokenPayload=Depends(verify_token))->Page[Decision]:
+        # Keep the large evaluation out of list responses. At most eight target
+        # outcomes and seven dimensions per outcome; details retain the full record.
+        select="""id,candidate_key,task_id,opportunity_id,status,simulation,digest,created_at,
+            json_remove(data,'$.evaluation','$.observed.torrent_files','$.observed.file_parse','$.observed.last_decision') AS data,
+            json_object('reason',substr(json_extract(data,'$.evaluation.reason'),1,512),
+                'total',(SELECT count(*) FROM json_each(data,'$.evaluation.decisions')),
+                'outcomes',json((SELECT json_group_array(json(outcome)) FROM (
+                    SELECT json_object('target_key',substr(d.key,1,2048),'status',json_extract(d.value,'$.status'),
+                        'reason',substr(json_extract(d.value,'$.reason'),1,512),
+                        'dimensions',json((SELECT json_group_array(dimension) FROM (
+                            SELECT DISTINCT substr(json_extract(c.value,'$.dimension'),1,64) dimension
+                            FROM json_each(d.value,'$.comparisons') c LIMIT 7)))) outcome
+                    FROM json_each(data,'$.evaluation.decisions') d ORDER BY d.key LIMIT 8)))) AS summary"""
+        self._auth(user);return self._page('candidate_decisions',Decision,self._decision,select=select,where='(? IS NULL OR candidate_key=?) AND (? IS NULL OR task_id=?) AND (? IS NULL OR status=?)',args=(candidate_key,candidate_key,task_id,task_id,status,status),order='created_at DESC,id DESC' if sort=='newest' else 'created_at,id',limit=limit,offset=offset)
 
     def decision(self,decision_id:Id,user:TokenPayload=Depends(verify_token))->Decision:
         self._auth(user);return Decision(**self._decision(self._one('candidate_decisions','id',decision_id)))
@@ -668,9 +677,9 @@ class Views:
         self._auth(user);self._one('tasks','id',task_id)
         return self.rows('observations',where='opportunity_id IN (SELECT id FROM opportunities WHERE task_id=?)',args=(task_id,),order='opportunity_id,target_key',limit=limit,offset=offset)
 
-    def task_plans(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
+    def task_plans(self,task_id:int,limit:Limit=25,offset:Offset=0,sort:Literal['oldest','newest']='oldest',user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);self._one('tasks','id',task_id)
-        return self.rows('plans',where='task_id=?',args=(task_id,),order='created_at,id',limit=limit,offset=offset)
+        return self.rows('plans',where='task_id=?',args=(task_id,),order='created_at DESC,id DESC' if sort=='newest' else 'created_at,id',limit=limit,offset=offset)
 
     def plan_rows(self,plan_id:Id,section:Literal['targets','actions','progress','organized','receipts'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);self._one('plans','id',plan_id)

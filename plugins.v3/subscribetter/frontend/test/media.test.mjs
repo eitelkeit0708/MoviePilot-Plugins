@@ -33,3 +33,14 @@ test('display separates unconfirmed results, stale source errors, paused tasks a
  assert.equal(taskProgress({progress:{targets:0,confirmed:0}}),'目标范围待确认');
  assert.equal(sourceTitle({name:'每周口碑',url:'http://private/path'}),'每周口碑');
 });
+
+
+test('quality distinguishes picture, four audio tiers and explicit versus inferred subtitles without defaulting unknown',()=>{
+ const base={resolution:2160,source:'web',group:'HHWEB',platform:'NF'};
+ const a=qualitySummary({...base,picture:0,audio:1,special_zh_subtitles:false});
+ const b=qualitySummary({...base,picture:2,audio:3,special_zh_subtitles:true,evidence:'explicit'});
+ assert.notEqual(a,b);assert.match(a,/SDR/);assert.match(a,/DDP/);assert.match(b,/Dolby Vision/);assert.match(b,/无损/);assert.match(b,/特效字幕/);
+ for(const [audio,label] of [[0,'基础音频'],[1,'DDP'],[2,'沉浸式'],[3,'无损']])assert.ok(qualitySummary({audio}).includes(label));
+ assert.match(qualitySummary({audio:null,picture:null}),/音频未知/);assert.match(qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}),/PGS.*推断/);
+ assert.ok(!qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}).includes('特效字幕已确认'));
+});

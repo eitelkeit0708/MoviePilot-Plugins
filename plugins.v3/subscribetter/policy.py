@@ -331,6 +331,18 @@ class Version:
     reliable: bool = True
 
 
+def quality_facts(facts):
+    """Display the facts used in comparison, without raw titles or a second score."""
+    fields=('resolution','picture','source','hq','audio','special_zh_subtitles','evidence','group','platform')
+    values={key:getattr(facts,key) for key in fields}
+    technical=facts.raw.get('technical',{})
+    # A comparison's fallback tier is not a measured SDR/basic-audio assertion.
+    for key in ('picture','audio'):
+        if values[key]==0 and technical.get(key) is None:values[key]=None
+    values['basis']={key:'measured' if technical.get(key) is not None else 'release' for key in ('resolution','picture','audio')}
+    return values
+
+
 @dataclass(frozen=True)
 class Decision:
     status: str

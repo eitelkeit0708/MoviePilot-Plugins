@@ -319,6 +319,7 @@ class Delivery:
                 assets.append(dict(file_index=index,relative_path=item['path'],role=item['role'],targets=item['targets'],requires=item['requires'],content=dict(sha1=digest,size=item['size'])))
             manifest=dict(plan_id=plan_id,manifest_ref=bid,assets=assets,publication=publication)
             b=dict(id=bid,plan_id=plan_id,source_plan_id=source_plan_id,rule_id=rule_id,rule_revision=r['revision'],rule_transfer_revision=r['transfer_revision'],vector=vector,indices=indices,manifest=manifest,files=files,state='PREPARED',reason='',due=files[0]['due'],staging=r['staging_root']+'/'+bid,incoming=r['incoming_root']+'/'+bid,publication_action=None,revision=0)
+            b['rapid_miss_limit']=r['rapid_misses']
             if sidecar:b['sidecar_destinations']=destinations
             self._valid(b)
             with self.repository.connection(write=True) as db:db.execute('INSERT INTO delivery_bundles VALUES(?,?,?,?,?,0,?)',(bid,plan_id,rule_id,b['state'],b['due'],encoded({k:v for k,v in b.items() if k!='revision'})))
