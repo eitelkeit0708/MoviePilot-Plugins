@@ -26,6 +26,27 @@ test('actual Config mount and save omit private initial fields; number controls 
  const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影期限'))[0];const number=walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0];assert.ok(number);number.props.onInput({target:{value:'9'}});await settle();
  const save=walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0];assert.ok(save);await save.props.onClick();await settle();assert.equal(f.saves.length,1);assert.ok(!JSON.stringify(f.saves).includes('SENTINEL'));assert.ok(!JSON.stringify(f.calls.filter(c=>c[0]==='post')).includes('SENTINEL'));assert.equal(f.calls.find(c=>c[0]==='post')[2].patch.lifecycle.movie_days,9);assert.ok(f.calls.filter(c=>c[0]==='post').every(c=>c[1].endsWith('/configuration/preview')));await save.props.onClick();assert.equal(f.saves.length,1);f.app.unmount();
 });
+test('Config navigation shows only the selected group and preserves unsaved edits across groups',async()=>{
+ const f=fixture(Config);await settle();
+ try{
+  const nav=walk(f.root,n=>n.props?.['aria-label']==='配置分组')[0];
+  const content=walk(f.root,n=>n.props?.class==='sb-config-content')[0];
+  for(const button of walk(nav,n=>n.type==='button')){
+   button.props.onClick();await settle();
+   const visible=content.children.filter(n=>n.type==='div'&&!n.props.hidden&&n.style.display!=='none');
+   assert.equal(visible.length,1,text(button));
+   assert.equal(walk(visible[0],n=>n.type==='h3')[0].text,text(button));
+   if(text(button)==='生命周期'){
+    const lifetime=walk(visible[0],n=>n.type==='label'&&text(n).includes('电影期限'))[0];
+    walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.onInput({target:{value:'9'}});await settle();
+   }
+  }
+  walk(nav,n=>n.type==='button'&&text(n)==='生命周期')[0].props.onClick();await settle();
+  const lifetime=walk(content,n=>n.type==='label'&&text(n).includes('电影期限'))[0];
+  assert.equal(walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.value,9);
+  assert.equal(f.calls.filter(c=>c[0]==='post').length,0);
+ }finally{f.app.unmount()}
+});
 test('Page offers human workflow navigation and keeps all nine diagnostic domains reachable without writes',async()=>{
  const f=fixture(Page);await settle();for(const title of ['订阅','发现','传输与待处理','策略','设置'])assert.ok(walk(f.root,n=>n.type==='button'&&text(n)===title)[0],title);
  walk(f.root,n=>n.type==='button'&&text(n)==='高级诊断')[0].props.onClick();await settle();
