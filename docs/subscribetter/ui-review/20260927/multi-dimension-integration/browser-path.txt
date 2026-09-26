@@ -1,0 +1,3 @@
+展开完整路径
+
+/vol3/1000/docker/clouddrive2/CloudNAS/CloudDrive/115

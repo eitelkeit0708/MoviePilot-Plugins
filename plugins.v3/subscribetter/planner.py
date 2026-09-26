@@ -925,7 +925,8 @@ class Planner:
                     action = 'SIDECAR_SUPPLEMENT'
             result['decisions'][key] = {'status': status, 'action': action, 'reason': decision.reason,
                                          'evidence_keys': list(decision.evidence_keys), 'rank': list(decision.rank), 'evidence_source': facts.evidence,
-                                         'comparisons':list(decision.comparisons)}
+                                         'comparisons':list(decision.comparisons),
+                                         'change':self.policy.describe_change(facts,versions,decision)}
         decisions = result['decisions']
         selected, covered = set(), set()
         video_coverage = {key for item in table if item['role'] == 'video' for key in item['targets']}
@@ -980,7 +981,7 @@ class Planner:
         snapshot = {key: candidate[key] for key in ('candidate_key', 'infohash', 'downloader', 'save_path', 'parse_revision')}
         from .policy import quality_facts
         snapshot.update(policy_revision=self.policy.semantic_hash, current=frozen_current,
-                        targets={k: {**{name: decisions[k][name] for name in ('action', 'reason', 'evidence_keys', 'evidence_source')}, 'quality': decisions[k]['rank'], 'quality_facts':quality_facts(candidate['facts'][k])} for k in sorted(covered)},
+                        targets={k: {**{name: decisions[k][name] for name in ('action', 'reason', 'evidence_keys', 'evidence_source', 'change')}, 'quality': decisions[k]['rank'], 'quality_facts':quality_facts(candidate['facts'][k])} for k in sorted(covered)},
                         torrent_files=candidate['torrent_files'], selected_indices=sorted(selected),
                         verified=dict(identity=True, scope=True, admission=True, files=True, configuration=True))
         if candidate.get('local_assets'):snapshot.update(local_assets=candidate['local_assets'],source_plan=candidate['source_plan'])

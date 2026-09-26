@@ -58,7 +58,10 @@ def processing(db,row):
     elif any(f['state']=='PENDING' and (f['misses'] or 0)>0 for f in transfer):phase='RAPID_WAIT'
     due=min((f['due'] for f in transfer if f['due'] and not f['remote_verified']),default=None) if not unknown and not consumer else None
     return dict(plan_id=plan,phase=phase,state=row['target_state'],action=target.get('action'),reason='CONSUMER_SETTLEMENT_REQUIRED' if consumer else next((b['reason'] for b in bundles if b['reason']),target.get('reason')),
-        quality=target.get('quality_facts') if len(videos)<=1 else None,files=[f['path'].rsplit('/',1)[-1] for f in videos[:20]],started_at=row['plan_created_at'],
+        quality=target.get('quality_facts') if len(videos)<=1 else None,
+        change=dict(target['change'],baseline_revision=snapshot.get('current',{}).get(key,{}).get('revision'),
+                    baseline_current=snapshot.get('current',{}).get(key,{}).get('revision')==row['current_revision']) if len(videos)<=1 and target.get('change') else None,
+        files=[f['path'].rsplit('/',1)[-1] for f in videos[:20]],started_at=row['plan_created_at'],
         download=dict(total_bytes=total,downloaded_bytes=downloaded,speed=speed,sampled_at=min((t for t in times.values() if t),default=None),shared_file=any(len(f['targets'])>1 for f in files),file_count=len(files)),
         transfer_files=transfer[:20],transfer_file_count=len(transfer),
         attachments=dict(required=len(attachments),local_ready=sum(organized.get(f['index'])=='COMPLETE' for f in attachments),remote_verified=sum(any(t['file_index']==f['index'] and t['remote_verified'] for t in transfer) for f in attachments)),

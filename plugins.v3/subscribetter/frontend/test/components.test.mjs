@@ -235,7 +235,15 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
  assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
  const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
  for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','等待视频和必要字幕'],['unknown','不应重复提交'],['superseded','已失效或待核实']]){
-  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'))}finally{f.app.unmount()}
+  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='rapid')assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP'])}finally{f.app.unmount()}
+ }
+ const multi=structuredClone(dto.scenes.rapid.units.items[0]);
+ multi.current_quality.push({...multi.current_quality[0],version_id:'lossless',quality:{...multi.current_quality[0].quality,audio:3}});
+ multi.processing.change.versions.push({version_id:'lossless',changes:[{dimension:'resolution',order:1},{dimension:'picture',order:1},{dimension:'audio',order:-1}]});
+ for(const baseline_current of [true,false]){
+  multi.processing.change.baseline_current=baseline_current;
+  const f=fixture(UnitProgress,{extra:{unit:multi,health:{ordinary_work_active:true}}});await settle();
+  try{assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),baseline_current?['4K','Dolby Vision','DDP','4K','Dolby Vision']:[]);if(!baseline_current)assert.match(text(f.root),/库内记录已变化/)}finally{f.app.unmount()}
  }
  const {default:CandidateDecision}=await import(pathToFileURL(path.join(out,'CandidateDecision.mjs')));
  let resolve,mode='wait';const calls=[];const decision=ref(dto.list.items[0]);
@@ -301,4 +309,14 @@ test('scan recovery follows the selected mapping when two libraries share a clou
  const root={children:[]},api={get:async p=>p==='plugin/'?[]:p==='mediaserver/clients'?[{name:'Emby',type:'emby'}]:[{id:'movie',name:'电影库'},{id:'tv',name:'剧集库'}]},status={current:ref({config:JSON.parse(JSON.stringify(config.value))}),health:ref({}),error:ref('')};
  const app=renderer.createApp({setup:()=>()=>h(PlanSetup,{modelValue:config.value,baseline:status.current.value.config,api,client:{},status,'onUpdate:modelValue':v=>config.value=v})});app.component('VBtn',{setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);await settle();
  try{walk(root,n=>n.props?.class==='sb-plan-choice')[0].props.onClick();await settle();walk(root,n=>n.props?.['aria-label']==='第 3 步：媒体库与播放路径')[0].props.onClick();await settle();walk(root,n=>n.type==='button'&&text(n)==='查看扫描与恢复设置')[1].props.onClick();await settle();const recovery=walk(root,n=>n.props?.class==='sb-inline-recovery')[0];assert.match(text(recovery),/剧集库/);walk(recovery,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.onChange({target:{checked:true}});await settle();assert.deepEqual([...config.value.passive_libraries.Emby],['tv']);}finally{app.unmount()}
+});
+
+
+test('version display renders all declared gains and losses, with no inferred purple marks',async()=>{
+ const {default:VersionDifference}=await import(pathToFileURL(path.join(out,'VersionDifference.mjs')));
+ const base={current:{resolution:1080,picture:0,audio:3,basis:{picture:'measured'}},target:{resolution:2160,picture:2,audio:1},change:{kind:'quality',changes:[{dimension:'resolution',order:1},{dimension:'picture',order:1},{dimension:'audio',order:-1}]}};
+ for(const change of [base.change,{kind:'quality',changes:[]},null]){
+  const f=fixture(VersionDifference,{extra:{...base,change}});await settle();
+  try{assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),change===base.change?['4K','Dolby Vision']:[]);if(change===base.change){assert.ok(text(f.root).includes('无损音频'));assert.ok(text(f.root).includes('偏好降低'));}}finally{f.app.unmount()}
+ }
 });

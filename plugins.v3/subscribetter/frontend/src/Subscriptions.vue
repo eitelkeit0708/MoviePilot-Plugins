@@ -53,7 +53,7 @@ defineExpose({load});
   <template v-if="detail">
 
    <p v-if="!detail.units.total" class="sb-muted">集数范围尚未确认，等待资源或档案信息。</p><nav class="sb-nav" aria-label="作品详情内容"><button v-for="[key,title] in [['versions','分集与版本'],['candidates','候选比较'],['history','处理记录']]" :key="key" :aria-current="detailTab===key" @click="detailTab=key">{{title}}</button></nav><section v-show="detailTab==='versions'">
-   <div class="sb-unit-columns" aria-hidden="true"><span>集数</span><span>库内版本</span><span>本轮升级</span><span>进展与下一步</span></div>
+   <p class="sb-muted">按各集展示当前版本与本轮目标；紫色标出本次策略中已确认的改善，黄色标出偏好降低。</p>
    <UnitProgress v-for="unit in detail.units.items" :key="unit.target_key" :unit="unit" :health="{...status.health.value,paused:selected.state==='PAUSED'}">
     <template #archive><VBtn variant="text" @click="emit('diagnostic','archive',[selected.title+' · '+unitLabel(unit)+'版本档案','/archive/targets/{target_key}',{target_key:unit.target_key}])">全部版本档案</VBtn></template>
     <VBtn v-if="opportunity" variant="tonal" :disabled="detailLoading||!!detailError||!!status.error.value" @click="immediate(unit)">{{selected.media_type==='电影'?'立即检查版本':'立即检查此集'}}</VBtn>

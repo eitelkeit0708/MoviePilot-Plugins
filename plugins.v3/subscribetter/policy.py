@@ -596,6 +596,39 @@ class Policy:
                     source={'any':'不额外限制片源','movie':'需符合影视片源规则','web':'仅 WEB 片源'}[source],
                     comparison=rows)
 
+    def describe_change(self, candidate, current_versions, decision):
+        """Display every policy dimension; never replace the lexicographic decision."""
+        name = decision.category.get('policy')
+        if name not in self.categories:
+            return None
+        versions = sorted((v for v in current_versions if v.active), key=lambda v: v.version_id)
+        target = quality_facts(candidate)
+        new_rank = self.rank(candidate, name)
+        fields = {'special': 'special_zh_subtitles'}
+        comparisons = []
+        for version in versions[:20]:
+            current = quality_facts(version.facts)
+            decisive = next((v.get('dimension') for v in decision.comparisons if v.get('version_id') == version.version_id), None)
+            changes = []
+            for dimension, new, old in zip(self.categories[name][3], new_rank, self.rank(version.facts, name)):
+                field = fields.get(dimension, dimension)
+                # Rank uses zero for inapplicable dimensions (e.g. HDR at 1080p).
+                # That sentinel is not a measured SDR/non-HQ value for display.
+                if dimension in ('picture', 'hq'):
+                    new, old = target.get(field), current.get(field)
+                unknown = (not version.reliable or bool(version.facts.errors) or
+                           version.facts.predicate_hash != self.predicate_hash or new is None or old is None or
+                           (dimension != 'anime' and (target.get(field) is None or current.get(field) is None)))
+                order = None if unknown else (new > old) - (new < old)
+                evidence = (dimension == 'special' and order == 0 and target.get(field) is True and current.get(field) is True
+                            and version.facts.evidence == 'inferred_pgs' and candidate.evidence == 'explicit')
+                changes.append(dict(dimension=dimension, order=order, evidence=evidence, decisive=dimension == decisive))
+            comparisons.append(dict(version_id=version.version_id, current=current, changes=changes))
+        return dict(kind={'MISSING':'acquire','QUALITY_UPGRADE':'quality','EVIDENCE_UPGRADE':'evidence',
+                          'EQUIVALENT':'none'}.get(decision.reason,'unknown'), reason=decision.reason,
+                    policy_revision=self.semantic_hash, versions=comparisons, version_count=len(versions),
+                    truncated=len(versions)>len(comparisons))
+
     def admit(self, facts, classification, *, locked=None, excluded=False, identity_ok=None, scope_ok=None):
         # These explicit constraints always precede any quality/evidence exception.
         if type(excluded) is not bool:

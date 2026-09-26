@@ -35,6 +35,40 @@ class PolicyTests(unittest.TestCase):
         versions = b if isinstance(b, list) else [self.m.Version("old", b)]
         return self.p.compare(a, versions, self.c, identity_ok=True, scope_ok=True, **kw)
 
+    def test_display_keeps_all_changes_separate_from_deciding_dimension(self):
+        old = self.facts('1080p WEB-DL -HHWEB 中文字幕', current=True,
+                         technical={'resolution':1080,'picture':0,'audio':0})
+        new = self.facts('2160p Dolby Vision TrueHD WEB-DL -HHWEB 中文字幕')
+        decision = self.compare(new, old)
+        self.assertEqual('QUALITY_UPGRADE', decision.reason)
+        self.assertEqual(['resolution'], [v['dimension'] for v in decision.comparisons])
+        change = self.p.describe_change(new, [self.m.Version('old',old)], decision)
+        rows = {v['dimension']:v for v in change['versions'][0]['changes']}
+        self.assertEqual([1,1,1], [rows[d]['order'] for d in ('resolution','picture','audio')])
+        self.assertTrue(rows['resolution']['decisive']); self.assertFalse(rows['audio']['decisive'])
+        better_audio = replace(old, audio=3, raw={**old.raw, 'technical':{'resolution':1080,'picture':0,'audio':3}})
+        ddp = self.facts('2160p Dolby Vision DDP WEB-DL -HHWEB 中文字幕')
+        versions = [self.m.Version('old',old), self.m.Version('lossless',better_audio)]
+        mixed = self.p.describe_change(ddp, versions, self.compare(ddp,versions))
+        audio = {v['version_id']:next(d['order'] for d in v['changes'] if d['dimension']=='audio') for v in mixed['versions']}
+        self.assertEqual({'old':1,'lossless':-1},audio)
+        old_dv = replace(old, picture=2, raw={**old.raw, 'technical':{'resolution':1080,'picture':2,'audio':0}})
+        hdr = self.facts('2160p HDR WEB-DL -HHWEB 中文字幕')
+        picture = self.p.describe_change(hdr,[self.m.Version('dv',old_dv)],self.compare(hdr,old_dv))['versions'][0]
+        self.assertEqual(-1,next(v['order'] for v in picture['changes'] if v['dimension']=='picture'))
+        pgs = self.facts('1080p WEB-DL -HHWEB 中文字幕',current=True,chinese_pgs=True,
+                         technical={'resolution':1080,'picture':0,'audio':0})
+        explicit = self.facts('2160p Dolby Vision DDP WEB-DL -HHWEB 简繁特效PGS字幕')
+        simultaneous = self.p.describe_change(explicit,[self.m.Version('pgs',pgs)],self.compare(explicit,pgs))
+        self.assertEqual('quality',simultaneous['kind'])
+        self.assertTrue(next(v['evidence'] for v in simultaneous['versions'][0]['changes'] if v['dimension']=='special'))
+        unknown = self.facts('2160p WEB-DL -HHWEB 中文字幕')
+        row = self.p.describe_change(unknown,[self.m.Version('old',old)],self.compare(unknown,old))['versions'][0]
+        self.assertIsNone(next(v['order'] for v in row['changes'] if v['dimension']=='audio'))
+        many = [self.m.Version(str(i),old) for i in range(25)]
+        bounded = self.p.describe_change(new,many,self.compare(new,many))
+        self.assertEqual(20,len(bounded['versions']));self.assertEqual(25,bounded['version_count']);self.assertTrue(bounded['truncated'])
+
     def test_configured_template_controls_admission_ranking_and_current_comparison(self):
         template={'resolutions':[1080,2160],'group':'official','source':'movie','dimensions':['source','resolution']}
         p=self.m.Policy({'stable-id':'欧美剧'},7,templates={'欧美剧':template})

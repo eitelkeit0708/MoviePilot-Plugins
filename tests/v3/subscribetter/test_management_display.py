@@ -51,7 +51,8 @@ class DisplayTests(unittest.TestCase):
         PlanSelectionTests.setUpClass();selection=PlanSelectionTests();selection.setUp()
         candidate=selection.candidate(quality='2160p Dolby Vision DDP')
         for file in candidate['torrent_files']:file['size']=size
-        selection.current[selection.keys[0]]={'state':'PRESENT','revision':1,'versions':[selection.p.Version('old',selection.facts('1080p',True))]}
+        previous=selection.policy.normalize({'title':'Fictional 1080p WEB-DL -HHWEB 中文字幕','technical':{'resolution':1080,'picture':0,'audio':0}},current=True)
+        selection.current[selection.keys[0]]={'state':'PRESENT','revision':1,'versions':[selection.p.Version('old',previous)]}
         output=selection.planner.evaluate(candidate,selection.current,selection.keys)
         snapshot=output['plans'][0]
         self.assertEqual(2,snapshot['targets'][selection.keys[0]]['quality_facts']['picture'])
@@ -64,7 +65,7 @@ class DisplayTests(unittest.TestCase):
             db.execute('INSERT INTO target_units(target_key,task_id,identity,owner_plan_id,generation) VALUES(?,?,?,\'p6\',2)',(key,self.task_id,key))
             db.execute("INSERT INTO plan_targets(plan_id,target_key,generation,state,action,transfer_phase) VALUES('p6',?,2,'ACTIVE','ACQUIRE','RAPID_WAIT')",(key,))
             current={'state':'PRESENT','versions':[{'version_id':'old','reliable':True,'raw':{'title':'Example 1080p WEB-DL','description':'','labels':[],'subtitle_description':'','technical':{'resolution':1080,'picture':0,'audio':0}}}]}
-            db.execute('UPDATE target_units SET current_facts=?',(json.dumps(current),))
+            db.execute('UPDATE target_units SET current_facts=?,current_revision=1',(json.dumps(current),))
             db.execute("UPDATE tasks SET state='ACTIVE' WHERE id=?",(self.task_id,))
             sample={'files':{'0':{'downloaded_bytes':size//4,'speed':size//20},'1':{'downloaded_bytes':size,'speed':size}},'sampled_at':NOW.isoformat(),'status':'DOWNLOADING','downloaded_bytes':125}
             db.execute("INSERT INTO plan_progress VALUES('p6','[0,1]',?)",(json.dumps(sample),))
@@ -83,10 +84,17 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(2,unit.processing['transfer_files'][0]['misses'])
         self.assertEqual(6,unit.processing['transfer_files'][0]['miss_limit'])
         self.assertEqual(1,len(unit.processing['transfer_files']))
+        self.assertEqual('quality',unit.processing['change']['kind'])
+        self.assertEqual(1,unit.processing['change']['baseline_revision'])
+        self.assertTrue(unit.processing['change']['baseline_current'])
+        changes=unit.processing['change']['versions'][0]['changes']
+        self.assertEqual(['resolution','picture','audio'],[r['dimension'] for r in changes if r['order']==1])
         summary=self.views.task(self.task_id,user=None).task.progress
         self.assertEqual([{'phase':'RAPID_WAIT','count':1}],summary['stages'])
         self.assertEqual(1,summary['stage_sample_count'])
         with self.repo.connection() as db:self.assertEqual(before,list(db.iterdump()))
+        with self.repo.connection(write=True) as db:db.execute('UPDATE target_units SET current_revision=2')
+        self.assertFalse(self.views.task(self.task_id,user=None).units.items[0].processing['change']['baseline_current'])
         with self.repo.connection(write=True) as db:db.execute('UPDATE target_units SET generation=3')
         self.assertIsNone(self.views.task(self.task_id,user=None).units.items[0].processing)
         self.assertEqual([],self.views.task(self.task_id,user=None).task.progress['stages'])

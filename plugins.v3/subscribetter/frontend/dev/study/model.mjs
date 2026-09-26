@@ -1,7 +1,8 @@
 import fixtures from '../display-fixtures.json' with {type:'json'};
-import {compactQuality,downloadPercent,qualitySummary} from '../../src/media.mjs';
+import {compactQuality,downloadPercent} from '../../src/media.mjs';
 import {id} from '../../src/client.mjs';
 import policySnapshot from './policies.json' with {type:'json'};
+export {qualityParts,versionChange} from '../../src/media.mjs';
 export const {policies,categories,schedule,rules}=policySnapshot;
 export const policyName=id=>policies.find(p=>p.id===id)?.name||'策略暂不可用';
 export const categoryName=id=>categories.find(c=>c.id===id)?.name||'分类暂不可用';
@@ -16,8 +17,8 @@ export const episodes=['downloading','rapid','assets','unknown','unknown','downl
  const phases=['DOWNLOADING','RAPID_WAIT','WAITING_ASSETS','WAIT_CONSUMER','UNKNOWN','UPLOADING'];
  return {number:index+1,current:u.current_quality?.[0]?.quality,target:u.processing?.quality,phase:phases[index],download:u.processing?.download,
    transfer:u.processing?.transfer_files||[],files:u.processing?.files||[],
-   // This sample's deciding dimension is supplied, never ranked in the view.
-   change:{kind:'quality',dimensions:['resolution'],reason:'分辨率符合此方案的升级优先级'},
+   // Explicit multi-dimension display facts, independent of the first deciding item.
+   change:{kind:'quality',changes:['resolution','picture','audio'].map(d=>({dimension:d,order:1,decisive:d==='resolution'})),reason:'分辨率决定本次选择；画面与音频也按本次策略改善'},
    progress:['已下载 512 MiB / 2 GiB','未命中 2 / 6 次','视频已就绪，字幕尚未齐备','已交给 Symedia','上次云端请求尚未确认','CD2 正在传输'][index],
    next:['','8 分钟后检查','','等待 Emby 确认','','尚未取得云端进度'][index],
    actions:index===4?[{kind:'reconcile',label:'核对结果'}]:[], percent:index===0?downloadPercent(u.processing?.download):null};
@@ -25,30 +26,17 @@ export const episodes=['downloading','rapid','assets','unknown','unknown','downl
 // Explicit design facts stand in for the server decision. No ranking runs in this view.
 const base={resolution:2160,picture:2,audio:1,special_zh_subtitles:true,evidence:'explicit',source:'web',basis:{resolution:'measured',picture:'measured',audio:'measured'}};
 const release=values=>({...base,...values,basis:{resolution:'release',picture:'release',audio:'release'}});
-Object.assign(episodes[1],{current:{...base,picture:0},target:release({}),change:{kind:'quality',dimensions:['picture'],reason:'同为 4K，画面维度决定此次升级'}});
-Object.assign(episodes[2],{current:{...base},target:release({audio:3}),change:{kind:'quality',dimensions:['audio'],reason:'分辨率与画面相同，音频从 DDP 升为无损'}});
-Object.assign(episodes[3],{current:{...base,evidence:'inferred_pgs'},target:release({}),change:{kind:'evidence',dimensions:['special'],reason:'质量等级相同；中文 PGS 推断更新为明确特效声明'}});
-Object.assign(episodes[5],{current:{...base},target:release({audio:3}),change:{kind:'quality',dimensions:['audio'],reason:'同分辨率、同画面，升级音频'}});
+Object.assign(episodes[1],{current:{...base,picture:0},target:release({}),change:{kind:'quality',changes:[{dimension:'picture',order:1,decisive:true}],reason:'同为 4K，画面维度决定此次升级'}});
+Object.assign(episodes[2],{current:{...base},target:release({audio:3}),change:{kind:'quality',changes:[{dimension:'audio',order:1,decisive:true}],reason:'分辨率与画面相同，音频从 DDP 升为无损'}});
+Object.assign(episodes[3],{current:{...base,evidence:'inferred_pgs'},target:release({}),change:{kind:'evidence',changes:[{dimension:'special',order:0,evidence:true}],reason:'同质量替换：PGS 推定更新为发布者明确标注；最终文件关联尚待确认'}});
+Object.assign(episodes[4],{current:{...base,resolution:1080,picture:0,audio:3},target:release({}),change:{kind:'quality',changes:[{dimension:'resolution',order:1,decisive:true},{dimension:'picture',order:1},{dimension:'audio',order:-1}],reason:'按本次策略，分辨率优先决定升级；画面改善，但音频偏好降低'}});
+Object.assign(episodes[5],{current:{...base,evidence:'inferred_pgs'},target:release({audio:3}),change:{kind:'quality',changes:[{dimension:'special',order:0,evidence:true},{dimension:'audio',order:1,decisive:true}],reason:'音频升级，同时将特效字幕依据从 PGS 推定更新为发布者明确标注'}});
 episodes[4].followup={nextAt:null,blocked:[{label:'重新上传',reason:'上传结果未确认，避免重复提交'},{label:'清理暂存',reason:'尚未核实云端文件，暂不能清理'}]};
 episodes.push(
- {number:7,current:null,currentState:'MISSING',target:release({}),phase:'QUEUED',change:{kind:'acquire',dimensions:[],reason:'已确认这一集尚未在库，首次下载'},progress:'已选定待下载资源',next:'尚未取得开始时间',percent:null,actions:[],files:[]},
- {number:8,current:{...base,audio:3},target:null,phase:'PRESENT',change:{kind:'none',dimensions:[],reason:'当前版本已达到所选偏好'},progress:'当前没有在途任务',next:'',percent:null,actions:[],files:[]}
+ {number:7,current:null,currentState:'MISSING',target:release({}),phase:'QUEUED',change:{kind:'acquire',changes:[],reason:'已确认这一集尚未在库，首次下载'},progress:'已选定待下载资源',next:'尚未取得开始时间',percent:null,actions:[],files:[]},
+ {number:8,current:{...base,audio:3},target:null,phase:'PRESENT',change:{kind:'none',changes:[],reason:'当前版本已达到所选偏好'},progress:'当前没有在途任务',next:'',percent:null,actions:[],files:[]}
 );
 for(const u of episodes)u.files=u.target?[`GATE24.S01E${String(u.number).padStart(2,'0')}.${u.target.resolution}p.WEB-DL.mkv`]:[];
-export function qualityParts(q){
- if(!q)return [];
- const parts=qualitySummary(q,true).replace(/2160p/g,'4K').split(' · ');
- return [...['resolution','picture','audio'].map((dimension,i)=>({dimension,text:parts[i]})),
-  {dimension:'special',text:q.evidence==='inferred_pgs'?'中文 PGS 推断':q.evidence==='explicit'&&q.special_zh_subtitles===true?'明确特效声明':'字幕依据未取得'}];
-}
-export function versionChange(u){
- const kind=u.change?.kind;
- if(kind==='none'&&!u.target)return {label:'已收录',before:qualityLabel(u.current),after:'',targetLabel:''};
- if(kind==='acquire')return {label:'首次下载',before:u.currentState==='MISSING'?'尚未在库':'在库情况待确认',after:qualityLabel(u.target),targetLabel:'待下载版本'};
- const dimensions=u.change?.dimensions||[];
- const select=q=>dimensions.map(d=>qualityParts(q).find(p=>p.dimension===d)?.text||'规格未知').join(' · ');
- return {label:kind==='evidence'?'字幕依据更新':'版本升级',before:dimensions.length?select(u.current):'变更依据未取得',after:dimensions.length?select(u.target):qualityLabel(u.target),targetLabel:kind==='evidence'?'声明更新目标':'升级目标'};
-}
 export function collectionText(work){
  if(work.present==null)return '在库情况待确认';
  if(work.totalReliable===true&&Number.isInteger(work.seasonTotal)&&work.seasonTotal>0&&work.present<=work.seasonTotal)return `${work.present} / ${work.seasonTotal} 集在库`;

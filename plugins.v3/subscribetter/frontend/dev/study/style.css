@@ -63,3 +63,5 @@ html,body,#app,.v-application,.v-application__wrap{height:100%;min-height:0!impo
  .mapping-result dl{grid-template-columns:1fr;font-size:12px}.selected-sample b{font-size:13px}.selected-sample small{font-size:12px}
  .path-pair header h3,.sample-check h3{font-size:14px}.path-pair header p{font-size:12px}
 }
+.episode-difference{grid-column:2}
+@media(max-width:650px){.episode-row{grid-template-columns:42px minmax(0,1fr) 26px;gap:7px 9px;padding:16px 12px;align-items:start}.episode-index{grid-column:1;grid-row:1/4}.episode-difference{grid-column:2/-1;grid-row:2}.episode-progress,.episode-action{display:contents}.episode-progress>.status-label{grid-column:2;grid-row:1}.episode-progress>small{grid-column:2/-1;grid-row:3}.episode-progress>.download-meter{grid-column:2/-1;grid-row:4}.episode-action>.detail-toggle{grid-column:3;grid-row:1}.episode-action>.detail-toggle>span:first-child{display:none}.episode-action>.v-btn{grid-column:2;grid-row:4;justify-self:start}.episode-expanded{grid-column:1/-1}}

@@ -67,6 +67,24 @@ function targetRange(keys){
 }
 export function downloadPercent(download){const done=download?.downloaded_bytes,total=download?.total_bytes;return Number.isFinite(done)&&Number.isFinite(total)&&total>0&&done>=0&&done<=total?Math.floor(done/total*100):null}
 export function compactQuality(facts){if(!facts)return '规格未记录';return qualitySummary(facts,true).split(' · ').filter(s=>!s.endsWith('未知')).join(' · ')||'规格未记录'}
+export function qualityParts(q){
+ if(!q)return [];
+ const main=qualitySummary(q,true).replace(/2160p/g,'4K').split(' · ');
+ return [...['resolution','picture','audio'].map((dimension,i)=>({dimension,text:main[i]})),
+  {dimension:'special',text:q.evidence==='inferred_pgs'?'PGS 推定':q.evidence==='explicit'&&q.special_zh_subtitles===true?'发布者明确标注':q.special_zh_subtitles===false?'未声明特效字幕':'字幕依据未知'},
+  {dimension:'source',text:({web:'WEB',remux:'REMUX',bluray:'Blu-ray'})[q.source]||'片源未知'},
+  {dimension:'hq',text:q.hq===true?'高码率':q.hq===false?'普通码率':'码率类型未知'},
+  {dimension:'anime',text:[q.group,q.platform].filter(Boolean).join(' · ')||'动画发行信息未知'}];
+}
+// Format server-provided relations. Do not rank qualities or infer direction here.
+export function versionChange(u){
+ const kind=u.change?.kind,quality=q=>compactQuality(q).replace(/2160p/g,'4K');
+ if(!u.target)return {label:u.current?'已收录':'在库情况待确认',before:u.current?quality(u.current):u.currentState==='MISSING'?'尚未在库':'在库情况待确认',after:u.pending?'目标规格尚未确认':'',targetLabel:'',items:[]};
+ if(kind==='acquire')return {label:'首次下载',before:u.currentState==='MISSING'?'尚未在库':'在库情况待确认',after:quality(u.target),targetLabel:'待下载版本',items:[]};
+ const part=(q,d)=>qualityParts(q).find(p=>p.dimension===d)?.text||'规格未知';
+ const items=(u.change?.changes||[]).filter(v=>v.order===1||v.order===-1||v.evidence===true).map(v=>({...v,before:part(u.current,v.dimension),after:part(u.target,v.dimension)}));
+ return {label:kind==='evidence'?'字幕依据更新':'版本升级',before:items.length?items.map(v=>v.before).join(' · '):'变化依据未取得',after:items.length?items.map(v=>v.after).join(' · '):quality(u.target),targetLabel:kind==='evidence'?'字幕依据更新':'升级目标',items};
+}
 export function taskStage(task){if(task.state!=='ACTIVE'&&task.state!=='PASSIVE')return stateLabel(task.state);if(!task.progress)return '进展待确认';const stages=[...(task.progress?.stages||[])].sort((a,b)=>Number(['UNKNOWN','PUBLISH_OUTCOME_UNKNOWN'].includes(b.phase))-Number(['UNKNOWN','PUBLISH_OUTCOME_UNKNOWN'].includes(a.phase)));return stages.length?`${stateLabel(stages[0].phase)}${stages[0].count>1?' '+stages[0].count+' 集':''}${stages.length>1?' · 另有 '+(stages.length-1)+' 种进展':''}`:task.progress?.unsettled?'处理记录待核对':task.progress?.processing?'升级处理中':task.progress?.observation_until?'正在比较候选':task.progress?.cooldown_until?'等待再次检查升级':'等待新资源'}
 Object.assign(states,{PUBLISHING:'正在交给 Symedia',PUBLISHED:'已交给 Symedia',WAIT_CONSUMER:'等待 Emby 确认',PUBLISH_OUTCOME_UNKNOWN:'整理结果待核实',READY_TO_PUBLISH:'等待交给 Symedia',RAPID_WAIT:'等待 115 秒传',WAITING_ASSETS:'等待视频或字幕',MANAGED:'已接管'});
 Object.assign(states,{PREPARED:'等待开始上传',CANCEL_PENDING:'正在取消交付'});

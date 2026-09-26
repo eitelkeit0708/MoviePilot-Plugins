@@ -2,14 +2,14 @@
   "list": {
     "items": [
       {
-        "id": "decision:e2587e644489413597fc1d2dc746d68a",
+        "id": "decision:5f5cb0e46a7942d4aa13bbcbfb904dbe",
         "candidate_key": "candidate",
         "task_id": 1,
         "opportunity_id": null,
         "status": "ACCEPT",
         "simulation": false,
         "digest": "623f7283d2f223b9f86dfb0024e5b617ad85656af4b6e61177a5ab8afb30dcb5",
-        "created_at": "2026-09-26T12:48:29.321310+00:00",
+        "created_at": "2026-09-26T19:24:07.383964+00:00",
         "evidence": {
           "candidate_key": "candidate",
           "mode": "episode",
@@ -59,14 +59,14 @@
     }
   },
   "detail": {
-    "id": "decision:e2587e644489413597fc1d2dc746d68a",
+    "id": "decision:5f5cb0e46a7942d4aa13bbcbfb904dbe",
     "candidate_key": "candidate",
     "task_id": 1,
     "opportunity_id": null,
     "status": "ACCEPT",
     "simulation": false,
     "digest": "623f7283d2f223b9f86dfb0024e5b617ad85656af4b6e61177a5ab8afb30dcb5",
-    "created_at": "2026-09-26T12:48:29.321310+00:00",
+    "created_at": "2026-09-26T19:24:07.383964+00:00",
     "evidence": {
       "candidate_key": "candidate",
       "evaluation": {
@@ -102,6 +102,11 @@
                         "labels": [],
                         "original_language": "",
                         "subtitle_description": "",
+                        "technical": {
+                          "audio": 0,
+                          "picture": 0,
+                          "resolution": 1080
+                        },
                         "text": "Fictional 1080p WEB-DL -HHWEB 中文字幕  ",
                         "title": "Fictional 1080p WEB-DL -HHWEB 中文字幕"
                       },
@@ -137,6 +142,72 @@
             "targets": {
               "[\"电视剧\",\"tmdb\",\"42\",1,\"\",7]": {
                 "action": "QUALITY_UPGRADE",
+                "change": {
+                  "kind": "quality",
+                  "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                  "reason": "QUALITY_UPGRADE",
+                  "truncated": false,
+                  "version_count": 1,
+                  "versions": [
+                    {
+                      "changes": [
+                        {
+                          "decisive": true,
+                          "dimension": "resolution",
+                          "evidence": false,
+                          "order": 1
+                        },
+                        {
+                          "decisive": false,
+                          "dimension": "picture",
+                          "evidence": false,
+                          "order": 1
+                        },
+                        {
+                          "decisive": false,
+                          "dimension": "special",
+                          "evidence": false,
+                          "order": 0
+                        },
+                        {
+                          "decisive": false,
+                          "dimension": "source",
+                          "evidence": false,
+                          "order": 0
+                        },
+                        {
+                          "decisive": false,
+                          "dimension": "hq",
+                          "evidence": false,
+                          "order": 0
+                        },
+                        {
+                          "decisive": false,
+                          "dimension": "audio",
+                          "evidence": false,
+                          "order": 1
+                        }
+                      ],
+                      "current": {
+                        "audio": 0,
+                        "basis": {
+                          "audio": "measured",
+                          "picture": "measured",
+                          "resolution": "measured"
+                        },
+                        "evidence": "none",
+                        "group": "hhweb",
+                        "hq": false,
+                        "picture": 0,
+                        "platform": null,
+                        "resolution": 1080,
+                        "source": "web",
+                        "special_zh_subtitles": false
+                      },
+                      "version_id": "old"
+                    }
+                  ]
+                },
                 "evidence_keys": [],
                 "evidence_source": "none",
                 "quality": [
@@ -167,6 +238,14 @@
               },
               "[\"电视剧\",\"tmdb\",\"42\",1,\"\",8]": {
                 "action": "ACQUIRE",
+                "change": {
+                  "kind": "acquire",
+                  "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                  "reason": "MISSING",
+                  "truncated": false,
+                  "version_count": 0,
+                  "versions": []
+                },
                 "evidence_keys": [],
                 "evidence_source": "none",
                 "quality": [
@@ -250,7 +329,73 @@
                 "current": 1080,
                 "order": 1
               }
-            ]
+            ],
+            "change": {
+              "kind": "quality",
+              "reason": "QUALITY_UPGRADE",
+              "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+              "versions": [
+                {
+                  "version_id": "old",
+                  "current": {
+                    "resolution": 1080,
+                    "picture": 0,
+                    "source": "web",
+                    "hq": false,
+                    "audio": 0,
+                    "special_zh_subtitles": false,
+                    "evidence": "none",
+                    "group": "hhweb",
+                    "platform": null,
+                    "basis": {
+                      "resolution": "measured",
+                      "picture": "measured",
+                      "audio": "measured"
+                    }
+                  },
+                  "changes": [
+                    {
+                      "dimension": "resolution",
+                      "order": 1,
+                      "evidence": false,
+                      "decisive": true
+                    },
+                    {
+                      "dimension": "picture",
+                      "order": 1,
+                      "evidence": false,
+                      "decisive": false
+                    },
+                    {
+                      "dimension": "special",
+                      "order": 0,
+                      "evidence": false,
+                      "decisive": false
+                    },
+                    {
+                      "dimension": "source",
+                      "order": 0,
+                      "evidence": false,
+                      "decisive": false
+                    },
+                    {
+                      "dimension": "hq",
+                      "order": 0,
+                      "evidence": false,
+                      "decisive": false
+                    },
+                    {
+                      "dimension": "audio",
+                      "order": 1,
+                      "evidence": false,
+                      "decisive": false
+                    }
+                  ]
+                }
+              ],
+              "version_count": 1,
+              "truncated": false
+            }
           },
           "[\"电视剧\",\"tmdb\",\"42\",1,\"\",8]": {
             "status": "ALLOW",
@@ -266,7 +411,15 @@
               1
             ],
             "evidence_source": "none",
-            "comparisons": []
+            "comparisons": [],
+            "change": {
+              "kind": "acquire",
+              "reason": "MISSING",
+              "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+              "versions": [],
+              "version_count": 0,
+              "truncated": false
+            }
           }
         },
         "enrichments": [],
@@ -304,8 +457,8 @@
         "native_id": null,
         "generation": 1,
         "actor": "test",
-        "created_at": "2026-09-26T12:48:29.311779+00:00",
-        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "created_at": "2026-09-26T19:24:07.375328+00:00",
+        "updated_at": "2026-09-26T19:24:07.375328+00:00",
         "progress": {
           "targets": 1,
           "present": 1,
@@ -316,7 +469,14 @@
             1080
           ],
           "observation_until": null,
-          "cooldown_until": null
+          "cooldown_until": null,
+          "stages": [
+            {
+              "phase": "RAPID_WAIT",
+              "count": 1
+            }
+          ],
+          "stage_sample_count": 1
         }
       },
       "lifecycle": null,
@@ -330,7 +490,7 @@
             "owner_plan_id": "p6",
             "publish_phase": "NOT_SENT",
             "publish_action_id": null,
-            "current_revision": 0,
+            "current_revision": 1,
             "current_facts": {
               "state": "PRESENT",
               "versions": [
@@ -374,6 +534,74 @@
                 "resolution": 2160,
                 "source": "web",
                 "special_zh_subtitles": false
+              },
+              "change": {
+                "kind": "quality",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "reason": "QUALITY_UPGRADE",
+                "truncated": false,
+                "version_count": 1,
+                "versions": [
+                  {
+                    "changes": [
+                      {
+                        "decisive": true,
+                        "dimension": "resolution",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "picture",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "special",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "source",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "hq",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "audio",
+                        "evidence": false,
+                        "order": 1
+                      }
+                    ],
+                    "current": {
+                      "audio": 0,
+                      "basis": {
+                        "audio": "measured",
+                        "picture": "measured",
+                        "resolution": "measured"
+                      },
+                      "evidence": "none",
+                      "group": "hhweb",
+                      "hq": false,
+                      "picture": 0,
+                      "platform": null,
+                      "resolution": 1080,
+                      "source": "web",
+                      "special_zh_subtitles": false
+                    },
+                    "version_id": "old"
+                  }
+                ],
+                "baseline_revision": 1,
+                "baseline_current": true
               },
               "files": [
                 "E7.mkv"
@@ -632,8 +860,8 @@
         "native_id": null,
         "generation": 1,
         "actor": "test",
-        "created_at": "2026-09-26T12:48:29.311779+00:00",
-        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "created_at": "2026-09-26T19:24:07.375328+00:00",
+        "updated_at": "2026-09-26T19:24:07.375328+00:00",
         "progress": {
           "targets": 1,
           "present": 1,
@@ -644,7 +872,14 @@
             1080
           ],
           "observation_until": null,
-          "cooldown_until": null
+          "cooldown_until": null,
+          "stages": [
+            {
+              "phase": "DOWNLOADING",
+              "count": 1
+            }
+          ],
+          "stage_sample_count": 1
         }
       },
       "lifecycle": null,
@@ -658,7 +893,7 @@
             "owner_plan_id": "p6",
             "publish_phase": "NOT_SENT",
             "publish_action_id": null,
-            "current_revision": 0,
+            "current_revision": 1,
             "current_facts": {
               "state": "PRESENT",
               "versions": [
@@ -702,6 +937,74 @@
                 "resolution": 2160,
                 "source": "web",
                 "special_zh_subtitles": false
+              },
+              "change": {
+                "kind": "quality",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "reason": "QUALITY_UPGRADE",
+                "truncated": false,
+                "version_count": 1,
+                "versions": [
+                  {
+                    "changes": [
+                      {
+                        "decisive": true,
+                        "dimension": "resolution",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "picture",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "special",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "source",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "hq",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "audio",
+                        "evidence": false,
+                        "order": 1
+                      }
+                    ],
+                    "current": {
+                      "audio": 0,
+                      "basis": {
+                        "audio": "measured",
+                        "picture": "measured",
+                        "resolution": "measured"
+                      },
+                      "evidence": "none",
+                      "group": "hhweb",
+                      "hq": false,
+                      "picture": 0,
+                      "platform": null,
+                      "resolution": 1080,
+                      "source": "web",
+                      "special_zh_subtitles": false
+                    },
+                    "version_id": "old"
+                  }
+                ],
+                "baseline_revision": 1,
+                "baseline_current": true
               },
               "files": [
                 "E7.mkv"
@@ -948,8 +1251,8 @@
         "native_id": null,
         "generation": 1,
         "actor": "test",
-        "created_at": "2026-09-26T12:48:29.311779+00:00",
-        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "created_at": "2026-09-26T19:24:07.375328+00:00",
+        "updated_at": "2026-09-26T19:24:07.375328+00:00",
         "progress": {
           "targets": 1,
           "present": 1,
@@ -960,7 +1263,14 @@
             1080
           ],
           "observation_until": null,
-          "cooldown_until": null
+          "cooldown_until": null,
+          "stages": [
+            {
+              "phase": "WAITING_ASSETS",
+              "count": 1
+            }
+          ],
+          "stage_sample_count": 1
         }
       },
       "lifecycle": null,
@@ -974,7 +1284,7 @@
             "owner_plan_id": "p6",
             "publish_phase": "NOT_SENT",
             "publish_action_id": null,
-            "current_revision": 0,
+            "current_revision": 1,
             "current_facts": {
               "state": "PRESENT",
               "versions": [
@@ -1018,6 +1328,74 @@
                 "resolution": 2160,
                 "source": "web",
                 "special_zh_subtitles": false
+              },
+              "change": {
+                "kind": "quality",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "reason": "QUALITY_UPGRADE",
+                "truncated": false,
+                "version_count": 1,
+                "versions": [
+                  {
+                    "changes": [
+                      {
+                        "decisive": true,
+                        "dimension": "resolution",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "picture",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "special",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "source",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "hq",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "audio",
+                        "evidence": false,
+                        "order": 1
+                      }
+                    ],
+                    "current": {
+                      "audio": 0,
+                      "basis": {
+                        "audio": "measured",
+                        "picture": "measured",
+                        "resolution": "measured"
+                      },
+                      "evidence": "none",
+                      "group": "hhweb",
+                      "hq": false,
+                      "picture": 0,
+                      "platform": null,
+                      "resolution": 1080,
+                      "source": "web",
+                      "special_zh_subtitles": false
+                    },
+                    "version_id": "old"
+                  }
+                ],
+                "baseline_revision": 1,
+                "baseline_current": true
               },
               "files": [
                 "E7.mkv"
@@ -1264,8 +1642,8 @@
         "native_id": null,
         "generation": 1,
         "actor": "test",
-        "created_at": "2026-09-26T12:48:29.311779+00:00",
-        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "created_at": "2026-09-26T19:24:07.375328+00:00",
+        "updated_at": "2026-09-26T19:24:07.375328+00:00",
         "progress": {
           "targets": 1,
           "present": 1,
@@ -1276,7 +1654,14 @@
             1080
           ],
           "observation_until": null,
-          "cooldown_until": null
+          "cooldown_until": null,
+          "stages": [
+            {
+              "phase": "PUBLISH_OUTCOME_UNKNOWN",
+              "count": 1
+            }
+          ],
+          "stage_sample_count": 1
         }
       },
       "lifecycle": null,
@@ -1290,7 +1675,7 @@
             "owner_plan_id": "p6",
             "publish_phase": "PUBLISH_OUTCOME_UNKNOWN",
             "publish_action_id": null,
-            "current_revision": 0,
+            "current_revision": 1,
             "current_facts": {
               "state": "PRESENT",
               "versions": [
@@ -1334,6 +1719,74 @@
                 "resolution": 2160,
                 "source": "web",
                 "special_zh_subtitles": false
+              },
+              "change": {
+                "kind": "quality",
+                "policy_revision": "b6ba78382c316fe3dfb3b8b76a63f8d224bebaf2ece0ef695c7a8765181c6ea3",
+                "reason": "QUALITY_UPGRADE",
+                "truncated": false,
+                "version_count": 1,
+                "versions": [
+                  {
+                    "changes": [
+                      {
+                        "decisive": true,
+                        "dimension": "resolution",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "picture",
+                        "evidence": false,
+                        "order": 1
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "special",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "source",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "hq",
+                        "evidence": false,
+                        "order": 0
+                      },
+                      {
+                        "decisive": false,
+                        "dimension": "audio",
+                        "evidence": false,
+                        "order": 1
+                      }
+                    ],
+                    "current": {
+                      "audio": 0,
+                      "basis": {
+                        "audio": "measured",
+                        "picture": "measured",
+                        "resolution": "measured"
+                      },
+                      "evidence": "none",
+                      "group": "hhweb",
+                      "hq": false,
+                      "picture": 0,
+                      "platform": null,
+                      "resolution": 1080,
+                      "source": "web",
+                      "special_zh_subtitles": false
+                    },
+                    "version_id": "old"
+                  }
+                ],
+                "baseline_revision": 1,
+                "baseline_current": true
               },
               "files": [
                 "E7.mkv"
@@ -1580,8 +2033,8 @@
         "native_id": null,
         "generation": 1,
         "actor": "test",
-        "created_at": "2026-09-26T12:48:29.311779+00:00",
-        "updated_at": "2026-09-26T12:48:29.311779+00:00",
+        "created_at": "2026-09-26T19:24:07.375328+00:00",
+        "updated_at": "2026-09-26T19:24:07.375328+00:00",
         "progress": {
           "targets": 1,
           "present": 1,
@@ -1592,7 +2045,9 @@
             1080
           ],
           "observation_until": null,
-          "cooldown_until": null
+          "cooldown_until": null,
+          "stages": [],
+          "stage_sample_count": 0
         }
       },
       "lifecycle": null,
@@ -1606,7 +2061,7 @@
             "owner_plan_id": "p6",
             "publish_phase": "PUBLISH_OUTCOME_UNKNOWN",
             "publish_action_id": null,
-            "current_revision": 0,
+            "current_revision": 1,
             "current_facts": {
               "state": "PRESENT",
               "versions": [

@@ -1,0 +1,67 @@
+{
+  "mode": "synthetic study, DOM verification only",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "rows": [
+    {
+      "marks": [
+        "4K",
+        "Dolby Vision",
+        "DDP"
+      ],
+      "reductions": [],
+      "text": "当前在库\n1080p · SDR · 普通音轨\n→\n升级目标\n4K · Dolby Vision · DDP"
+    },
+    {
+      "marks": [
+        "Dolby Vision"
+      ],
+      "reductions": [],
+      "text": "当前在库\n4K · SDR · DDP\n→\n升级目标\n4K · Dolby Vision · DDP"
+    },
+    {
+      "marks": [
+        "无损音频"
+      ],
+      "reductions": [],
+      "text": "当前在库\n4K · Dolby Vision · DDP\n→\n升级目标\n4K · Dolby Vision · 无损音频"
+    },
+    {
+      "marks": [
+        "特效字幕：发布者明确标注"
+      ],
+      "reductions": [],
+      "text": "当前在库\n4K · Dolby Vision · DDP · 特效字幕：PGS 推定\n→\n字幕依据更新\n4K · Dolby Vision · DDP · 特效字幕：发布者明确标注\n同质量 · 更新特效字幕的声明依据"
+    },
+    {
+      "marks": [
+        "4K",
+        "Dolby Vision"
+      ],
+      "reductions": [
+        "DDP"
+      ],
+      "text": "当前在库\n1080p · SDR · 无损音频\n→\n升级目标\n4K · Dolby Vision · DDP"
+    },
+    {
+      "marks": [
+        "无损音频",
+        "特效字幕：发布者明确标注"
+      ],
+      "reductions": [],
+      "text": "当前在库\n4K · Dolby Vision · DDP · 特效字幕：PGS 推定\n→\n升级目标\n4K · Dolby Vision · 无损音频 · 特效字幕：发布者明确标注"
+    },
+    {
+      "marks": [],
+      "reductions": [],
+      "text": "当前在库\n尚未在库\n→\n待下载版本\n4K · Dolby Vision · DDP"
+    },
+    {
+      "marks": [],
+      "reductions": [],
+      "text": "当前在库\n4K · Dolby Vision · 无损音频\n当前没有在途任务"
+    }
+  ]
+}

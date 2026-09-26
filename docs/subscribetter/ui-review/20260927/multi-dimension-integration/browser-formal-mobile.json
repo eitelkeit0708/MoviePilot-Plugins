@@ -1,0 +1,69 @@
+{
+  "mode": "formal Vue components; synthetic API responses; viewport emulation, not physical phone",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "rows": [
+    {
+      "changes": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "普通音轨 → DDP"
+      ],
+      "scrollWidth": 332,
+      "text": "第 1 集\n1080p → 4K\nSDR → Dolby Vision\n普通音轨 → DDP\n正在下载\n25% · 512.0 MiB / 2.0 GiB\n等待下载器更新文件进度\n详情",
+      "width": 332
+    },
+    {
+      "changes": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "普通音轨 → DDP"
+      ],
+      "scrollWidth": 332,
+      "text": "第 2 集\n1080p → 4K\nSDR → Dolby Vision\n普通音轨 → DDP\n等待 115 秒传\n未命中 2 / 6 次\n8 分钟后检查\n详情",
+      "width": 332
+    },
+    {
+      "changes": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "普通音轨 → DDP"
+      ],
+      "scrollWidth": 332,
+      "text": "第 3 集\n1080p → 4K\nSDR → Dolby Vision\n普通音轨 → DDP\n等待视频或字幕\n等待视频和必要字幕齐备后继续\n详情",
+      "width": 332
+    },
+    {
+      "changes": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "普通音轨 → DDP"
+      ],
+      "scrollWidth": 332,
+      "text": "第 4 集\n1080p → 4K\nSDR → Dolby Vision\n普通音轨 → DDP\n等待 Emby 确认\n等待 Symedia 整理及媒体库确认\n详情",
+      "width": 332
+    },
+    {
+      "changes": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "普通音轨 → DDP"
+      ],
+      "scrollWidth": 332,
+      "text": "第 5 集\n1080p → 4K\nSDR → Dolby Vision\n普通音轨 → DDP\n整理结果待核实\n先核对外部结果；当前不应重复提交\n详情",
+      "width": 332
+    },
+    {
+      "changes": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "普通音轨 → DDP"
+      ],
+      "scrollWidth": 332,
+      "text": "第 6 集\n1080p → 4K\nSDR → Dolby Vision\n普通音轨 → DDP\n正在上传\n等待 CD2 确认云端文件\n详情",
+      "width": 332
+    }
+  ]
+}

@@ -1,0 +1,70 @@
+{
+  "mode": "390px embedded synthetic study; not a physical phone",
+  "rows": [
+    {
+      "rows": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "普通音轨 → DDP"
+      ],
+      "scrollWidth": 271,
+      "text": "1080p → 4K\nSDR → Dolby Vision\n普通音轨 → DDP",
+      "width": 271
+    },
+    {
+      "rows": [
+        "SDR → Dolby Vision"
+      ],
+      "scrollWidth": 271,
+      "text": "SDR → Dolby Vision",
+      "width": 271
+    },
+    {
+      "rows": [
+        "DDP → 无损音频"
+      ],
+      "scrollWidth": 271,
+      "text": "DDP → 无损音频",
+      "width": 271
+    },
+    {
+      "rows": [
+        "特效字幕：\nPGS 推定 → 发布者明确标注"
+      ],
+      "scrollWidth": 271,
+      "text": "特效字幕：\nPGS 推定 → 发布者明确标注",
+      "width": 271
+    },
+    {
+      "rows": [
+        "1080p → 4K",
+        "SDR → Dolby Vision",
+        "无损音频 → DDP\n（偏好降低）"
+      ],
+      "scrollWidth": 271,
+      "text": "1080p → 4K\nSDR → Dolby Vision\n无损音频 → DDP\n（偏好降低）",
+      "width": 271
+    },
+    {
+      "rows": [
+        "特效字幕：\nPGS 推定 → 发布者明确标注",
+        "DDP → 无损音频"
+      ],
+      "scrollWidth": 271,
+      "text": "特效字幕：\nPGS 推定 → 发布者明确标注\nDDP → 无损音频",
+      "width": 271
+    },
+    {
+      "rows": [],
+      "scrollWidth": 271,
+      "text": "尚未在库 → 4K · Dolby Vision · DDP",
+      "width": 271
+    },
+    {
+      "rows": [],
+      "scrollWidth": 271,
+      "text": "4K · Dolby Vision · 无损音频",
+      "width": 271
+    }
+  ]
+}
