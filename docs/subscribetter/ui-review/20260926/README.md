@@ -54,3 +54,7 @@ npm --prefix plugins.v3/subscribetter/frontend run build
 ```
 
 Python 使用项目测试环境及其已有依赖。前端依赖沿用锁文件，没有为本界面新增包。
+
+## 隔离部署记录
+
+产品提交 `076c059a9227d91278df6aa33545810744dce294` 已安装至既有隔离 V3。7 个业务 API 返回 200；包括 federation 入口在内的 7 份静态资源，经宿主正常登录资源 Cookie 请求，SHA-256 全部匹配提交。配置保持原值（只兼容新增空策略模板字段），版本仍为 271；enabled=false、dry_run=true、ordinary_work_active=false、errors=[]。详见 [deployment.json](deployment.json)。这证明接口和服务资源已经更新，不证明登录后的页面已完成视觉验收。
