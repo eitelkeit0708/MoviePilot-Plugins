@@ -601,6 +601,16 @@ class Policy:
     def describe_rules(self, names):
         """Explain the validated saved predicates, without a second matching engine."""
         pending=list(names);seen=set();result=[]
+        descriptions={
+            'OfficialGroup':('官方发布组','匹配带 - 或 @ 标记的 MWeb、M-Team / MTeam、TPTV、ADE、ADWeb、Audies、HHWEB、CHDWEB、CHDBits、CHDTV、CHDHKTV、SGNB、OurTV、OurBits、UBWEB、UBits、UBTV、Dream、DBTV、QHstudIo。'),
+            'HHWEBGroup':('综艺发布组','匹配带 - 或 @ 标记的 HHWEB。'),
+            'VCBGroup':('VCB 动画组','匹配 VCB-Studio 发布组标记，支持括号和常见分隔符。'),
+            'BGlobal':('B-Global 平台','匹配独立的 B-Global 标记，支持常见分隔符。'),
+            'AnimePlatform':('动画平台','AMZN / Amazon、CR / Crunchyroll、NF / Netflix、friDay。'),
+            'RemuxSource':('REMUX 片源','匹配独立的 REMUX 标记。'),
+            'MovieSource':('影视片源','WEB-DL / WEBRip，或带编码声明的 Blu-ray / BDRip / BRRip；位置与边界条件见匹配表达式。'),
+            'WEBDL':('WEB 片源','匹配 WEB-DL / WEBRip，或 WEB 后紧接视频编码的发布写法。'),
+        }
         labels={'text':'标题与描述','title':'标题','description':'描述','labels':'标签','original_language':'原始语言','production_countries':'制片地区','origin_country':'来源地区','genre_ids':'类型','media_type':'媒体类型','size':'体积','seeders':'做种数','downloadvolumefactor':'下载优惠','publish_minutes':'发布时间（分钟）','subtitle_description':'字幕描述'}
         def explain(node):
             op,args=next(iter(node.items()))
@@ -615,7 +625,11 @@ class Policy:
             key=pending.pop(0)
             if key in seen:continue
             seen.add(key)
-            if key in self.rules:result.append(dict(name=key,explanation=explain(self.rules[key])))
+            if key in self.rules:
+                exact=explain(self.rules[key])
+                # Only describe built-ins when the actual saved predicate is identical.
+                title,summary=descriptions.get(key,(key,'查看当前匹配条件。')) if self.rules[key]==_DEFAULT_RULES.get(key) else (key,'已自定义，展开查看当前匹配条件。')
+                result.append(dict(name=key,title=title,summary=summary,explanation=exact))
         return result
 
     def describe_change(self, candidate, current_versions, decision):

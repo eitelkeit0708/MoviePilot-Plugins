@@ -1273,16 +1273,21 @@ class Views:
 
     async def draft_mapping_test(self,request:DraftMappingTest,user:TokenPayload=Depends(verify_token))->ActionResult:
         from .archive import draft_mapping_check
+        locations=[]
         def action(runtime):
             mapping=request.mapping.model_dump();sources=self.setup_sources(mapping['emby_service'],mapping['library_id'],user,runtime)
             try:
                 item=sources.emby_item(mapping['emby_service'],mapping['library_id'],request.item_id)
-                saved=self.fence(request)['config']['delivery']['mappings']
+                saved=self.fence(request)['config']['delivery'].get('mappings',[])
                 result=draft_mapping_check(mapping,item,saved)
                 self.fence(request)
+                locations.extend(result['locations'])
                 return result
             finally:sources.close()
-        return await self.run(request,user,action,ordinary=False)
+        result=await self.run(request,user,action,ordinary=False)
+        # Like mapping_test, exact paths belong only to this scoped admin check.
+        result.result['locations']=locations
+        return result
 
     async def health_reconcile(self,request:Reconcile,user:TokenPayload=Depends(verify_token))->ActionResult:
         def action(runtime):

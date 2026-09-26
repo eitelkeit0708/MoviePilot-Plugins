@@ -65,6 +65,15 @@ class ManagementTests(unittest.TestCase):
         renamed=self.c.Destination(id='stable',display_name='新的可读名称',category_id='tv',downloader='qbt',save_path='/downloads')
         self.assertEqual('stable',renamed.id)
 
+        mapping=dict(id='test',revision='1',emby_service='emby',library_id='tv',cloud_scope_id='test',
+            local_strm_prefix='/media/strm',emby_prefix='/strm',playback_prefix='/CloudDrive/115',cd2_prefix='/115')
+        locations=[dict(emby_path='/strm/test.strm',local_strm_path='/media/strm/test.strm',
+            content_path='/CloudDrive/115/test.mkv',cd2_path='/115/test.mkv')]
+        sources=SimpleNamespace(emby_item=lambda *args:{'Id':'sample'},close=lambda:None)
+        with patch.object(views,'setup_sources',return_value=sources),patch.object(load('archive'),'draft_mapping_check',return_value=dict(state='DRAFT_MAPPING_VERIFIED',locations=locations)):
+            result=asyncio.run(views.draft_mapping_test(ui.DraftMappingTest(config_revision=request.config_revision,runtime_generation=4,mapping=mapping,item_id='sample'),user=None))
+        self.assertEqual(locations,result.result['locations'])
+
     def test_server_page_and_stable_huge_ids_and_failure(self):
         ui=load('ui').Views(self.plugin)
         for i in range(57):self.repo.submit(str(i),self.r.Target('电影','themoviedb',str(10**24+i)),{'name':'x'},'test')

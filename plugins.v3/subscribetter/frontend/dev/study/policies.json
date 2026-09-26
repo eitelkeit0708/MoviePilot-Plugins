@@ -1,6 +1,6 @@
 {
   "source": "Offline examples: Policy.describe + repository defaults; not a live MP configuration",
-  "policy_source_sha256": "82e148b7a808d94994ee98c947766825f08fe9bb0d679dfb9d5c93176ae07501",
+  "policy_source_sha256": "bb55004239f3ea76c9b300edc1954d6ba6ff8175265919c59d3ad5047cad0ce4",
   "categories": [
     {
       "id": "tv-west",
@@ -87,14 +87,20 @@
         "rule_details": [
           {
             "name": "OfficialGroup",
+            "title": "官方发布组",
+            "summary": "匹配带 - 或 @ 标记的 MWeb、M-Team / MTeam、TPTV、ADE、ADWeb、Audies、HHWEB、CHDWEB、CHDBits、CHDTV、CHDHKTV、SGNB、OurTV、OurBits、UBWEB、UBits、UBTV、Dream、DBTV、QHstudIo。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?i)[-@](?:MWeb|M-?Team|TPTV|ADE|ADWeb|Audies|HHWEB|CHDWEB|CHDBits|CHDTV|CHDHKTV|SGNB|OurTV|OurBits|UBWEB|UBits|UBTV|Dream|DBTV|QHstudIo)(?![A-Za-z0-9])））"
           },
           {
             "name": "RemuxSource",
+            "title": "REMUX 片源",
+            "summary": "匹配独立的 REMUX 标记。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?<![A-Za-z0-9])(?:REMUX)(?![A-Za-z0-9])））"
           },
           {
             "name": "MovieSource",
+            "title": "影视片源",
+            "summary": "WEB-DL / WEBRip，或带编码声明的 Blu-ray / BDRip / BRRip；位置与边界条件见匹配表达式。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?:(?<![A-Za-z0-9])(?:WEB[\\s._/\\-]*(?:DL|RIP)|WEB(?=[\\s._/\\-]+(?:H\\.?26[45]|x26[45]|HEVC|AVC)))(?![A-Za-z0-9]))|(?:\\A(?=[\\s\\S]*(?:(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:(?:BD|BR)[\\s._\\-]*RIP)(?![A-Za-z0-9]))|\\A(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:Blu[\\s._/\\-]*Ray)(?![A-Za-z0-9]))))(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:x[._\\-]?26[45]|ENCODE|ENCODED)(?![A-Za-z0-9]))))[\\s\\S]*)))[\\s\\S]*)））"
           }
         ]
@@ -156,10 +162,14 @@
         "rule_details": [
           {
             "name": "OfficialGroup",
+            "title": "官方发布组",
+            "summary": "匹配带 - 或 @ 标记的 MWeb、M-Team / MTeam、TPTV、ADE、ADWeb、Audies、HHWEB、CHDWEB、CHDBits、CHDTV、CHDHKTV、SGNB、OurTV、OurBits、UBWEB、UBits、UBTV、Dream、DBTV、QHstudIo。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?i)[-@](?:MWeb|M-?Team|TPTV|ADE|ADWeb|Audies|HHWEB|CHDWEB|CHDBits|CHDTV|CHDHKTV|SGNB|OurTV|OurBits|UBWEB|UBits|UBTV|Dream|DBTV|QHstudIo)(?![A-Za-z0-9])））"
           },
           {
             "name": "WEBDL",
+            "title": "WEB 片源",
+            "summary": "匹配 WEB-DL / WEBRip，或 WEB 后紧接视频编码的发布写法。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?<![A-Za-z0-9])(?:WEB[\\s._/\\-]*(?:DL|RIP)|WEB(?=[\\s._/\\-]+(?:H\\.?26[45]|x26[45]|HEVC|AVC)))(?![A-Za-z0-9])））"
           }
         ]
@@ -238,10 +248,14 @@
         "rule_details": [
           {
             "name": "RemuxSource",
+            "title": "REMUX 片源",
+            "summary": "匹配独立的 REMUX 标记。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?<![A-Za-z0-9])(?:REMUX)(?![A-Za-z0-9])））"
           },
           {
             "name": "MovieSource",
+            "title": "影视片源",
+            "summary": "WEB-DL / WEBRip，或带编码声明的 Blu-ray / BDRip / BRRip；位置与边界条件见匹配表达式。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?:(?<![A-Za-z0-9])(?:WEB[\\s._/\\-]*(?:DL|RIP)|WEB(?=[\\s._/\\-]+(?:H\\.?26[45]|x26[45]|HEVC|AVC)))(?![A-Za-z0-9]))|(?:\\A(?=[\\s\\S]*(?:(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:(?:BD|BR)[\\s._\\-]*RIP)(?![A-Za-z0-9]))|\\A(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:Blu[\\s._/\\-]*Ray)(?![A-Za-z0-9]))))(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:x[._\\-]?26[45]|ENCODE|ENCODED)(?![A-Za-z0-9]))))[\\s\\S]*)))[\\s\\S]*)））"
           }
         ]
