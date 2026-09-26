@@ -82,6 +82,23 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual({},self.config.view()['config']['policy']['templates'])
         self.assertEqual({'resolution':2160},self.config.view()['config']['policy']['locks'])
 
+    def test_unnamed_source_upgrade_preserves_digest_and_named_edit_requires_receipt(self):
+        previous=self.apply({'discovery':{'rsshub_base_url':'https://rss.invalid','sources':[{'id':'hot','kind':'rsshub','route_key':'tv_real_time_hotest'}]}})
+        previous['config']['discovery']['sources'][0].pop('name',None)
+        previous['digest']=self.c.digest(self.c.content(previous['config']))
+        self.repo.setting(self.config.key,previous)
+        self.config.initialize(previous['config'])
+        self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual(previous,self.config.view())
+        self.assertEqual(previous['config'],self.saved[-1])
+        edited=copy.deepcopy(previous['config']);edited['discovery']['sources'][0]['name']='剧集热榜'
+        self.config.initialize(edited)
+        self.assertFalse(self.config.ready)
+        self.assertEqual(previous,self.config.view())
+        applied=self.apply({'discovery':edited['discovery']})
+        self.assertEqual('剧集热榜',applied['config']['discovery']['sources'][0]['name'])
+        self.assertEqual(previous['revision']+1,applied['revision'])
+
     def test_historical_chat_receipt_is_readable_but_cannot_advance(self):
         data=dict(features=[{'module':'chat','route_scope':{}}],steps=[],operations={},next_changes=[])
         receipt=self.migration._new('old-chat','CUTOVER','a'*64,'ACTIVE',data)

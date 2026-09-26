@@ -21,7 +21,7 @@
 - [Subscriptions.vue](../../../../plugins.v3/subscribetter/frontend/src/Subscriptions.vue)、[Discovery.vue](../../../../plugins.v3/subscribetter/frontend/src/Discovery.vue)、[PolicyOverview.vue](../../../../plugins.v3/subscribetter/frontend/src/PolicyOverview.vue)、[Transfers.vue](../../../../plugins.v3/subscribetter/frontend/src/Transfers.vue)：业务页面。
 - [ui.py](../../../../plugins.v3/subscribetter/ui.py)：只读目标汇总；[policy.py](../../../../plugins.v3/subscribetter/policy.py)：真实比较规则说明；[style.css](../../../../plugins.v3/subscribetter/frontend/src/style.css)：仅作用于插件的样式。
 
-`SourceConfig.name` 是新增的可选展示名称（最多 80 字符）。旧来源未命名时会补默认空值；不改变来源地址、媒体类型或操作权限。没有新增依赖，没有改变下载、删除、发布回执和执行权规则。
+`SourceConfig.name` 是新增的可选展示名称（最多 80 字符）。空名称不写入序列化配置，保持旧配置及来源摘要原值；实际修改名称仍须正常配置预检与保存。不改变来源地址、媒体类型或操作权限。没有新增依赖，没有改变下载、删除、发布回执和执行权规则。
 
 ## 验证与限制
 
@@ -32,6 +32,8 @@
 本地合成数据预览在 1440、1024、390 像素宽度检查了五个页面，无横向溢出。390 像素检查全部 11 个配置分组，只显示选中组；键盘回车添加片名及分组切换保留草稿正常。深色表面为 `rgb(33,33,33)`，浅色为 `rgb(255,255,255)`，桌面订阅行实测 88px。
 
 独立代码复核发现并修复：质量字段读取错误、历史范围混入进度、禁用/过期观察误作下一步、服务重试未更新目录、来源分页导致作品名称缺失。再次复核修正详情范围与历史记录文案，无已知遗留复核项。
+
+首次隔离安装 `71b29c5` 暴露兼容性问题：新增 `name: null` 改变旧配置摘要，触发 `INVALID_OR_STALE_CONFIG`。普通任务保持停用。新增回归先复现相同错误，再通过空名称不序列化修复；检查旧配置、摘要、版本和宿主回存完整一致，同时确认有实际名称的修改仍必须经过预检回执。修正版安装与验证结果另列，不将首次安装记为健康通过。
 
 **以上浏览器证据仅为 DOM、尺寸及交互检查。** 截图接口持续失败，MP 浏览器会话未登录，因此未通过 MP 实机明暗截图、完整焦点循环或视觉对比度验收。合成数据不能证明真实下载、云盘交付或媒体库入库成功。
 

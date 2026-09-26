@@ -17,7 +17,7 @@ from typing import Annotated, Callable, Literal
 from urllib.parse import parse_qsl, quote, unquote, urljoin, urlsplit, urlunsplit
 import xml.etree.ElementTree as ET
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from .repository import Target, utcnow
 
@@ -141,6 +141,13 @@ class SourceConfig(BaseModel):
     legacy_original_text: str | None = None
     import_diagnostics: list[str] = Field(default_factory=list)
     request_budget: RequestBudget | None = None
+
+    @model_serializer(mode='wrap')
+    def serialize(self,handler):
+        value=handler(self)
+        # Preserve existing configuration and source receipt digests on upgrade.
+        if self.name is None:value.pop('name',None)
+        return value
 
     @model_validator(mode="after")
     def shape(self):
