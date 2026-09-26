@@ -10489,6 +10489,13 @@
           },
           "type": "object",
           "title": "Configuration"
+        },
+        "summary": {
+          "additionalProperties": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "type": "object",
+          "title": "Summary"
         }
       },
       "additionalProperties": false,
@@ -11811,6 +11818,20 @@
         "updated_at": {
           "type": "string",
           "title": "Updated At"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Progress"
         }
       },
       "additionalProperties": false,
@@ -12691,6 +12712,19 @@
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$",
           "title": "Id",
           "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "maxLength": 80,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
         },
         "enabled": {
           "default": true,

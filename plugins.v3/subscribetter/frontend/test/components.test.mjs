@@ -158,11 +158,20 @@ test('episode action carries only the selected unit and current opportunity',asy
  walk(f.root,n=>n.type==='button'&&text(n)==='立即检查此集')[0].props.onClick();assert.equal(events[0][0][1],'/tasks/{task_id}/immediate');assert.deepEqual(events[0][1].target_keys,[key]);assert.equal(events[0][1].generation,2);assert.equal(events[0][1].opportunity_id,'round');f.app.unmount();
 });
 
-test('retired media library scope can be removed without changing unrelated scopes',async()=>{
- const {default:DeliverySettings}=await import(pathToFileURL(path.join(out,'DeliverySettings.mjs')));const updates=[];
- const modelValue={cloud_scopes:{},libraries:{retired:['old'],active:['keep']},mappings:[],rules:[],policy_bindings:{}};
- const f=fixture(DeliverySettings,{get:async()=>[],extra:{api:{get:async()=>[]},modelValue,policies:{bindings:{}},categories:[],policyNames:[],'onUpdate:modelValue':v=>updates.push(v)}});
- try{await settle();walk(f.root,n=>n.props?.['aria-label']==='移除扫描范围 retired old')[0].props.onClick();assert.deepEqual(updates[0].libraries,{active:['keep']});assert.deepEqual(modelValue.libraries,{retired:['old'],active:['keep']})}finally{f.app.unmount()}
+test('library picker preserves unavailable choices and removes only the explicitly unchecked library',async()=>{
+ const {default:LibraryPicker}=await import(pathToFileURL(path.join(out,'LibraryPicker.mjs')));const updates=[];
+ const modelValue={retired:['533550'],active:['keep']};let fail=true;
+ const f=fixture(LibraryPicker,{extra:{api:{get:async p=>{if(fail)throw Error('private');return p==='mediaserver/clients'?[{name:'retired',type:'emby'},{name:'新增服务',type:'emby'}]:[{id:'533550',name:'测试电影'}]}},modelValue,'onUpdate:modelValue':v=>updates.push(v)}});
+ try{await settle();assert.equal(updates.length,0);assert.ok(text(f.root).includes('名称暂不可用'));assert.ok(!text(f.root).includes('533550'));const retry=walk(f.root,n=>n.type==='button'&&text(n)==='重试读取')[0];fail=false;await retry.props.onClick();await settle();assert.ok(text(f.root).includes('测试电影'));assert.ok(text(f.root).includes('新增服务'));assert.ok(!text(f.root).includes('暂时无法读取 Emby 服务'));walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.onChange({target:{checked:false}});assert.deepEqual(updates[0],{active:['keep']});assert.deepEqual(modelValue,{retired:['533550'],active:['keep']})}finally{f.app.unmount()}
+});
+
+test('basic settings update typed choices and protected names while keeping the rest of the saved draft',async()=>{
+ const f=fixture(Config);await settle();try{
+  const basic=walk(f.root,n=>n.type==='section'&&n.props?.['aria-label']==='基本设置与自动接管')[0];
+  const movie=walk(basic,n=>n.type==='label'&&text(n)==='电影')[0];walk(movie,n=>n.type==='input')[0].props.onChange({target:{checked:true}});await settle();
+  const input=walk(basic,n=>n.type==='input'&&n.props.placeholder==='输入完整片名，按回车添加')[0];input.props['onUpdate:modelValue']('GATE24');await settle();walk(basic,n=>n.type==='button'&&text(n)==='添加片名')[0].props.onClick();await settle();
+  const save=walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0];await save.props.onClick();await settle();const patch=f.calls.find(c=>c[0]==='post')[2].patch;assert.deepEqual(patch.auto_types,['电影']);assert.ok(patch.meta_protected_names.includes('GATE24'));assert.deepEqual(patch.permissions,f.current.config.permissions);assert.equal(patch.dry_run,true);
+ }finally{f.app.unmount()}
 });
 test('cleanup confirmation visibly names exact immutable locations and retained scope',async()=>{
  const preview={kind:'cleanup',preview_id:'p',preview_digest:'d',objects:{scope:'monitor',locations:['/local/media/video.mkv'],files:[{file_index:0,relative_path:'video.mkv'}]},permissions:{cleanup_success:true},blockers:[]};

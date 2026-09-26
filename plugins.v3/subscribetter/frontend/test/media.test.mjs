@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {adoptionBody,unitLabel,qualitySummary,stateLabel} from '../src/media.mjs';
+import {adoptionBody,unitLabel,qualitySummary,stateLabel,reasonText,sourceNotice,taskNext,taskProgress,sourceTitle} from '../src/media.mjs';
 test('adoption requires an existing native ID and preserves provider, season and episode group',()=>{
  const row={id:42,type:'电视剧',media_source:'douban',media_id:'37029663',tmdb_id:999,name:'侠女内莉',year:'2026',season:1,episode_group:'group'};
  const body=adoptionBody(row,'target','op');
@@ -17,3 +17,11 @@ test('display uses target episodes and actual quality facts, not internal keys o
 });
 
 test('policy ALLOW is shown as eligible',()=>assert.equal(stateLabel('ALLOW'),'符合策略'));
+test('display separates unconfirmed results, stale source errors, paused tasks and unknown scope',()=>{
+ assert.equal(reasonText('CD2_REMOTE_UNSETTLED'),'CD2 上传结果尚未确认');
+ assert.equal(sourceNotice({last_state:'OK',last_reason:'OLD_ERROR'}),'');
+ assert.equal(sourceNotice({last_state:'OK',last_reason:'SOURCE_CONFIG_CHANGED'}),'来源设置已变更，尚未重新检查');
+ assert.equal(taskNext({state:'PAUSED',progress:{observation_until:'2099-01-01'}},{ordinary_work_active:true}),'恢复追踪后继续');
+ assert.equal(taskProgress({progress:{targets:0,confirmed:0}}),'目标范围待确认');
+ assert.equal(sourceTitle({name:'每周口碑',url:'http://private/path'}),'每周口碑');
+});

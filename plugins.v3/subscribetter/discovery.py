@@ -121,6 +121,7 @@ class RequestBudget(BaseModel):
 class SourceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+    name: str | None = Field(default=None, max_length=80)
     enabled: bool = True
     kind: Literal["rsshub", "custom"]
     route_key: str | None = None

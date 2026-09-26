@@ -1,0 +1,14 @@
+# 紧凑媒体管理界面实施计划
+
+依据用户本轮完整设计要求实施，无需重复选择风格。沿用现有 Vue / Vuetify、宿主主题字体和强调色，不新增依赖。
+
+- [x] 只读数据：`ui.py` 的任务列表增加全目标汇总（入库确认、处理中、质量和下一次观察/冷却）；`policy.py` 从已保存策略和实际排序函数生成规则说明，供 `PolicyOverview.vue` 使用。未知结果、历史确认与当前执行分开表达。
+- [x] 常用配置：`Config.vue` 运行设置置顶；新增 `LibraryPicker.vue` 按 Emby 实际名称勾选且保留离线选择；完整片名用标签编辑；下载方案紧凑摘要；清理权限按对象组织。复杂规则只在高级详情中保留通用 Field。
+- [x] 业务页面：`Subscriptions.vue` 横向作品行；`Discovery.vue` 作品和筛选优先、来源状态折叠；`PolicyOverview.vue` 分类列表与真实规则详情；`Transfers.vue` 将状态和下一次检查拆成清楚的列；工程代码收进详情。
+- [x] 表面与组件：整理 `style.css`，插件实色主题表面、统一控件尺寸、减少重复标题与无效留白，保留焦点样式和窄屏重排。`Status.vue` 改紧凑状态行并可展开依据。
+- [x] 验证：针对真实汇总语义和媒体库失败保留增加小型回归检查；运行前后端相关测试及生产构建；本地浏览器检查五个页面、配置、明暗和窄屏，记录截图与限制。
+- [ ] 交付：提交源码、构建资源及 GitHub 可读说明，推送既有分支；安装到既有隔离 V3并校验资源哈希、配置未改变。不得将本地合成数据验证记为真实业务验收。
+
+命令：`npm --prefix plugins.v3/subscribetter/frontend test`；`npm --prefix plugins.v3/subscribetter/frontend run build`；`.venv/Scripts/python.exe -m unittest discover -s tests/v3/subscribetter -p test_native_ui.py -q`。只读汇总不得触发订阅、下载、删除或改变状态。
+
+验证结果：Python 完整复跑 728 项（723 通过、5 跳过）；前端 38 项通过；构建 90 模块成功。首轮有一项既有 100 毫秒截止测试超时，独立与完整复跑均通过，未改阈值。布局和交互已检查，截图接口失败及 MP 未登录仍是视觉验收限制，不能计为视觉通过。

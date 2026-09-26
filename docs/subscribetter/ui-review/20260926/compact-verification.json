@@ -1,0 +1,280 @@
+{
+  "base_commit": "51408314a96cd46ec23dea00138a39924170b25b",
+  "environment": "Windows local unit/component checks; browser uses synthetic data, not NAS",
+  "frontend": {
+    "tests": 38,
+    "passed": 38,
+    "failed": 0
+  },
+  "build": {
+    "exit_code": 0,
+    "modules": 90
+  },
+  "python_first_full_run": {
+    "tests": 728,
+    "passed": 722,
+    "errors": 1,
+    "skipped": 5,
+    "error": "test_runtime_fix2.RuntimeFix2Tests.test_cleanup_deadline_blocks_files_and_remove_after_slow_task: TICK_DEADLINE before simulated slow task"
+  },
+  "python_isolated_retry": {
+    "file": "test_runtime_fix2.py",
+    "tests": 7,
+    "passed": 7
+  },
+  "python_confirmation_full_run": {
+    "tests": 728,
+    "passed": 723,
+    "skipped": 5,
+    "failed": 0
+  },
+  "browser": {
+    "environment": "Local synthetic preview; no NAS writes",
+    "layoutChecks": [
+      {
+        "name": "订阅",
+        "headings": [
+          "订阅 3"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1440
+      },
+      {
+        "name": "发现",
+        "headings": [
+          "发现 3"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1440
+      },
+      {
+        "name": "传输与待处理",
+        "headings": [
+          "传输与待处理"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1440
+      },
+      {
+        "name": "策略",
+        "headings": [
+          "质量策略"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1440
+      },
+      {
+        "name": "设置",
+        "headings": [
+          "服务与设置"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1440
+      },
+      {
+        "name": "订阅",
+        "headings": [
+          "订阅 3"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1024
+      },
+      {
+        "name": "发现",
+        "headings": [
+          "发现 3"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1024
+      },
+      {
+        "name": "传输与待处理",
+        "headings": [
+          "传输与待处理"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1024
+      },
+      {
+        "name": "策略",
+        "headings": [
+          "质量策略"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1024
+      },
+      {
+        "name": "设置",
+        "headings": [
+          "服务与设置"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 1024
+      },
+      {
+        "name": "订阅",
+        "headings": [
+          "订阅 3"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 390
+      },
+      {
+        "name": "发现",
+        "headings": [
+          "发现 3"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 390
+      },
+      {
+        "name": "传输与待处理",
+        "headings": [
+          "传输与待处理"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 390
+      },
+      {
+        "name": "策略",
+        "headings": [
+          "质量策略"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 390
+      },
+      {
+        "name": "设置",
+        "headings": [
+          "服务与设置"
+        ],
+        "overflow": false,
+        "surface": "rgb(255, 255, 255)",
+        "width": 390
+      }
+    ],
+    "configChecks": [
+      {
+        "name": "基本设置与自动接管",
+        "overflow": false,
+        "visible": [
+          "基本设置与自动接管"
+        ]
+      },
+      {
+        "name": "独立策略",
+        "overflow": false,
+        "visible": [
+          "独立策略"
+        ]
+      },
+      {
+        "name": "生命周期",
+        "overflow": false,
+        "visible": [
+          "生命周期"
+        ]
+      },
+      {
+        "name": "站点与搜索",
+        "overflow": false,
+        "visible": [
+          "站点与搜索"
+        ]
+      },
+      {
+        "name": "观察、冷却、抢占",
+        "overflow": false,
+        "visible": [
+          "观察、冷却、抢占"
+        ]
+      },
+      {
+        "name": "交付与映射",
+        "overflow": false,
+        "visible": [
+          "交付与映射"
+        ]
+      },
+      {
+        "name": "扫描与恢复",
+        "overflow": false,
+        "visible": [
+          "扫描与恢复"
+        ]
+      },
+      {
+        "name": "清理权限",
+        "overflow": false,
+        "visible": [
+          "清理权限"
+        ]
+      },
+      {
+        "name": "安全与容量",
+        "overflow": false,
+        "visible": [
+          "安全与容量"
+        ]
+      },
+      {
+        "name": "榜单与 RSS",
+        "overflow": false,
+        "visible": [
+          "榜单与 RSS"
+        ]
+      },
+      {
+        "name": "AI 名称辅助",
+        "overflow": false,
+        "visible": [
+          "AI 名称辅助"
+        ]
+      }
+    ],
+    "finalLayout": {
+      "overflow": false,
+      "recentRecords": true,
+      "rows": [
+        88,
+        88,
+        88
+      ],
+      "surface": "rgb(33, 33, 33)",
+      "width": 1440
+    },
+    "screenshot": "unavailable; capture failed"
+  },
+  "assets_sha256": {
+    "dist/assets/__federation_expose_Config-BxicGPw4.js": "8772e77d29b3457eb650c563557940c50ca6de2d677de0eb623e51e59753ea2d",
+    "dist/assets/__federation_expose_Page-DnO1_bmX.js": "b58d9f4a0d035a5fddec56821075d2ff5c4bdc0c62dce90645917c9a8938aa89",
+    "dist/assets/__federation_fn_import-E6wRZccp.js": "11a2d68813601dffb4a4bb619cabf25526a7a445b054e418100e24128f6bdca2",
+    "dist/assets/media-D3T_rKIi.css": "caf2081668bf77f8c854a7482255360525d0bb0aa3236478f6c01ab4bfe39b12",
+    "dist/assets/media-DTzIfito.js": "ff48526434d1a38a12074ff1f098c5f73f15dc34a39426e3c82b9e4e13f2afa4",
+    "dist/assets/remoteEntry.js": "c0e2ecd0f403d081e43374e621a8be44c23c6e5b00877066fa733aa7c72b0027",
+    "dist/index.html": "0d21d1a21d94eeecd36f8194c5db52b8a8c333eb9b65626186a7fe5fdad944e7"
+  },
+  "deployment": {
+    "status": "not yet run for this product commit"
+  },
+  "limits": [
+    "No successful screenshot capture",
+    "MP browser session not authenticated",
+    "DOM metrics are not visual contrast or host focus-loop acceptance",
+    "No real download/cloud/ingest acceptance claimed"
+  ]
+}

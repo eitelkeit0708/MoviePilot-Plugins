@@ -4,6 +4,8 @@ export const dateText=value=>value?new Date(value).toLocaleString('zh-CN',{hour1
 export function unitLabel(unit){try{const v=JSON.parse(unit.target_key);return v[0]==='电影'?'正片':Number.isInteger(v[5])?`第 ${v[5]} 集`:'待确认目标'}catch{return '待确认目标'}}
 export function qualitySummary(facts){
  if(!facts)return '尚无已确认的质量信息';
+ if(facts.state&&facts.state!=='PRESENT')return stateLabel(facts.state)+'，质量待核实';
+ if(Array.isArray(facts.versions)){const versions=facts.versions.filter(v=>v.reliable===true);return [...new Set(versions.map(v=>qualitySummary(v.raw?.technical)))].join(' / ')||'版本质量待核实'}
  const f=facts.quality||facts;
  return [f.resolution?`${f.resolution}p`:null,{web:'WEB',remux:'REMUX',bluray:'Blu-ray'}[f.source],f.group,f.platform].filter(Boolean).join(' · ')||'质量信息待补充';
 }
@@ -17,4 +19,8 @@ export function adoptionBody(row,template,operation){
 
 export const dimensions={resolution:'分辨率',picture:'HDR / 画质',special:'特效字幕',source:'片源',hq:'高码率',audio:'音轨',anime:'动画偏好'};
 Object.assign(states,{OK:'抓取正常',NEW:'等待处理',READY:'准备处理',DEFERRED:'等待重试',FILTERED:'未符合筛选',RECOGNIZED:'已识别',SUBMITTED:'已提交订阅',EXISTING:'已有记录',MANAGED:'已纳管',ADDED:'已提交订阅',BLOCKED:'需要处理',UPLOADING:'正在上传',REMOTE_VERIFIED:'暂存已验证',WAIT_CONSUMER:'等待整理 / 入库',PUBLISH_OUTCOME_UNKNOWN:'发布结果待核实',VERIFIED:'文件已验证',CD2_UPLOADING:'CD2 正在上传',CD2_PAUSED:'CD2 已暂停'});
-export function reasonText(reason){const messages={ADMITTED:'符合准入条件',QUALITY_UPGRADE:'候选版本质量更优',CURRENT_BETTER:'现有版本质量更优',EQUIVALENT:'与现有版本质量相当',CD2_PENDING:'等待 CD2 完成上传',CD2_PAUSED:'CD2 上传已暂停，请检查云盘任务',CONSUMER_SETTLEMENT_REQUIRED:'等待消费者整理与入库核实',RAPID_EXHAUSTED:'秒传尝试已用尽，等待后续处理',FALLBACK_LIMIT:'已达到普通上传预算',EXTERNAL_OUTCOME_UNKNOWN:'外部结果未知，需要先核对实际状态',REPROCESS_REQUESTED:'已安排重新判定',CHINESE_LANGUAGE:'缺少符合策略的中文音轨或字幕依据',RSSHUB_BASE_REQUIRED:'尚未配置自部署 RSSHub 地址',WAIT_OWNER:'存在其他处理者，先解决纳管冲突'};return messages[reason]||(reason?'需要核对处理依据：'+reason:'暂无需要处理的问题')}
+export function reasonText(reason){const messages={ADMITTED:'符合准入条件',QUALITY_UPGRADE:'候选版本质量更优',CURRENT_BETTER:'现有版本质量更优',EQUIVALENT:'与现有版本质量相当',SOURCE_CONFIG_CHANGED:'来源设置已变更，尚未重新检查',CD2_REMOTE_UNSETTLED:'CD2 上传结果尚未确认',CD2_PENDING:'等待 CD2 完成上传',CD2_PAUSED:'CD2 上传已暂停，请检查云盘任务',CONSUMER_SETTLEMENT_REQUIRED:'等待 Symedia 整理及媒体库确认',RAPID_EXHAUSTED:'秒传尝试已用尽，等待后续处理',FALLBACK_LIMIT:'已达到普通上传预算',EXTERNAL_OUTCOME_UNKNOWN:'外部结果未知，需要先核对实际状态',REPROCESS_REQUESTED:'已安排重新判定',CHINESE_LANGUAGE:'缺少符合策略的中文音轨或字幕依据',RSSHUB_BASE_REQUIRED:'尚未配置自部署 RSSHub 地址',WAIT_OWNER:'存在其他处理者，先解决纳管冲突'};return messages[reason]||(reason?'需要查看详情确认处理条件':'')}
+export function taskProgress(task){const p=task.progress;if(!p?.targets)return '目标范围待确认';return `最近档案 ${p.present??0} / 已知 ${p.targets} ${task.media_type==='电影'?'个目标':'集'}`}
+export function taskNext(task,health){if(task.state==='PAUSED')return '恢复追踪后继续';if(['STOPPED','RELEASED_NATIVE','RELEASING'].includes(task.state))return stateLabel(task.state);if(!health?.ordinary_work_active)return health?.dry_run?'演练中，不执行下载交付':'等待追踪启用';const p=task.progress;const waiting=[p?.observation_until?'观察至 '+dateText(p.observation_until):'',p?.cooldown_until?'冷却至 '+dateText(p.cooldown_until):''].filter(Boolean);if(waiting.length)return waiting.join('；');return '尚无明确执行时间'}
+export function sourceTitle(source,routes=[]){const s=source?.config||source||{};if(s.name?.trim())return s.name.trim();const route=routes.find(r=>r.key===s.route_key||s.url?.includes('/douban/list/'+r.key));return route?.label||(s.source_type_hint==='Movie'?'自定义电影榜单':s.source_type_hint==='TV'?'自定义剧集榜单':'自定义榜单')}
+export function sourceNotice(source){if(source.last_reason==='SOURCE_CONFIG_CHANGED')return reasonText(source.last_reason);return ['OK','SUCCESS','NEVER'].includes(source.last_state)?'':reasonText(source.last_reason)}

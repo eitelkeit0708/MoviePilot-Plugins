@@ -62,6 +62,44 @@ class ManagementTests(unittest.TestCase):
         self.assertEqual('GATE24 内格力',ui.task(row['id'],user=None).task.title)
         self.assertEqual(0,ui.tasks(query="%' OR 1=1 --",user=None).total)
 
+    def test_task_summary_counts_all_targets_and_read_does_not_write(self):
+        ui=load('ui').Views(self.plugin)
+        task=self.repo.submit('summary',self.r.Target('电视剧','themoviedb','42',1),{'name':'作品'},'test')
+        with self.repo.connection(write=True) as db:
+            for i in range(31):
+                db.execute('INSERT INTO target_units(target_key,task_id,identity,current_facts,last_ingest_confirmed_at,owner_plan_id,cooldown_until) VALUES(?,?,?,?,?,?,?)',
+                    (str(i),task['id'],'{}',json.dumps({'state':'PRESENT','versions':[{'raw':{'technical':{'resolution':1080}},'reliable':True}]}) if i<29 else None,NOW.isoformat() if i<29 else None,'plan' if i==30 else None,'2099-01-01T00:00:00+00:00' if i==29 else None))
+        with self.repo.connection() as db:before='\n'.join(db.iterdump())
+        progress=ui.tasks(limit=1,user=None).items[0].progress
+        self.assertEqual((31,29,1),(progress['targets'],progress['confirmed'],progress['processing']))
+        self.assertEqual([1080],progress['resolutions'])
+        self.assertEqual(29,progress['present'])
+        self.assertEqual(progress,ui.task(task['id'],user=None).task.progress)
+        self.assertEqual('2099-01-01T00:00:00+00:00',progress['cooldown_until'])
+        with self.repo.connection() as db:self.assertEqual(before,'\n'.join(db.iterdump()))
+
+        with self.repo.connection(write=True) as db:
+            db.execute('INSERT INTO task_lifecycle(task_id,config,scope) VALUES(?,?,?)',(task['id'],'{}','["0","30"]'))
+            db.execute("INSERT INTO opportunities(id,task_id,scope,mode,state,config,created_at,updated_at) VALUES(?,?,'[]','CONTINUOUS','ACTIVE',?,?,?)",('summary-op',task['id'],'{"observation_enabled":false}',NOW.isoformat(),NOW.isoformat()))
+            db.execute('INSERT INTO opportunity_targets VALUES(?,?,0)',('summary-op','30'))
+            db.execute('INSERT INTO observations VALUES(?,?,?,?,?,?,?)',('summary-op','30',NOW.isoformat(),NOW.isoformat(),'c','[1080]','2099-01-01T00:00:00+00:00'))
+        progress=ui.tasks(limit=1,user=None).items[0].progress
+        self.assertEqual((2,1),(progress['targets'],progress['present']))
+        self.assertEqual(2,ui.task(task['id'],user=None).units.total)
+        self.assertIsNone(progress['observation_until'])
+        with self.repo.connection(write=True) as db:
+            db.execute('UPDATE opportunities SET config=? WHERE id=?',('{"observation_enabled":true}','summary-op'))
+            db.execute('UPDATE observations SET deadline=?',('2000-01-01T00:00:00+00:00',))
+        self.assertIsNone(ui.tasks(limit=1,user=None).items[0].progress['observation_until'])
+
+    def test_policy_description_uses_saved_order_and_rank(self):
+        policy=load('policy').Policy({'tv':'欧美剧'},1,templates={'欧美剧':dict(resolutions=[1080],group='any',source='web',dimensions=['audio','resolution'])})
+        description=policy.describe('欧美剧')
+        self.assertEqual([1080],description['resolutions'])
+        self.assertEqual(['audio','resolution'],[r['dimension'] for r in description['comparison']])
+        self.assertEqual('无损音轨',description['comparison'][0]['order'][0])
+        self.assertEqual('仅 WEB 片源',description['source'])
+
     def test_history_preview_stale_idempotent_and_visibility_independent_metrics(self):
         ui=load('ui').Views(self.plugin);now=self.r.utcnow()
         with self.repo.connection(write=True) as db:

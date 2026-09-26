@@ -559,6 +559,31 @@ class Policy:
                   "audio": facts.audio, "anime": self._anime(facts)}
         return tuple(values[key] for key in self.categories[policy_name][3])
 
+    def describe(self, name):
+        """Read-only display of the saved template and the same rank used by comparison."""
+        resolutions, group, source, dimensions = self.categories[name]
+        options = {
+            'resolution': [('2160p', dict(resolution=2160)), ('1080p', dict(resolution=1080))],
+            'picture': [('Dolby Vision', dict(picture=2)), ('HDR', dict(picture=1)), ('普通画面', dict(picture=0))],
+            'special': [('有中文特效字幕', dict(special_zh_subtitles=True)), ('无中文特效字幕', dict(special_zh_subtitles=False))],
+            'source': [('REMUX', dict(source='remux')), ('其他已准入片源', dict(source='web'))],
+            'hq': [('高码率', dict(hq=True)), ('普通码率', dict(hq=False))],
+            'audio': [('无损音轨', dict(audio=3)), ('沉浸音轨', dict(audio=2)), ('Dolby Digital Plus', dict(audio=1)), ('其他音轨', dict(audio=0))],
+            'anime': [('1080p VCB', dict(resolution=1080,vcb=True)), ('2160p B-Global', dict(bglobal=True)),
+                      ('1080p 官方动画平台', dict(resolution=1080,official=True,anime_platform=True)),
+                      ('1080p B-Global', dict(resolution=1080,bglobal=True)), ('1080p 其他官方组', dict(resolution=1080,official=True)), ('其他已准入资源', {})],
+        }
+        notes = {'picture':'仅 2160p 比较画面类型', 'hq':'仅 2160p 比较；REMUX 不比较此项' if name!='现场' else '仅 2160p 比较'}
+        base = Facts(resolution=2160,source='web',vcb=False,bglobal=False,official=False,anime_platform=False)
+        rows=[]
+        for index,dimension in enumerate(dimensions):
+            ordered=sorted(options[dimension],key=lambda item:self.rank(replace(base,**item[1]),name)[index],reverse=True)
+            rows.append(dict(dimension=dimension,order=[item[0] for item in ordered],note=notes.get(dimension,'')))
+        return dict(resolutions=sorted(resolutions,reverse=True),
+                    group={'any':'不限制发布组','official':'需符合官方发布组规则','anime':'需符合动画发布组规则','hhweb':'需符合 HHWEB 规则'}[group],
+                    source={'any':'不额外限制片源','movie':'需符合影视片源规则','web':'仅 WEB 片源'}[source],
+                    comparison=rows)
+
     def admit(self, facts, classification, *, locked=None, excluded=False, identity_ok=None, scope_ok=None):
         # These explicit constraints always precede any quality/evidence exception.
         if type(excluded) is not bool:

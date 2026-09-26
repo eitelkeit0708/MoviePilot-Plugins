@@ -1,7 +1,7 @@
 <script setup>
 import {computed,ref,inject} from 'vue';
 import {resolve,variant,initial} from './schema.mjs';
-import {label as translate} from './labels.mjs';
+import {label as translate,optionLabel} from './labels.mjs';
 const props=defineProps({schema:{type:Object,default:()=>({})},modelValue:{},name:{type:String,default:''},readonly:Boolean,options:{type:Array,default:()=>[]}});
 const emit=defineEmits(['update:modelValue']);
 const catalogs=inject('subscribetter:catalogs',ref({}));
@@ -37,7 +37,7 @@ const choices=computed(()=>props.options.length?props.options:catalogs.value[pro
       <button v-if="!readonly" type="button" :disabled="schema.maxItems!==undefined&&(modelValue?.length||0)>=schema.maxItems" @click="update([...(modelValue||[]),initial(schema.items||{})])">添加{{title}}</button>
     </fieldset>
     <label v-else-if="type==='boolean'" class="sb-check"><input type="checkbox" :checked="modelValue" :disabled="readonly||schema.const!==undefined" @change="update($event.target.checked)">{{title}}</label>
-    <label v-else-if="choices.length">{{title}}<select :value="modelValue" :disabled="readonly||schema.const!==undefined" @change="update(choices.find(v=>String(typeof v==='object'?v.value:v)===$event.target.value)?.value??choices.find(v=>String(v)===$event.target.value)??$event.target.value)"><option v-for="choice in choices" :key="choice.value??choice" :value="choice.value??choice">{{choice.title??choice}}</option></select></label>
+    <label v-else-if="choices.length">{{title}}<select :value="modelValue" :disabled="readonly||schema.const!==undefined" @change="update(choices.find(v=>String(typeof v==='object'?v.value:v)===$event.target.value)?.value??choices.find(v=>String(v)===$event.target.value)??$event.target.value)"><option v-for="choice in choices" :key="choice.value??choice" :value="choice.value??choice">{{choice.title??optionLabel(choice)}}</option></select></label>
     <label v-else-if="['integer','number'].includes(type)">{{title}}<input type="number" :value="modelValue" :readonly="readonly" :min="schema.minimum??schema.exclusiveMinimum" :max="schema.maximum" :step="type==='integer'?1:'any'" @input="update($event.target.value===''?null:Number($event.target.value))"></label>
     <label v-else>{{title}}<textarea v-if="/prompt|description|subtitle|original/.test(name)" :value="modelValue??''" :readonly="readonly" :maxlength="schema.maxLength" rows="4" @input="update($event.target.value)"/><input v-else :type="schema.writeOnly?'password':'text'" :value="modelValue??''" :readonly="readonly" :maxlength="schema.maxLength" autocomplete="off" @input="update($event.target.value)"></label>
   </div>

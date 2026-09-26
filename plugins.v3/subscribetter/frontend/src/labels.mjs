@@ -20,3 +20,4 @@ export const labels={
  content_base64:'私密导入内容',value:'一次性私密输入',features:'期望新功能与路由',selected:'明确选择停止的旧功能',module:'功能模块',instance_id:'实例 ID',config_digest:'配置摘要',route_scope:'精确响应路由',whole_instance:'停止整个已验证榜单实例',all_capabilities:'已验证全部功能',configuration_receipt:'配置预览回执',endpoint_ref:'端点私密引用',credential_ref:'密钥私密引用',private_ranges:'授权目标私网范围',action:'回执步骤',
 };
 export const label=key=>labels[key]||key.replaceAll('_',' ');
+export const optionLabel=value=>({COMPLETE_COLLECTED:'全部收集完成后起算',LAST_INGEST:'最近一次入库后起算',EPISODE:'逐集追踪',PACK:'整季资源',raw_search:'原生资源搜索',trusted_aliases:'使用已核实的别名',original:'仅使用原标题',resource:'单个资源',release:'同一发布版本',content:'同一内容',auto:'自动选择',deepseek:'DeepSeek',generic:'兼容接口',identified:'已识别的季',all_known:'所有已知季',record_only:'仅记录',manage_authorized:'在授权范围内纳管'})[value]??value;

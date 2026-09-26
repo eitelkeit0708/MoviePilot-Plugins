@@ -61,6 +61,7 @@ class Task(Strict):
     actor:str
     created_at:str
     updated_at:str
+    progress:dict[str,JsonValue]|None=None
 
 
 class Unit(Strict):
@@ -168,6 +169,7 @@ class PolicyView(Strict):
     policy_revision:str|None
     dimensions:list[str]
     configuration:dict[str,JsonValue]
+    summary:dict[str,JsonValue]=Field(default_factory=dict)
 
 
 class Source(Strict):
@@ -471,20 +473,42 @@ class Views:
         snapshot=json.loads(r['snapshot'])
         return dict(title=public(str(snapshot.get('name') or '未命名作品')),
                     year=public(str(snapshot.get('year') or '')),
-                    **{k:public(r[k]) for k in Task.model_fields if k not in ('title','year')})
+                    progress=dict(targets=r['targets'] or 0,present=r['present'] or 0,confirmed=r['confirmed'] or 0,processing=r['processing'] or 0,
+                                  resolutions=sorted({int(v) for v in (r['resolutions'] or '').split(',') if v.isdigit()},reverse=True),
+                                  observation_until=r['observation_until'],cooldown_until=r['cooldown_until']) if 'targets' in r else None,
+                    **{k:public(r[k]) for k in Task.model_fields if k not in ('title','year','progress')})
 
     def tasks(self,limit:Limit=25,offset:Offset=0,state:Literal['PENDING','ACTIVE','PASSIVE','PAUSED','STOPPED','RELEASING','RELEASED_NATIVE']|None=None,
               media_type:Literal['电影','电视剧']|None=None,sort:Literal['id','updated_at']='id',query:Annotated[str,Query(max_length=300)]='',user:TokenPayload=Depends(verify_token))->Page[Task]:
         self._auth(user)
-        return self._page('tasks',Task,self._task,where="(? IS NULL OR state=?) AND (? IS NULL OR media_type=?) AND instr(lower(coalesce(json_extract(snapshot,'$.name'),'')),lower(?))>0",args=(state,state,media_type,media_type,query),order=sort+',id',limit=limit,offset=offset)
+        return self._task_page(where="(? IS NULL OR t.state=?) AND (? IS NULL OR t.media_type=?) AND instr(lower(coalesce(json_extract(t.snapshot,'$.name'),'')),lower(?))>0",args=(state,state,media_type,media_type,query),sort=sort,limit=limit,offset=offset)
+
+    def _task_page(self,*,where,args,sort='id',limit=25,offset=0):
+        source="""tasks t LEFT JOIN (
+            SELECT s.task_id,count(*) targets,sum(s.last_ingest_confirmed_at IS NOT NULL) confirmed,
+                sum(s.owner_plan_id IS NOT NULL) processing,
+                sum(json_extract(s.current_facts,'$.state')='PRESENT' AND EXISTS(SELECT 1 FROM json_each(s.current_facts,'$.versions') v WHERE json_extract(v.value,'$.reliable')=1)) present,
+                group_concat(CASE WHEN json_extract(s.current_facts,'$.state')='PRESENT' THEN
+                    (SELECT group_concat(DISTINCT json_extract(v.value,'$.raw.technical.resolution')) FROM json_each(s.current_facts,'$.versions') v WHERE json_extract(v.value,'$.reliable')=1) END) resolutions,
+                min(CASE WHEN s.cooldown_until>? THEN s.cooldown_until END) cooldown_until
+            FROM target_units s LEFT JOIN task_lifecycle l ON l.task_id=s.task_id
+            WHERE l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=s.target_key)
+            GROUP BY s.task_id) u ON u.task_id=t.id
+            LEFT JOIN (SELECT o.task_id,min(b.deadline) observation_until FROM observations b
+                JOIN opportunities o ON o.id=b.opportunity_id
+                JOIN opportunity_targets ot ON ot.opportunity_id=o.id AND ot.target_key=b.target_key
+                WHERE o.state='ACTIVE' AND json_extract(o.config,'$.observation_enabled')=1 AND ot.fulfilled=0 AND b.deadline>?
+                GROUP BY o.task_id) b ON b.task_id=t.id"""
+        now=utcnow()
+        return self._page('tasks',Task,self._task,source=source,select='t.*,u.targets,u.present,u.confirmed,u.processing,u.resolutions,u.cooldown_until,b.observation_until',where=where,args=(now,now,*args),order='t.'+sort+',t.id',limit=limit,offset=offset)
 
     def task(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->TaskDetail:
         self._auth(user);task=self._one('tasks','id',task_id)
         with self.repository.connection() as db:
             life=db.execute('SELECT * FROM task_lifecycle WHERE task_id=?',(task_id,)).fetchone();snap=self.snapshot(db)
         effective=self.repository.setting('runtime-task:'+str(task_id))
-        units=self._page('target_units',Unit,lambda r:{k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields},where='task_id=?',args=(task_id,),order='target_key',limit=limit,offset=offset)
-        return TaskDetail(task=Task(**self._task(task)),lifecycle=self.row(dict(life))['data'] if life else None,
+        units=self._page('target_units',Unit,lambda r:{k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields},source='target_units u LEFT JOIN task_lifecycle l ON l.task_id=u.task_id',select='u.*',where='u.task_id=? AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))',args=(task_id,),order='u.target_key',limit=limit,offset=offset)
+        return TaskDetail(task=self._task_page(where='t.id=?',args=(task_id,),limit=1).items[0],lifecycle=self.row(dict(life))['data'] if life else None,
             effective=public(effective) if effective else None,units=units,opportunities=self.rows('opportunities',where='task_id=?',args=(task_id,),order='created_at,id'),
             plans=self.rows('plans',where='task_id=?',args=(task_id,),order='created_at,id'),snapshot=snap)
 
@@ -564,11 +588,12 @@ class Views:
 
     def policies(self,limit:Limit=25,offset:Offset=0,category_id:CategoryRef|None=None,user:TokenPayload=Depends(verify_token))->Page[PolicyView]:
         self._auth(user)
-        from .policy import category_templates
+        from .policy import category_templates,Policy
         config=self.plugin.configuration.view()['config'];p=config['policy'];runtime=self.plugin.runtime;categories=category_templates(p.get('templates'))
+        saved=Policy(p['bindings'],p['classification_revision'],overrides=p['overrides'],admission=p['admission'],templates=p.get('templates')) if p['bindings'] else None
         # The config is one bounded row; JSON1 performs binding paging/counting.
         key=self.plugin.configuration.key
-        return self._page('settings',PolicyView,lambda r:dict(category_id=r['category_id'],binding=r['binding'],publication_revision=p['classification_revision'],policy_revision=runtime.policy.semantic_hash if runtime and runtime.policy else None,dimensions=list(categories[r['binding']][3]),configuration=public(dict(overrides=p['overrides'],admission=p['admission'],locks=p['locks'],lifecycle=config['lifecycle'],all_bindings=categories))),source="settings s,json_each(s.value,'$.config.policy.bindings') j",select='j.key AS category_id,j.value AS binding',where='s.key=? AND (? IS NULL OR j.key=?)',args=(key,category_id,category_id),order='j.key',limit=limit,offset=offset)
+        return self._page('settings',PolicyView,lambda r:dict(category_id=r['category_id'],binding=r['binding'],publication_revision=p['classification_revision'],policy_revision=runtime.policy.semantic_hash if runtime and runtime.policy else None,dimensions=list(categories[r['binding']][3]),summary=saved.describe(r['binding']),configuration=public(dict(overrides=p['overrides'],admission=p['admission'],locks=p['locks'],lifecycle=config['lifecycle'],all_bindings=categories))),source="settings s,json_each(s.value,'$.config.policy.bindings') j",select='j.key AS category_id,j.value AS binding',where='s.key=? AND (? IS NULL OR j.key=?)',args=(key,category_id,category_id),order='j.key',limit=limit,offset=offset)
 
     def bundle_records(self,bundle_id:Id,section:Literal['vector','assets','publication'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);self._one('delivery_bundles','id',bundle_id)
