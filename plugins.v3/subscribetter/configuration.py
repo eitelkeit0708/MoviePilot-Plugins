@@ -119,6 +119,7 @@ class PolicyConfig(Strict):
 
 class Destination(Strict):
     id: Text
+    display_name: Annotated[str,Field(max_length=256)] = ''
     category_id: Text
     downloader: Text
     save_path: PathText

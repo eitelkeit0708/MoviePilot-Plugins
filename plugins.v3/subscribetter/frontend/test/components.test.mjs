@@ -94,7 +94,7 @@ test('subscription cards show titles; late detail cannot replace the selected wo
  const client={get:async path=>{if(path==='/tasks'){if(fail)throw {status:503};return {items:tasks,total:2,next_offset:null}}if(path.endsWith('/1'))return new Promise(r=>old=r);return detail(tasks[1])}};
  const status={current:ref({config:{}}),health:ref({}),error:ref('')};
  const f=fixture(Subscriptions,{extra:{client,status}});await settle();
- const cards=()=>walk(f.root,n=>n.type==='button'&&n.props.class==='sb-subscription-card');assert.equal(cards().length,2);
+ const cards=()=>walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-subscription-card'));assert.equal(cards().length,2);
  cards()[0].props.onClick();await settle();cards()[1].props.onClick();await settle();old(detail(tasks[0]));await settle();
  const panel=walk(f.root,n=>n.props?.['aria-label']==='作品详情')[0];assert.ok(text(panel).includes('一瓯春'));assert.ok(!text(panel).includes('侠女内莉'));
  fail=true;await walk(f.root,n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});await settle();assert.ok(text(f.root).includes('可能已过期'));assert.equal(cards().length,2);f.app.unmount();
@@ -154,7 +154,7 @@ test('configuration service failures stay inline without exposing server details
 test('episode action carries only the selected unit and current opportunity',async()=>{
  const task={id:3,title:'GATE24',year:'2026',state:'ACTIVE',generation:2};const key='["电视剧","douban","24",1,"",9]';const events=[];
  const client={get:async p=>p==='/tasks'?{items:[task],total:1,next_offset:null}:p==='/tasks/3'?{task,units:{items:[{target_key:key,publish_phase:'NOT_SENT'}],total:1,next_offset:null},opportunities:{items:[{id:'round',state:'ACTIVE'}]}}:{items:[]}};
- const status={current:ref({config:{}}),health:ref({}),error:ref('')};const f=fixture(Subscriptions,{extra:{client,status,onAction:(...a)=>events.push(a)}});await settle();walk(f.root,n=>n.type==='button'&&n.props.class==='sb-subscription-card')[0].props.onClick();await settle();
+ const status={current:ref({config:{}}),health:ref({}),error:ref('')};const f=fixture(Subscriptions,{extra:{client,status,onAction:(...a)=>events.push(a)}});await settle();walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-subscription-card'))[0].props.onClick();await settle();
  walk(f.root,n=>n.type==='button'&&text(n)==='立即检查此集')[0].props.onClick();assert.equal(events[0][0][1],'/tasks/{task_id}/immediate');assert.deepEqual(events[0][1].target_keys,[key]);assert.equal(events[0][1].generation,2);assert.equal(events[0][1].opportunity_id,'round');f.app.unmount();
 });
 
@@ -181,7 +181,7 @@ test('opening a subscription uses a full-width detail and returning retains list
  const task={id:3,title:'GATE24',state:'ACTIVE',generation:2};const client={get:async p=>p==='/tasks'?{items:[task],total:1,next_offset:null}:p==='/tasks/3'?{task,units:{items:[],total:0,next_offset:null},opportunities:{items:[]}}:{items:[]}};
  const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({}),error:ref('')}}});await settle();
  try{walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].props['onUpdate:modelValue']('GATE24');
-  await walk(f.root,n=>n.type==='button'&&n.props.class==='sb-subscription-card')[0].props.onClick();await settle();
+  await walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-subscription-card'))[0].props.onClick();await settle();
   const list=walk(f.root,n=>n.props?.['aria-label']==='作品列表')[0];assert.equal(list.style.display,'none');
   walk(f.root,n=>n.type==='button'&&text(n)==='返回列表')[0].props.onClick();await settle();
   assert.notEqual(list.style.display,'none');assert.equal(walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].value,'GATE24');
@@ -221,7 +221,7 @@ test('AI credentials enter the draft by reference while partial failure preserve
 });
 
 test('mapping checks send the selected persisted sample and refuse an unsaved mapping',async()=>{
- const {default:MappingCheck}=await import(pathToFileURL(path.join(out,'MappingCheck.mjs')));const writes=[];
+ const {default:MappingCheck}=await import(pathToFileURL(path.join(out,'SavedMappingCheck.mjs')));const writes=[];
  const f=fixture(MappingCheck,{extra:{saved:true,mapping:{id:'m',emby_service:'Emby',library_id:'library'},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')},client:{get:async p=>p.startsWith('/health/')?{items:[{id:'scan',state:'COMPLETE',data:{service:'Emby',library:'library',data:{started_at:'2026-09-26T08:00:00Z'}}}],next_offset:null}:{items:[{id:'item',data:{name:'测试媒体'}}],next_offset:null},post:async(p,b)=>{writes.push([p,b]);return {state:'MAPPING_VERIFIED',result:{locations:[]}}}}}});await settle();
  try{await walk(f.root,n=>n.type==='button'&&text(n)==='读取此媒体库的扫描样本')[0].props.onClick();await settle();assert.ok(text(f.root).includes('2026-09-26T08:00:00Z'));const scans=walk(f.root,n=>n.type==='select')[0];scans.props['onUpdate:modelValue']('scan');scans.props.onChange();await settle();walk(f.root,n=>n.type==='select')[1].props['onUpdate:modelValue']('item');await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='检查播放路径')[0].props.onClick();assert.deepEqual(writes,[['/archive/mapping-test',{config_revision:4,runtime_generation:6,scan_id:'scan',item_id:'item',mapping_id:'m'}]])}finally{f.app.unmount()}
  const unavailable=fixture(MappingCheck,{extra:{saved:false,mapping:{id:'m'},status:{error:ref('')},client:{get:async()=>assert.fail('unsaved check')}}});await settle();try{assert.equal(walk(unavailable.root,n=>n.type==='button'&&text(n)==='读取此媒体库的扫描样本')[0].props.disabled,true)}finally{unavailable.app.unmount()}
@@ -234,7 +234,7 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
  const run=spawnSync(path.join(cwd,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'),['-X','utf8','tests/v3/subscribetter/test_management_display.py','--fixture'],{cwd,encoding:'utf8'});
  assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
  const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
- for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','等待视频和必要字幕'],['unknown','不应重复提交'],['superseded','已失效或待核实']]){
+ for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','视频或必要字幕'],['unknown','外部结果尚未确认'],['superseded','已失效或待核实']]){
   const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='rapid')assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP'])}finally{f.app.unmount()}
  }
  const multi=structuredClone(dto.scenes.rapid.units.items[0]);
@@ -259,7 +259,7 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
   decision.value={...dto.list.items[0],id:'second'};await settle();button('查看本次比较依据').props.onClick();await settle();const late=resolve;
   decision.value={...dto.list.items[0],id:'third'};await settle();late(dto.detail);await settle();assert.ok(!text(root).includes('QUALITY_UPGRADE'));
   mode='fail';button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/HTTP 503/);assert.ok(!text(root).includes('没有保存完整比较依据'));
-  mode='empty';await button('重新读取').props.onClick();await settle();assert.match(text(root),/没有保存完整比较依据/);
+  mode='empty';await button('重新加载').props.onClick();await settle();assert.match(text(root),/没有保存完整比较依据/);
  }finally{app.unmount()}
 });
 
@@ -302,15 +302,13 @@ test('native save with lost reply locks duplicate submission until exact applied
  await settle();try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];await button('保存设置').props.onClick();await settle();assert.equal(writes,1);assert.equal(button('保存设置').props.disabled,true);await button('保存设置').props.onClick();assert.equal(writes,1);await button('核对保存结果').props.onClick();await settle();assert.match(text(f.root),/设置已保存并确认生效/);assert.equal(writes,1);assert.equal(f.saves.length,0);const toggle=walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0];toggle.props.onChange({target:{checked:!toggle.props.checked}});await settle();assert.ok(!text(f.root).includes('设置已保存并确认生效'))}finally{f.app.unmount()}
 });
 
-test('scan recovery follows the selected mapping when two libraries share a cloud scope',async()=>{
- const {default:PlanSetup}=await import(pathToFileURL(path.join(out,'PlanSetup.mjs')));const config=ref(structuredClone(contract.defaults));
- config.value.destination_templates=[{id:'TV',category_id:'tv',downloader:'qbt',save_path:'/downloads',organized_rule:'r'}];config.value.policy.bindings={tv:'国产剧'};
- config.value.delivery.policy_bindings={};config.value.delivery.libraries={};config.value.delivery.rules=[{id:'r',cloud_scope_id:'s',consumer_roots:[]}];config.value.delivery.cloud_scopes={s:{cd2_plugin:'CloudDriveDisk',p115_plugin:'P115Disk',root:'/115',allowed_prefixes:['/115/test'],p115_parents:{}}};config.value.delivery.mappings=['movie','tv'].map(id=>({id,emby_service:'Emby',library_id:id,cloud_scope_id:'s'}));
- const root={children:[]},api={get:async p=>p==='plugin/'?[]:p==='mediaserver/clients'?[{name:'Emby',type:'emby'}]:[{id:'movie',name:'电影库'},{id:'tv',name:'剧集库'}]},status={current:ref({config:JSON.parse(JSON.stringify(config.value))}),health:ref({}),error:ref('')};
- const app=renderer.createApp({setup:()=>()=>h(PlanSetup,{modelValue:config.value,baseline:status.current.value.config,api,client:{},status,'onUpdate:modelValue':v=>config.value=v})});app.component('VBtn',{setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);await settle();
- try{walk(root,n=>n.props?.class==='sb-plan-choice')[0].props.onClick();await settle();walk(root,n=>n.props?.['aria-label']==='第 3 步：媒体库与播放路径')[0].props.onClick();await settle();walk(root,n=>n.type==='button'&&text(n)==='查看扫描与恢复设置')[1].props.onClick();await settle();const recovery=walk(root,n=>n.props?.class==='sb-inline-recovery')[0];assert.match(text(recovery),/剧集库/);walk(recovery,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.onChange({target:{checked:true}});await settle();assert.deepEqual([...config.value.passive_libraries.Emby],['tv']);}finally{app.unmount()}
+test('draft path checks use the selected library while disabled, and discard stale successes',async()=>{
+ const {default:MappingCheck}=await import(pathToFileURL(path.join(out,'MappingCheck.mjs'))),calls=[],mapping=ref({id:'draft',emby_service:'Emby',library_id:'tv',local_strm_prefix:'/strm',playback_prefix:'/cloud'});
+ let late;const client={post:async(p,b)=>{calls.push([p,b]);return p.endsWith('library-samples')?{result:{items:[{id:'sample',name:'真实作品',episode:7}],next_offset:null}}:new Promise(r=>late=r)}};
+ const root={children:[]},status={current:ref({revision:4}),health:ref({generation:6,dry_run:true}),error:ref('')};const app=renderer.createApp({setup:()=>()=>h(MappingCheck,{mapping:mapping.value,client,status,saved:false})});app.component('VBtn',{setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.mount(root);await settle();
+ const btn=label=>walk(root,n=>n.type==='button'&&text(n)===label)[0];
+ try{await btn('选择样本').props.onClick();await settle();assert.deepEqual(calls[0],['/configuration/library-samples',{config_revision:4,runtime_generation:6,service:'Emby',library:'tv',offset:0,limit:25}]);walk(root,n=>n.type==='select')[0].props['onUpdate:modelValue']('sample');await settle();btn('检查当前路径').props.onClick();await settle();assert.equal(calls[1][1].mapping.local_strm_prefix,'/strm');mapping.value={...mapping.value,playback_prefix:'/new'};await settle();late({result:{state:'DRAFT_MAPPING_VERIFIED',locations:[]}});await settle();assert.ok(!text(root).includes('路径转换通过'));assert.ok(!text(root).includes('启用订阅追踪'));assert.equal(status.health.value.dry_run,true);assert.equal(btn('检查当前路径').props.disabled,false);}finally{app.unmount()}
 });
-
 
 test('version display renders all declared gains and losses, with no inferred purple marks',async()=>{
  const {default:VersionDifference}=await import(pathToFileURL(path.join(out,'VersionDifference.mjs')));
@@ -319,4 +317,27 @@ test('version display renders all declared gains and losses, with no inferred pu
   const f=fixture(VersionDifference,{extra:{...base,change}});await settle();
   try{assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),change===base.change?['4K','Dolby Vision']:[]);if(change===base.change){assert.ok(text(f.root).includes('无损音频'));assert.ok(text(f.root).includes('偏好降低'));}}finally{f.app.unmount()}
  }
+});
+
+
+test('renaming a scheme changes only its display name and preserves all references',async()=>{
+ const {default:Destinations}=await import(pathToFileURL(path.join(out,'Destinations.mjs'))),updates=[];
+ const original={id:'stable',display_name:'旧名称',category_id:'tv',downloader:'qbt',save_path:'/downloads',organized_rule:'rule',sites:[7],custom_words:['word']};
+ const f=fixture(Destinations,{extra:{modelValue:[original],embedded:true,'onUpdate:modelValue':v=>updates.push(v)}});await settle();
+ try{const label=walk(f.root,n=>n.type==='label'&&text(n)==='方案名称')[0],input=walk(label,n=>n.type==='input')[0];assert.equal(input.props.disabled,false);input.props.onInput({target:{value:'新名称'}});assert.deepEqual(updates[0],[{...original,display_name:'新名称'}]);}finally{f.app.unmount()}
+});
+
+test('migration choices bind exact current digests without editable IDs or implicit activation',async()=>{
+ const {default:Migration}=await import(pathToFileURL(path.join(out,'Migration.mjs'))),calls=[],old={instance_id:'old-douban',source:'DoubanRankPlusOptimized',version:'1.0.7',active:true,config_digest:'d'.repeat(64)};
+ const config=structuredClone(contract.defaults);config.discovery.sources=[{id:'weekly',name:'每周口碑',enabled:false}];
+ const client={pluginId:'MigrationTest',get:async()=>({plugins:[old]}),post:async(p,b)=>{calls.push([p,b]);return p==='/configuration/preview'?{valid:true,receipt_id:'config',feature_digests:{discovery:'f'.repeat(64)}}:{receipt_id:'migration',kind:'CUTOVER',state:'PREVIEW',next_changes:[],steps:[]}}};
+ const f=fixture(Migration,{extra:{client,status:{current:ref({revision:4,digest:'a'.repeat(64),config}),health:ref({}),error:ref('')},nativeApi:{put:()=>assert.fail('no native save during preview')}}});await settle();
+ try{const btn=t=>walk(f.root,n=>n.type==='button'&&text(n)===t)[0];btn('切换功能').props.onClick();await settle();await btn('读取当前插件').props.onClick();await settle();const oldLabel=walk(f.root,n=>n.type==='label'&&text(n).includes('old-douban'))[0];walk(oldLabel,n=>n.type==='input')[0].props.onChange({target:{checked:true}});const featureLabel=walk(f.root,n=>n.type==='label'&&text(n).includes('每周口碑'))[0];walk(featureLabel,n=>n.type==='input')[0].props['onUpdate:modelValue'](['discovery:weekly']);await settle();await btn('预览切换范围').props.onClick();assert.deepEqual(calls.map(c=>c[0]),['/configuration/preview','/migration/cutover/preview']);assert.deepEqual(calls[1][1].selected,[{instance_id:'old-douban',config_digest:old.config_digest,module:'discovery',whole_instance:true,all_capabilities:['discovery']}]);assert.equal(config.enabled,false);assert.ok(text(f.root).includes('预览待确认'));}finally{f.app.unmount()}
+});
+
+
+test('nearby reconcile is one bounded request and keeps an unknown result unknown',async()=>{
+ const {default:ReconcileButton}=await import(pathToFileURL(path.join(out,'ReconcileButton.mjs'))),calls=[],action={component:'delivery',object_id:'b',revision:'7'};
+ const f=fixture(ReconcileButton,{extra:{action,unknown:true,client:{post:async(p,b)=>{calls.push([p,b]);return {state:'UNKNOWN',result:{checked_at:'2026-09-27T00:00:00Z'}}}},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')}}});await settle();
+ try{await walk(f.root,n=>n.type==='button'&&text(n)==='核对结果')[0].props.onClick();await settle();assert.deepEqual(calls,[['/health/reconcile',{...action,config_revision:4,runtime_generation:6}]]);assert.match(text(f.root),/外部结果仍待确认/);assert.ok(!text(f.root).includes('上传成功'));}finally{f.app.unmount()}
 });

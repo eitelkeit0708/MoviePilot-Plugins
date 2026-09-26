@@ -157,14 +157,14 @@ class Mappings:
             if not root.is_dir() or not os.access(root, os.R_OK | os.X_OK):
                 raise ValueError('STRM_UNREADABLE')
 
-    def resolve(self, service, library, item_path, source_path):
+    def resolve(self, service, library, item_path, source_path, *, read_root=None):
         rules = self.scoped(service, library)
         check = None
         if str(item_path).lower().endswith('.strm'):
             rule = self.match(rules, item_path, 'emby_prefix')
             suffix = posix(item_path)[len(rule['emby_prefix']):].lstrip('/')
             target, check = read_strm(Path(rule['local_strm_prefix']) / suffix,
-                                      rule['local_strm_prefix'], rule['max_strm_bytes'])
+                                      read_root or rule['local_strm_prefix'], rule['max_strm_bytes'])
             second = self.match([r for r in rules if r['cloud_scope_id'] == rule['cloud_scope_id']], target, 'playback_prefix')
             internal = second['cd2_prefix'] + target[len(second['playback_prefix']):]
             if source_path and source_path != item_path:
@@ -189,6 +189,38 @@ def provider_id(ids, source):
     if len(values) != 1:
         raise ValueError('IDENTITY_CONFLICT' if values else 'IDENTITY_UNKNOWN')
     return values.pop()
+
+
+def draft_mapping_check(mapping, item, saved_mappings):
+    """Check one Emby item; draft edits cannot authorize a new filesystem root."""
+    resolver=Mappings([mapping]);service=mapping['emby_service'];library=mapping['library_id']
+    sources=item.get('MediaSources') or [{'Path':item.get('Path')}]
+    if len(sources)>20:raise ValueError('MEDIA_SOURCE_LIMIT')
+    roots=[Path(r['local_strm_prefix']).resolve() for r in saved_mappings
+           if (r['emby_service'],r['library_id'])==(service,library)]
+    locations=[];complete=True
+    for source in sources:
+        source_path=source.get('Path');item_path=source_path if str(source_path).lower().endswith('.strm') else item.get('Path')
+        posix(item_path)
+        if not str(item_path).lower().endswith('.strm'):raise ValueError('STRM_SAMPLE_REQUIRED')
+        rule=resolver.match([mapping],item_path,'emby_prefix')
+        local=Path(rule['local_strm_prefix'])/item_path[len(rule['emby_prefix']):].lstrip('/')
+        # Both the draft root and actual file must remain in an already saved root.
+        allowed=next((root for root in roots if Path(rule['local_strm_prefix']).resolve().is_relative_to(root) and local.resolve().is_relative_to(root)),None)
+        row=dict(emby_path=item_path,local_strm_path=str(local),content_path=None,cd2_path=None)
+        if allowed is None:
+            complete=False;row['reason']='STRM_ROOT_NOT_AUTHORIZED'
+        else:
+            _,internal,proof=resolver.resolve(service,library,item_path,source_path,read_root=str(allowed))
+            # Read again through the existing pinned-file reader to show exact content;
+            # require an identical proof so a concurrent edit cannot mix two results.
+            target,check=read_strm(local,allowed,rule['max_strm_bytes'])
+            if check!=proof:raise ValueError('STRM_CHANGED')
+            row.update(content_path=posix(target),cd2_path=internal)
+        locations.append(row)
+    if not locations:raise ValueError('MEDIA_SOURCES_INCOMPLETE')
+    return dict(state='DRAFT_MAPPING_VERIFIED' if complete else 'READ_SCOPE_REQUIRED',locations=locations,
+                checked_at=utcnow(),mapping_digest=digest(mapping),cloud_file_verified=False)
 
 
 def units(item, rules, series, *, scope=None):

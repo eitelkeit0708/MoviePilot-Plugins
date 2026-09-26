@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {adoptionBody,unitLabel,qualitySummary,stateLabel,reasonText,sourceNotice,taskNext,taskProgress,sourceTitle,deliveryNext} from '../src/media.mjs';
+import {adoptionBody,unitLabel,qualitySummary,stateLabel,reasonText,sourceNotice,taskNext,taskProgress,sourceTitle,deliveryNext,taskStage} from '../src/media.mjs';
 test('adoption requires an existing native ID and preserves provider, season and episode group',()=>{
  const row={id:42,type:'电视剧',media_source:'douban',media_id:'37029663',tmdb_id:999,name:'侠女内莉',year:'2026',season:1,episode_group:'group'};
  const body=adoptionBody(row,'target','op');
@@ -25,7 +25,7 @@ test('historical due dates never promise a future run and known targets do not i
  assert.equal(deliveryNext({state:'UPLOADING',due},{dry_run:true},now),'演练中，普通交付不调度');
  assert.equal(deliveryNext({state:'PUBLISH_OUTCOME_UNKNOWN',due},health,now),'先核对发布结果，再决定后续动作');
  assert.match(taskNext({state:'ACTIVE',progress:{observation_until:due}},health,now),/记录已到期/);
- assert.equal(taskProgress({media_type:'电视剧',progress:{targets:2,present:1}}),'已知 2 集 · 在库 1');
+ assert.equal(taskProgress({media_type:'电视剧',progress:{targets:2,present:1}}),'已收录 1 集 · 总集数待确认');
  assert.equal(taskProgress({media_type:'电影',progress:{targets:1,present:1}}),'已有正片在库');
  assert.equal(taskProgress({media_type:'电影',progress:{targets:1,present:0}}),'尚未在库内找到正片');
  assert.equal(taskProgress({media_type:'电影',progress:{targets:0}}),'正片档案待确认');
@@ -48,4 +48,9 @@ test('quality distinguishes picture, four audio tiers and explicit versus inferr
  for(const [audio,label] of [[0,'普通音轨'],[1,'DDP'],[2,'沉浸式'],[3,'无损']])assert.ok(qualitySummary({audio}).includes(label));
  assert.match(qualitySummary({audio:null,picture:null}),/音频未知/);assert.match(qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}),/PGS.*推断/);
  assert.ok(!qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}).includes('特效字幕已确认'));
+});
+
+test('task summary identifies actual episodes rather than counting stage kinds',()=>{
+ const task={state:'ACTIVE',progress:{highlights:[{target_key:'["电视剧","douban","24",1,"",5]',phase:'UNKNOWN'},{target_key:'["电视剧","douban","24",1,"",1]',phase:'DOWNLOADING'}]}};
+ assert.equal(taskStage(task),'第 5 集 结果待核实 · 第 1 集 正在下载');
 });

@@ -43,7 +43,7 @@ def processing(db,row):
         if owner.get('generation')!=row['generation'] or owner.get('owner_plan_id')!=plan or r['state'] in ('CANCELLED','ABANDONED','CLEANED'):continue
         relevant=[f for f in b.get('files',[]) if f.get('file_index') in indices]
         if not relevant:continue
-        bundles.append(dict(state=r['state'],reason=b.get('reason'),due=r['due']))
+        bundles.append(dict(id=r['id'],revision=r['revision'],state=r['state'],reason=b.get('reason'),due=r['due'],needs_reconcile=any(f.get('state')=='UNKNOWN' for f in relevant)))
         for f in relevant:
             transfer.append(dict(file_index=f['file_index'],name=table[f['file_index']]['path'].rsplit('/',1)[-1],role=table[f['file_index']]['role'],
                 state=f.get('state'),misses=f.get('misses'),miss_limit=b.get('rapid_miss_limit'),due=f.get('due'),
@@ -62,6 +62,7 @@ def processing(db,row):
         change=dict(target['change'],baseline_revision=snapshot.get('current',{}).get(key,{}).get('revision'),
                     baseline_current=snapshot.get('current',{}).get(key,{}).get('revision')==row['current_revision']) if len(videos)<=1 and target.get('change') else None,
         files=[f['path'].rsplit('/',1)[-1] for f in videos[:20]],started_at=row['plan_created_at'],
+        reconcile=[dict(component='delivery',object_id=b['id'],revision=str(b['revision'])) for b in bundles if b['needs_reconcile'] or b['state'] in ('UNKNOWN','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN')][:20],
         download=dict(total_bytes=total,downloaded_bytes=downloaded,speed=speed,sampled_at=min((t for t in times.values() if t),default=None),shared_file=any(len(f['targets'])>1 for f in files),file_count=len(files)),
         transfer_files=transfer[:20],transfer_file_count=len(transfer),
         attachments=dict(required=len(attachments),local_ready=sum(organized.get(f['index'])=='COMPLETE' for f in attachments),remote_verified=sum(any(t['file_index']==f['index'] and t['remote_verified'] for t in transfer) for f in attachments)),

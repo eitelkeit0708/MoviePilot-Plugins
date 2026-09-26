@@ -6284,6 +6284,174 @@
         }
       }
     },
+    "/configuration/library-samples": {
+      "post": {
+        "summary": "Library Samples",
+        "operationId": "library_samples_configuration_library_samples_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibrarySamples"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/configuration/policy-summary": {
+      "post": {
+        "summary": "Draft Policy",
+        "operationId": "draft_policy_configuration_policy_summary_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftPolicy"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/configuration/mapping-check": {
+      "post": {
+        "summary": "Draft Mapping Test",
+        "operationId": "draft_mapping_test_configuration_mapping_check_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftMappingTest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health/reconcile": {
       "post": {
         "summary": "Health Reconcile",
@@ -8019,6 +8187,12 @@
           "title": "Id",
           "type": "string"
         },
+        "display_name": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Display Name",
+          "type": "string"
+        },
         "category_id": {
           "maxLength": 256,
           "minLength": 1,
@@ -8426,6 +8600,70 @@
         "plan_id"
       ],
       "title": "DownloadObservation"
+    },
+    "DraftMappingTest": {
+      "properties": {
+        "config_revision": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Config Revision"
+        },
+        "runtime_generation": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Runtime Generation"
+        },
+        "mapping": {
+          "$ref": "#/components/schemas/Mapping"
+        },
+        "item_id": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Item Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "config_revision",
+        "runtime_generation",
+        "mapping",
+        "item_id"
+      ],
+      "title": "DraftMappingTest"
+    },
+    "DraftPolicy": {
+      "properties": {
+        "config_revision": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Config Revision"
+        },
+        "runtime_generation": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Runtime Generation"
+        },
+        "policy": {
+          "$ref": "#/components/schemas/PolicyConfig"
+        },
+        "category_id": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Category Id"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "config_revision",
+        "runtime_generation",
+        "policy",
+        "category_id"
+      ],
+      "title": "DraftPolicy"
     },
     "Evaluate": {
       "properties": {
@@ -9388,6 +9626,55 @@
       "type": "object",
       "title": "LegacyHistory"
     },
+    "LibrarySamples": {
+      "properties": {
+        "config_revision": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Config Revision"
+        },
+        "runtime_generation": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Runtime Generation"
+        },
+        "service": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Service"
+        },
+        "library": {
+          "type": "string",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Library"
+        },
+        "offset": {
+          "type": "integer",
+          "maximum": 10000000.0,
+          "minimum": 0.0,
+          "title": "Offset",
+          "default": 0
+        },
+        "limit": {
+          "type": "integer",
+          "maximum": 25.0,
+          "minimum": 1.0,
+          "title": "Limit",
+          "default": 25
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "config_revision",
+        "runtime_generation",
+        "service",
+        "library"
+      ],
+      "title": "LibrarySamples"
+    },
     "Lifecycle": {
       "additionalProperties": false,
       "properties": {
@@ -9432,6 +9719,103 @@
         }
       },
       "title": "Lifecycle",
+      "type": "object"
+    },
+    "Mapping": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "revision": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        },
+        "emby_service": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Emby Service",
+          "type": "string"
+        },
+        "library_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Library Id",
+          "type": "string"
+        },
+        "cloud_scope_id": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Cloud Scope Id",
+          "type": "string"
+        },
+        "local_strm_prefix": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Local Strm Prefix",
+          "type": "string"
+        },
+        "emby_prefix": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Emby Prefix",
+          "type": "string"
+        },
+        "playback_prefix": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Playback Prefix",
+          "type": "string"
+        },
+        "cd2_prefix": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Cd2 Prefix",
+          "type": "string"
+        },
+        "max_strm_bytes": {
+          "default": 65536,
+          "maximum": 1048576,
+          "minimum": 1,
+          "title": "Max Strm Bytes",
+          "type": "integer"
+        },
+        "allow_direct": {
+          "default": false,
+          "title": "Allow Direct",
+          "type": "boolean"
+        },
+        "media_source": {
+          "default": "themoviedb",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Media Source",
+          "type": "string"
+        },
+        "episode_group": {
+          "default": "",
+          "maxLength": 256,
+          "title": "Episode Group",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "emby_service",
+        "library_id",
+        "cloud_scope_id",
+        "local_strm_prefix",
+        "emby_prefix",
+        "playback_prefix",
+        "cd2_prefix"
+      ],
+      "title": "Mapping",
       "type": "object"
     },
     "MappingTest": {
@@ -12473,103 +12857,6 @@
         "consumer_roots"
       ],
       "title": "DeliveryRule",
-      "type": "object"
-    },
-    "Mapping": {
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Id",
-          "type": "string"
-        },
-        "revision": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Revision",
-          "type": "string"
-        },
-        "emby_service": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Emby Service",
-          "type": "string"
-        },
-        "library_id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Library Id",
-          "type": "string"
-        },
-        "cloud_scope_id": {
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Cloud Scope Id",
-          "type": "string"
-        },
-        "local_strm_prefix": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "title": "Local Strm Prefix",
-          "type": "string"
-        },
-        "emby_prefix": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "title": "Emby Prefix",
-          "type": "string"
-        },
-        "playback_prefix": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "title": "Playback Prefix",
-          "type": "string"
-        },
-        "cd2_prefix": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "title": "Cd2 Prefix",
-          "type": "string"
-        },
-        "max_strm_bytes": {
-          "default": 65536,
-          "maximum": 1048576,
-          "minimum": 1,
-          "title": "Max Strm Bytes",
-          "type": "integer"
-        },
-        "allow_direct": {
-          "default": false,
-          "title": "Allow Direct",
-          "type": "boolean"
-        },
-        "media_source": {
-          "default": "themoviedb",
-          "maxLength": 256,
-          "minLength": 1,
-          "title": "Media Source",
-          "type": "string"
-        },
-        "episode_group": {
-          "default": "",
-          "maxLength": 256,
-          "title": "Episode Group",
-          "type": "string"
-        }
-      },
-      "required": [
-        "id",
-        "revision",
-        "emby_service",
-        "library_id",
-        "cloud_scope_id",
-        "local_strm_prefix",
-        "emby_prefix",
-        "playback_prefix",
-        "cd2_prefix"
-      ],
-      "title": "Mapping",
       "type": "object"
     },
     "DeliveryConfig": {

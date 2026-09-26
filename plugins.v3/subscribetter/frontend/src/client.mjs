@@ -28,11 +28,11 @@ export async function prepareSave(client,current,draft,emit) {
 const followups=new Map();
 const followupKey=instance=>'subscribetter:followup:'+instance;
 export function saveFollowup(instance,value){
- const safe=Object.fromEntries(['receipt','digest','operation','group'].filter(k=>typeof value[k]==='string').map(k=>[k,value[k]]));
+ const safe=Object.fromEntries(['receipt','digest','operation','group','cutover'].filter(k=>typeof value[k]==='string').map(k=>[k,value[k]]));
  followups.set(instance,safe);try{sessionStorage.setItem(followupKey(instance),JSON.stringify(safe))}catch{}
 }
 export function readFollowup(instance){
- try{const value=JSON.parse(sessionStorage.getItem(followupKey(instance))||'null');if(value&&typeof value==='object')return Object.fromEntries(['receipt','digest','operation','group'].filter(k=>typeof value[k]==='string').map(k=>[k,value[k]]))}catch{}
+ try{const value=JSON.parse(sessionStorage.getItem(followupKey(instance))||'null');if(value&&typeof value==='object')return Object.fromEntries(['receipt','digest','operation','group','cutover'].filter(k=>typeof value[k]==='string').map(k=>[k,value[k]]))}catch{}
  return followups.get(instance)||null;
 }
 export function clearFollowup(instance){followups.delete(instance);try{sessionStorage.removeItem(followupKey(instance))}catch{}}
@@ -45,5 +45,5 @@ export function errorText(error) {
   const detail=error?.response?.data?.detail||error?.message;
   const reason=typeof detail==='string'&&/^[A-Z0-9_: .-]{1,180}$/.test(detail)?detail:'';
   const messages={AI_CONNECTION_UNCONFIGURED:'请先保存服务地址、密钥和模型，再测试连接。',AI_DISABLED:'AI 尚未启用，不能发送模型测试请求。',TASK_PLANS_REQUIRE_RECONCILE:'仍有在途计划或发布结果待核实，请先在传输与待处理中对账。',TASK_NOT_PAUSED:'作品已不处于暂停状态，请刷新后再操作。',STALE_TASK:'作品状态已变化，请刷新详情。',NATIVE_IDENTITY_MISMATCH:'原生订阅不存在或身份已变化，不能恢复，请核对宿主订阅。',NATIVE_SUBSCRIPTION_CHANGED:'原生订阅已变化，请关闭后重新选择。',STALE_CONFIGURATION:'配置已被更新，请刷新后重新编辑。',STALE_READ_REFRESH_REQUIRED:'页面数据已过期，请刷新后再操作。',CONFIG_PREFLIGHT_REQUIRED:'设置尚未通过当前版本校验，请重新保存。',INVALID_CONFIGURATION:'配置不符合要求，请检查所选服务、目录、策略与权限。',STALE_OPERATION:'操作依据已过期，请从原页面重新发起。',STALE_ROLLBACK:'恢复依据已过期，请重新读取迁移状态。',CUTOVER_NOT_READY:'迁移尚未准备好，请先完成页面列出的前置步骤。',MANAGEMENT_STORE_UNAVAILABLE:'暂时无法读取插件记录，请稍后刷新。',WAIT_OWNER:'另一个处理者仍在管理此范围，请先检查插件共存状态。'};
-  return [status?`HTTP ${status}`:'请求未完成',messages[reason]||reason||'请检查当前状态；不自动重发操作。'].join(' · ');
+  return [status?`HTTP ${status}`:'请求未完成',messages[reason]||reason||'服务暂时无法完成请求。'].join(' · ');
 }

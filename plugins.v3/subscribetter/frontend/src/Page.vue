@@ -31,7 +31,8 @@ onMounted(()=>{emit('layout',{maxWidth:'1280px'});status.refresh()});onBeforeUnm
  <Discovery v-else-if="!advanced&&section==='discovery'" ref="resourceComponent" :client="client" :status="status" @configure="configure" @action="invoke" @diagnostic="diagnostic"/>
  <Transfers v-else-if="!advanced&&section==='delivery'" ref="resourceComponent" :client="client" :status="status" @action="invoke" @diagnostic="diagnostic"/>
  <PolicyOverview v-else-if="!advanced&&section==='policy'" ref="resourceComponent" :client="client" :status="status" @configure="configure"/>
- <SettingsOverview v-else-if="!advanced&&section==='settings'" :status="status" @configure="configure" @diagnostic="diagnostic" @export="exportSafe"/>
+ <SettingsOverview v-else-if="!advanced&&section==='settings'" :status="status" @configure="configure" @diagnostic="diagnostic" @export="exportSafe" @migration="section='migration'"/>
+ <section v-else-if="!advanced&&section==='migration'"><VBtn variant="text" @click="section='settings'">返回设置</VBtn><Migration :native-api="api" :client="client" :status="status" @changed="changed" @switch="emit('switch')"/></section>
  <template v-else-if="advanced">
  <nav v-if="advanced" class="sb-nav" aria-label="高级诊断九个业务域"><button v-for="v in views" :key="v.id" :aria-current="selected===v.id" @click="choose(v)">{{v.title}}</button></nav><h2>{{view.title}}</h2><p>{{view.note}}</p>
  <template v-if="selected==='health'"><p><a href="/#/setting">打开宿主设置</a> 配置既有下载器、Emby、CD2 与 115 服务。</p><button :disabled="!status.current.value||!!status.error.value" @click="exportSafe">导出当前安全配置备份</button><p class="sb-muted">备份只有安全配置和私密引用，不能替代插件数据库与私密目录的离线一致性备份。不会导出密钥、会话或旧配置原文。</p></template>

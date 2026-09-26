@@ -75,6 +75,29 @@ class ArchiveTests(unittest.TestCase):
         self.sources.items.append(item)
         return item
 
+    def test_draft_sample_uses_saved_read_root_and_checks_all_four_paths(self):
+        from unittest.mock import patch
+        mapping={**self.mapping,'max_strm_bytes':1024}
+        with patch.object(self.m,'read_strm',side_effect=AssertionError('must not read an unsaved root')):
+            result=self.m.draft_mapping_check(mapping,self.item,[])
+            self.assertEqual('READ_SCOPE_REQUIRED',result['state'])
+            self.assertIsNone(result['locations'][0]['content_path'])
+        result=self.m.draft_mapping_check(mapping,self.item,[mapping])
+        self.assertEqual('DRAFT_MAPPING_VERIFIED',result['state'])
+        row=result['locations'][0]
+        self.assertEqual('/Cloud/115/media/中文 {电影}.mkv',row['content_path'])
+        self.assertEqual('/115/media/中文 {电影}.mkv',row['cd2_path'])
+        self.assertFalse(result['cloud_file_verified'])
+        with patch.object(self.m,'read_strm',side_effect=AssertionError('must not read outside saved root')):
+            self.assertEqual('READ_SCOPE_REQUIRED',self.m.draft_mapping_check({**mapping,'local_strm_prefix':str(self.root)},self.item,[mapping])['state'])
+            self.assertEqual('READ_SCOPE_REQUIRED',self.m.draft_mapping_check(mapping,self.item,[{**mapping,'library_id':'other'}])['state'])
+        with self.assertRaisesRegex(ValueError,'NO_MAPPING'):
+            self.m.draft_mapping_check({**mapping,'playback_prefix':'/incorrect'},self.item,[mapping])
+        with self.assertRaises(ValueError):
+            self.m.draft_mapping_check(mapping,{**self.item,'Path':'/Emby/Movies/../secret.strm','MediaSources':[]},[mapping])
+        with self.assertRaisesRegex(ValueError,'MEDIA_SOURCE_LIMIT'):
+            self.m.draft_mapping_check(mapping,{**self.item,'MediaSources':self.item['MediaSources']*21},[mapping])
+
     def test_audio_title_declarations_survive_projection_without_claiming_probe(self):
         for codec, title, expected in (
                 ('eac3', 'English [Dolby Digital Plus with Dolby Atmos 5.1]', 2),

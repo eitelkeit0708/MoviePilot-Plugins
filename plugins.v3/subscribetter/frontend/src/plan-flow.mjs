@@ -15,11 +15,11 @@ export function changedGroups(before,after){return Object.keys(after||{}).filter
 export function sharedChanges(before,after,id){
  const plan=after.destination_templates.find(p=>p.id===id),rule=after.delivery.rules.find(r=>r.id===plan?.organized_rule);if(!rule)return [];
  const result=[],scope=rule.cloud_scope_id,plans=after.destination_templates;
- const inspect=(kind,name,previous,current,affected)=>{if(!previous||!current)return;const fields=Object.keys(current).filter(k=>!['revision','id'].includes(k)&&key(previous[k])!==key(current[k]));if(fields.length&&affected.length)result.push({kind,name,fields,plans:affected.map(p=>p.id)})};
+ const inspect=(kind,name,previous,current,affected)=>{if(!previous||!current)return;const fields=Object.keys(current).filter(k=>!['revision','id'].includes(k)&&key(previous[k])!==key(current[k]));if(fields.length&&affected.length)result.push({kind,name,fields,plans:affected.map(p=>p.display_name||p.id)})};
  const sameScope=plans.filter(p=>p.id!==id&&after.delivery.rules.some(r=>r.id===p.organized_rule&&r.cloud_scope_id===scope));
  inspect('云盘',scope,before.delivery?.cloud_scopes[scope],after.delivery.cloud_scopes[scope],sameScope);
  inspect('整理设置',rule.id,before.delivery?.rules.find(r=>r.id===rule.id),rule,plans.filter(p=>p.id!==id&&p.organized_rule===rule.id));
  for(const m of after.delivery.mappings.filter(m=>m.cloud_scope_id===scope))inspect('媒体库路径',m.id,before.delivery?.mappings.find(x=>x.id===m.id),m,sameScope);
- for(const key of ['policy','delivery'])if(before[key]?.[key==='policy'?'bindings':'policy_bindings']?.[plan.category_id]!==after[key][key==='policy'?'bindings':'policy_bindings'][plan.category_id]){const affected=plans.filter(p=>p.id!==id&&p.category_id===plan.category_id);if(affected.length)result.push({kind:key==='policy'?'订阅策略':'库内版本策略',fields:['policy'],plans:affected.map(p=>p.id)})}
+ for(const key of ['policy','delivery'])if(before[key]?.[key==='policy'?'bindings':'policy_bindings']?.[plan.category_id]!==after[key][key==='policy'?'bindings':'policy_bindings'][plan.category_id]){const affected=plans.filter(p=>p.id!==id&&p.category_id===plan.category_id);if(affected.length)result.push({kind:key==='policy'?'订阅策略':'库内版本策略',fields:['policy'],plans:affected.map(p=>p.display_name||p.id)})}
  return result;
 }

@@ -591,10 +591,32 @@ class Policy:
         for index,dimension in enumerate(dimensions):
             ordered=sorted(options[dimension],key=lambda item:self.rank(replace(base,**item[1]),name)[index],reverse=True)
             rows.append(dict(dimension=dimension,order=[item[0] for item in ordered],note=notes.get(dimension,'')))
+        names={'official':['OfficialGroup'],'hhweb':['HHWEBGroup'],'anime':['VCBGroup','BGlobal','AnimePlatform','OfficialGroup'],'any':[]}[group]
+        names += {'movie':['RemuxSource','MovieSource'],'web':['WEBDL'],'any':[]}[source]
         return dict(resolutions=sorted(resolutions,reverse=True),
                     group={'any':'不限制发布组','official':'需符合官方发布组规则','anime':'需符合动画发布组规则','hhweb':'需符合 HHWEB 规则'}[group],
                     source={'any':'不额外限制片源','movie':'需符合影视片源规则','web':'仅 WEB 片源'}[source],
-                    comparison=rows)
+                    comparison=rows,rule_details=self.describe_rules(names))
+
+    def describe_rules(self, names):
+        """Explain the validated saved predicates, without a second matching engine."""
+        pending=list(names);seen=set();result=[]
+        labels={'text':'标题与描述','title':'标题','description':'描述','labels':'标签','original_language':'原始语言','production_countries':'制片地区','origin_country':'来源地区','genre_ids':'类型','media_type':'媒体类型','size':'体积','seeders':'做种数','downloadvolumefactor':'下载优惠','publish_minutes':'发布时间（分钟）','subtitle_description':'字幕描述'}
+        def explain(node):
+            op,args=next(iter(node.items()))
+            if op=='registered':
+                pending.append(args);return '符合「'+args+'」'
+            if op in ('all','any'):return '（'+(' 且 ' if op=='all' else ' 或 ').join(explain(x) for x in args)+'）'
+            if op=='not':return '不符合 '+explain(args)
+            if op=='literal':return '允许' if args else '拒绝'
+            field,value=args;operator={'regex':'匹配正则（忽略大小写）','in':'属于','intersects':'包含任一','eq':'等于','ne':'不等于','gt':'大于','ge':'至少','lt':'小于','le':'不超过'}[op]
+            return labels.get(field,field)+' '+operator+' '+(value if isinstance(value,str) else json.dumps(value,ensure_ascii=False))
+        while pending:
+            key=pending.pop(0)
+            if key in seen:continue
+            seen.add(key)
+            if key in self.rules:result.append(dict(name=key,explanation=explain(self.rules[key])))
+        return result
 
     def describe_change(self, candidate, current_versions, decision):
         """Display every policy dimension; never replace the lexicographic decision."""

@@ -13,7 +13,7 @@ from fastapi import Depends, HTTPException, Query
 from pydantic import Field, JsonValue
 from app.sdk.security import verify_token
 from app.schemas.token import TokenPayload
-from .configuration import Strict, PolicyConfig, Text
+from .configuration import Strict, PolicyConfig, Mapping, Text
 from .discovery import SourceConfig
 from .policy import MAX_TEXT
 from .management import PrivateRoute, Id, Digest, ConfigPreview
@@ -241,6 +241,23 @@ class Health(Strict):
 class Fence(Strict):
     config_revision:int=Field(ge=0)
     runtime_generation:int=Field(ge=0)
+
+
+class LibrarySamples(Fence):
+    service:Text
+    library:Text
+    offset:int=Field(default=0,ge=0,le=10000000)
+    limit:int=Field(default=25,ge=1,le=25)
+
+
+class DraftMappingTest(Fence):
+    mapping:Mapping
+    item_id:Text
+
+
+class DraftPolicy(Fence):
+    policy:PolicyConfig
+    category_id:Text
 
 
 class Apply(Strict):
@@ -509,8 +526,8 @@ class Views:
 
     def _task_summary(self,r,db):
         from .display import processing
-        value=self._task(r);stages={}
-        # ponytail: inspect at most six owned episodes per row; page totals remain
+        value=self._task(r);stages={};highlights=[]
+        # ponytail: inspect at most 25 owned episodes per row; page totals remain
         # explicit. Replace with a persisted projection if profiling requires it.
         rows=db.execute("""SELECT u.*,p.snapshot plan_snapshot,p.transfer_phase plan_phase,
             p.created_at plan_created_at,pt.transfer_phase target_phase,pt.state target_state,
@@ -522,11 +539,16 @@ class Views:
             WHERE u.task_id=? AND p.authorization='ACTIVE' AND pt.state='ACTIVE'
             AND pt.generation=u.generation AND p.task_generation=t.generation
             AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))
-            ORDER BY u.target_key LIMIT 6""",(r['id'],)).fetchall()
+            ORDER BY CASE WHEN u.publish_phase IN ('UNKNOWN','PUBLISH_OUTCOME_UNKNOWN') THEN 0 ELSE 1 END,
+            CAST(json_extract(u.target_key,'$[3]') AS INTEGER),CAST(json_extract(u.target_key,'$[5]') AS INTEGER),u.target_key LIMIT 25""",(r['id'],)).fetchall()
         for row in rows:
             item=processing(db,row)
-            if item:stages[item['phase']]=stages.get(item['phase'],0)+1
-        value['progress'].update(stages=[dict(phase=k,count=v) for k,v in stages.items()],stage_sample_count=sum(stages.values()))
+            if item:
+                stages[item['phase']]=stages.get(item['phase'],0)+1
+                highlights.append(dict(target_key=row['target_key'],phase=item['phase']))
+        priority={'UNKNOWN':0,'PUBLISH_OUTCOME_UNKNOWN':0,'DOWNLOADING':1,'UPLOADING':2,'RAPID_WAIT':3}
+        highlights.sort(key=lambda h:priority.get(h['phase'],4))
+        value['progress'].update(stages=[dict(phase=k,count=v) for k,v in stages.items()],stage_sample_count=sum(stages.values()),highlights=highlights[:3])
         return value
 
     def _unit(self,r,db):
@@ -1215,13 +1237,62 @@ class Views:
         result.result['locations']=locations
         return result
 
+    def setup_sources(self,service,library,user,runtime):
+        from app.chain.mediaserver import MediaServerChain
+        from .archive import HostArchiveSources
+        runtime.checkpoint(runtime.deadline)
+        libraries=MediaServerChain().librarys(server=service,username=user.username,hidden=False)
+        if libraries is None:raise ValueError('EMBY_UNAVAILABLE')
+        if str(library) not in {str(x.get('id') if isinstance(x,dict) else x.id) for x in libraries}:
+            raise ValueError('OUTSIDE_LIBRARY')
+        sources=HostArchiveSources(self.plugin,cloud_scopes={},libraries={service:[library]})
+        sources.checkpoint=lambda:runtime.checkpoint(runtime.deadline)
+        return sources
+
+    async def library_samples(self,request:LibrarySamples,user:TokenPayload=Depends(verify_token))->ActionResult:
+        def action(runtime):
+            sources=self.setup_sources(request.service,request.library,user,runtime)
+            try:
+                page=sources._emby(request.service,request.library,dict(StartIndex=request.offset,Limit=request.limit,
+                    IncludeItemTypes='Movie,Episode',SortBy='SortName',SortOrder='Ascending'))
+                if len(page['Items'])>request.limit:raise ValueError('EMBY_PAGE_LIMIT')
+                items=[dict(id=str(i['Id']),name=str(i.get('Name') or '未命名作品'),season=i.get('ParentIndexNumber'),episode=i.get('IndexNumber')) for i in page['Items']]
+                end=request.offset+len(items)
+                return dict(state='SAMPLES_READ',items=items,total=page['TotalRecordCount'],next_offset=end if items and end<page['TotalRecordCount'] else None)
+            finally:sources.close()
+        return await self.run(request,user,action,ordinary=False)
+
+    def draft_policy(self,request:DraftPolicy,user:TokenPayload=Depends(verify_token))->ActionResult:
+        self._auth(user);self.fence(request)
+        from .policy import Policy
+        p=request.policy;name=p.bindings.get(request.category_id)
+        if not name:raise HTTPException(409,'CATEGORY_UNBOUND')
+        engine=Policy(p.bindings,p.classification_revision,overrides=p.overrides,admission=p.admission,templates={k:v.model_dump() for k,v in p.templates.items()})
+        return ActionResult(state='DRAFT_POLICY',result=dict(name=name,summary=engine.describe(name),revision=engine.semantic_hash,
+            locks=p.locks,custom_admission=p.admission,custom_rules=engine.describe_rules(list(p.overrides))))
+
+    async def draft_mapping_test(self,request:DraftMappingTest,user:TokenPayload=Depends(verify_token))->ActionResult:
+        from .archive import draft_mapping_check
+        def action(runtime):
+            mapping=request.mapping.model_dump();sources=self.setup_sources(mapping['emby_service'],mapping['library_id'],user,runtime)
+            try:
+                item=sources.emby_item(mapping['emby_service'],mapping['library_id'],request.item_id)
+                saved=self.fence(request)['config']['delivery']['mappings']
+                result=draft_mapping_check(mapping,item,saved)
+                self.fence(request)
+                return result
+            finally:sources.close()
+        return await self.run(request,user,action,ordinary=False)
+
     async def health_reconcile(self,request:Reconcile,user:TokenPayload=Depends(verify_token))->ActionResult:
         def action(runtime):
             if request.component in ('delivery','consumer'):
                 worker=runtime.scope_worker(request.object_id);bundle=worker.bundle(request.object_id)
                 if str(bundle['revision'])!=request.revision:raise ValueError('STALE_BUNDLE')
                 if request.component=='consumer':return runtime.consumer(request.object_id)
-                with runtime.safety_reads():return worker.safety_reconcile(request.object_id,limits=dict(seconds=runtime.config.recovery.seconds))
+                with runtime.safety_reads():
+                    result=worker.safety_reconcile(request.object_id,limits=dict(seconds=runtime.config.recovery.seconds))
+                    return dict(result,checked_at=utcnow())
             if request.component=='local':
                 runtime.check()
                 from .delivery import LocalReconciler
@@ -1323,7 +1394,7 @@ class Views:
         actions=[('/discovery/history/cleanup',self.history_preview,self.apply_history),('/delivery/{bundle_id}/cancel',self.cancel_preview,self.apply_cancel),('/delivery/{bundle_id}/cleanup',self.cleanup_preview,self.apply_cleanup),('/archive/invalidate',self.invalidate_preview,self.apply_archive),('/tasks/{task_id}/settings',self.settings_preview,self.apply_settings),('/exclusions',self.exclusion_preview,self.apply_exclusion),('/exclusions/{exclusion_id}/revoke',self.revoke_preview,self.apply_revoke),('/candidates/{candidate_key}/change-source',self.change_source_preview,self.apply_change_source),('/ai/cache/clear',self.cache_preview,self.apply_cache),('/ai/prompt/restore',self.prompt_preview,self.apply_prompt)]
         for path,preview,apply in actions:
             routes.extend([dict(path=path+'/'+suffix,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute) for suffix,fn,model in [('preview',preview,Preview),('apply',apply,ActionResult)]])
-        for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:
+        for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/configuration/library-samples',self.library_samples,ActionResult),('/configuration/policy-summary',self.draft_policy,ActionResult),('/configuration/mapping-check',self.draft_mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:
             routes.append(dict(path=path,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))
         for route in routes:route['endpoint']=self.boundary(route['endpoint'])
         routes.append(dict(path='/ai/connection-test',methods=['POST'],endpoint=self.boundary(self.ai_probe),response_model=ActionResult,auth='bear',route_class_override=PrivateRoute))

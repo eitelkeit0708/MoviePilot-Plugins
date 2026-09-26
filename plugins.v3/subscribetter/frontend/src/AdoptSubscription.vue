@@ -33,7 +33,7 @@ onMounted(load);onBeforeUnmount(()=>{mounted=false;gate.close()});
  </template>
  <form v-else class="sb-stack" @submit.prevent="submit"><h3>{{selected.name}}{{selected.type==='电视剧'?' · 第 '+selected.season+' 季':''}}</h3>
   <p>确认纳管后，原生订阅将暂停执行，由 subscriBetter 负责资源筛选、质量升级和交付。现有订阅记录与下载任务保留。</p>
-  <label>下载与入库方案<select v-model="template" :disabled="saving||attempted"><option value="" disabled>请选择已配置的方案</option><option v-for="t in templates" :key="t.id" :value="t.id">{{t.id}} · {{t.downloader}}</option></select></label>
+  <label>下载与入库方案<select v-model="template" :disabled="saving||attempted"><option value="" disabled>请选择已配置的方案</option><option v-for="t in templates" :key="t.id" :value="t.id">{{t.display_name||t.id}} · {{t.downloader}}</option></select></label>
   <p v-if="!templates.length" class="sb-error">请先在设置中配置下载与入库方案。</p>
   <div class="sb-actions"><VBtn type="submit" color="primary" :disabled="!canSubmit">{{saving?'正在提交…':attempted?'已尝试，请核对状态':'确认纳管'}}</VBtn><VBtn :disabled="saving||attempted" @click="selected=null">重新选择</VBtn></div>
  </form><p v-if="error" role="alert" class="sb-error">{{error}}</p>

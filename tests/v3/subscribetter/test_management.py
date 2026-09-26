@@ -36,6 +36,35 @@ class ManagementTests(unittest.TestCase):
             config=self.c.Config.model_validate(self.config.view()['config']),ai=None,errors=[],ai_errors=[],
             _authorize=lambda u:None,_ordinary_work_active=lambda:False,lifecycle_active=True)
 
+    def test_setup_reads_are_bounded_fenced_and_do_not_enable_ordinary_work(self):
+        import asyncio
+        from unittest.mock import patch
+        ui=load('ui');views=ui.Views(self.plugin);calls=[]
+        class Stages:
+            async def run(self,fn):return fn()
+        self.plugin.runtime=SimpleNamespace(lock=threading.RLock(),busy=False,config=self.plugin.config,candidates=SimpleNamespace(deadline=None),stages=Stages(),check=lambda:self.fail('ordinary execution remains off'),reason=lambda e:str(e))
+        class Sources:
+            def _emby(_,service,library,query):
+                calls.append((service,library,query))
+                return dict(Items=[dict(Id=str(i),Name='作品 '+str(i),Password='PRIVATE') for i in range(25)],TotalRecordCount=26)
+            def close(_):calls.append('close')
+        request=ui.LibrarySamples(config_revision=self.config.view()['revision'],runtime_generation=4,service='emby',library='tv')
+        with self.repo.connection() as db:before=list(db.iterdump())
+        with patch.object(views,'setup_sources',return_value=Sources()):
+            result=asyncio.run(views.library_samples(request,user=None))
+            self.assertEqual(25,result.result['next_offset']);self.assertEqual(25,len(result.result['items']))
+            self.assertNotIn('PRIVATE',result.model_dump_json());self.assertEqual(25,calls[0][2]['Limit']);self.assertEqual('close',calls[-1])
+            with self.assertRaises(Exception) as error:asyncio.run(views.library_samples(request.model_copy(update={'runtime_generation':3}),user=None))
+            self.assertEqual(409,error.exception.status_code)
+        with self.repo.connection() as db:self.assertEqual(before,list(db.iterdump()))
+        self.assertFalse(self.plugin.config.enabled);self.assertTrue(self.plugin.config.dry_run)
+        with self.assertRaises(Exception):ui.LibrarySamples(config_revision=1,runtime_generation=4,service='emby',library='tv',limit=26)
+        policy=self.c.PolicyConfig(bindings={'tv':'欧美剧'},overrides={'OfficialGroup':{'regex':['title','SAVED-GROUP']}})
+        summary=views.draft_policy(ui.DraftPolicy(config_revision=request.config_revision,runtime_generation=4,policy=policy,category_id='tv'),user=None)
+        self.assertIn('SAVED-GROUP',summary.model_dump_json())
+        renamed=self.c.Destination(id='stable',display_name='新的可读名称',category_id='tv',downloader='qbt',save_path='/downloads')
+        self.assertEqual('stable',renamed.id)
+
     def test_server_page_and_stable_huge_ids_and_failure(self):
         ui=load('ui').Views(self.plugin)
         for i in range(57):self.repo.submit(str(i),self.r.Target('电影','themoviedb',str(10**24+i)),{'name':'x'},'test')
