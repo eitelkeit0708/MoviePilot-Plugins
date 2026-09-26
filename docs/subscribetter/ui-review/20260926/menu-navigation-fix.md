@@ -11,6 +11,7 @@
 - 新增同一个回归检查，遍历 11 个菜单、只允许一个分组显示、标题与菜单一致，并验证跨组编辑保留及没有写请求。修复前失败，修复后通过。
 - 前端完整测试 36 项通过；生产构建成功，88 个模块。
 - 本地真实浏览器逐项点击 11 个菜单，选中项与唯一可见分组全部一致；将电影期限改为 9，切至交付再返回，仍为 9。数据为本地合成数据，没有保存至 NAS。
-- 隔离部署和资源校验结果另见后续记录；本地浏览器检查不等同于 MP 宿主人工验收。
+- 产品提交 `41fa831c213abc5d9fa9c0e9581619716f64b76b` 已安装到隔离 V3：149 个文件暂存哈希核对通过，原生安装接口返回 200/success=true。7 个业务 API 返回 200；宿主资源 Cookie 请求得到的全部 7 份 dist 文件 SHA-256 与本地构建一致。配置保持原值、revision=271，enabled=false、dry_run=true、ordinary_work_active=false、errors=[]。
+- 本地浏览器检查不等同于 MP 宿主人工验收；自动化浏览器的 MP 会话仍停在登录页。此次没有重新运行未修改的 Python 后端全量测试。
 
 复现命令：`npm --prefix plugins.v3/subscribetter/frontend test`；定位用例为 `Config navigation shows only the selected group and preserves unsaved edits across groups`。
