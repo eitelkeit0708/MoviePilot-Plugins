@@ -235,7 +235,7 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
  assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
  const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
  for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','视频或必要字幕'],['unknown','外部结果尚未确认'],['superseded','已失效或待核实']]){
-  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='downloading')assert.ok(!text(f.root).includes('等待下载器更新文件进度'));if(scene==='rapid')assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP'])}finally{f.app.unmount()}
+  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='downloading')assert.ok(!text(f.root).includes('等待下载器更新文件进度'));if(scene==='rapid'){assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP']);const toggle=walk(f.root,n=>n.type==='button'&&n.props?.['aria-expanded']===false)[0],body=walk(f.root,n=>n.props?.class==='sb-episode-expanded')[0];assert.equal(body.style.display,'none');toggle.props.onClick();await settle();assert.equal(toggle.props['aria-expanded'],true);assert.notEqual(body.style.display,'none')}}finally{f.app.unmount()}
  }
  const multi=structuredClone(dto.scenes.rapid.units.items[0]);
  multi.current_quality.push({...multi.current_quality[0],version_id:'lossless',quality:{...multi.current_quality[0].quality,audio:3}});
@@ -347,4 +347,9 @@ test('quick subscription filters query the server, keep page boundaries, and sho
  const reads=[],configured=[];const client={get:async(p,o)=>{reads.push([p,o?.params]);return {items:[task],total:30,next_offset:25}}};
  const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({ordinary_work_active:true}),error:ref('')},onConfigure:k=>configured.push(k)}});await settle();
  try{const button=t=>walk(f.root,n=>n.type==='button'&&text(n)===t)[0];await button('下一页').props.onClick();await settle();await button('已暂停').props.onClick();await settle();assert.equal(reads.at(-1)[1].state,'PAUSED');assert.equal(reads.at(-1)[1].offset,0);assert.equal(reads.at(-1)[1].limit,25);assert.equal(walk(f.root,n=>n.props?.class==='sb-task-highlight').length,2);assert.match(text(f.root),/已读取 25 \/ 27/);assert.match(text(f.root),/总集数待确认/);button('下载与入库方案').props.onClick();assert.deepEqual(configured,['plans']);}finally{f.app.unmount()}
+});
+
+test('service summary distinguishes a missing read from an explicitly empty configuration',async()=>{
+ const {default:SettingsOverview}=await import(pathToFileURL(path.join(out,'SettingsOverview.mjs')));const health=ref({});const f=fixture(SettingsOverview,{extra:{status:{health}}});await settle();
+ try{assert.match(text(f.root),/下载器配置尚未取得/);assert.match(text(f.root),/云盘范围尚未取得/);assert.ok(!text(f.root).includes('尚未绑定'));health.value={services:{configured_downloaders:[],cloud_scopes:[]}};await settle();assert.match(text(f.root),/尚未绑定/);assert.match(text(f.root),/0 个已配置范围/)}finally{f.app.unmount()}
 });
