@@ -12,7 +12,7 @@ const selected=ref('tasks'),resource=ref(views[0].resources[0]),resourceKey=ref(
 const section=ref(props.startSection),advanced=ref(false),content=ref(null);provide('subscribetter:scroll',content);
 const workOrigin=ref(null);
 const sections=[['subscriptions','订阅','tasks'],['discovery','榜单','discovery'],['delivery','上传与入库','delivery'],['policy','质量策略','policy'],['plans','下载方案','health']];
-const settingGroups=[['ownership','运行与自动管理'],['candidates','搜索与等待'],['ai','名称识别'],['recovery','媒体库检查'],['safety','维护与安全']];
+const settingGroups=[['ownership','运行管理'],['candidates','搜索与调度'],['ai','名称识别'],['recovery','媒体库检查'],['safety','维护与安全']];
 const visited=ref(new Set([props.startSection])),editors=ref([]),editorRefs=new Map(),navigationError=ref('');let editorSequence=0,pendingNavigation=null;
 const navigationKey='subscribetter:navigation:'+props.pluginId+':'+props.startSection;
 let ready=false;

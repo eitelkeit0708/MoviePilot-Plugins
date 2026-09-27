@@ -12,5 +12,5 @@ const scalar=v=>v===null||typeof v!=='object';
     <ol v-else-if="value.every(scalar)"><li v-for="(item,index) in value" :key="index"><Record :value="item" /></li></ol>
     <details v-else v-for="(item,index) in value" :key="index" :open="value.length<=3"><summary>{{item?.title||item?.name||item?.id||item?.target_key||label(name)+' '+(index+1)}}</summary><Record :value="item" :depth="depth+1" /></details>
   </div>
-  <dl v-else class="sb-record"><template v-for="[key,item] in entries" :key="key"><dt>{{label(key)}}</dt><dd><details v-if="!scalar(item)&&depth>0"><summary>{{Array.isArray(item)?item.length+' 项':'展开依据'}}</summary><Record :value="item" :name="key" :depth="depth+1" /></details><Record v-else :value="item" :name="key" :depth="depth+1" /></dd></template></dl>
+  <dl v-else class="sb-record"><template v-for="[key,item] in entries" :key="key"><dt>{{label(key)}}</dt><dd><details v-if="!scalar(item)&&depth>0"><summary>{{Array.isArray(item)?item.length+' 项':'查看原始数据'}}</summary><Record :value="item" :name="key" :depth="depth+1" /></details><Record v-else :value="item" :name="key" :depth="depth+1" /></dd></template></dl>
 </template>
