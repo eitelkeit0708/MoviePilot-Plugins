@@ -1,0 +1,56 @@
+{
+  "captured_at": "2026-09-27T21:14:37+08:00",
+  "host": "http://192.168.50.6:13000",
+  "container": "moviepilot-v3-subscribetter-test",
+  "product_commit": "fd05af1",
+  "configuration_before": {
+    "revision": 273,
+    "digest": "4f8a5fade7f69100e7fa40062657d9e881095a8e1e66228619cb2234b7dbd4dc",
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "diagnostic_errors": 0
+  },
+  "configuration_after": {
+    "revision": 273,
+    "digest": "4f8a5fade7f69100e7fa40062657d9e881095a8e1e66228619cb2234b7dbd4dc",
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "diagnostic_errors": 0
+  },
+  "installed_sha256": {
+    "ui.py": "1b7f8798fe0cbb61ab9d6ca81f29b88cec27bd7cfec7c3c0f586d224a570f919",
+    "runtime.py": "b08f15828d4117cea5469da779f0237b983baad2d481c018c5fc80d65e0de168",
+    "dist/assets/remoteEntry.js": "57b331ec519ebbf3c0383dcb89c9bb79e32f744b457592f43abfd797c7c4be7a"
+  },
+  "openapi_routes_present": [
+    "/tasks/{task_id}/replacement-candidates",
+    "/tasks/{task_id}/select-candidate/preview",
+    "/tasks/{task_id}/select-candidate/apply"
+  ],
+  "replacement_candidate_read": {
+    "tasks_checked": 14,
+    "eligible_candidates": 0,
+    "positive_host_flow": "BLOCKED_NO_ELIGIBLE_CANDIDATE",
+    "apply": "NOT_RUN"
+  },
+  "continuous_browser_checks": [
+    {
+      "flow": "discovery -> work -> discovery",
+      "result": "PASS",
+      "restored": ["source_filter", "scroll", "focus"]
+    },
+    {
+      "flow": "upload_and_ingest -> work -> upload_and_ingest",
+      "result": "PASS",
+      "restored": ["state_filter", "expanded_work", "scroll", "focus"]
+    },
+    {
+      "flow": "mobile subscriptions and work detail at 390x844",
+      "result": "PASS",
+      "document_client_width": 390,
+      "document_scroll_width": 390
+    }
+  ]
+}

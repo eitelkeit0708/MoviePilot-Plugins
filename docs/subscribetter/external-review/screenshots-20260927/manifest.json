@@ -1,0 +1,15 @@
+{
+  "host": "http://192.168.50.6:13000",
+  "product_commit": "fd05af1",
+  "capture_kind": "actual isolated MoviePilot V3 browser",
+  "files": [
+    {"name":"01-desktop-work-detail.png","sha256":"227e9cd649c60eab26cdc448ed1ddef48b217d3a3405dec1107e255ef879dcb4","width":2560,"height":1440,"bytes":228108},
+    {"name":"02-desktop-subscriptions.png","sha256":"5e146c9a72c2eb09bc5fe72441957a3e2bdf18d46f1dca0b50e5a6da46367790","width":2560,"height":1440,"bytes":349985},
+    {"name":"03-desktop-discovery-filter-restored.png","sha256":"cedb9537120dae789c5c749e0e66c1cebdbe2ea4fa81344cabb655a6739f46f6","width":2560,"height":1440,"bytes":230133},
+    {"name":"04-desktop-transfer-files.png","sha256":"162bae357aaa850c08795b8701fa64d6d535ca912c564f941bd496547332281a","width":2560,"height":1440,"bytes":292370},
+    {"name":"05-desktop-policy-editor.png","sha256":"3ea3b4a9402f68e41bce51018097d55c22cbd389a5b6887597792cdb34773f6a","width":2560,"height":1440,"bytes":359971},
+    {"name":"06-desktop-discovery-sources.png","sha256":"d628ec75c51d5ecde6ba622c51c50ed8ca3d4e6f4537c131feb2d0064a736312","width":2560,"height":1440,"bytes":242237},
+    {"name":"07-mobile-subscriptions.png","sha256":"0f97f9b6b8dfdfde253fdb414758f66101e85411161e4bbd82bd79526b7e4e5b","width":390,"height":844,"bytes":34892},
+    {"name":"08-mobile-work-detail.png","sha256":"3544b7c0093f18f4ec0522bca60b16a6cf9bea05e248e2d650a9302c67c17a59","width":390,"height":844,"bytes":25840}
+  ]
+}
