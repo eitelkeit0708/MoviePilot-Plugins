@@ -12,7 +12,7 @@ const changeFor=version=>{
  return change?{...change,changes:comparison?.changes||[]}:null;
 };
 </script>
-<template><article class="sb-episode" :data-attention="p?.next_step==='RECONCILE'">
+<template><article class="sb-episode" :data-processing="!!p" :data-attention="p?.next_step==='RECONCILE'">
  <strong class="sb-episode-number">{{unitLabel(unit)}}</strong>
  <div class="sb-unit-versions"><template v-if="versions.length"><section v-for="(version,index) in versions" :key="version.version_id||index"><small v-if="versions.length>1">在库版本 {{index+1}}</small><VersionDifference :current="version.quality" :target="p?.quality" :change="changeFor(version)" :current-state="unit.current_facts?.state" :pending="!!p"/></section></template><VersionDifference v-else :target="p?.quality" :change="changeFor(null)" :current-state="unit.current_facts?.state" :pending="!!p"/><small v-if="p&&!p.quality">本轮规格尚未确认</small></div>
  <div class="sb-episode-stage"><template v-if="p"><strong class="sb-stage-label" :data-state="p.phase">{{stateLabel(p.phase)}}</strong>

@@ -7,57 +7,42 @@ const source=fileURLToPath(new URL('../src/',import.meta.url)),out=fileURLToPath
 for(const filename of fs.readdirSync(source).filter(f=>f.endsWith('.vue'))){const {descriptor}=parse(fs.readFileSync(path.join(source,filename),'utf8'),{filename});let code=compileScript(descriptor,{id:filename,inlineTemplate:true}).content;code=code.replace(/import\s+['"]\.\/style\.css['"];?/g,'').replace(/from\s+(['"])(\.\/[^'"]+)\1/g,(_,quote,p)=>'from '+JSON.stringify(p.endsWith('.vue')?'./'+path.basename(p,'.vue')+'.mjs':pathToFileURL(path.join(source,p)).href));fs.writeFileSync(path.join(out,filename.replace('.vue','.mjs')),code)}
 const {default:Action}=await import(pathToFileURL(path.join(out,'Action.mjs')));
 const {default:Resource}=await import(pathToFileURL(path.join(out,'Resource.mjs')));
-const {default:Page}=await import(pathToFileURL(path.join(out,'Page.mjs')));const {default:Config}=await import(pathToFileURL(path.join(out,'Config.mjs')));
+const {default:Page}=await import(pathToFileURL(path.join(out,'Page.mjs')));const {default:Config}=await import(pathToFileURL(path.join(out,'ConfigEditor.mjs')));
 const {default:Subscriptions}=await import(pathToFileURL(path.join(out,'Subscriptions.mjs')));
 const {default:AdoptSubscription}=await import(pathToFileURL(path.join(out,'AdoptSubscription.mjs')));
 globalThis.document={activeElement:null};
 function element(type){return {type,tagName:type.toUpperCase(),props:{},children:[],style:{},events:{},addEventListener(k,fn){this.events[k]=fn},removeEventListener(k){delete this.events[k]},getAttribute(k){return this.props[k]},get options(){return this.children.filter(n=>n.type==='option')}}}
 const renderer=createRenderer({insertStaticContent(value,parent,anchor){const node={type:'#static',text:value,parent};const i=parent.children.indexOf(anchor);if(i<0)parent.children.push(node);else parent.children.splice(i,0,node);return [node,node]},createElement:element,createText:text=>({type:'#text',text}),createComment:text=>({type:'#comment',text}),setText:(n,t)=>n.text=t,setElementText:(n,t)=>n.text=t,patchProp:(n,k,_,v)=>{n.props[k]=v;if(k==='value')n.value=v},insert(n,p,anchor){p.children??=[];if(n.parent)n.parent.children=n.parent.children.filter(x=>x!==n);const i=p.children.indexOf(anchor);if(i<0)p.children.push(n);else p.children.splice(i,0,n);n.parent=p},remove(n){if(n.parent)n.parent.children=n.parent.children.filter(x=>x!==n)},parentNode:n=>n?.parent,nextSibling:n=>n?.parent?.children[n.parent.children.indexOf(n)+1]||null});
 const walk=(node,predicate)=>[...(predicate(node)?[node]:[]),...(node.children||[]).flatMap(n=>walk(n,predicate))];const text=node=>[node.text||'',...(node.children||[]).map(text)].join('');
-const settle=async()=>{for(let i=0;i<8;i++){await Promise.resolve();await nextTick()}};
+const settle=async()=>{for(let i=0;i<20;i++){await Promise.resolve();await nextTick()}};
 test('saved confirmation requires applied readback and disappears when a later refresh fails',async()=>{
  let status,fail=false;const client={pluginId:'status-test',get:async p=>{if(fail)throw {status:503};if(p==='/configuration')return {revision:4,digest:'digest',config:{configuration_receipt:'receipt'}};if(p==='/diagnostics')return {snapshot:{config_revision:4}};return {state:'APPLIED'}}};
  const root={children:[]},app=renderer.createApp({setup(){status=useStatus(client);return()=>h('div')}});app.mount(root);
  try{saveFollowup(client.pluginId,{receipt:'receipt',digest:'other'});await status.refresh();assert.match(status.saveState.value,/尚未确认/);saveFollowup(client.pluginId,{receipt:'receipt',digest:'digest'});await status.refresh();assert.equal(status.saveState.value,'设置已保存并确认生效');fail=true;await status.refresh();assert.equal(status.saveState.value,'');assert.match(status.error.value,/503/)}finally{clearFollowup(client.pluginId);app.unmount()}
 });
-function fixture(component,{get,post,extra={}}={}){const calls=[];const config=structuredClone(contract.defaults);const current={revision:4,digest:'a'.repeat(64),config};const health={generation:6,dry_run:true,ordinary_work_active:false,safety_active:true,errors:[],snapshot:{config_revision:4,runtime_generation:6}};const api={get:async(p,o)=>{calls.push(['get',p,o]);if(get)return get(p,o,current,health);if(p.endsWith('/configuration'))return current;if(p.endsWith('/diagnostics'))return health;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],total:0,next_offset:null,truncated:false,snapshot:{config_revision:4,runtime_generation:6,high_watermark:'0'}}},post:async(p,b)=>{calls.push(['post',p,b]);return post?post(p,b):{valid:true,errors:[],config:{...config,configuration_receipt:'p'}}}};const saves=[];const root={children:[]};const app=renderer.createApp(component,{api,pluginId:'Clone',sourcePluginId:'SubscriBetter',initialConfig:{...config,password:'SENTINEL'},...extra,onSave:x=>saves.push(x)});app.config.warnHandler=()=>{};app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);return {root,app,calls,saves,current,api}}
+function fixture(component,{get,post,extra={}}={}){clearFollowup('Clone');const calls=[];const config=structuredClone(contract.defaults);const current={revision:4,digest:'a'.repeat(64),config};const health={generation:6,dry_run:true,ordinary_work_active:false,safety_active:true,errors:[],snapshot:{config_revision:4,runtime_generation:6}};const api={get:async(p,o)=>{calls.push(['get',p,o]);if(get)return get(p,o,current,health);if(p.endsWith('/configuration'))return current;if(p.endsWith('/diagnostics'))return health;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],total:0,next_offset:null,truncated:false,snapshot:{config_revision:4,runtime_generation:6,high_watermark:'0'}}},post:async(p,b)=>{calls.push(['post',p,b]);return post?post(p,b):{valid:true,errors:[],config:{...config,configuration_receipt:'p'}}}};const saves=[];const root={children:[]};const app=renderer.createApp(component,{api,pluginId:'Clone',sourcePluginId:'SubscriBetter',initialConfig:{...config,password:'SENTINEL'},...extra,onSave:x=>saves.push(x)});app.config.warnHandler=()=>{};app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);return {root,app,calls,saves,current,api}}
 test('actual Config mount and save omit private initial fields; number controls send numbers; emit once without PUT',async()=>{
  const f=fixture(Config);await settle();assert.equal(f.calls.filter(c=>c[1].endsWith('/configuration')).length,1);
  const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];const number=walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0];assert.ok(number);number.props.onInput({target:{value:'9'}});await settle();
  const save=walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0];assert.ok(save);await save.props.onClick();await settle();assert.equal(f.saves.length,1);assert.ok(!JSON.stringify(f.saves).includes('SENTINEL'));assert.ok(!JSON.stringify(f.calls.filter(c=>c[0]==='post')).includes('SENTINEL'));assert.equal(f.calls.find(c=>c[0]==='post')[2].patch.lifecycle.movie_days,9);assert.ok(f.calls.filter(c=>c[0]==='post').every(c=>c[1].endsWith('/configuration/preview')));await save.props.onClick();assert.equal(f.saves.length,1);f.app.unmount();
 });
-test('Config navigation shows only the selected group and preserves unsaved edits across groups',async()=>{
- const f=fixture(Config);await settle();
- try{
-  const nav=walk(f.root,n=>n.props?.['aria-label']==='配置分组')[0];
-  const content=walk(f.root,n=>n.props?.class==='sb-config-content')[0];
-  for(const button of walk(nav,n=>n.type==='button')){
-   button.props.onClick();await settle();
-   const visible=content.children.filter(n=>n.type==='div'&&!n.props.hidden&&n.style.display!=='none');
-   assert.equal(visible.length,1,text(button));
-   assert.equal(walk(visible[0],n=>n.type==='h3')[0].text,text(button));
-   if(text(button)==='自动升级期限'){
-    const lifetime=walk(visible[0],n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];
-    walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.onInput({target:{value:'9'}});await settle();
-   }
-  }
-  walk(nav,n=>n.type==='button'&&text(n)==='自动升级期限')[0].props.onClick();await settle();
-  const lifetime=walk(content,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];
-  assert.equal(walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.value,9);
-  assert.equal(f.calls.filter(c=>c[0]==='post').length,0);
- }finally{f.app.unmount()}
+test('settings switch one level, preserve the abandoned-page draft and do not save it with another section',async()=>{
+ const storage=new Map();globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+ const f=fixture(Page,{extra:{startSection:'settings'}});await settle();const btn=t=>walk(f.root,n=>n.type==='button'&&text(n)===t)[0];
+ try{const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.onInput({target:{value:'9'}});await settle();btn('搜索与等待').props.onClick();await settle();btn('保留草稿并返回').props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-editor').length,1);await btn('保存设置').props.onClick();await settle();assert.notEqual(f.saves[0].lifecycle.movie_days,9);
+ }finally{f.app.unmount();delete globalThis.sessionStorage;clearFollowup('Clone')}
 });
-test('Page offers human workflow navigation and keeps all nine diagnostic domains reachable without writes',async()=>{
- const f=fixture(Page);await settle();for(const title of ['订阅','发现','传输','策略','设置'])assert.ok(walk(f.root,n=>n.type==='button'&&text(n)===title)[0],title);
- walk(f.root,n=>n.type==='button'&&text(n)==='高级诊断')[0].props.onClick();await settle();
- for(const title of ['候选决策','版本档案','交付队列','策略与预演','服务与健康','榜单发现','解析与 AI','整合迁移','目标与任务']){const button=walk(f.root,n=>n.type==='button'&&text(n)===title)[0];assert.ok(button,title);button.props.onClick();await settle();assert.ok(text(f.root).includes(title));}assert.ok(!text(f.root).includes('纳管 / 一次性目标'));assert.equal(f.calls.filter(c=>c[0]==='post').length,0);assert.ok(f.calls.every(c=>c[1].startsWith('plugin/Clone/')));f.app.unmount();
+test('Page offers complete business navigation and keeps diagnostics under maintenance without writes',async()=>{
+ const f=fixture(Page);await settle();const btn=t=>walk(f.root,n=>n.type==='button'&&text(n)===t)[0];
+ try{for(const title of ['订阅','榜单','上传与入库','质量策略','下载方案','设置'])assert.ok(btn(title),title);btn('设置').props.onClick();await settle();btn('维护与安全').props.onClick();await settle();btn('高级诊断').props.onClick();await settle();
+ for(const title of ['候选决策','版本档案','交付队列','策略与预演','服务与健康','榜单发现','解析与 AI','整合迁移','目标与任务']){assert.ok(btn(title),title);btn(title).props.onClick();await settle();assert.ok(text(f.root).includes(title))}assert.equal(f.calls.filter(c=>c[0]==='post').length,0);
+ }finally{f.app.unmount()}
 });
 test('delayed Config preflight cannot emit after unmount',async()=>{
  let complete;const f=fixture(Config,{post:()=>new Promise(resolve=>complete=resolve)});await settle();const save=walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0];save.props.onClick();await settle();f.app.unmount();complete({valid:true,errors:[],config:contract.defaults});await settle();assert.equal(f.saves.length,0);
 });
-test('configuration refresh cannot save an older draft using the newly fetched revision',async()=>{
- let release,refreshing=false;const f=fixture(Config,{get:async(p,o,c,h)=>{if(p.endsWith('/configuration'))return refreshing?{...c,revision:5,digest:'b'.repeat(64),config:{...c.config,configuration_receipt:'delayed'}}:c;if(p.endsWith('/diagnostics'))return refreshing?{...h,snapshot:{config_revision:5}}:h;if(p.endsWith('/migration/receipts/delayed'))return new Promise(r=>release=r);return {items:[],categories:[],result:{}}}});await settle();
- try{refreshing=true;const pending=walk(f.root,n=>n.type==='button'&&text(n).startsWith('刷新当前值'))[0].props.onClick();await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0].props.onClick();assert.equal(f.saves.length,0);assert.equal(f.calls.filter(c=>c[0]==='post').length,0);release({state:'APPLIED'});await pending;}finally{release?.({state:'APPLIED'});f.app.unmount()}
+test('a stale editor uses the latest baseline and preserves concurrent settings outside its edited section',async()=>{
+ const f=fixture(Config);await settle();try{f.current.revision=5;f.current.digest='b'.repeat(64);f.current.config.candidates.site_ids=[42];await walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0].props.onClick();await settle();const request=f.calls.find(c=>c[0]==='post')[2];assert.equal(request.revision,5);assert.deepEqual(request.patch.candidates.site_ids,[42]);}finally{f.app.unmount()}
 });
 
 test('actual immutable preview confirmation sends only receipt/opid/confirm and honors blockers',async()=>{
@@ -94,7 +79,7 @@ test('subscription cards show titles; late detail cannot replace the selected wo
  const client={get:async path=>{if(path==='/tasks'){if(fail)throw {status:503};return {items:tasks,total:2,next_offset:null}}if(path.endsWith('/1'))return new Promise(r=>old=r);return detail(tasks[1])}};
  const status={current:ref({config:{}}),health:ref({}),error:ref('')};
  const f=fixture(Subscriptions,{extra:{client,status}});await settle();
- const cards=()=>walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-subscription-card'));assert.equal(cards().length,2);
+ const cards=()=>walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'));assert.equal(cards().length,2);
  cards()[0].props.onClick();await settle();cards()[1].props.onClick();await settle();old(detail(tasks[0]));await settle();
  const panel=walk(f.root,n=>n.props?.['aria-label']==='作品详情')[0];assert.ok(text(panel).includes('一瓯春'));assert.ok(!text(panel).includes('侠女内莉'));
  fail=true;await walk(f.root,n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});await settle();assert.ok(text(f.root).includes('可能已过期'));assert.equal(cards().length,2);f.app.unmount();
@@ -125,7 +110,7 @@ test('business pages replace generic first screens and bind source actions to th
  if(p.endsWith('/discovery/sources'))return {items:[{source_id:'weekly',last_state:'OK',next_due:0,config:{kind:'rsshub',route_key:'tv_global_best_weekly'}}],total:1,next_offset:null};
  if(p.endsWith('/discovery/catalog'))return {result:{routes:[{key:'tv_global_best_weekly',label:'全球口碑剧集榜'}]}};
  return {items:[],total:0,next_offset:null,result:{},categories:[]};}});await settle();
- for(const [tab,label] of [['发现','豆瓣榜单'],['传输','传输与待处理'],['策略','质量策略'],['设置','服务与设置']]){walk(f.root,n=>n.type==='button'&&text(n)===tab)[0].props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']===label).length,label);assert.equal(walk(f.root,n=>n.props?.['aria-label']==='当前视图资源').length,0)}
+ for(const [tab,label] of [['榜单','豆瓣榜单'],['上传与入库','上传与入库'],['质量策略','质量策略'],['设置','运行与自动管理']]){walk(f.root,n=>n.type==='button'&&text(n)===tab)[0].props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']===label).length,label);assert.equal(walk(f.root,n=>n.props?.['aria-label']==='当前视图资源').length,0)}
  assert.equal(f.calls.filter(c=>c[0]==='post').length,0);f.app.unmount();
 });
 
@@ -154,8 +139,15 @@ test('configuration service failures stay inline without exposing server details
 test('episode action carries only the selected unit and current opportunity',async()=>{
  const task={id:3,title:'GATE24',year:'2026',state:'ACTIVE',generation:2};const key='["电视剧","douban","24",1,"",9]';const events=[];
  const client={get:async p=>p==='/tasks'?{items:[task],total:1,next_offset:null}:p==='/tasks/3'?{task,units:{items:[{target_key:key,publish_phase:'NOT_SENT'}],total:1,next_offset:null},opportunities:{items:[{id:'round',state:'ACTIVE'}]}}:{items:[]}};
- const status={current:ref({config:{}}),health:ref({}),error:ref('')};const f=fixture(Subscriptions,{extra:{client,status,onAction:(...a)=>events.push(a)}});await settle();walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-subscription-card'))[0].props.onClick();await settle();
+ const status={current:ref({config:{}}),health:ref({}),error:ref('')};const f=fixture(Subscriptions,{extra:{client,status,onAction:(...a)=>events.push(a)}});await settle();walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'))[0].props.onClick();await settle();
  walk(f.root,n=>n.type==='button'&&text(n)==='立即检查此集')[0].props.onClick();assert.equal(events[0][0][1],'/tasks/{task_id}/immediate');assert.deepEqual(events[0][1].target_keys,[key]);assert.equal(events[0][1].generation,2);assert.equal(events[0][1].opportunity_id,'round');f.app.unmount();
+});
+
+test('work history keeps normal navigation in the selected work and pages only its plans',async()=>{
+ const task={id:3,title:'GATE24',state:'ACTIVE',generation:2},calls=[],diagnostics=[];
+ const client={get:async(p,o)=>{calls.push([p,o]);return p==='/tasks'?{items:[task],total:1,next_offset:null}:p==='/tasks/3'?{task,units:{items:[],total:0,next_offset:null}}:p.endsWith('/plans')?{items:[],total:7,next_offset:o.params.offset?null:5}:{items:[],total:0,next_offset:null}}};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({}),error:ref('')},onDiagnostic:(...args)=>diagnostics.push(args)}});await settle();const btn=t=>walk(f.root,n=>n.type==='button'&&text(n)===t)[0];
+ try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'))[0].props.onClick();await settle();btn('处理记录').props.onClick();await settle();await btn('更早计划').props.onClick();await settle();assert.deepEqual(calls.filter(([p])=>p.endsWith('/plans')).at(-1)[1].params,{limit:5,offset:5,sort:'newest'});btn('查看分集版本').props.onClick();await settle();assert.equal(walk(f.root,n=>n.type==='button'&&text(n)==='分集与版本')[0].props['aria-current'],true);btn('处理记录').props.onClick();await settle();btn('查看候选比较').props.onClick();await settle();assert.equal(walk(f.root,n=>n.type==='button'&&text(n)==='候选比较')[0].props['aria-current'],true);assert.equal(diagnostics.length,0);assert.equal(btn('查看全部版本档案'),undefined);}finally{f.app.unmount()}
 });
 
 test('library picker preserves unavailable choices and removes only the explicitly unchecked library',async()=>{
@@ -170,9 +162,9 @@ test('saved source test stays inline and sends only the selected source without 
   if(p.endsWith('/configuration')){c.config.discovery.sources=[{id:'weekly',name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}];return c;}if(p.endsWith('/diagnostics'))return h;
   if(p.endsWith('/discovery/sources'))return {items:[{source_id:'weekly',last_state:'OK',config:{name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}},{source_id:'removed',config:{name:'已移除'}}],total:2,next_offset:null};
   return {items:[],total:0,next_offset:null,result:{},categories:[]};},post:async()=>({items:12,state:'SUCCESS'})});await settle();
- try{walk(f.root,n=>n.type==='button'&&text(n)==='发现')[0].props.onClick();await settle();
-  await walk(f.root,n=>n.type==='button'&&text(n)==='测试抓取')[0].props.onClick();await settle();
-  const old=walk(f.root,n=>n.type==='button'&&text(n)==='测试抓取')[1];assert.equal(old.props.disabled,true);await old.props.onClick();await settle();const writes=f.calls.filter(c=>c[0]==='post');assert.equal(writes.length,1);assert.deepEqual(writes[0].slice(1),['plugin/Clone/discovery/test',{source_id:'weekly'}]);
+ try{walk(f.root,n=>n.type==='button'&&text(n)==='榜单')[0].props.onClick();await settle();
+  await walk(f.root,n=>n.type==='button'&&text(n)==='试读榜单')[0].props.onClick();await settle();
+  const old=walk(f.root,n=>n.type==='button'&&text(n)==='试读榜单')[1];assert.equal(old.props.disabled,true);await old.props.onClick();await settle();const writes=f.calls.filter(c=>c[0]==='post');assert.equal(writes.length,1);assert.deepEqual(writes[0].slice(1),['plugin/Clone/discovery/test',{source_id:'weekly'}]);
   assert.ok(text(f.root).includes('抓取 12 条'));assert.ok(!text(f.root).includes('条目名称（精确配置引用）'));
  }finally{f.app.unmount()}
 });
@@ -181,20 +173,15 @@ test('opening a subscription uses a full-width detail and returning retains list
  const task={id:3,title:'GATE24',state:'ACTIVE',generation:2};const client={get:async p=>p==='/tasks'?{items:[task],total:1,next_offset:null}:p==='/tasks/3'?{task,units:{items:[],total:0,next_offset:null},opportunities:{items:[]}}:{items:[]}};
  const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({}),error:ref('')}}});await settle();
  try{walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].props['onUpdate:modelValue']('GATE24');
-  await walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-subscription-card'))[0].props.onClick();await settle();
+  await walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'))[0].props.onClick();await settle();
   const list=walk(f.root,n=>n.props?.['aria-label']==='作品列表')[0];assert.equal(list.style.display,'none');
   walk(f.root,n=>n.type==='button'&&text(n)==='返回列表')[0].props.onClick();await settle();
   assert.notEqual(list.style.display,'none');assert.equal(walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].value,'GATE24');
  }finally{f.app.unmount()}
 });
 
-test('basic settings update typed choices and protected names while keeping the rest of the saved draft',async()=>{
- const f=fixture(Config);await settle();try{
-  const basic=walk(f.root,n=>n.type==='section'&&n.props?.['aria-label']==='基本设置与自动接管')[0];
-  const movie=walk(basic,n=>n.type==='label'&&text(n)==='电影')[0];walk(movie,n=>n.type==='input')[0].props.onChange({target:{checked:true}});await settle();
-  const input=walk(basic,n=>n.type==='input'&&n.props.placeholder==='输入完整片名，按回车添加')[0];input.props['onUpdate:modelValue']('GATE24');await settle();walk(basic,n=>n.type==='button'&&text(n)==='添加片名')[0].props.onClick();await settle();
-  const save=walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0];await save.props.onClick();await settle();const patch=f.calls.find(c=>c[0]==='post')[2].patch;assert.deepEqual(patch.auto_types,['电影']);assert.ok(patch.meta_protected_names.includes('GATE24'));assert.deepEqual(patch.permissions,f.current.config.permissions);assert.equal(patch.dry_run,true);
- }finally{f.app.unmount()}
+test('runtime settings update typed choices without changing naming settings or cleanup permissions',async()=>{
+ const f=fixture(Config);await settle();try{const basic=walk(f.root,n=>n.props?.['aria-label']==='基本设置与自动接管')[0];const movie=walk(basic,n=>n.type==='label'&&text(n)==='电影')[0];walk(movie,n=>n.type==='input')[0].props.onChange({target:{checked:true}});await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='保存设置')[0].props.onClick();await settle();const patch=f.calls.find(c=>c[0]==='post')[2].patch;assert.deepEqual(patch.auto_types,['电影']);assert.deepEqual(patch.meta_protected_names,f.current.config.meta_protected_names);assert.deepEqual(patch.permissions,f.current.config.permissions);assert.equal(patch.dry_run,true)}finally{f.app.unmount()}
 });
 test('cleanup confirmation visibly names exact immutable locations and retained scope',async()=>{
  const preview={kind:'cleanup',preview_id:'p',preview_digest:'d',objects:{scope:'monitor',locations:['/local/media/video.mkv'],files:[{file_index:0,relative_path:'video.mkv'}]},permissions:{cleanup_success:true},blockers:[]};
@@ -217,7 +204,7 @@ test('site choices preserve unavailable IDs and never expose cookie fields',asyn
 test('AI credentials enter the draft by reference while partial failure preserves existing keys',async()=>{
  const {default:AISettings}=await import(pathToFileURL(path.join(out,'AISettings.mjs')));const changes=[],writes=[];const old='secret:'+'b'.repeat(32),fresh='secret:'+'a'.repeat(32);
  const modelValue={...contract.defaults.ai_assist,credential_refs:[old]};const f=fixture(AISettings,{extra:{modelValue,base:{revision:4,digest:'d'},client:{post:async(p,b)=>{writes.push([p,b]);if(b.kind==='key')throw {status:503};return {reference:fresh}}},'onUpdate:modelValue':v=>changes.push(v)}});await settle();
- try{const inputs=walk(f.root,n=>n.type==='input'&&n.props.type==='password');inputs[0].props['onUpdate:modelValue']('https://ai.test/v1');inputs[1].props['onUpdate:modelValue']('KEY_SENTINEL');await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='保存连接与设置')[0].props.onClick();await settle();assert.equal(writes.length,2);assert.equal(writes[0][1].revision,4);assert.equal(changes.at(-1).endpoint_ref,fresh);assert.deepEqual(changes.at(-1).credential_refs,[old]);assert.ok(!JSON.stringify(changes).includes('KEY_SENTINEL'));assert.equal(inputs[1].value,'');assert.ok(text(f.root).includes('已成功写入的部分保留'))}finally{f.app.unmount()}
+ try{const inputs=walk(f.root,n=>n.type==='input'&&n.props.type==='password');inputs[0].props['onUpdate:modelValue']('https://ai.test/v1');inputs[1].props['onUpdate:modelValue']('KEY_SENTINEL');await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='保存连接并检查')[0].props.onClick();await settle();assert.equal(writes.length,2);assert.equal(writes[0][1].revision,4);assert.equal(changes.at(-1).endpoint_ref,fresh);assert.deepEqual(changes.at(-1).credential_refs,[old]);assert.ok(!JSON.stringify(changes).includes('KEY_SENTINEL'));assert.equal(inputs[1].value,'');assert.ok(text(f.root).includes('已成功写入的部分保留'))}finally{f.app.unmount()}
 });
 
 test('mapping checks send the selected persisted sample and refuse an unsaved mapping',async()=>{
@@ -271,35 +258,33 @@ test('blank configuration creates a linked plan, completes its steps and retains
   if(p.endsWith('/policies/catalog'))return {result:{default_templates:{欧美剧:{}}}};
   if(p==='download/clients')return [{name:'qbt',type:'qbittorrent'}];if(p==='download/paths')return [];
   if(p==='plugin/')return [{id:'CloudDriveDisk'},{id:'P115Disk'}];if(p==='mediaserver/clients')return [{name:'Emby',type:'emby'}];if(p==='mediaserver/library')return [{id:'L',name:'剧集库'}];return {items:[],result:{}};
- },post:async()=>({valid:false,errors:['测试：服务暂不可用，未保存']})});await settle();
+ },extra:{focus:{group:'plans'}},post:async()=>({valid:false,errors:['测试：服务暂不可用，未保存']})});await settle();
  const btn=(root,label)=>walk(root,n=>n.type==='button'&&text(n)===label)[0];
  try{
-  btn(f.root,'连续配置下载与入库方案').props.onClick();await settle();
   const root=walk(f.root,n=>n.props?.['aria-label']==='按方案连续配置')[0];
   function visible(n){for(let p=n;p;p=p.parent)if(p.props?.hidden||p.style?.display==='none')return false;return true}
   async function field(label,value,type='input'){const parent=walk(root,n=>n.type==='label'&&text(n).startsWith(label)&&visible(n))[0];assert.ok(parent,label);const el=walk(parent,n=>n.type===type)[0];assert.ok(el,label+' '+type);if(el.props.onInput)el.props.onInput({target:{value}});else if(el.props.onChange)el.props.onChange({target:{value}});else el.props['onUpdate:modelValue'](value);await settle()}
   await field('新方案名称','首次剧集方案');walk(root,n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});await settle();
-  await field('MoviePilot 分类','tv','select');await field('下载器','qbt','select');await field('下载目录','/downloads');await field('收录与升级策略','欧美剧','select');
+  await field('MoviePilot 分类','tv','select');await field('收录与升级策略','欧美剧','select');btn(root,'继续').props.onClick();await settle();await field('下载器','qbt','select');await field('下载保存到','/downloads');
   btn(root,'继续').props.onClick();await settle();
   await field('CD2 插件实例','CloudDriveDisk','select');await field('115 插件实例','P115Disk','select');await field('云盘根目录','/115');await field('允许写入的路径','/115/test','textarea');
+  for(const [label,path] of [['从哪里上传','/organized'],['115 暂存','/115/test/staging'],['Symedia 接收','/115/test/incoming']])await field(label,path);await field('Symedia 监控目录','/115/test/incoming','textarea');
   btn(root,'继续').props.onClick();await settle();await field('Emby 服务','Emby','select');await field('媒体库','L','select');
   for(const [label,path] of [['Emby 中的 STRM','/strm'],['MP 可以读取','/strm'],['STRM 内容','/play'],['CD2 内部','/115']])await field(label,path);
   await field('在库版本的比较策略','欧美剧','select');
   btn(root,'继续').props.onClick();await settle();
-  for(const [label,path] of [['本地监控','/organized'],['115 暂存','/115/test/staging'],['Symedia 接收','/115/test/incoming']])await field(label,path);
-  await field('Symedia 监控目录','/115/test/incoming','textarea');btn(root,'继续').props.onClick();await settle();
   await btn(root,'保存方案').props.onClick();await settle();
-  const request=f.calls.filter(c=>c[0]==='post').at(-1);assert.ok(request,'valid local form reaches backend');assert.ok(request[1].endsWith('/configuration/preview'));
+  const request=f.calls.filter(c=>c[0]==='post').at(-1);assert.ok(request,'valid local form reaches backend: '+text(f.root));assert.ok(request[1].endsWith('/configuration/preview'));
   const draft=request[2].patch,t=draft.destination_templates[0],rule=draft.delivery.rules[0],mapping=draft.delivery.mappings[0];assert.equal(t.organized_rule,rule.id);assert.equal(mapping.cloud_scope_id,rule.cloud_scope_id);assert.deepEqual(draft.delivery.libraries,{Emby:['L']});assert.ok(draft.delivery.cloud_scopes[rule.cloud_scope_id]);assert.equal(draft.enabled,false);assert.equal(draft.dry_run,true);
   assert.match(text(root),/服务暂不可用/);assert.equal(f.saves.length,0);
   await btn(root,'保存方案').props.onClick();await settle();assert.equal(f.saves.length,0);assert.deepEqual(f.calls.filter(c=>c[0]==='post').at(-1)[2].patch,draft);
-  btn(root,'上一步').props.onClick();await settle();assert.ok(text(root).includes('暂存与整理'));assert.equal(walk(root,n=>n.type==='input'&&n.props.value==='/115/test/staging').length,1);
+  btn(root,'上一步').props.onClick();await settle();btn(root,'上一步').props.onClick();await settle();assert.ok(text(root).includes('从哪里上传'));assert.equal(walk(root,n=>n.type==='input'&&n.props.value==='/115/test/staging').length,1);
  }finally{f.app.unmount()}
 });
 test('native save with lost reply locks duplicate submission until exact applied readback',async()=>{
  const f=fixture(Config,{get:async(p,o,c,h)=>{if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return {...h,snapshot:{config_revision:c.revision}};if(p.includes('/migration/receipts/'))return {state:'APPLIED'};return {categories:[],items:[],result:{}}},post:async(p,b)=>({valid:true,digest:'b'.repeat(64),config:{...b.patch,configuration_receipt:'native-receipt'}})});
  let writes=0;f.api.put=async(p,config)=>{writes++;assert.equal(p,'plugin/Clone');f.current.config=config;f.current.revision++;f.current.digest='b'.repeat(64);throw {status:503}};
- await settle();try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];await button('保存设置').props.onClick();await settle();assert.equal(writes,1);assert.equal(button('保存设置').props.disabled,true);await button('保存设置').props.onClick();assert.equal(writes,1);await button('核对保存结果').props.onClick();await settle();assert.match(text(f.root),/设置已保存并确认生效/);assert.equal(writes,1);assert.equal(f.saves.length,0);const toggle=walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0];toggle.props.onChange({target:{checked:!toggle.props.checked}});await settle();assert.ok(!text(f.root).includes('设置已保存并确认生效'))}finally{f.app.unmount()}
+ await settle();try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];await button('保存设置').props.onClick();await settle();assert.equal(writes,1);assert.equal(button('保存设置'),undefined);await walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();assert.match(text(f.root),/先核对本次保存结果/);assert.equal(writes,1);await button('核对保存结果').props.onClick();await settle();assert.match(text(f.root),/设置已保存并确认生效/);assert.equal(writes,1);assert.equal(f.saves.length,0);const toggle=walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0];toggle.props.onChange({target:{checked:!toggle.props.checked}});await settle();assert.ok(!text(f.root).includes('设置已保存并确认生效'))}finally{f.app.unmount()}
 });
 
 test('draft path checks use the selected library while disabled, and discard stale successes',async()=>{
@@ -352,4 +337,30 @@ test('quick subscription filters query the server, keep page boundaries, and sho
 test('service summary distinguishes a missing read from an explicitly empty configuration',async()=>{
  const {default:SettingsOverview}=await import(pathToFileURL(path.join(out,'SettingsOverview.mjs')));const health=ref({});const f=fixture(SettingsOverview,{extra:{status:{health}}});await settle();
  try{assert.match(text(f.root),/下载器配置尚未取得/);assert.match(text(f.root),/云盘范围尚未取得/);assert.ok(!text(f.root).includes('尚未绑定'));health.value={services:{configured_downloaders:[],cloud_scopes:[]}};await settle();assert.match(text(f.root),/尚未绑定/);assert.match(text(f.root),/0 个已配置范围/)}finally{f.app.unmount()}
+});
+
+
+test('nested policy save survives outer discard, keeps scheme inputs, and never submits them with the child',async()=>{
+ const storage=new Map();globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+ const rule={resolutions:[2160,1080],group:'official',source:'movie',dimensions:['resolution','audio']};
+ const f=fixture(Page,{get:async(p,o,c,h)=>{
+  if(p.endsWith('/configuration'))return structuredClone(c);if(p.endsWith('/diagnostics'))return {...h,snapshot:{config_revision:c.revision}};
+  if(p.endsWith('/configuration/categories'))return {revision:1,categories:[{id:'tv',name:'欧美剧',enabled:true}]};
+  if(p.endsWith('/policies/catalog'))return {result:{default_templates:{欧美剧:rule}}};if(p.includes('/migration/receipts/'))return {state:'APPLIED'};
+  if(p==='download/clients')return [{name:'qbt'}];if(p==='download/paths')return [];return {items:[],categories:[],result:{}};
+ },post:async(p,b)=>p.endsWith('/configuration/preview')?{valid:true,digest:'b'.repeat(64),config:{...b.patch,configuration_receipt:'nested-save'}}:{result:{summary:{}}}});
+ f.current.config.policy.bindings={tv:'欧美剧'};f.current.config.destination_templates=[{id:'plan',display_name:'剧集方案',category_id:'tv',downloader:'qbt',save_path:'/old',organized_rule:null,sites:[],custom_words:[]}];
+ let writes=0;f.api.put=async(p,c)=>{writes++;f.current.config=structuredClone(c);f.current.revision++;f.current.digest='b'.repeat(64);return {success:true}};
+ const btn=(label,root=f.root)=>walk(root,n=>n.type==='button'&&text(n)===label)[0];
+ try{await settle();btn('下载方案').props.onClick();await settle();walk(f.root,n=>n.props?.class==='sb-plan-choice')[0].props.onClick();await settle();btn('继续').props.onClick();await settle();const input=walk(f.root,n=>n.type==='label'&&text(n).startsWith('下载保存到'))[0].children.find(n=>n.type==='input');input.props.onInput({target:{value:'/unsaved'}});await settle();btn('上一步').props.onClick();await settle();btn('调整所选策略').props.onClick();await settle();
+ const editors=()=>walk(f.root,n=>n.type==='section'&&n.props?.class==='sb-editor');assert.equal(editors().length,2);
+ const child=editors().at(-1);walk(child,n=>n.props?.['aria-label']==='上移音轨')[0].props.onClick();await settle();await btn('保存策略',child).props.onClick();await settle();assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
+ walk(child,n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.equal(editors().length,1);btn('继续').props.onClick();await settle();assert.ok(walk(f.root,n=>n.type==='input'&&n.props.value==='/unsaved').length);
+ walk(editors()[0],n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.match(text(f.root),/本次已保存的欧美剧仍然生效/);btn('放弃本页修改').props.onClick();await settle();assert.equal(editors().length,0);assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
+ }finally{f.app.unmount();delete globalThis.sessionStorage;clearFollowup('Clone')}
+});
+
+test('name protection alone can save from the AI page without writing credentials or calling the model',async()=>{
+ const f=fixture(Config,{extra:{focus:{group:'ai'}}});await settle();
+ try{const checkbox=walk(f.root,n=>n.type==='label'&&text(n).includes('辅助 MoviePilot 识别含数字的片名'))[0].children.find(n=>n.type==='input');checkbox.props.onChange({target:{checked:true}});await settle();const button=walk(f.root,n=>n.type==='button'&&text(n)==='保存识别设置')[0];assert.equal(button.props.disabled,false);await button.props.onClick();await settle();const requests=f.calls.filter(c=>c[0]==='post');assert.equal(requests.length,1);assert.ok(requests[0][1].endsWith('/configuration/preview'));assert.equal(requests[0][2].patch.enhance_host_meta,true);assert.equal(f.saves.length,1);}finally{f.app.unmount();clearFollowup('Clone')}
 });

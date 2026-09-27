@@ -12,7 +12,7 @@ test('episode grouping preserves different reasons, seasons and incomplete cover
 });
 test('step validation blocks missing dependencies and reports only actually changed shared fields',()=>{
  const config=structuredClone(contract.defaults);config.destination_templates=[{id:'A',category_id:'tv',organized_rule:'r'},{id:'B',category_id:'tv',organized_rule:'r'}];config.delivery={cloud_scopes:{s:{root:'/115',cd2_plugin:'cd2',p115_plugin:'p115',allowed_prefixes:['/115/test']}},rules:[{id:'r',cloud_scope_id:'s',local_root:'/downloads'}],mappings:[],policy_bindings:{}};
- assert.ok(planIssues(config,'A',0).some(e=>e.label==='下载器'));assert.equal(planIssues(config,'A',1).length,0);
+ assert.ok(planIssues(config,'A',1).some(e=>e.label==='下载器'));assert.ok(planIssues(config,'A',2).some(e=>e.label==='从哪里上传')===false);
  const changed=structuredClone(config);changed.delivery.rules[0].local_root='/new';assert.deepEqual(sharedChanges(config,changed,'A').map(i=>({fields:i.fields,plans:i.plans})),[{fields:['local_root'],plans:['B']}]);
- assert.deepEqual(sharedChanges(config,config,'A'),[]);changed.delivery.cloud_scopes.s.allowed_prefixes=['/other'];assert.ok(planIssues(changed,'A',1).some(e=>e.message.includes('根目录内')));
+ assert.deepEqual(sharedChanges(config,config,'A'),[]);changed.delivery.cloud_scopes.s.allowed_prefixes=['/other'];assert.ok(planIssues(changed,'A',2).some(e=>e.message.includes('根目录内')));
 });

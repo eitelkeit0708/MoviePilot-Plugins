@@ -46,14 +46,14 @@ class ManagementTests(unittest.TestCase):
         class Sources:
             def _emby(_,service,library,query):
                 calls.append((service,library,query))
-                return dict(Items=[dict(Id=str(i),Name='作品 '+str(i),Password='PRIVATE') for i in range(25)],TotalRecordCount=26)
+                return dict(Items=[dict(Id=str(i),Name='作品 '+str(i),SeriesName='剧集',ParentIndexNumber=1,IndexNumber=i+1,Password='PRIVATE') for i in range(25)],TotalRecordCount=26)
             def close(_):calls.append('close')
         request=ui.LibrarySamples(config_revision=self.config.view()['revision'],runtime_generation=4,service='emby',library='tv')
         with self.repo.connection() as db:before=list(db.iterdump())
         with patch.object(views,'setup_sources',return_value=Sources()):
             result=asyncio.run(views.library_samples(request,user=None))
             self.assertEqual(25,result.result['next_offset']);self.assertEqual(25,len(result.result['items']))
-            self.assertNotIn('PRIVATE',result.model_dump_json());self.assertEqual(25,calls[0][2]['Limit']);self.assertEqual('close',calls[-1])
+            self.assertEqual('剧集',result.result['items'][0]['series']);self.assertNotIn('PRIVATE',result.model_dump_json());self.assertEqual(25,calls[0][2]['Limit']);self.assertEqual('close',calls[-1])
             with self.assertRaises(Exception) as error:asyncio.run(views.library_samples(request.model_copy(update={'runtime_generation':3}),user=None))
             self.assertEqual(409,error.exception.status_code)
         with self.repo.connection() as db:self.assertEqual(before,list(db.iterdump()))

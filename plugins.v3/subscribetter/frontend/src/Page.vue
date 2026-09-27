@@ -1,18 +1,30 @@
 <script setup>
-import {ref,computed,onMounted,onBeforeUnmount,provide} from 'vue';
+import {ref,computed,onMounted,onBeforeUnmount,provide,nextTick,watch} from 'vue';
 import Status from './Status.vue';import Resource from './Resource.vue';import Action from './Action.vue';import Migration from './Migration.vue';import PrivateInput from './PrivateInput.vue';import Record from './Record.vue';
 import {createClient} from './client.mjs';import {useStatus} from './status.mjs';import {views} from './catalog.mjs';
 import './style.css';
-import Subscriptions from './Subscriptions.vue';import Discovery from './Discovery.vue';import Transfers from './Transfers.vue';import PolicyOverview from './PolicyOverview.vue';import SettingsOverview from './SettingsOverview.vue';
-import {readFollowup,saveFollowup} from './client.mjs';
-const props=defineProps({api:{type:Object,required:true},pluginId:{type:String,required:true},sourcePluginId:String,showSwitch:Boolean});
-const emit=defineEmits(['close','switch','layout','action']);
+import Subscriptions from './Subscriptions.vue';import Discovery from './Discovery.vue';import Transfers from './Transfers.vue';import ConfigEditor from './ConfigEditor.vue';
+import {readFollowup} from './client.mjs';
+const props=defineProps({api:{type:Object,required:true},pluginId:{type:String,required:true},sourcePluginId:String,showSwitch:Boolean,startSection:{type:String,default:'subscriptions'}});
+const emit=defineEmits(['close','switch','layout','action','save']);
 const client=createClient(props.api,props.pluginId,props.sourcePluginId),status=useStatus(client);
-const selected=ref('tasks'),resource=ref(views[0].resources[0]),resourceKey=ref(0),resourceComponent=ref(null),action=ref(null),context=ref({}),trail=ref([]);
-const section=ref('subscriptions'),advanced=ref(false),content=ref(null);provide('subscribetter:scroll',content);
-const sections=[['subscriptions','订阅','tasks'],['discovery','发现','discovery'],['delivery','传输','delivery'],['policy','策略','policy'],['settings','设置','health']];
-function navigate(item){if(content.value)content.value.scrollTop=0;section.value=item[0];advanced.value=false;choose(views.find(v=>v.id===item[2]))}
-function configure(group){saveFollowup(props.pluginId,{...readFollowup(props.pluginId),group});emit('switch')}
+const selected=ref('tasks'),resource=ref(views[0].resources[0]),resourceKey=ref(0),resourceComponent=ref(null),discoveryComponent=ref(null),deliveryComponent=ref(null),action=ref(null),context=ref({}),trail=ref([]);
+const section=ref(props.startSection),advanced=ref(false),content=ref(null);provide('subscribetter:scroll',content);
+const sections=[['subscriptions','订阅','tasks'],['discovery','榜单','discovery'],['delivery','上传与入库','delivery'],['policy','质量策略','policy'],['plans','下载方案','health']];
+const settingGroups=[['ownership','运行与自动管理'],['candidates','搜索与等待'],['ai','名称识别'],['recovery','媒体库检查'],['safety','维护与安全']];
+const visited=ref(new Set([props.startSection])),editors=ref([]),editorRefs=new Map(),navigationError=ref('');let editorSequence=0,pendingNavigation=null;
+const navigationKey='subscribetter:navigation:'+props.pluginId+':'+props.startSection;
+let ready=false;
+function rememberNavigation(){if(!ready)return;try{sessionStorage.setItem(navigationKey,JSON.stringify({section:section.value,subscription:resourceComponent.value?.viewState?.(),scroll:content.value?.scrollTop||0,editors:editors.value.map(({focus,scroll})=>({focus,scroll}))}))}catch{}}
+watch([section,editors],rememberNavigation,{deep:true});
+function openEditor(group,ctx={}){if(editors.value.length>=8){navigationError.value='请先完成或返回当前编辑，再进入其他设置。';return}const frame={key:++editorSequence,focus:{...ctx,group,returnLabel:ctx.returnLabel||editors.value.at(-1)?.focus.label||sections.find(i=>i[0]===section.value)?.[1]||'设置'},scroll:content.value?.scrollTop||0,trigger:document.activeElement};editors.value.push(frame);nextTick(()=>{if(content.value)content.value.scrollTop=0})}
+function configure(group,ctx={}){openEditor(group,ctx)}
+function navigate(item){if(editors.value.length){pendingNavigation=item;editorRefs.get(editors.value.at(-1).key)?.requestLeave('close');return}if(item[0]==='close'){emit('close');return}section.value=item[0];visited.value.add(section.value);advanced.value=false;choose(views.find(v=>v.id===item[2]));if(content.value)content.value.scrollTop=0;if(['policy','plans'].includes(section.value))openEditor(section.value);else if(section.value==='settings')openEditor(item[3]||'ownership')}
+function setting(key){if(editors.value.length===1&&editors.value[0].focus.group===key)return;navigate(['settings','设置','health',key])}
+async function closeEditor(){const frame=editors.value.pop();editorRefs.delete(frame.key);await nextTick();if(content.value)content.value.scrollTop=frame.scroll;frame.trigger?.focus?.({preventScroll:true});if(pendingNavigation){const next=pendingNavigation;pendingNavigation=null;navigate(next)}}
+function saved(c,label,key){for(const frame of editors.value)if(frame.key!==key)editorRefs.get(frame.key)?.acceptSaved(c,label);status.refresh()}
+async function openWork(task){section.value='subscriptions';advanced.value=false;await nextTick();resourceComponent.value?.choose(task)}
+function closeApp(){navigate(['close'])}
 function invoke(a,c){context.value=c;action.value=a}
 function diagnostic(domain,ctx={}){advanced.value=true;choose(views.find(v=>v.id===domain));if(Array.isArray(ctx)){resource.value=ctx;context.value={...ctx[2]};return}if(domain==='candidates'&&ctx.task_id){resource.value=['此作品的候选比较','/candidate-decisions',{task_id:ctx.task_id}];context.value=ctx;return}if(domain==='tasks'&&ctx.task_id){resource.value=['作品处理依据','/tasks/{task_id}',ctx];context.value=ctx}}
 const view=computed(()=>views.find(v=>v.id===selected.value));
@@ -20,21 +32,24 @@ function choose(v){selected.value=v.id;resource.value=v.resources[0];trail.value
 function chooseResource(r){resource.value=r;trail.value=[];resourceKey.value++;context.value={}}
 function open(r){trail.value.push(resource.value);resource.value=r;resourceKey.value++}
 function back(){resource.value=trail.value.pop();resourceKey.value++}
-async function refresh(){await status.refresh();resourceComponent.value?.load()}
+async function refresh(){await status.refresh();(advanced.value?resourceComponent.value:section.value==='discovery'?discoveryComponent.value:section.value==='delivery'?deliveryComponent.value:resourceComponent.value)?.load()}
 function changed(){refresh()}
 function exportSafe(){if(!status.current.value)return;const data={format:'subscribetter-safe-configuration-v1',instance:props.pluginId,revision:status.current.value.revision,digest:status.current.value.digest,config:status.current.value.config};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='subscribetter-safe-configuration.json';a.click();URL.revokeObjectURL(url)}
-onMounted(()=>{emit('layout',{maxWidth:'1280px'});status.refresh()});onBeforeUnmount(()=>{context.value={};action.value=null});
+onMounted(async()=>{emit('layout',{maxWidth:'1400px'});await status.refresh();let cached;try{cached=JSON.parse(sessionStorage.getItem(navigationKey)||'null')}catch{};if(cached&&['subscriptions','discovery','delivery','policy','plans','settings'].includes(cached.section)&&Array.isArray(cached.editors)){section.value=cached.section;visited.value.add(section.value);await nextTick();if(cached.subscription)await resourceComponent.value?.restore(cached.subscription);for(const frame of cached.editors.slice(0,8))if(['ownership','candidates','ai','recovery','safety','plans','policy','discovery'].includes(frame.focus?.group)){openEditor(frame.focus.group,frame.focus);editors.value.at(-1).scroll=Number(frame.scroll)||0}await nextTick();if(content.value)content.value.scrollTop=Number(cached.scroll)||0}else if(props.startSection==='settings')openEditor(readFollowup(props.pluginId)?.group||'ownership');ready=true;globalThis.window?.addEventListener('beforeunload',rememberNavigation)});onBeforeUnmount(()=>{rememberNavigation();globalThis.window?.removeEventListener('beforeunload',rememberNavigation);context.value={};action.value=null});
 </script>
-<template><section class="sb-root sb-app sb-manager" aria-label="subscriBetter 管理"><header class="sb-app-header"><div class="sb-brand"><span class="sb-brand-mark" aria-hidden="true">sB</span><strong>subscriBetter</strong></div>
- <nav class="sb-primary-nav" aria-label="主要功能"><button v-for="item in sections" :key="item[0]" :aria-current="!advanced&&section===item[0]" @click="navigate(item)">{{item[1]}}</button></nav>
- <div class="sb-app-tools"><Status :status="status"/><details class="sb-overflow-menu"><summary aria-label="管理工具">更多</summary><div class="sb-menu-items"><VBtn variant="text" @click="refresh">刷新</VBtn><VBtn variant="text" @click="advanced=!advanced">{{advanced?'返回管理':'高级诊断'}}</VBtn></div></details><VBtn variant="text" @click="emit('close')">关闭</VBtn></div></header>
- <main ref="content" class="sb-app-content"><Subscriptions v-if="!advanced&&section==='subscriptions'&&status.current.value&&status.health.value" ref="resourceComponent" :api="api" :client="client" :status="status" @configure="configure" @diagnostic="diagnostic" @action="invoke" @changed="status.refresh()"/>
- <Discovery v-else-if="!advanced&&section==='discovery'" ref="resourceComponent" :client="client" :status="status" @configure="configure" @action="invoke" @diagnostic="diagnostic"/>
- <Transfers v-else-if="!advanced&&section==='delivery'" ref="resourceComponent" :client="client" :status="status" @action="invoke" @diagnostic="diagnostic"/>
- <PolicyOverview v-else-if="!advanced&&section==='policy'" ref="resourceComponent" :client="client" :status="status" @configure="configure"/>
- <SettingsOverview v-else-if="!advanced&&section==='settings'" :status="status" @configure="configure" @diagnostic="diagnostic" @export="exportSafe" @migration="section='migration'"/>
- <section v-else-if="!advanced&&section==='migration'"><VBtn variant="text" @click="section='settings'">返回设置</VBtn><Migration :native-api="api" :client="client" :status="status" @changed="changed" @switch="emit('switch')"/></section>
- <template v-else-if="advanced">
+<template><section class="sb-root sb-app sb-manager sb-product" aria-label="subscriBetter 管理">
+ <header class="sb-product-nav"><nav aria-label="主要功能"><VBtn v-for="item in sections" :key="item[0]" variant="text" :aria-current="section===item[0]?'page':undefined" @click="navigate(item)">{{item[1]}}</VBtn></nav><div class="sb-product-tools"><Status :status="status"/><VBtn variant="text" :aria-current="section==='settings'?'page':undefined" @click="navigate(['settings','设置','health'])">设置</VBtn><VBtn variant="text" aria-label="关闭插件" @click="closeApp">关闭</VBtn></div></header>
+ <p v-if="navigationError" role="alert">{{navigationError}}</p>
+ <div class="sb-product-body" :class="{'sb-with-settings':section==='settings'&&!advanced}">
+ <nav v-if="section==='settings'&&!advanced" class="sb-settings-nav" aria-label="设置分区"><button v-for="[key,title] in settingGroups" :key="key" :aria-current="editors.at(-1)?.focus.group===key?'page':undefined" @click="setting(key)">{{title}}</button></nav>
+ <main ref="content" class="sb-app-content">
+ <div v-if="status.current.value&&status.health.value" v-show="!advanced&&!editors.length&&section==='subscriptions'"><Subscriptions ref="resourceComponent" :api="api" :client="client" :status="status" @configure="configure" @diagnostic="diagnostic" @action="invoke" @changed="status.refresh()"/></div>
+ <div v-if="visited.has('discovery')" v-show="!advanced&&!editors.length&&section==='discovery'"><Discovery ref="discoveryComponent" @work="openWork" :client="client" :status="status" @configure="configure" @action="invoke" @diagnostic="diagnostic"/></div>
+ <div v-if="visited.has('delivery')" v-show="!advanced&&!editors.length&&section==='delivery'"><Transfers ref="deliveryComponent" @work="openWork" :client="client" :status="status" @action="invoke" @diagnostic="diagnostic"/></div>
+ <div v-if="!advanced&&!editors.length&&['policy','plans','settings'].includes(section)" class="sb-empty"><VBtn color="primary" @click="openEditor(section==='settings'?'ownership':section)">打开{{sections.find(i=>i[0]===section)?.[1]||'设置'}}</VBtn></div>
+ <ConfigEditor v-for="(frame,index) in editors" v-show="index===editors.length-1" :key="frame.key" :ref="el=>{if(el)editorRefs.set(frame.key,el)}" :api="api" :plugin-id="pluginId" :source-plugin-id="sourcePluginId" :focus="frame.focus" @save="emit('save',$event)" @saved="(c,label)=>saved(c,label,frame.key)" @context="frame.focus={...frame.focus,...$event}" @configure="configure" @close="closeEditor" @stay="pendingNavigation=null" @migration="section='migration';closeEditor()" @diagnostic="(domain)=>{closeEditor();diagnostic(domain||'health')}" @export="exportSafe"/>
+ <section v-if="!advanced&&!editors.length&&section==='migration'"><VBtn variant="text" @click="navigate(['settings','设置','health'])">返回设置</VBtn><Migration :native-api="api" :client="client" :status="status" @changed="changed" @switch="configure('ownership')"/></section>
+ <template v-if="advanced&&!editors.length">
  <nav v-if="advanced" class="sb-nav" aria-label="高级诊断九个业务域"><button v-for="v in views" :key="v.id" :aria-current="selected===v.id" @click="choose(v)">{{v.title}}</button></nav><h2>{{view.title}}</h2><p>{{view.note}}</p>
  <template v-if="selected==='health'"><p><a href="/#/setting">打开宿主设置</a> 配置既有下载器、Emby、CD2 与 115 服务。</p><button :disabled="!status.current.value||!!status.error.value" @click="exportSafe">导出当前安全配置备份</button><p class="sb-muted">备份只有安全配置和私密引用，不能替代插件数据库与私密目录的离线一致性备份。不会导出密钥、会话或旧配置原文。</p></template>
  <PrivateInput v-if="selected==='ai'||selected==='migration'" :key="selected" :client="client" :status="status"/>
@@ -45,5 +60,5 @@ onMounted(()=>{emit('layout',{maxWidth:'1280px'});status.refresh()});onBeforeUnm
  <div class="sb-actions"><button v-for="a in view.actions" :key="a[1]" :disabled="!status.current.value||!!status.error.value" @click="action=a">{{a[0]}}</button></div>
  <VBtn v-if="section==='settings'" color="primary" @click="emit('switch')">打开设置面板</VBtn>
  </template>
- </main><v-dialog :model-value="!!action" max-width="860" persistent @update:model-value="value=>{if(!value)action=null}"><Action v-if="action" :key="action[1]" :action="action" :client="client" :status="status" :context="context" @close="action=null" @changed="changed" @configure="action=null;emit('switch')"/></v-dialog>
+ </main></div><v-dialog :model-value="!!action" max-width="860" persistent @update:model-value="value=>{if(!value)action=null}"><Action v-if="action" :key="action[1]" :action="action" :client="client" :status="status" :context="context" @close="action=null" @changed="changed" @configure="action=null;configure('ownership')"/></v-dialog>
 </section></template>

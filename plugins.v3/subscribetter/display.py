@@ -57,7 +57,7 @@ def processing(db,row):
     elif any(f['state'] in ('UPLOADING','CD2_UPLOADING') for f in transfer):phase='UPLOADING'
     elif any(f['state']=='PENDING' and (f['misses'] or 0)>0 for f in transfer):phase='RAPID_WAIT'
     due=min((f['due'] for f in transfer if f['due'] and not f['remote_verified']),default=None) if not unknown and not consumer else None
-    return dict(plan_id=plan,phase=phase,state=row['target_state'],action=target.get('action'),reason='CONSUMER_SETTLEMENT_REQUIRED' if consumer else next((b['reason'] for b in bundles if b['reason']),target.get('reason')),
+    return dict(plan_id=plan,candidate_key=snapshot.get('candidate_key'),candidate_title=snapshot.get('title'),phase=phase,state=row['target_state'],action=target.get('action'),reason='CONSUMER_SETTLEMENT_REQUIRED' if consumer else next((b['reason'] for b in bundles if b['reason']),target.get('reason')),
         quality=target.get('quality_facts') if len(videos)<=1 else None,
         change=dict(target['change'],baseline_revision=snapshot.get('current',{}).get(key,{}).get('revision'),
                     baseline_current=snapshot.get('current',{}).get(key,{}).get('revision')==row['current_revision']) if len(videos)<=1 and target.get('change') else None,

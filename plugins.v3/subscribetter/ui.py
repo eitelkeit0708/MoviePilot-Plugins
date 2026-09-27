@@ -51,6 +51,7 @@ class Task(Strict):
     id:int
     title:str
     year:str
+    poster:str|None=None
     media_type:str
     media_source:str
     media_id:str
@@ -190,6 +191,10 @@ class Source(Strict):
 
 
 class DiscoveryRecord(Strict):
+    membership:str='unknown'
+    managed_count:int=0
+    target_count:int=0
+    targets:list[dict[str,JsonValue]]=Field(default_factory=list)
     id:int
     source_id:str
     state:str
@@ -435,6 +440,7 @@ class CurrentSample(Strict):
 
 
 class Simulation(Fence):
+    draft_policy:PolicyConfig|None=None
     category_id:CategoryRef
     candidate:PolicySample
     current:list[CurrentSample]=Field(default_factory=list,max_length=100)
@@ -493,21 +499,52 @@ class Views:
     def _task(r):
         snapshot=json.loads(r['snapshot'])
         return dict(title=public(str(snapshot.get('name') or '未命名作品')),
-                    year=public(str(snapshot.get('year') or '')),
+                    year=public(str(snapshot.get('year') or '')),poster=Views._poster(r),
                     progress=dict(targets=r['targets'] or 0,present=r['present'] or 0,confirmed=r['confirmed'] or 0,processing=r['processing'] or 0,
                                   unsettled=(r['owned'] or 0)-(r['processing'] or 0),resolutions=sorted({int(v) for v in (r['resolutions'] or '').split(',') if v.isdigit()},reverse=True),
                                   observation_until=r['observation_until'],cooldown_until=r['cooldown_until']) if 'targets' in r else None,
-                    **{k:public(r[k]) for k in Task.model_fields if k not in ('title','year','progress')})
+                    **{k:public(r[k]) for k in Task.model_fields if k not in ('title','year','poster','progress')})
+
+    @staticmethod
+    def _poster(task):
+        if not task.get('native_id'):return None
+        try:
+            from app.db.oper.subscribe import SubscribeOper
+            from .mp_adapter import NativeAdapter
+            from urllib.parse import urlsplit
+            native=SubscribeOper().get(task['native_id']);identity=NativeAdapter.snapshot(native)
+            if not identity or any(str(identity.get(key))!=str(task.get(key)) for key in ('media_source','media_id','season')):return None
+            poster=getattr(native,'poster',None)
+            if not isinstance(poster,str) or len(poster)>2048:return None
+            url=urlsplit(poster)
+            # Use only existing provider artwork, without embedded auth/query data.
+            if url.scheme=='https' and not url.query and not url.fragment and not url.username and url.port is None and (url.hostname=='image.tmdb.org' or (url.hostname or '').endswith('.doubanio.com')):
+                return poster
+        except Exception:
+            # Artwork is optional: a host artwork lookup must not hide task data.
+            pass
+        return None
 
     def tasks(self,limit:Limit=25,offset:Offset=0,state:Literal['PENDING','ACTIVE','PASSIVE','PAUSED','STOPPED','RELEASING','RELEASED_NATIVE']|None=None,
-              media_type:Literal['电影','电视剧']|None=None,sort:Literal['id','updated_at']='id',query:Annotated[str,Query(max_length=300)]='',user:TokenPayload=Depends(verify_token))->Page[Task]:
+              media_type:Literal['电影','电视剧']|None=None,sort:Literal['id','updated_at']='id',query:Annotated[str,Query(max_length=300)]='',activity:Literal['all','processing','attention']='all',user:TokenPayload=Depends(verify_token))->Page[Task]:
         self._auth(user)
-        return self._task_page(where="(? IS NULL OR t.state=?) AND (? IS NULL OR t.media_type=?) AND instr(lower(coalesce(json_extract(t.snapshot,'$.name'),'')),lower(?))>0",args=(state,state,media_type,media_type,query),sort=sort,limit=limit,offset=offset)
+        where="(? IS NULL OR t.state=?) AND (? IS NULL OR t.media_type=?) AND instr(lower(coalesce(json_extract(t.snapshot,'$.name'),'')),lower(?))>0"
+        if activity=='processing':where+=' AND u.processing>0'
+        elif activity=='attention':where+=' AND (u.attention>0 OR u.owned>u.processing)'
+        return self._task_page(where=where,args=(state,state,media_type,media_type,query),sort=sort,limit=limit,offset=offset)
 
     def _task_page(self,*,where,args,sort='id',limit=25,offset=0):
         source="""tasks t LEFT JOIN (
             SELECT s.task_id,count(*) targets,sum(s.last_ingest_confirmed_at IS NOT NULL) confirmed,
                 sum(s.owner_plan_id IS NOT NULL) owned,
+                sum(s.publish_phase IN ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','UNKNOWN') OR EXISTS(
+                    SELECT 1 FROM delivery_bundles d,json_each(d.data,'$.vector') v
+                    WHERE d.plan_id=s.owner_plan_id AND v.key=s.target_key
+                    AND json_extract(v.value,'$.generation')=s.generation
+                    AND json_extract(v.value,'$.owner_plan_id')=s.owner_plan_id
+                    AND d.state NOT IN ('CANCELLED','ABANDONED','CLEANED')
+                    AND (d.state IN ('UNKNOWN','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN') OR EXISTS(
+                        SELECT 1 FROM json_each(d.data,'$.files') f WHERE json_extract(f.value,'$.state')='UNKNOWN')))) attention,
                 sum(EXISTS(SELECT 1 FROM plans p JOIN plan_targets pt ON pt.plan_id=p.id AND pt.target_key=s.target_key JOIN tasks task ON task.id=p.task_id WHERE p.id=s.owner_plan_id AND p.task_id=s.task_id AND p.authorization='ACTIVE' AND pt.state='ACTIVE' AND pt.generation=s.generation AND p.task_generation=task.generation)) processing,
                 sum(json_extract(s.current_facts,'$.state')='PRESENT' AND EXISTS(SELECT 1 FROM json_each(s.current_facts,'$.versions') v WHERE json_extract(v.value,'$.reliable')=1)) present,
                 group_concat(CASE WHEN json_extract(s.current_facts,'$.state')='PRESENT' THEN
@@ -616,9 +653,12 @@ class Views:
         self._auth(user);self._one('candidate_decisions','id',decision_id)
         return self.rows('plans',where="json_extract(snapshot,'$.decision_id')=?",args=(decision_id,),order='created_at,id',limit=limit,offset=offset)
 
-    def exclusions(self,limit:Limit=25,offset:Offset=0,active:bool|None=None,candidate_key:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Row]:
+    def exclusions(self,limit:Limit=25,offset:Offset=0,active:bool|None=None,candidate_key:Id|None=None,task_id:int|None=Query(None,gt=0),user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user)
-        return self.rows('exclusions',where="(? IS NULL OR active=?) AND (? IS NULL OR json_extract(criteria,'$.candidate_key')=?)",args=(active,active,candidate_key,candidate_key),order='id',limit=limit,offset=offset)
+        where="(? IS NULL OR active=?) AND (? IS NULL OR json_extract(criteria,'$.candidate_key')=?)";args=(active,active,candidate_key,candidate_key)
+        if isinstance(task_id,int):
+            where+=" AND EXISTS(SELECT 1 FROM json_each(criteria,'$.targets') e JOIN target_units u ON u.target_key=e.value WHERE u.task_id=?)";args+=(task_id,)
+        return self.rows('exclusions',source="exclusions e LEFT JOIN candidates c ON c.candidate_key=json_extract(e.criteria,'$.candidate_key')",select="e.*,substr(json_extract(c.data,'$.title'),1,1024) AS candidate_title",where=where,args=args,order='e.id',limit=limit,offset=offset)
 
     @staticmethod
     def _archive(r):return public(dict(**{k:r[k] for k in ('target_key','state','revision','updated_at','task_id')},facts=json.loads(r['data'])))
@@ -630,7 +670,17 @@ class Views:
         self._auth(user);r=self._one('archive_targets','target_key',target_key)
         with self.repository.connection() as db:u=db.execute('SELECT task_id FROM target_units WHERE target_key=?',(target_key,)).fetchone()
         r['task_id']=u[0] if u else None
-        return ArchiveDetail(target=ArchiveTarget(**self._archive(r)),versions=self.rows('archive_versions',where='target_key=?',args=(target_key,),order='id',limit=limit,offset=offset))
+        return ArchiveDetail(target=ArchiveTarget(**self._archive(r)),versions=self._page('archive_versions',Row,self._archive_version,
+            select="id,target_key,service,library,active,json_remove(data,'$.assets','$.source_assets','$.streams') AS data",
+            where='target_key=?',args=(target_key,),order='active DESC,id',limit=limit,offset=offset))
+
+    def _archive_version(self,row):
+        from .display import current_quality
+        result=self.row(row);observed=result['data']['data']
+        policy=getattr(getattr(getattr(self.plugin.runtime,'delivery',None),'archive',None),'policy',None)
+        quality=current_quality(dict(state='PRESENT',versions=[dict(version_id=row['id'],reliable=True,raw=observed.get('raw',{}))]),policy)
+        result['data']['quality']=public(quality[0]['quality']) if quality else None
+        return result
 
     def archive_scan_items(self,scan_id:Id,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);scan=self._one('archive_scans','id',scan_id)
@@ -647,8 +697,21 @@ class Views:
     def _bundle(r):
         d=json.loads(r['data']);return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},title=r.get('title') or '未命名作品',task_id=r.get('task_id'),reason=d.get('reason',''),file_count=len(d.get('files',[])),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending')))
 
-    def bundles(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,plan_id:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Bundle]:
-        self._auth(user);return self._page('delivery_bundles',Bundle,self._bundle,source='delivery_bundles b LEFT JOIN plans p ON p.id=b.plan_id LEFT JOIN tasks t ON t.id=p.task_id',select="b.*,p.task_id,json_extract(t.snapshot,'$.name') AS title",where='(? IS NULL OR b.state=?) AND (? IS NULL OR b.plan_id=?)',args=(state,state,plan_id,plan_id),order='b.due,b.id',limit=limit,offset=offset)
+    def delivery_works(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Row]:
+        self._auth(user)
+        source="""(SELECT CASE WHEN t.id IS NULL THEN 'bundle:'||b.id ELSE 'task:'||t.id END id,
+            t.id task_id,CASE WHEN t.id IS NULL THEN b.id ELSE NULL END bundle_id,
+            coalesce(json_extract(t.snapshot,'$.name'),'未关联作品的历史记录') title,
+            t.season,t.media_type,json_extract(t.snapshot,'$.year') year,
+            count(*) batch_count,min(b.due) due,
+            sum(b.state IN ('UNKNOWN','PUBLISH_OUTCOME_UNKNOWN')) attention_count,
+            sum(b.state='CONFIRMED') confirmed_count
+            FROM delivery_bundles b LEFT JOIN plans p ON p.id=b.plan_id LEFT JOIN tasks t ON t.id=p.task_id
+            WHERE (? IS NULL OR b.state=?) GROUP BY CASE WHEN t.id IS NULL THEN 'bundle:'||b.id ELSE 'task:'||t.id END) works"""
+        return self._page('delivery_bundles',Row,self.row,source=source,args=(state,state),order='attention_count DESC,due,id',limit=limit,offset=offset)
+
+    def bundles(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,plan_id:Id|None=None,task_id:int|None=None,bundle_id:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Bundle]:
+        self._auth(user);return self._page('delivery_bundles',Bundle,self._bundle,source='delivery_bundles b LEFT JOIN plans p ON p.id=b.plan_id LEFT JOIN tasks t ON t.id=p.task_id',select="b.*,p.task_id,json_extract(t.snapshot,'$.name') AS title",where='(? IS NULL OR b.state=?) AND (? IS NULL OR b.plan_id=?) AND (? IS NULL OR p.task_id=?) AND (? IS NULL OR b.id=?)',args=(state,state,plan_id,plan_id,task_id,task_id,bundle_id,bundle_id),order='b.due,b.id',limit=limit,offset=offset)
 
     def bundle(self,bundle_id:Id,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->BundleDetail:
         self._auth(user);r=self._one('delivery_bundles','id',bundle_id);d=json.loads(r['data']);p=self._one('plans','id',r['plan_id']);s=json.loads(p['snapshot'])
@@ -692,14 +755,28 @@ class Views:
         from .discovery import ROUTES, ROUTE_PROVENANCE, USER_ROUTE_PROVENANCE
         return ActionResult(state='AVAILABLE',result=dict(routes=[dict(key=k,label=v[0],media_type=v[1],provenance=USER_ROUTE_PROVENANCE if k in ("show_hot", "ECFA5DI7Q") else ROUTE_PROVENANCE) for k,v in ROUTES.items()]))
 
-    @staticmethod
-    def _record(r):return public(dict(**{k:r[k] for k in DiscoveryRecord.model_fields if k not in ('evidence','raw','visible')},visible=bool(r['visible']),raw=json.loads(r['raw']),evidence=json.loads(r['data'])))
+    _membership="""CASE
+        WHEN EXISTS(SELECT 1 FROM discovery_targets dt JOIN tasks t ON t.id=dt.task_id WHERE dt.record_id=discovery_records.id AND t.state IN ('ACTIVE','PASSIVE','PAUSED')) THEN 'managed'
+        WHEN EXISTS(SELECT 1 FROM discovery_targets dt JOIN tasks t ON t.id=dt.task_id WHERE dt.record_id=discovery_records.id AND t.state='RELEASED_NATIVE' AND t.native_id IS NOT NULL) THEN 'native'
+        WHEN EXISTS(SELECT 1 FROM discovery_targets dt WHERE dt.record_id=discovery_records.id AND dt.state IN ('EXISTING','INGESTED')) THEN 'library'
+        WHEN json_type(data,'$.identity') IS NULL AND state NOT IN ('REJECTED','FILTERED','STOPPED','RELEASED') THEN 'unrecognized'
+        ELSE 'not_added' END"""
 
-    def records(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,source_id:SourceId|None=None,view:Literal['all','latest12','recognized','unrecognized']='all',user:TokenPayload=Depends(verify_token))->Page[DiscoveryRecord]:
-        self._auth(user);where="visible=1 AND (? IS NULL OR state=?) AND (? IS NULL OR source_id=?)"
+    @staticmethod
+    def _record(r,db):
+        columns=('id','source_id','state','reason','raw_revision','filter_revision','retry_count','next_due','first_seen','last_seen')
+        targets=[dict(row) for row in db.execute("""SELECT dt.task_id,dt.season,dt.state,dt.reason,t.state task_state
+            FROM discovery_targets dt LEFT JOIN tasks t ON t.id=dt.task_id WHERE dt.record_id=? ORDER BY dt.season,dt.target_key LIMIT 8""",(r['id'],))]
+        counts=db.execute("""SELECT count(*),coalesce(sum(t.state IN ('ACTIVE','PASSIVE','PAUSED')),0)
+            FROM discovery_targets dt LEFT JOIN tasks t ON t.id=dt.task_id WHERE dt.record_id=?""",(r['id'],)).fetchone()
+        return public(dict(**{k:r[k] for k in columns},visible=bool(r['visible']),raw=json.loads(r['raw']),evidence=json.loads(r['data']),
+                           membership=r['membership'],target_count=counts[0],managed_count=counts[1],targets=targets))
+
+    def records(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,source_id:SourceId|None=None,view:Literal['all','latest12','recognized','unrecognized','managed','native','library','not_added']='all',user:TokenPayload=Depends(verify_token))->Page[DiscoveryRecord]:
+        self._auth(user);where="visible=1 AND (? IS NULL OR state=?) AND (? IS NULL OR source_id=?)";args=(state,state,source_id,source_id)
         if view=='recognized':where+=" AND json_type(data,'$.identity')='object'"
-        if view=='unrecognized':where+=" AND json_type(data,'$.identity') IS NULL"
-        return self._page('discovery_records',DiscoveryRecord,self._record,where=where,args=(state,state,source_id,source_id),order='id DESC',limit=min(limit,12) if view=='latest12' else limit,offset=offset)
+        if view in ('unrecognized','managed','native','library','not_added'):where+=' AND ('+self._membership+')=?';args+= (view,)
+        return self._page('discovery_records',DiscoveryRecord,self._record,with_db=True,select='*,'+self._membership+' AS membership',where=where,args=args,order='id DESC',limit=min(limit,12) if view=='latest12' else limit,offset=offset)
 
     def record_targets(self,record_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);self._one('discovery_records','id',record_id)
@@ -745,9 +822,9 @@ class Views:
 
     def policy_catalog(self,user:TokenPayload=Depends(verify_token))->ActionResult:
         self._auth(user)
-        from .policy import CATEGORIES,category_templates
+        from .policy import CATEGORIES,category_templates,FIELDS,_DEFAULT_RULES
         categories=category_templates(self.plugin.configuration.view()['config']['policy'].get('templates'))
-        return ActionResult(state='AVAILABLE',result=dict(default_templates={k:dict(resolutions=list(v[0]),group=v[1],source=v[2],dimensions=list(v[3])) for k,v in CATEGORIES.items()},policies=[dict(binding=k,resolutions=list(v[0]),admission=v[1],source_order=v[2],dimensions=list(v[3])) for k,v in categories.items()]))
+        return ActionResult(state='AVAILABLE',result=dict(predicate_fields=sorted(FIELDS),predicate_rules=sorted(_DEFAULT_RULES),default_templates={k:dict(resolutions=list(v[0]),group=v[1],source=v[2],dimensions=list(v[3])) for k,v in CATEGORIES.items()},policies=[dict(binding=k,resolutions=list(v[0]),admission=v[1],source_order=v[2],dimensions=list(v[3])) for k,v in categories.items()]))
 
     def local_scan(self,rule_id:Text,section:Literal['stack','directories','failed_paths'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);scope='local:'+rule_id;self._one('reconcile_checkpoints','scope',scope)
@@ -1165,24 +1242,26 @@ class Views:
 
     def simulate(self,request:Simulation,user:TokenPayload=Depends(verify_token))->Decision:
         self._auth(user);self.fence(request);runtime=self.plugin.runtime
-        if not runtime or not runtime.policy:raise HTTPException(409,'POLICY_UNAVAILABLE')
-        from .policy import Version
+        if not runtime or (not request.draft_policy and not runtime.policy):raise HTTPException(409,'POLICY_UNAVAILABLE')
+        from .policy import Version,Policy
         from .planner import quality_locks_for_scope
         raw=request.candidate.model_dump(exclude_none=True)
         if request.sample_key:
             sample=self._one('parse_samples','sample_key',request.sample_key);inputs=json.loads(sample['inputs'])
             raw.update(title=inputs['title'],description=inputs.get('subtitle') or '')
-        policy=runtime.policy
+        config=request.draft_policy or runtime.config.policy
+        policy=Policy(config.bindings,config.classification_revision,overrides=config.overrides,admission=config.admission,
+                      templates={k:v.model_dump() for k,v in config.templates.items()}) if request.draft_policy else runtime.policy
         if request.category_id not in policy.bindings:raise HTTPException(404,'POLICY_NOT_FOUND')
         classification=dict(state='complete',policy_revision=policy.classification_revision,effective={'category_id':request.category_id})
         current=[Version(v.version_id,policy.normalize(v.raw.model_dump(exclude_none=True),current=True),active=v.active,reliable=v.reliable) for v in request.current]
         # A title-only simulation has no verified physical episode scope.
-        try:locks=quality_locks_for_scope(runtime.config.policy.locks,[])
+        try:locks=quality_locks_for_scope(config.locks,[])
         except ValueError as error:
             d=policy._decision('DEFER' if str(error)=='SEASON_SCOPE_UNCONFIRMED' else 'ERROR',str(error))
         else:d=policy.compare(policy.normalize(raw),current,classification,identity_ok=True,scope_ok=True,locked=locks)
         output=dict(plans=[],status=d.status,reason=d.reason,decisions={'simulation':dict(status=d.status,action=d.action,rank=list(d.rank),comparisons=list(d.comparisons),evidence_keys=list(d.evidence_keys))})
-        ref=append(self.repository,'simulation:'+uuid4().hex,[],output,simulation=True,observed=raw,context=dict(policy=policy.semantic_hash,parse=runtime.meta.corrector.revision,config_revision=request.config_revision),sanitize=runtime.public_evidence)
+        ref=append(self.repository,'simulation:'+uuid4().hex,[],output,simulation=True,observed=raw,context=dict(policy=policy.semantic_hash,policy_source='draft' if request.draft_policy else 'saved',draft_digest=digest(config.model_dump()) if request.draft_policy else None,parse=runtime.meta.corrector.revision,config_revision=request.config_revision),sanitize=runtime.public_evidence)
         return self.decision(ref['decision_id'],user=user)
 
     async def retry(self,bundle_id:Id,request:Retry,user:TokenPayload=Depends(verify_token))->ActionResult:
@@ -1256,7 +1335,7 @@ class Views:
                 page=sources._emby(request.service,request.library,dict(StartIndex=request.offset,Limit=request.limit,
                     IncludeItemTypes='Movie,Episode',SortBy='SortName',SortOrder='Ascending'))
                 if len(page['Items'])>request.limit:raise ValueError('EMBY_PAGE_LIMIT')
-                items=[dict(id=str(i['Id']),name=str(i.get('Name') or '未命名作品'),season=i.get('ParentIndexNumber'),episode=i.get('IndexNumber')) for i in page['Items']]
+                items=[dict(id=str(i['Id']),name=str(i.get('Name') or '未命名作品'),series=i.get('SeriesName'),year=i.get('ProductionYear'),season=i.get('ParentIndexNumber'),episode=i.get('IndexNumber')) for i in page['Items']]
                 end=request.offset+len(items)
                 return dict(state='SAMPLES_READ',items=items,total=page['TotalRecordCount'],next_offset=end if items and end<page['TotalRecordCount'] else None)
             finally:sources.close()
@@ -1386,7 +1465,7 @@ class Views:
         return wrapped
 
     def routes(self):
-        definitions=[('/tasks',self.tasks,Page[Task]),('/tasks/{task_id}',self.task,TaskDetail),('/candidates',self.candidates,Page[Candidate]),('/candidates/{candidate_key}',self.candidate,Candidate),('/candidate-decisions',self.decisions,Page[Decision]),('/candidate-decisions/{decision_id}',self.decision,Decision),('/archive/targets',self.archives,Page[ArchiveTarget]),('/archive/targets/{target_key}',self.archive,ArchiveDetail),('/archive/versions/{version_id}',self.version,VersionDetail),('/delivery/bundles',self.bundles,Page[Bundle]),('/delivery/bundles/{bundle_id}',self.bundle,BundleDetail),('/policies',self.policies,Page[PolicyView]),('/policies/{category_id:path}',self.policy,PolicyView),('/diagnostics',self.diagnostics,Health),('/discovery/sources',self.sources,Page[Source]),('/discovery/catalog',self.catalog,ActionResult),('/discovery/records',self.records,Page[DiscoveryRecord]),('/discovery/records/{record_id}/targets',self.record_targets,Page[Row]),('/discovery/statistics',self.statistics,ActionResult),('/parse/samples',self.samples,Page[Row]),('/parse/samples/{sample_key}/history',self.sample,Page[Row]),('/ai',self.ai,AIView)]
+        definitions=[('/tasks',self.tasks,Page[Task]),('/tasks/{task_id}',self.task,TaskDetail),('/candidates',self.candidates,Page[Candidate]),('/candidates/{candidate_key}',self.candidate,Candidate),('/candidate-decisions',self.decisions,Page[Decision]),('/candidate-decisions/{decision_id}',self.decision,Decision),('/archive/targets',self.archives,Page[ArchiveTarget]),('/archive/targets/{target_key}',self.archive,ArchiveDetail),('/archive/versions/{version_id}',self.version,VersionDetail),('/delivery/works',self.delivery_works,Page[Row]),('/delivery/bundles',self.bundles,Page[Bundle]),('/delivery/bundles/{bundle_id}',self.bundle,BundleDetail),('/policies',self.policies,Page[PolicyView]),('/policies/{category_id:path}',self.policy,PolicyView),('/diagnostics',self.diagnostics,Health),('/discovery/sources',self.sources,Page[Source]),('/discovery/catalog',self.catalog,ActionResult),('/discovery/records',self.records,Page[DiscoveryRecord]),('/discovery/records/{record_id}/targets',self.record_targets,Page[Row]),('/discovery/statistics',self.statistics,ActionResult),('/parse/samples',self.samples,Page[Row]),('/parse/samples/{sample_key}/history',self.sample,Page[Row]),('/ai',self.ai,AIView)]
         routes=[dict(path=p,methods=['GET'],endpoint=f,response_model=m,auth='bear',route_class_override=PrivateRoute) for p,f,m in definitions]
         for path,fn,model in [('/management/previews/{preview_id}',self.preview_receipt,Preview),('/management/operations/{operation_id}',self.operation,ActionResult)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))

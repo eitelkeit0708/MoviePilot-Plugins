@@ -1693,6 +1693,21 @@
             }
           },
           {
+            "name": "activity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "processing",
+                "attention"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Activity"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -2433,6 +2448,95 @@
         }
       }
     },
+    "/delivery/works": {
+      "get": {
+        "summary": "Delivery Works",
+        "operationId": "delivery_works_delivery_works_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Row_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/delivery/bundles": {
       "get": {
         "summary": "Bundles",
@@ -2498,6 +2602,41 @@
                 }
               ],
               "title": "Plan Id"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "bundle_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Bundle Id"
             }
           },
           {
@@ -3004,7 +3143,11 @@
                 "all",
                 "latest12",
                 "recognized",
-                "unrecognized"
+                "unrecognized",
+                "managed",
+                "native",
+                "library",
+                "not_added"
               ],
               "type": "string",
               "default": "all",
@@ -4006,6 +4149,23 @@
                 }
               ],
               "title": "Candidate Key"
+            }
+          },
+          {
+            "name": "task_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Task Id"
             }
           },
           {
@@ -8255,6 +8415,31 @@
     },
     "DiscoveryRecord": {
       "properties": {
+        "membership": {
+          "type": "string",
+          "title": "Membership",
+          "default": "unknown"
+        },
+        "managed_count": {
+          "type": "integer",
+          "title": "Managed Count",
+          "default": 0
+        },
+        "target_count": {
+          "type": "integer",
+          "title": "Target Count",
+          "default": 0
+        },
+        "targets": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "object"
+          },
+          "type": "array",
+          "title": "Targets"
+        },
         "id": {
           "type": "integer",
           "title": "Id"
@@ -12027,6 +12212,16 @@
           "minimum": 0.0,
           "title": "Runtime Generation"
         },
+        "draft_policy": {
+          "anyOf": [
+            {
+              "$ref": "#/components/schemas/PolicyConfig"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "category_id": {
           "type": "string",
           "maxLength": 16384,
@@ -12235,6 +12430,17 @@
         "year": {
           "type": "string",
           "title": "Year"
+        },
+        "poster": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Poster"
         },
         "media_type": {
           "type": "string",
