@@ -1,0 +1,42 @@
+{
+  "captured_at": "2026-09-28T00:22:37+08:00",
+  "host": "http://192.168.50.6:13000",
+  "container": "moviepilot-v3-subscribetter-test",
+  "product_commit": "862cd527e2de94365a52b1b60b3e4c8f8cc954eb",
+  "staging": {
+    "verified_files": 195,
+    "install_http": 200,
+    "install_success": true
+  },
+  "configuration_before": {
+    "revision": 273,
+    "digest": "4f8a5fade7f69100e7fa40062657d9e881095a8e1e66228619cb2234b7dbd4dc",
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "diagnostic_errors": 0
+  },
+  "configuration_after": {
+    "revision": 273,
+    "digest": "4f8a5fade7f69100e7fa40062657d9e881095a8e1e66228619cb2234b7dbd4dc",
+    "enabled": false,
+    "dry_run": true,
+    "ordinary_work_active": false,
+    "diagnostic_errors": 0
+  },
+  "installed_sha256": {
+    "ui.py": "b300c3113570540e97827599c4e4364fdde2ea2a8fcc1bd79667e5cf2a2b35d5",
+    "runtime.py": "b08f15828d4117cea5469da779f0237b983baad2d481c018c5fc80d65e0de168",
+    "dist/assets/remoteEntry.js": "f70537ec52b05b2aa149ce6e3567957e0aa9851911eba9adba4063c22ec29fe0"
+  },
+  "replacement_candidate_read": {
+    "tasks": 14,
+    "units_returned": 64,
+    "task_endpoints_checked_with_exclusion": 12,
+    "historical_eligible_rows": 3,
+    "units_with_current_processing_candidate": 0,
+    "positive_host_flow": "BLOCKED_NO_ACTIONABLE_CURRENT_CANDIDATE",
+    "apply": "NOT_RUN"
+  },
+  "shared_draft_host_mutation": "NOT_RUN_COMPONENT_MOUNTED_REGRESSION_ONLY"
+}
