@@ -38,23 +38,36 @@ export function mergeDraft(base, draft, saved, roots = Object.keys(draft), {keep
 
 // A scheme owns one destination and edits its referenced shared objects explicitly.
 // Other scheme drafts remain in the editor but cannot ride along with this save.
-export function planDraft(base, draft, id) {
+export function planDraft(base, draft, id, edited = {}) {
   const result=copy(base),plans=[base,draft].map(c=>c.destination_templates.find(p=>p.id===id)).filter(Boolean);
   const rules=new Set(plans.map(p=>p.organized_rule).filter(Boolean));
   const scopes=new Set([base,draft].flatMap(c=>c.delivery.rules.filter(r=>rules.has(r.id)).map(r=>r.cloud_scope_id)));
   const categories=new Set(plans.map(p=>p.category_id).filter(Boolean));
-  const maps=[base,draft].flatMap(c=>c.delivery.mappings.filter(m=>scopes.has(m.cloud_scope_id)));
+  const owned=key=>new Set(edited[key]||[]);
+  const references=(config,key,value)=>config.destination_templates.filter(plan=>{
+    if(key==='category')return plan.category_id===value;
+    const rule=config.delivery.rules.find(row=>row.id===plan.organized_rule);
+    return key==='rule'?plan.organized_rule===value:rule?.cloud_scope_id===value;
+  }).length;
+  const exclusive=(key,value)=>Math.max(references(base,key,value),references(draft,key,value))<=1;
+  const selectedRules=new Set([...rules].filter(value=>exclusive('rule',value)||owned('rules').has(value)));
+  const selectedScopes=new Set([...scopes].filter(value=>exclusive('scope',value)||owned('scopes').has(value)));
+  const selectedCategories=new Set([...categories].filter(value=>exclusive('category',value)||owned('categories').has(value)));
+  const mappingIds=owned('mappings');
+  for(const config of [base,draft])for(const row of config.delivery.mappings)
+    if(scopes.has(row.cloud_scope_id)&&exclusive('scope',row.cloud_scope_id))mappingIds.add(row.id);
+  const maps=[base,draft].flatMap(c=>c.delivery.mappings.filter(m=>mappingIds.has(m.id)));
   const replaceRows=(before,after,selected)=>{
     const replacements=new Map(after.filter(selected).map(row=>[row.id,row]));
     return [...before.flatMap(row=>!selected(row)?[row]:replacements.has(row.id)?[replacements.get(row.id)]:[]),...after.filter(row=>selected(row)&&!before.some(old=>old.id===row.id))].map(copy);
   };
   const replaceKeys=(before,after,keys)=>{const value=copy(before);for(const key of keys){if(Object.hasOwn(after,key))value[key]=copy(after[key]);else delete value[key]}return value};
   result.destination_templates=replaceRows(base.destination_templates,draft.destination_templates,p=>p.id===id);
-  result.delivery.rules=replaceRows(base.delivery.rules,draft.delivery.rules,r=>rules.has(r.id));
-  result.delivery.cloud_scopes=replaceKeys(base.delivery.cloud_scopes,draft.delivery.cloud_scopes,scopes);
-  result.delivery.mappings=replaceRows(base.delivery.mappings,draft.delivery.mappings,m=>maps.some(item=>item.id===m.id));
-  result.policy.bindings=replaceKeys(base.policy.bindings,draft.policy.bindings,categories);
-  result.delivery.policy_bindings=replaceKeys(base.delivery.policy_bindings,draft.delivery.policy_bindings,categories);
+  result.delivery.rules=replaceRows(base.delivery.rules,draft.delivery.rules,r=>selectedRules.has(r.id));
+  result.delivery.cloud_scopes=replaceKeys(base.delivery.cloud_scopes,draft.delivery.cloud_scopes,selectedScopes);
+  result.delivery.mappings=replaceRows(base.delivery.mappings,draft.delivery.mappings,m=>mappingIds.has(m.id));
+  result.policy.bindings=replaceKeys(base.policy.bindings,draft.policy.bindings,selectedCategories);
+  result.delivery.policy_bindings=replaceKeys(base.delivery.policy_bindings,draft.delivery.policy_bindings,selectedCategories);
   result.policy.classification_revision=draft.policy.classification_revision;
   result.delivery.classification_revision=draft.delivery.classification_revision;
   for(const service of new Set(maps.map(m=>m.emby_service).filter(Boolean))){

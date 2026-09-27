@@ -383,6 +383,31 @@ class Runtime:
         return self.pipeline.evaluate(key,target,eligible,downloader=template['downloader'],save_path=template['save_path'],
             custom_words=template['custom_words'],task_id=row['id'],mode=mode,opportunity_id=saved['opportunity_id'],simulation=simulation,assistance=assistance,locks=saved.get('locks'))
 
+    def select_candidate(self,task_id,generation,opportunity_id,decision_id,plan_digest,target_keys):
+        """Execute one previously reviewed candidate plan through normal authority checks."""
+        from .ai import digest as decision_digest
+        self.check();saved=self.repository.setting('runtime-input:'+opportunity_id)
+        if not saved or saved['task_id']!=task_id:raise ValueError('OPPORTUNITY_SCOPE_CHANGED')
+        task=self.verify_input(saved)
+        if task['generation']!=generation:raise ValueError('TASK_GENERATION_CHANGED')
+        with self.repository.connection() as db:
+            row=db.execute('SELECT * FROM candidate_decisions WHERE id=?',(decision_id,)).fetchone()
+        if not row or (row['task_id'],row['opportunity_id'],row['status'],row['simulation'])!=(task_id,opportunity_id,'ACCEPT',0):
+            raise ValueError('CANDIDATE_DECISION_SCOPE_CHANGED')
+        data=json.loads(row['data']);digests=data.get('plan_digests',[])
+        if plan_digest not in digests:raise ValueError('CANDIDATE_PLAN_SCOPE_CHANGED')
+        key=row['candidate_key']
+        if key not in self.candidates.runtime:self.candidates.refresh(key,self.budget(saved))
+        result=self.evaluate(saved,key,simulation=False,assistance=False)
+        plans=[plan for plan in result.get('plans',[]) if decision_digest({k:v for k,v in plan.items() if k not in ('decision_id','decision_digest')})==plan_digest]
+        if len(plans)!=1 or not set(target_keys)<=set(plans[0]['targets']):raise ValueError('CANDIDATE_POLICY_OR_CURRENT_CHANGED')
+        opportunity=self.scheduler.opportunity(opportunity_id)
+        if opportunity['state']!='ACTIVE':raise ValueError('OPPORTUNITY_SCOPE_CHANGED')
+        claimed=self.candidate_plan(opportunity,saved,plans[0],round_plans=plans,immediate=True)
+        if not claimed:raise ValueError('CANDIDATE_NOT_READY')
+        answer=self.advance(claimed,saved,deadline=getattr(self,'deadline',None))
+        return dict(answer,candidate_key=key,plan_id=claimed['id'])
+
     def settings(self,request,*,db,actor):
         """Rebind a reviewed shrinking opportunity, preserving all historical work."""
         from .configuration import PolicyConfig

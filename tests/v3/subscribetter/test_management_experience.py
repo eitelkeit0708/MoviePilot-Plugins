@@ -45,6 +45,20 @@ class ExperienceTests(unittest.TestCase):
         self.assertNotIn('private',page.items[0].data)
         self.assertEqual(0,self.views.exclusions(task_id=self.task_id+1,user=None).total)
 
+    def test_replacement_candidates_are_exact_to_one_unit_and_show_shared_file_scope(self):
+        ui=load('ui');evidence=load('evidence');views=ui.Views(self.plugin)
+        task=self.repo.submit('replacement',self.r.Target('电视剧','themoviedb','42',1),{'name':'作品'},'test')
+        key=json.dumps(['电视剧','themoviedb','42',1,'',1],ensure_ascii=False,separators=(',',':'));other=json.dumps(['电视剧','themoviedb','42',1,'',2],ensure_ascii=False,separators=(',',':'))
+        with self.repo.connection(write=True) as db:db.execute("INSERT INTO opportunities(id,task_id,scope,mode,state,config,created_at,updated_at) VALUES('round',?,?,'CONTINUOUS','ACTIVE','{}','now','now')",(task['id'],json.dumps([key,other])))
+        plan={'candidate_key':'candidate','targets':{key:{'action':'QUALITY_UPGRADE','reason':'QUALITY_UPGRADE'},other:{'action':'ACQUIRE','reason':'MISSING'}},'selected_indices':[0],'torrent_files':[{'index':0,'path':'Series.S01E01-E02.mkv','role':'video','targets':[key,other]}]}
+        decision=evidence.append(self.repo,'candidate',[key,other],{'reason':'READY','decisions':{key:{'status':'ALLOW','reason':'QUALITY_UPGRADE'},other:{'status':'ALLOW','reason':'MISSING'}},'plans':[plan]},task_id=task['id'],opportunity_id='round',observed={'title':'候选版本'})
+        evidence.append(self.repo,'simulation',[key],{'decisions':{key:{'status':'ALLOW'}},'plans':[dict(plan,candidate_key='simulation')]},task_id=task['id'],opportunity_id='round',simulation=True)
+        page=views.replacement_candidates(task['id'],key,user=None)
+        self.assertEqual(1,page.total);row=page.items[0]
+        self.assertEqual((decision['decision_id'],'候选版本',True,2),(row.decision_id,row.title,row.shared_files,len(row.affected_targets)))
+        self.assertEqual(2,views.decisions(task_id=task['id'],target_key=key,user=None).total)
+        self.assertEqual(0,views.decisions(task_id=task['id'],target_key='missing',user=None).total)
+
     def test_discovery_membership_uses_linked_task_state_and_preserves_known_identity(self):
         self.populate();now=self.r.utcnow()
         with self.repo.connection(write=True) as db:

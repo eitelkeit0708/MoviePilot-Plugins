@@ -1827,6 +1827,96 @@
         }
       }
     },
+    "/tasks/{task_id}/replacement-candidates": {
+      "get": {
+        "summary": "Replacement Candidates",
+        "operationId": "replacement_candidates_tasks__task_id__replacement_candidates_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "target_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "title": "Target Key"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ReplacementCandidate_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/candidates": {
       "get": {
         "summary": "Candidates",
@@ -2055,6 +2145,24 @@
                 }
               ],
               "title": "Task Id"
+            }
+          },
+          {
+            "name": "target_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 2048
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Key"
             }
           },
           {
@@ -5294,6 +5402,136 @@
       "post": {
         "summary": "Apply Settings",
         "operationId": "apply_settings_tasks__task_id__settings_apply_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Apply"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tasks/{task_id}/select-candidate/preview": {
+      "post": {
+        "summary": "Select Candidate Preview",
+        "operationId": "select_candidate_preview_tasks__task_id__select_candidate_preview_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectCandidatePreview"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/tasks/{task_id}/select-candidate/apply": {
+      "post": {
+        "summary": "Apply Select Candidate",
+        "operationId": "apply_select_candidate_tasks__task_id__select_candidate_apply_post",
         "parameters": [
           {
             "name": "task_id",
@@ -10513,6 +10751,49 @@
       ],
       "title": "Page[PolicyView]"
     },
+    "Page_ReplacementCandidate_": {
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/components/schemas/ReplacementCandidate"
+          },
+          "type": "array",
+          "title": "Items"
+        },
+        "total": {
+          "type": "integer",
+          "title": "Total"
+        },
+        "next_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Offset"
+        },
+        "truncated": {
+          "type": "boolean",
+          "title": "Truncated"
+        },
+        "snapshot": {
+          "$ref": "#/components/schemas/Snapshot"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "items",
+        "total",
+        "next_offset",
+        "truncated",
+        "snapshot"
+      ],
+      "title": "Page[ReplacementCandidate]"
+    },
     "Page_Row_": {
       "properties": {
         "items": {
@@ -11779,6 +12060,83 @@
       ],
       "title": "ReleaseRequest"
     },
+    "ReplacementCandidate": {
+      "properties": {
+        "decision_id": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Decision Id"
+        },
+        "candidate_key": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Candidate Key"
+        },
+        "opportunity_id": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Opportunity Id"
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Plan Digest"
+        },
+        "title": {
+          "type": "string",
+          "title": "Title"
+        },
+        "affected_targets": {
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "type": "array",
+          "title": "Affected Targets"
+        },
+        "file_count": {
+          "type": "integer",
+          "title": "File Count"
+        },
+        "shared_files": {
+          "type": "boolean",
+          "title": "Shared Files"
+        },
+        "change": {
+          "additionalProperties": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "type": "object",
+          "title": "Change"
+        },
+        "created_at": {
+          "type": "string",
+          "title": "Created At"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "decision_id",
+        "candidate_key",
+        "opportunity_id",
+        "plan_digest",
+        "title",
+        "affected_targets",
+        "file_count",
+        "shared_files",
+        "change",
+        "created_at"
+      ],
+      "title": "ReplacementCandidate"
+    },
     "ReplayRequest": {
       "properties": {
         "sample_keys": {
@@ -12047,6 +12405,67 @@
         "keywords"
       ],
       "title": "Search"
+    },
+    "SelectCandidatePreview": {
+      "properties": {
+        "config_revision": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Config Revision"
+        },
+        "runtime_generation": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Runtime Generation"
+        },
+        "generation": {
+          "type": "integer",
+          "exclusiveMinimum": 0.0,
+          "title": "Generation"
+        },
+        "opportunity_id": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Opportunity Id"
+        },
+        "decision_id": {
+          "type": "string",
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "title": "Decision Id"
+        },
+        "plan_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "title": "Plan Digest"
+        },
+        "target_keys": {
+          "items": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1
+          },
+          "type": "array",
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Target Keys"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "config_revision",
+        "runtime_generation",
+        "generation",
+        "opportunity_id",
+        "decision_id",
+        "plan_digest",
+        "target_keys"
+      ],
+      "title": "SelectCandidatePreview"
     },
     "SelectedOld": {
       "properties": {

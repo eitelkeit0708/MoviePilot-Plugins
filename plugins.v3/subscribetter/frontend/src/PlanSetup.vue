@@ -8,9 +8,11 @@ import SitePicker from './SitePicker.vue';
 import {labels} from './labels.mjs';
 import Destinations from './Destinations.vue';import DeliverySettings from './DeliverySettings.vue';
 import PolicySummary from './PolicySummary.vue';import {id} from './client.mjs';
-const props=defineProps({modelValue:Object,api:Object,client:Object,status:Object,base:Object,baseline:Object,categories:Array,downloaders:Array,paths:Array,policyNames:Array,revision:Number,readonly:Boolean,saving:Boolean,submitted:Boolean,saveError:Array,focus:Object});
+const props=defineProps({modelValue:Object,api:Object,client:Object,status:Object,base:Object,baseline:Object,categories:Array,downloaders:Array,paths:Array,policyNames:Array,revision:Number,readonly:Boolean,saving:Boolean,submitted:Boolean,saveError:Array,focus:Object,editScope:Object});
 const emit=defineEmits(['update:modelValue','save','configure','editing','confirm']);
 const selected=ref(props.focus?.id||''),name=ref(''),step=ref(Math.min(4,Math.max(0,Number(props.focus?.step)||0))),error=ref([]);
+const ownership=ref(selected.value&&props.editScope?{[selected.value]:clone(props.editScope)}:{});
+watch(()=>canonical(props.editScope||{}),()=>{if(selected.value&&!Object.keys(ownership.value[selected.value]||{}).length&&props.editScope)ownership.value={...ownership.value,[selected.value]:clone(props.editScope)}});
 const removing=ref(false);
 const stepNav=ref(null),body=ref(null);
 function focusError(label){nextTick(()=>{const node=[...(body.value?.querySelectorAll('label')||[])].find(n=>n.textContent.trim().startsWith(label));node?.querySelector('input,select,textarea')?.focus();node?.scrollIntoView({block:'center'})})}
@@ -21,11 +23,13 @@ const rule=computed(()=>props.modelValue.delivery.rules.find(r=>r.id===plan.valu
 const scope=computed(()=>rule.value?.cloud_scope_id);
 const mapping=computed(()=>props.modelValue.delivery.mappings.find(m=>m.cloud_scope_id===scope.value));
 const baseline=computed(()=>props.baseline||props.status?.current.value?.config||props.modelValue);
-const impacts=computed(()=>sharedChanges(baseline.value,props.modelValue,selected.value));
-const changes=computed(()=>changedGroups(baseline.value,planDraft(baseline.value,props.modelValue,selected.value)).map(k=>({destination_templates:'下载方案',delivery:'媒体库与整理路径',policy:'收录与升级策略',recovery:'扫描设置',enabled:'启用追踪',dry_run:'演练模式'}[k]||labels[k]||k)));
+const editScope=computed(()=>ownership.value[selected.value]||{});
+const scopedDraft=computed(()=>planDraft(baseline.value,props.modelValue,selected.value,editScope.value));
+const impacts=computed(()=>sharedChanges(baseline.value,scopedDraft.value,selected.value));
+const changes=computed(()=>changedGroups(baseline.value,scopedDraft.value).map(k=>({destination_templates:'下载方案',delivery:'媒体库与整理路径',policy:'收录与升级策略',recovery:'扫描设置',enabled:'启用追踪',dry_run:'演练模式'}[k]||labels[k]||k)));
 const deleted=computed(()=>!plan.value&&baseline.value.destination_templates.find(p=>p.id===selected.value));
 const saved=computed(()=>changes.value.length===0);
-watch(()=>[selected.value,step.value,plan.value?.display_name],()=>emit('editing',{id:selected.value,name:plan.value?.display_name||deleted.value?.display_name||selected.value,step:step.value}),{immediate:true});
+watch(()=>[selected.value,step.value,plan.value?.display_name,canonical(editScope.value)],()=>emit('editing',{id:selected.value,name:plan.value?.display_name||deleted.value?.display_name||selected.value,step:step.value,scope:clone(editScope.value)}),{immediate:true});
 watch(()=>props.baseline,()=>{if(selected.value&&!plan.value&&!deleted.value)exit()});
 function exit(){selected.value='';step.value=0;error.value=[]}
 function submit(){for(let s=0;s<4;s++){const issues=planIssues(props.modelValue,selected.value,s);if(issues.length){step.value=s;error.value=issues;focusError(issues[0].label);return}}emit('save')}
@@ -41,14 +45,21 @@ function start(){const title=name.value.trim();if(props.readonly||!title)return;
  emit('update:modelValue',next);selected.value=pid;name.value='';step.value=0;error.value=[];
 }
 function updatePlan(rows){if(rows.length!==1)return;emit('update:modelValue',{...props.modelValue,destination_templates:props.modelValue.destination_templates.map(t=>t.id===selected.value?rows[0]:t)})}
-function policy(value){const category=plan.value.category_id,old=props.modelValue.policy.bindings[category],bindings=props.modelValue.delivery.policy_bindings;emit('update:modelValue',{...props.modelValue,policy:{...props.modelValue.policy,classification_revision:props.revision||1,bindings:{...props.modelValue.policy.bindings,[category]:value}},delivery:{...props.modelValue.delivery,classification_revision:props.revision||props.modelValue.delivery.classification_revision,policy_bindings:{...bindings,...(!bindings[category]||bindings[category]===old?{[category]:value}:{})}}})}
-function updateDelivery(delivery){emit('update:modelValue',{...props.modelValue,delivery})}
+function own(kind,values){const current=ownership.value[selected.value]||{};ownership.value={...ownership.value,[selected.value]:{...current,[kind]:[...new Set([...(current[kind]||[]),...values])]}}}
+function policy(value){const category=plan.value.category_id,old=props.modelValue.policy.bindings[category],bindings=props.modelValue.delivery.policy_bindings;own('categories',[category]);emit('update:modelValue',{...props.modelValue,policy:{...props.modelValue.policy,classification_revision:props.revision||1,bindings:{...props.modelValue.policy.bindings,[category]:value}},delivery:{...props.modelValue.delivery,classification_revision:props.revision||props.modelValue.delivery.classification_revision,policy_bindings:{...bindings,...(!bindings[category]||bindings[category]===old?{[category]:value}:{})}}})}
+function markDelivery(delivery){
+ const before=props.modelValue.delivery,changed=(a,b)=>canonical(a)!==canonical(b);
+ for(const key of ['rules','mappings'])own(key,[...new Set([...(before[key]||[]),...(delivery[key]||[])].filter(row=>changed((before[key]||[]).find(old=>old.id===row.id),(delivery[key]||[]).find(next=>next.id===row.id))).map(row=>row.id))]);
+ own('scopes',[...new Set([...Object.keys(before.cloud_scopes||{}),...Object.keys(delivery.cloud_scopes||{})].filter(key=>changed(before.cloud_scopes?.[key],delivery.cloud_scopes?.[key])))]);
+}
+function updateDelivery(delivery){markDelivery(delivery);emit('update:modelValue',{...props.modelValue,delivery})}
 function choose(){step.value=0;error.value=[]}
 function link(){if(props.readonly||!plan.value)return;
  const d=clone(props.modelValue.delivery),rid=plan.value.organized_rule||unique(d.rules.map(r=>r.id),'交付 ');
  let r=d.rules.find(r=>r.id===rid);if(!r){r={...initial(contract.schemas.DeliveryRule),id:rid,cloud_scope_id:''};d.rules.push(r)}
  if(!d.cloud_scopes[r.cloud_scope_id]){r.cloud_scope_id=unique(Object.keys(d.cloud_scopes),'云盘 ');d.cloud_scopes[r.cloud_scope_id]={...initial(contract.schemas.CloudScope),root:'',allowed_prefixes:[],p115_parents:{}}}
  if(!d.mappings.some(m=>m.cloud_scope_id===r.cloud_scope_id))d.mappings.push({...initial(contract.schemas.Mapping),id:unique(d.mappings.map(m=>m.id),'媒体库 '),cloud_scope_id:r.cloud_scope_id,revision:'ui-'+Date.now()});
+ markDelivery(d);
  emit('update:modelValue',{...props.modelValue,delivery:d,destination_templates:props.modelValue.destination_templates.map(t=>t.id===selected.value?{...t,organized_rule:rid}:t)});
 }
 defineExpose({exit});

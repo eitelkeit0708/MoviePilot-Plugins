@@ -46,6 +46,7 @@ Thumbs.db
 /docs/subscribetter/deployment/runtime.env
 /.worktrees/
 /.venv/
+/.vite/
 !tests/v3/subscribetter/test_*.py
 
 # Private acceptance runs and tool checkouts are not release artifacts.

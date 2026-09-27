@@ -736,6 +736,25 @@ class PassiveTests(unittest.TestCase):
 
 
 class ReplacementTests(unittest.TestCase):
+    def test_explicit_candidate_selection_executes_only_the_reviewed_plan(self):
+        import test_planner
+        test_planner.AuthorityTests.setUpClass()
+        f=test_planner.AuthorityTests('test_atomic_claim_before_callbacks_two_connections');f.setUp();self.addCleanup(f.doCleanups)
+        m=load('runtime');evidence=load('evidence');snapshot=f.spec(candidate='B');selected=[]
+        decision=evidence.append(f.repo,'B',snapshot['targets'],{'plans':[snapshot]},task_id=7,opportunity_id='round')
+        with f.repo.connection() as db:plan_digest=json.loads(db.execute('SELECT data FROM candidate_decisions WHERE id=?',(decision['decision_id'],)).fetchone()[0])['plan_digests'][0]
+        f.repo.setting('runtime-input:round',{'task_id':7,'task_generation':1})
+        r=object.__new__(m.Runtime);r.repository=f.repo;r.check=lambda:None;r.verify_input=lambda saved:{'generation':1}
+        r.candidates=SimpleNamespace(runtime={'B':{}},refresh=lambda *args:(_ for _ in ()).throw(AssertionError('reviewed candidate was already loaded')))
+        r.evaluate=lambda saved,key,**kwargs:{'plans':[snapshot]};r.scheduler=SimpleNamespace(opportunity=lambda _:dict(state='ACTIVE'))
+        r.candidate_plan=lambda opportunity,saved,plan,**kwargs:selected.append((plan,kwargs)) or dict(id='chosen')
+        r.advance=lambda plan,saved,deadline=None:dict(state='DOWNLOADING');r.deadline=None
+        result=r.select_candidate(7,1,'round',decision['decision_id'],plan_digest,[next(iter(snapshot['targets']))])
+        self.assertEqual(('B','chosen','DOWNLOADING'),(result['candidate_key'],result['plan_id'],result['state']))
+        self.assertIs(snapshot,selected[0][0]);self.assertEqual({'round_plans':[snapshot],'immediate':True},selected[0][1])
+        simulated=evidence.append(f.repo,'B',snapshot['targets'],{'plans':[snapshot]},task_id=7,opportunity_id='round',simulation=True)
+        with self.assertRaisesRegex(ValueError,'CANDIDATE_DECISION_SCOPE_CHANGED'):r.select_candidate(7,1,'round',simulated['decision_id'],plan_digest,[next(iter(snapshot['targets']))])
+
     def test_runtime_replacement_requires_physical_isolation_and_keeps_budget(self):
         import test_planner
         test_planner.AuthorityTests.setUpClass()

@@ -122,6 +122,19 @@ class Decision(Strict):
     summary:dict[str,JsonValue]=Field(default_factory=dict)
 
 
+class ReplacementCandidate(Strict):
+    decision_id:Id
+    candidate_key:Id
+    opportunity_id:Id
+    plan_digest:Digest
+    title:str
+    affected_targets:list[Key]
+    file_count:int
+    shared_files:bool
+    change:dict[str,JsonValue]
+    created_at:str
+
+
 class ArchiveTarget(Strict):
     target_key:str
     state:str
@@ -380,6 +393,14 @@ class Evaluate(Fence):
     simulation:bool=True
 
 
+class SelectCandidatePreview(Fence):
+    generation:int=Field(gt=0)
+    opportunity_id:Id
+    decision_id:Id
+    plan_digest:Digest
+    target_keys:list[Key]=Field(min_length=1,max_length=100)
+
+
 class ExclusionPreview(Fence):
     candidate_key:Id
     task_id:int=Field(gt=0)
@@ -630,7 +651,7 @@ class Views:
     @staticmethod
     def _decision(r):return public(dict(**{k:r[k] for k in ('id','candidate_key','task_id','opportunity_id','status','digest','created_at')},simulation=bool(r['simulation']),evidence=json.loads(r['data']),summary=json.loads(r.get('summary') or '{}')))
 
-    def decisions(self,limit:Limit=25,offset:Offset=0,candidate_key:Id|None=None,task_id:int|None=Query(None,gt=0),status:Literal['ACCEPT','REJECT','DEFER','ENRICH']|None=None,sort:Literal['oldest','newest']='oldest',user:TokenPayload=Depends(verify_token))->Page[Decision]:
+    def decisions(self,limit:Limit=25,offset:Offset=0,candidate_key:Id|None=None,task_id:int|None=Query(None,gt=0),target_key:Key|None=None,status:Literal['ACCEPT','REJECT','DEFER','ENRICH']|None=None,sort:Literal['oldest','newest']='oldest',user:TokenPayload=Depends(verify_token))->Page[Decision]:
         # Keep the large evaluation out of list responses. At most eight target
         # outcomes and seven dimensions per outcome; details retain the full record.
         select="""id,candidate_key,task_id,opportunity_id,status,simulation,digest,created_at,
@@ -644,7 +665,18 @@ class Views:
                             SELECT DISTINCT substr(json_extract(c.value,'$.dimension'),1,64) dimension
                             FROM json_each(d.value,'$.comparisons') c LIMIT 7)))) outcome
                     FROM json_each(data,'$.evaluation.decisions') d ORDER BY d.key LIMIT 8)))) AS summary"""
-        self._auth(user);return self._page('candidate_decisions',Decision,self._decision,select=select,where='(? IS NULL OR candidate_key=?) AND (? IS NULL OR task_id=?) AND (? IS NULL OR status=?)',args=(candidate_key,candidate_key,task_id,task_id,status,status),order='created_at DESC,id DESC' if sort=='newest' else 'created_at,id',limit=limit,offset=offset)
+        where="(? IS NULL OR candidate_key=?) AND (? IS NULL OR task_id=?) AND (? IS NULL OR status=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM json_each(data,'$.evaluation.decisions') d WHERE d.key=? AND json_extract(d.value,'$.status')='ALLOW'))"
+        self._auth(user);return self._page('candidate_decisions',Decision,self._decision,select=select,where=where,args=(candidate_key,candidate_key,task_id,task_id,status,status,target_key,target_key),order='created_at DESC,id DESC' if sort=='newest' else 'created_at,id',limit=limit,offset=offset)
+
+    def replacement_candidates(self,task_id:int,target_key:Key,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[ReplacementCandidate]:
+        self._auth(user)
+        source="candidate_decisions d JOIN opportunities o ON o.id=d.opportunity_id AND o.task_id=d.task_id JOIN json_each(d.data,'$.evaluation.plans') p"
+        select="d.id decision_id,d.candidate_key,d.opportunity_id,d.created_at,p.value plan,json_extract(d.data,'$.plan_digests['||p.key||']') plan_digest,coalesce(json_extract(d.data,'$.observed.title'),'资源名称暂不可用') title"
+        where="d.task_id=? AND d.status='ACCEPT' AND d.simulation=0 AND o.state='ACTIVE' AND EXISTS(SELECT 1 FROM json_each(p.value,'$.targets') t WHERE t.key=?) AND EXISTS(SELECT 1 FROM json_each(d.data,'$.evaluation.decisions') outcome WHERE outcome.key=? AND json_extract(outcome.value,'$.status')='ALLOW')"
+        def project(row):
+            plan=json.loads(row['plan']);files=plan.get('torrent_files',[]);chosen=set(plan.get('selected_indices',[]));targets=sorted(plan.get('targets',{}))
+            return dict(decision_id=row['decision_id'],candidate_key=row['candidate_key'],opportunity_id=row['opportunity_id'],plan_digest=row['plan_digest'],title=public(row['title']),affected_targets=targets,file_count=len(chosen),shared_files=any(f.get('index') in chosen and len(f.get('targets',[]))>1 for f in files),change=public(plan.get('targets',{}).get(target_key,{})),created_at=row['created_at'])
+        return self._page('candidate_decisions',ReplacementCandidate,project,source=source,select=select,where=where,args=(task_id,target_key,target_key),order='d.created_at DESC,d.id DESC,p.key',limit=limit,offset=offset)
 
     def decision(self,decision_id:Id,user:TokenPayload=Depends(verify_token))->Decision:
         self._auth(user);return Decision(**self._decision(self._one('candidate_decisions','id',decision_id)))
@@ -717,7 +749,12 @@ class Views:
         self._auth(user);r=self._one('delivery_bundles','id',bundle_id);d=json.loads(r['data']);p=self._one('plans','id',r['plan_id']);s=json.loads(p['snapshot'])
         task=self.repository.get_task(p['task_id']);r.update(task_id=p['task_id'],title=(task or {}).get('snapshot',{}).get('name',''))
         p['snapshot']=encoded({k:v for k,v in s.items() if k not in ('torrent_files','local_assets','targets','current')})
-        files=self._page('delivery_bundles',Row,lambda x:dict(id=str(json.loads(x['value'])['file_index']),state=json.loads(x['value'])['state'],revision=str(r['revision']),data=public(json.loads(x['value']))),source="delivery_bundles b,json_each(b.data,'$.files') f",select='f.value',where='b.id=?',args=(bundle_id,),order="json_extract(f.value,'$.file_index')",limit=limit,offset=offset)
+        assets={a.get('file_index'):a for a in d.get('manifest',{}).get('assets',[])}
+        def file_row(x):
+            value=json.loads(x['value']);asset=assets.get(value.get('file_index'),{})
+            value.update({k:asset[k] for k in ('role','requires') if k in asset})
+            return dict(id=str(value['file_index']),state=value['state'],revision=str(r['revision']),data=public(value))
+        files=self._page('delivery_bundles',Row,file_row,source="delivery_bundles b,json_each(b.data,'$.files') f",select='f.value',where='b.id=?',args=(bundle_id,),order="json_extract(f.value,'$.file_index')",limit=limit,offset=offset)
         return BundleDetail(bundle=Bundle(**self._bundle(r)),authority=public(dict(plan=self.row(p),target_count=len(d.get('vector',{})),manifest={k:v for k,v in d.get('manifest',{}).items() if k not in ('assets','targets','publication')},rule_revision=d.get('rule_revision'))),files=files,
             actions=self.rows('plan_actions',where='plan_id=?',args=(r['plan_id'],),order='created_at,id',limit=limit,offset=offset),
             receipts=self.rows('action_receipts',source='action_receipts r JOIN plan_actions a ON a.id=r.action_id',select='r.*',where='a.plan_id=?',args=(r['plan_id'],),order='r.id',limit=limit,offset=offset),
@@ -941,7 +978,7 @@ class Views:
                 if not permissions[permission]:blockers.append('CLEANUP_PERMISSION_DISABLED')
                 if not success and b['state']!='ABANDONED':blockers.append('CLEANUP_NOT_ELIGIBLE')
                 if objects['scope']=='staging' and b.get('publication_action'):blockers.append('PUBLISHED_CLEANUP_FORBIDDEN')
-        elif kind in ('settings','exclusion','change_source'):
+        elif kind in ('settings','exclusion','change_source','select_candidate'):
             task=rows('tasks','id=?',(objects['task_id'],))
             if not task:raise HTTPException(404,'TASK_NOT_FOUND')
             facts['task']=task[0]
@@ -970,6 +1007,17 @@ class Views:
                                                   planner_mode='season' if objects['completed_mode']=='PACK' else 'episode')
             facts['shared']=rows('plans',"task_id!=? AND authorization IN ('ACTIVE','PREPARED') AND EXISTS(SELECT 1 FROM plans p WHERE p.task_id=? AND p.authorization IN ('ACTIVE','PREPARED') AND json_extract(p.snapshot,'$.downloader')=json_extract(plans.snapshot,'$.downloader') AND json_extract(p.snapshot,'$.infohash')=json_extract(plans.snapshot,'$.infohash'))",(objects['task_id'],objects['task_id']))
             if facts['shared']:blockers.append('SHARED_REFERENCE')
+            if kind=='select_candidate':
+                decision=rows('candidate_decisions','id=?',(objects['decision_id'],))
+                if not decision:raise HTTPException(404,'CANDIDATE_DECISION_NOT_FOUND')
+                facts['decision']=decision[0];data=json.loads(decision[0]['data'])
+                if (decision[0]['task_id'],decision[0]['opportunity_id'],decision[0]['status'],decision[0]['simulation'])!=(objects['task_id'],objects['opportunity_id'],'ACCEPT',0):blockers.append('CANDIDATE_DECISION_SCOPE_CHANGED')
+                plans=data.get('evaluation',{}).get('plans',[]);digests=data.get('plan_digests',[])
+                matched=[plan for index,plan in enumerate(plans) if index<len(digests) and digests[index]==objects['plan_digest']]
+                if len(matched)!=1 or not set(objects['target_keys'])<=set(matched[0].get('targets',{})):blockers.append('CANDIDATE_PLAN_SCOPE_CHANGED')
+                else:facts['selection']=dict(title=data.get('observed',{}).get('title') or '所选候选资源',candidate_key=decision[0]['candidate_key'],affected_targets=sorted(matched[0]['targets']),file_count=len(matched[0].get('selected_indices',[])),shared_files=any(len(f.get('targets',[]))>1 for f in matched[0].get('torrent_files',[]) if f.get('index') in matched[0].get('selected_indices',[])))
+                runtime=self.plugin.runtime;revisions=data.get('revisions',{})
+                if not runtime or revisions.get('policy')!=getattr(getattr(runtime,'policy',None),'semantic_hash',None) or revisions.get('parse')!=getattr(getattr(getattr(runtime,'meta',None),'corrector',None),'revision',None):blockers.append('CANDIDATE_POLICY_OR_CURRENT_CHANGED')
         elif kind=='revoke':
             facts['exclusion']=rows('exclusions','id=?',(objects['exclusion_id'],))
             if not facts['exclusion']:raise HTTPException(404,'EXCLUSION_NOT_FOUND')
@@ -1012,6 +1060,7 @@ class Views:
             if 'versions' in facts:shown['versions']=[{k:v[k] for k in ('id','target_key','service','library','active')} for v in facts['versions']]
             if 'ai' in facts:shown['cache_references']=facts['ai']
             if 'mode_change' in facts:shown['mode_change']=facts['mode_change']
+            if 'selection' in facts:shown['selection']=facts['selection']
             data['display']=public(shown)
             if kind == 'cleanup':
                 # Admin-only immutable confirmation needs exact deletion paths.
@@ -1060,6 +1109,9 @@ class Views:
         self._auth(user);self._one('candidates','candidate_key',candidate_key)
         if candidate_key!=request.candidate_key:raise HTTPException(422,'CANDIDATE_ID_MISMATCH')
         return self.preview('change_source',request.model_dump(exclude={'config_revision','runtime_generation'}),request,user)
+
+    def select_candidate_preview(self,task_id:int,request:SelectCandidatePreview,user:TokenPayload=Depends(verify_token))->Preview:
+        return self.preview('select_candidate',dict(task_id=task_id,**request.model_dump(exclude={'config_revision','runtime_generation'})),request,user)
 
     def revoke_preview(self,exclusion_id:Id,request:Fence,user:TokenPayload=Depends(verify_token))->Preview:
         return self.preview('revoke',dict(exclusion_id=exclusion_id),request,user)
@@ -1152,6 +1204,9 @@ class Views:
 
     def external_apply(self,kind,o,actor,request):
         p=self.plugin
+        if kind=='select_candidate':
+            if not p.runtime:raise ValueError('RUNTIME_UNAVAILABLE')
+            return p.runtime.select_candidate(**{key:o[key] for key in ('task_id','generation','opportunity_id','decision_id','plan_digest','target_keys')})
         if kind=='ai_cache':
             if not p.ai:raise ValueError('AI_SERVICE_UNAVAILABLE')
             p.ai.clear_cache(actor)
@@ -1429,6 +1484,7 @@ class Views:
     def apply_cleanup(self,bundle_id:Id,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.bound_apply('cleanup',request,user,'bundle_id',bundle_id)
     def apply_archive(self,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.apply('archive',request,user)
     def apply_settings(self,task_id:int,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.bound_apply('settings',request,user,'task_id',task_id)
+    def apply_select_candidate(self,task_id:int,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.bound_apply('select_candidate',request,user,'task_id',task_id)
     def apply_exclusion(self,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.apply('exclusion',request,user)
     def apply_change_source(self,candidate_key:Id,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.bound_apply('change_source',request,user,'candidate_key',candidate_key)
     def apply_revoke(self,exclusion_id:Id,request:Apply,user:TokenPayload=Depends(verify_token))->ActionResult:return self.bound_apply('revoke',request,user,'exclusion_id',exclusion_id)
@@ -1465,7 +1521,7 @@ class Views:
         return wrapped
 
     def routes(self):
-        definitions=[('/tasks',self.tasks,Page[Task]),('/tasks/{task_id}',self.task,TaskDetail),('/candidates',self.candidates,Page[Candidate]),('/candidates/{candidate_key}',self.candidate,Candidate),('/candidate-decisions',self.decisions,Page[Decision]),('/candidate-decisions/{decision_id}',self.decision,Decision),('/archive/targets',self.archives,Page[ArchiveTarget]),('/archive/targets/{target_key}',self.archive,ArchiveDetail),('/archive/versions/{version_id}',self.version,VersionDetail),('/delivery/works',self.delivery_works,Page[Row]),('/delivery/bundles',self.bundles,Page[Bundle]),('/delivery/bundles/{bundle_id}',self.bundle,BundleDetail),('/policies',self.policies,Page[PolicyView]),('/policies/{category_id:path}',self.policy,PolicyView),('/diagnostics',self.diagnostics,Health),('/discovery/sources',self.sources,Page[Source]),('/discovery/catalog',self.catalog,ActionResult),('/discovery/records',self.records,Page[DiscoveryRecord]),('/discovery/records/{record_id}/targets',self.record_targets,Page[Row]),('/discovery/statistics',self.statistics,ActionResult),('/parse/samples',self.samples,Page[Row]),('/parse/samples/{sample_key}/history',self.sample,Page[Row]),('/ai',self.ai,AIView)]
+        definitions=[('/tasks',self.tasks,Page[Task]),('/tasks/{task_id}',self.task,TaskDetail),('/tasks/{task_id}/replacement-candidates',self.replacement_candidates,Page[ReplacementCandidate]),('/candidates',self.candidates,Page[Candidate]),('/candidates/{candidate_key}',self.candidate,Candidate),('/candidate-decisions',self.decisions,Page[Decision]),('/candidate-decisions/{decision_id}',self.decision,Decision),('/archive/targets',self.archives,Page[ArchiveTarget]),('/archive/targets/{target_key}',self.archive,ArchiveDetail),('/archive/versions/{version_id}',self.version,VersionDetail),('/delivery/works',self.delivery_works,Page[Row]),('/delivery/bundles',self.bundles,Page[Bundle]),('/delivery/bundles/{bundle_id}',self.bundle,BundleDetail),('/policies',self.policies,Page[PolicyView]),('/policies/{category_id:path}',self.policy,PolicyView),('/diagnostics',self.diagnostics,Health),('/discovery/sources',self.sources,Page[Source]),('/discovery/catalog',self.catalog,ActionResult),('/discovery/records',self.records,Page[DiscoveryRecord]),('/discovery/records/{record_id}/targets',self.record_targets,Page[Row]),('/discovery/statistics',self.statistics,ActionResult),('/parse/samples',self.samples,Page[Row]),('/parse/samples/{sample_key}/history',self.sample,Page[Row]),('/ai',self.ai,AIView)]
         routes=[dict(path=p,methods=['GET'],endpoint=f,response_model=m,auth='bear',route_class_override=PrivateRoute) for p,f,m in definitions]
         for path,fn,model in [('/management/previews/{preview_id}',self.preview_receipt,Preview),('/management/operations/{operation_id}',self.operation,ActionResult)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))
@@ -1475,7 +1531,7 @@ class Views:
         routes.insert(0,dict(path='/policies/catalog',methods=['GET'],endpoint=self.policy_catalog,response_model=ActionResult,auth='bear',route_class_override=PrivateRoute))
         for path,fn in [('/tasks/{task_id}/observations',self.task_observations),('/tasks/{task_id}/plans',self.task_plans),('/plans/{plan_id}/files',self.plan_files),('/plans/{plan_id}/records/{section}',self.plan_rows),('/health/records/{section}',self.health_rows)]:
             routes.append(dict(path=path,methods=['GET'],endpoint=fn,response_model=Page[Row],auth='bear',route_class_override=PrivateRoute))
-        actions=[('/discovery/history/cleanup',self.history_preview,self.apply_history),('/delivery/{bundle_id}/cancel',self.cancel_preview,self.apply_cancel),('/delivery/{bundle_id}/cleanup',self.cleanup_preview,self.apply_cleanup),('/archive/invalidate',self.invalidate_preview,self.apply_archive),('/tasks/{task_id}/settings',self.settings_preview,self.apply_settings),('/exclusions',self.exclusion_preview,self.apply_exclusion),('/exclusions/{exclusion_id}/revoke',self.revoke_preview,self.apply_revoke),('/candidates/{candidate_key}/change-source',self.change_source_preview,self.apply_change_source),('/ai/cache/clear',self.cache_preview,self.apply_cache),('/ai/prompt/restore',self.prompt_preview,self.apply_prompt)]
+        actions=[('/discovery/history/cleanup',self.history_preview,self.apply_history),('/delivery/{bundle_id}/cancel',self.cancel_preview,self.apply_cancel),('/delivery/{bundle_id}/cleanup',self.cleanup_preview,self.apply_cleanup),('/archive/invalidate',self.invalidate_preview,self.apply_archive),('/tasks/{task_id}/settings',self.settings_preview,self.apply_settings),('/tasks/{task_id}/select-candidate',self.select_candidate_preview,self.apply_select_candidate),('/exclusions',self.exclusion_preview,self.apply_exclusion),('/exclusions/{exclusion_id}/revoke',self.revoke_preview,self.apply_revoke),('/candidates/{candidate_key}/change-source',self.change_source_preview,self.apply_change_source),('/ai/cache/clear',self.cache_preview,self.apply_cache),('/ai/prompt/restore',self.prompt_preview,self.apply_prompt)]
         for path,preview,apply in actions:
             routes.extend([dict(path=path+'/'+suffix,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute) for suffix,fn,model in [('preview',preview,Preview),('apply',apply,ActionResult)]])
         for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/configuration/library-samples',self.library_samples,ActionResult),('/configuration/policy-summary',self.draft_policy,ActionResult),('/configuration/mapping-check',self.draft_mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:

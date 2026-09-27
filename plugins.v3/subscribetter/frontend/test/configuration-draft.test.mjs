@@ -42,3 +42,11 @@ test('saving or discarding one scheme preserves the other scheme draft and unrel
  const retained=mergeDraft(base,draft,saved).config;assert.equal(retained.destination_templates.find(p=>p.id==='b').save_path,'/b-new');
  const discarded=planDraft(draft,base,'a');assert.equal(discarded.destination_templates.find(p=>p.id==='a').save_path,'/a');assert.equal(discarded.destination_templates.find(p=>p.id==='b').save_path,'/b-new');assert.ok(discarded.delivery.libraries.Emby.includes('other'));
 });
+
+test('shared cloud scope does not make another scheme mapping part of this save or discard',()=>{
+ const base=structuredClone(contract.defaults);base.destination_templates=[{id:'a',category_id:'tv',organized_rule:'r-a',save_path:'/a'},{id:'b',category_id:'movie',organized_rule:'r-b',save_path:'/b'}];base.delivery={rules:[{id:'r-a',cloud_scope_id:'shared',local_root:'/organized/a'},{id:'r-b',cloud_scope_id:'shared',local_root:'/organized/b'}],cloud_scopes:{shared:{root:'/115'}},mappings:[{id:'ma',cloud_scope_id:'shared',emby_service:'Emby',library_id:'one',emby_prefix:'/a'},{id:'mb',cloud_scope_id:'shared',emby_service:'Emby',library_id:'two',emby_prefix:'/b'}],libraries:{Emby:['one','two']},policy_bindings:{},classification_revision:1};
+ const draft=structuredClone(base);draft.destination_templates[0].save_path='/a-new';draft.delivery.mappings.find(row=>row.id==='mb').emby_prefix='/b-draft';
+ const saved=planDraft(base,draft,'a');assert.equal(saved.destination_templates[0].save_path,'/a-new');assert.equal(saved.delivery.mappings.find(row=>row.id==='mb').emby_prefix,'/b');
+ const discarded=planDraft(draft,base,'a');assert.equal(discarded.destination_templates[0].save_path,'/a');assert.equal(discarded.delivery.mappings.find(row=>row.id==='mb').emby_prefix,'/b-draft');
+ const explicit=planDraft(base,draft,'a',{mappings:['mb']});assert.equal(explicit.delivery.mappings.find(row=>row.id==='mb').emby_prefix,'/b-draft');
+});
