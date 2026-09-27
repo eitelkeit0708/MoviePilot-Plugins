@@ -61,14 +61,14 @@ async function save(){if(credentialBusy.value||credentialPending.value||refreshi
 onMounted(()=>{emit('layout',{maxWidth:'1280px'});start();globalThis.window?.addEventListener('beforeunload',protect)});onBeforeUnmount(()=>{globalThis.window?.removeEventListener('beforeunload',protect);mounted=false;draft.value=null;errors.value=[]});
 </script>
 <template><section class="sb-editor" :aria-label="title">
-  <header class="sb-editor-heading"><VBtn variant="text" :disabled="busy||credentialBusy" @click="requestLeave('close')">‹ {{focus.returnLabel||'返回'}}</VBtn><div><h2>{{title}}</h2><span v-if="dirty" class="sb-unsaved">未保存</span></div></header>
+  <header class="sb-editor-heading"><VBtn v-if="!focus.root" variant="text" :disabled="busy||credentialBusy" @click="requestLeave('close')">‹ {{focus.returnLabel||'返回'}}</VBtn><div><h2>{{title}}</h2><span v-if="dirty" class="sb-unsaved">未保存</span></div></header>
   <nav v-if="availablePanels.length" class="sb-settings-tabs" :aria-label="title+'功能'"><button v-for="[key,label] in availablePanels" :key="key" :aria-current="panel===key?'page':undefined" @click="selectPanel(key)">{{label}}</button></nav>
   <p v-if="draftNotice" class="sb-notice" role="status">{{draftNotice}}</p>
   <p v-if="continuation" class="sb-notice">已接续本次变更，请确认后保存。</p>
   <p v-if="catalogError" class="sb-warning">{{catalogError}} <VBtn variant="text" @click="readServices">重新读取服务</VBtn></p>
   <p v-if="refreshing&&!draft" role="status">正在读取设置…</p>
   <p v-if="status.error.value" role="alert" class="sb-error">{{status.error.value}} <VBtn variant="text" @click="refresh">重新读取</VBtn></p>
-  <div v-if="draft" class="sb-editor-content">
+  <div v-if="draft" class="sb-editor-content" :class="{'sb-settings-content':!['policy','plans'].includes(group)}">
     <template v-if="group==='ownership'"><BasicSettings v-if="panel!=='lifecycle'" :section="panel" :model-value="draft" :api="api" :readonly="locked" @update:model-value="draft=$event"/><section v-else class="sb-form-section"><h3>升级期限</h3><OperationalSettings group="lifecycle" :model-value="draft.lifecycle" :api="api" :readonly="locked" @update:model-value="draft.lifecycle=$event"/></section></template>
     <template v-else-if="group==='candidates'"><OperationalSettings v-if="panel==='search'" group="candidates" section="search" :model-value="draft.candidates" :api="api" :readonly="locked" @update:model-value="draft.candidates=$event"/><ScheduleSettings v-else :section="panel" :model-value="draft.schedule" :readonly="locked" @update:model-value="draft.schedule=$event"/></template>
     <template v-else-if="group==='ai'"><BasicSettings v-if="panel==='naming'" section="naming" :model-value="draft" :api="api" :readonly="locked" @update:model-value="draft=$event"/><AISettings v-else :key="componentEpoch" :section="panel" :model-value="draft.ai_assist" :client="client" :base="draftBase" :status="status" :saved="!dirty" :readonly="locked" @update:model-value="updateAI" @busy="credentialBusy=$event" @pending="credentialPending=$event"/></template>

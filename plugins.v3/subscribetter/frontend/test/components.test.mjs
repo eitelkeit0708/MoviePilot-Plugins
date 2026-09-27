@@ -56,6 +56,19 @@ test('actual immutable preview confirmation sends only receipt/opid/confirm and 
  const confirm=walk(f.root,n=>n.type==='button'&&text(n)==='确认此对象与范围')[0];await confirm.props.onClick();await settle();assert.equal(calls.length,2);assert.deepEqual(Object.keys(calls[1][1]).sort(),['confirm','operation_id','preview_digest','preview_id']);assert.equal(calls[1][1].preview_id,'p');f.app.unmount();
  const blocked=fixture(Action,{extra:{action:['隐藏历史','/discovery/history/cleanup/preview'],client:{...client,post:async()=>({...preview,blockers:['UNKNOWN']})},status,context:{record_ids:[1]}}});await settle();await walk(blocked.root,n=>n.type==='button'&&text(n)==='取得不可变预览')[0].props.onClick();await settle();assert.equal(walk(blocked.root,n=>n.type==='button'&&text(n)==='确认此对象与范围')[0].props.disabled,true);blocked.app.unmount();
 });
+test('top-level product editors do not show a back button to an empty copy of the same page',async()=>{
+ const f=fixture(Page);await settle();
+ try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];button('设置').props.onClick();await settle();assert.equal(walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹')).length,0)}finally{f.app.unmount()}
+});
+test('restored top-level editors discard obsolete back buttons from older browser sessions',async()=>{
+ const storage=new Map([['subscribetter:navigation:Clone:subscriptions',JSON.stringify({section:'settings',scroll:0,editors:[{focus:{group:'ai',tab:'prompt'},scroll:0}]})]]);globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+ const f=fixture(Page);await settle();
+ try{assert.equal(walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹')).length,0)}finally{f.app.unmount();delete globalThis.sessionStorage}
+});
+test('quality policy provides a compact mobile selector without replacing the desktop list',async()=>{
+ const f=fixture(Page);await settle();
+ try{walk(f.root,n=>n.type==='button'&&text(n)==='质量策略')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-picker-mobile').length,1);assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-selector').length,1)}finally{f.app.unmount()}
+});
 test('explicit replacement confirmation shows the selected resource and full affected scope',async()=>{
  const preview={preview_id:'p',preview_digest:'d',kind:'select_candidate',objects:{selection:{title:'GATE24.S01.2160p',affected_targets:['["电视剧","douban","24",1,"",1]','["电视剧","douban","24",1,"",2]'],file_count:1,shared_files:true}},permissions:{},blockers:[],revisions:{},expires_at:'later'};
  const f=fixture(Action,{extra:{action:['选择这个候选资源','/tasks/{task_id}/select-candidate/preview'],client:{post:async()=>preview},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')},context:{task_id:3,generation:1,opportunity_id:'round',decision_id:'decision',plan_digest:'a'.repeat(64),target_keys:['["电视剧","douban","24",1,"",1]'],_bound:true,_label:'GATE24'}}});await settle();
@@ -260,7 +273,7 @@ test('mapping checks send the selected persisted sample and refuse an unsaved ma
 test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, empty and late responses are distinct',async()=>{
  const {spawnSync}=await import('node:child_process');
  const cwd=fileURLToPath(new URL('../../../../',import.meta.url));
- const run=spawnSync(path.join(cwd,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'),['-X','utf8','tests/v3/subscribetter/test_management_display.py','--fixture'],{cwd,encoding:'utf8'});
+ const run=spawnSync(path.join(cwd,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'),['-X','utf8','tests/v3/subscribetter/test_management_display.py','--fixture'],{cwd,encoding:'utf8',maxBuffer:8*1024*1024});
  assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
  const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
  for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','视频或必要字幕'],['unknown','外部结果尚未确认'],['superseded','已失效或待核实']]){
@@ -392,7 +405,7 @@ test('nested policy save survives outer discard, keeps scheme inputs, and never 
  const editors=()=>walk(f.root,n=>n.type==='section'&&n.props?.class==='sb-editor');assert.equal(editors().length,2);
  const child=editors().at(-1);walk(child,n=>n.props?.['aria-label']==='上移音轨')[0].props.onClick();await settle();await btn('保存策略',child).props.onClick();await settle();assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
   walk(child,n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.equal(editors().length,1);tab('下载').props.onClick();await settle();assert.ok(walk(f.root,n=>n.type==='input'&&n.props.value==='/unsaved').length);
- walk(editors()[0],n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.match(text(f.root),/本次已保存的欧美剧仍然生效/);btn('放弃本页修改').props.onClick();await settle();assert.equal(editors().length,0);assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
+ btn('订阅').props.onClick();await settle();assert.match(text(f.root),/本次已保存的欧美剧仍然生效/);btn('放弃本页修改').props.onClick();await settle();assert.equal(editors().length,0);assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
  }finally{f.app.unmount();delete globalThis.sessionStorage;clearFollowup('Clone')}
 });
 
@@ -435,6 +448,7 @@ test('name recognition tabs keep one draft and save prompts from the fixed foote
   for(const label of ['解析修正','AI 服务','提示词与版本','缓存与限流'])assert.ok(button(label),label);
   button('提示词与版本').props.onClick();await settle();
   assert.ok(!text(f.root).includes('服务地址'));
+  assert.equal(walk(f.root,n=>n.props?.class==='sb-prompt-history').length,0);
   const prompt=walk(f.root,n=>n.type==='textarea')[0];prompt.props.onInput({target:{value:'只返回核实后的媒体名称'}});await settle();assert.equal(walk(f.root,n=>n.type==='textarea')[0].props.value,'只返回核实后的媒体名称');
   button('AI 服务').props.onClick();await settle();button('提示词与版本').props.onClick();await settle();
   assert.equal(walk(f.root,n=>n.type==='textarea')[0].props.value,'只返回核实后的媒体名称');
