@@ -1,0 +1,80 @@
+{
+  "status": "PROPOSED_NOT_IMPLEMENTED",
+  "date": "2026-09-27",
+  "code_baseline": "b987ed8d0d77ba1249b95c0c51c58817130068da",
+  "visual_reference": "Actual MoviePilot subscription, edit dialog, media recommendation; private originals not published",
+  "images": [
+    {
+      "file": "concepts/01-subscriptions.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        1487,
+        1058
+      ],
+      "sha256": "6c286bc3ea72435a104c711877176320228c8be4b58248a24605468ac3592dc5"
+    },
+    {
+      "file": "concepts/02-work-details.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        1487,
+        1058
+      ],
+      "sha256": "4a10709b0222cd6cd6338e1eb24a020458b8280175bc0c249d2c021edc9a935f"
+    },
+    {
+      "file": "concepts/03-discovery.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        1486,
+        1059
+      ],
+      "sha256": "b0f9936bc1d1d602d715476d0dd1e53a81d70501ac53cd9bdf8edfd64d8a2717"
+    },
+    {
+      "file": "concepts/04-upload-ingest.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        1487,
+        1058
+      ],
+      "sha256": "a25378c39a853594f67373c857a9cdb8462ba26fe65a6ad1a6b37c23913c5ae2"
+    },
+    {
+      "file": "concepts/05-policy-editor.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        1487,
+        1058
+      ],
+      "sha256": "b3b6c2d95808db97942dce6ee57ecef47acd65b17b16c48a65a05c1eb83af84a"
+    },
+    {
+      "file": "concepts/06-plan-paths.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        1487,
+        1058
+      ],
+      "sha256": "fb43e92b858a6b95551a60363c20c64644ae745f716e80a4dd34fdd4da88c192"
+    },
+    {
+      "file": "concepts/07-settings-ai.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        1487,
+        1058
+      ],
+      "sha256": "0cc836b459e1467d439809ce6f9a67937ff7039506ad02b4c29e5459db0aa422"
+    },
+    {
+      "file": "concepts/08-mobile-details.png",
+      "format": "AI-generated design concept, not browser screenshot",
+      "pixels": [
+        853,
+        1844
+      ],
+      "sha256": "33e05571929f66ce03e426a71d460d5f5a4fd5ad574ce31dbbd5e9b9bb164113"
+    }
+  ]
+}
