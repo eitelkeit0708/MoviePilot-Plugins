@@ -1,0 +1,112 @@
+{
+  "product_commit": "b987ed8d0d77ba1249b95c0c51c58817130068da",
+  "capture_date": "2026-09-27",
+  "format": "JPEG from native screenshot API",
+  "pixel_editing": "none; filename extensions corrected to actual JPEG format",
+  "screenshots": [
+    {
+      "file": "screenshots/01-formal-list.jpg",
+      "sha256": "f8e712035257c4cd75cecd7e0fd6cefcc6064e8af7d68d56b234dde4aeee348a",
+      "bytes": 55318,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/02-formal-episodes.jpg",
+      "sha256": "d025f9fdb4fdc33374d0ed6b816acc41ecc46d341300fc37bb18656b57534cde",
+      "bytes": 60158,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/03-formal-episode-expanded.jpg",
+      "sha256": "1840d0a0fd8f99670e5c832aaeddd6e30a8eb01c31f2ac6d3f2489cbf7f433b1",
+      "bytes": 59541,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/04-formal-mobile.jpg",
+      "sha256": "e82c36cca5fb50d9f281bb2caf1d172f6a452f042feb9a7d5dd31725bc8a45d5",
+      "bytes": 37184,
+      "width": 1265,
+      "height": 712,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/05-formal-mobile-light.jpg",
+      "sha256": "bf31f0f373d35164010dfc7791e952ed571d9a184edfb0b4b8abe3f5c5a6d55b",
+      "bytes": 35991,
+      "width": 1265,
+      "height": 712,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/06-formal-discovery.jpg",
+      "sha256": "639c6d0d0781a29fe6086daa1379eaff5be17bfa72715edc338e9bc725e462f1",
+      "bytes": 50926,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/07-formal-transfers.jpg",
+      "sha256": "54b9d370ea1094b5884b525930793ba3dbf5d1082a4186a63899e8280f4cd200",
+      "bytes": 39962,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/08-formal-policy.jpg",
+      "sha256": "06e994dc39a37449c283a0f4299d7e0b3f934455b18d0c4677427847fe8cf5dd",
+      "bytes": 53954,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/09-formal-settings.jpg",
+      "sha256": "ffd8cdf8930e42e44a4a54a26a8b15b68dbb71c24eb317957f2abb920faf16c9",
+      "bytes": 62875,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/10-formal-schemes.jpg",
+      "sha256": "ec9f26c90200bf04930147d04d0a4457ecc47c1787a2167c7b315620fa519de7",
+      "bytes": 53494,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/11-formal-plan-editor.jpg",
+      "sha256": "f44f3215de84a0cdeb9935745534b48f7c2c1c43bd6f864dfa1cd10ca1f06684",
+      "bytes": 53474,
+      "width": 1280,
+      "height": 720,
+      "source": "formal components with synthetic data"
+    },
+    {
+      "file": "screenshots/12-r2-reference-list.jpg",
+      "sha256": "1aa07d8a4051c9ee230505215564d3d6020044da56dd7633ae534e5a04695796",
+      "bytes": 50445,
+      "width": 1280,
+      "height": 720,
+      "source": "R2 synthetic reference"
+    },
+    {
+      "file": "screenshots/13-r2-reference-episodes.jpg",
+      "sha256": "cb67676d71da69c70f21427b0e5c7f11713e623150db66a212fc74c55db93197",
+      "bytes": 56700,
+      "width": 1280,
+      "height": 720,
+      "source": "R2 synthetic reference"
+    }
+  ]
+}
