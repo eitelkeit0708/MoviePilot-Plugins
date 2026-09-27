@@ -235,7 +235,7 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
  assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
  const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
  for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','视频或必要字幕'],['unknown','外部结果尚未确认'],['superseded','已失效或待核实']]){
-  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='rapid')assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP'])}finally{f.app.unmount()}
+  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='downloading')assert.ok(!text(f.root).includes('等待下载器更新文件进度'));if(scene==='rapid')assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP'])}finally{f.app.unmount()}
  }
  const multi=structuredClone(dto.scenes.rapid.units.items[0]);
  multi.current_quality.push({...multi.current_quality[0],version_id:'lossless',quality:{...multi.current_quality[0].quality,audio:3}});
@@ -340,4 +340,11 @@ test('nearby reconcile is one bounded request and keeps an unknown result unknow
  const {default:ReconcileButton}=await import(pathToFileURL(path.join(out,'ReconcileButton.mjs'))),calls=[],action={component:'delivery',object_id:'b',revision:'7'};
  const f=fixture(ReconcileButton,{extra:{action,unknown:true,client:{post:async(p,b)=>{calls.push([p,b]);return {state:'UNKNOWN',result:{checked_at:'2026-09-27T00:00:00Z'}}}},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')}}});await settle();
  try{await walk(f.root,n=>n.type==='button'&&text(n)==='核对结果')[0].props.onClick();await settle();assert.deepEqual(calls,[['/health/reconcile',{...action,config_revision:4,runtime_generation:6}]]);assert.match(text(f.root),/外部结果仍待确认/);assert.ok(!text(f.root).includes('上传成功'));}finally{f.app.unmount()}
+});
+
+test('quick subscription filters query the server, keep page boundaries, and show each returned episode fact',async()=>{
+ const task={id:1,title:'GATE24',state:'ACTIVE',progress:{targets:30,present:7,processing:27,stage_sample_count:25,highlights:[{target_key:'["电视剧","tmdb","42",1,"",5]',phase:'UNKNOWN'},{target_key:'["电视剧","tmdb","42",1,"",1]',phase:'DOWNLOADING'}]}};
+ const reads=[],configured=[];const client={get:async(p,o)=>{reads.push([p,o?.params]);return {items:[task],total:30,next_offset:25}}};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({ordinary_work_active:true}),error:ref('')},onConfigure:k=>configured.push(k)}});await settle();
+ try{const button=t=>walk(f.root,n=>n.type==='button'&&text(n)===t)[0];await button('下一页').props.onClick();await settle();await button('已暂停').props.onClick();await settle();assert.equal(reads.at(-1)[1].state,'PAUSED');assert.equal(reads.at(-1)[1].offset,0);assert.equal(reads.at(-1)[1].limit,25);assert.equal(walk(f.root,n=>n.props?.class==='sb-task-highlight').length,2);assert.match(text(f.root),/已读取 25 \/ 27/);assert.match(text(f.root),/总集数待确认/);button('下载与入库方案').props.onClick();assert.deepEqual(configured,['plans']);}finally{f.app.unmount()}
 });

@@ -19,7 +19,7 @@ const changeFor=version=>{
   <span v-else-if="p.phase==='RAPID_WAIT'&&waiting.length===1">未命中 {{waiting[0].misses??'未知'}} / {{waiting[0].miss_limit??'上限未记录'}} 次</span>
   <span v-else-if="p.phase==='RAPID_WAIT'">{{waiting.length}} 个文件等待秒传</span>
   <span v-else-if="p.phase==='WAITING_ASSETS'&&p.attachments?.required">字幕及附件 {{p.attachments.local_ready}} / {{p.attachments.required}} 已齐备</span>
-  <small :title="p.next_at?dateText(p.next_at):undefined">{{processingNext(p,health)}}</small>
+  <small v-if="p.phase!=='DOWNLOADING'||percent===null||p.next_at||!health?.ordinary_work_active||health?.paused" :title="p.next_at?dateText(p.next_at):undefined">{{processingNext(p,health)}}</small>
  </template><template v-else><strong>{{unit.owner_plan_id?'处理记录待核对':versions.length?'已收录':'等待新资源'}}</strong><small v-if="unit.owner_plan_id">原计划已失效或待核实</small><small v-else-if="unit.cooldown_until">{{dateText(unit.cooldown_until)}} 后检查</small></template></div>
  <div class="sb-unit-actions"><slot name="actions"/></div><details class="sb-episode-details"><summary :aria-label="unitLabel(unit)+'版本与处理详情'">详情</summary><div class="sb-episode-expanded">
   <section><h4>库内记录</h4><div v-for="(version,index) in versions" :key="version.version_id||index"><strong>{{versions.length>1?'版本 '+(index+1)+' · ':''}}{{qualitySummary(version.quality)}}</strong><p>{{qualityExtra(version.quality)}}</p><small>{{qualityOrigin(version.quality)}}</small></div><p v-if="!versions.length">缺少可靠的库内规格记录。</p><small v-if="unit.last_ingest_confirmed_at">最近确认 {{dateText(unit.last_ingest_confirmed_at)}}</small><slot name="archive"/></section>
