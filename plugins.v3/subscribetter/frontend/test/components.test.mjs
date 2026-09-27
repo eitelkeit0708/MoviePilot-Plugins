@@ -1,7 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import {pathToFileURL,fileURLToPath} from 'node:url';
 import {parse,compileScript} from '@vue/compiler-sfc';
 import {createRenderer,h,nextTick,ref} from 'vue';
-import {contract} from '../src/schema.mjs';
+import {contract,initial} from '../src/schema.mjs';
 import {useStatus} from '../src/status.mjs';import {saveFollowup,clearFollowup} from '../src/client.mjs';
 const source=fileURLToPath(new URL('../src/',import.meta.url)),out=fileURLToPath(new URL('../.test-build/',import.meta.url));fs.mkdirSync(out,{recursive:true});
 for(const filename of fs.readdirSync(source).filter(f=>f.endsWith('.vue'))){const {descriptor}=parse(fs.readFileSync(path.join(source,filename),'utf8'),{filename});let code=compileScript(descriptor,{id:filename,inlineTemplate:true}).content;code=code.replace(/import\s+['"]\.\/style\.css['"];?/g,'').replace(/from\s+(['"])(\.\/[^'"]+)\1/g,(_,quote,p)=>'from '+JSON.stringify(p.endsWith('.vue')?'./'+path.basename(p,'.vue')+'.mjs':pathToFileURL(path.join(source,p)).href));fs.writeFileSync(path.join(out,filename.replace('.vue','.mjs')),code)}
@@ -20,7 +20,7 @@ test('saved confirmation requires applied readback and disappears when a later r
  const root={children:[]},app=renderer.createApp({setup(){status=useStatus(client);return()=>h('div')}});app.mount(root);
  try{saveFollowup(client.pluginId,{receipt:'receipt',digest:'other'});await status.refresh();assert.match(status.saveState.value,/尚未确认/);saveFollowup(client.pluginId,{receipt:'receipt',digest:'digest'});await status.refresh();assert.equal(status.saveState.value,'设置已保存并确认生效');fail=true;await status.refresh();assert.equal(status.saveState.value,'');assert.match(status.error.value,/503/)}finally{clearFollowup(client.pluginId);app.unmount()}
 });
-function fixture(component,{get,post,extra={}}={}){clearFollowup('Clone');const calls=[];const config=structuredClone(contract.defaults);const current={revision:4,digest:'a'.repeat(64),config};const health={generation:6,dry_run:true,ordinary_work_active:false,safety_active:true,errors:[],snapshot:{config_revision:4,runtime_generation:6}};const api={get:async(p,o)=>{calls.push(['get',p,o]);if(get)return get(p,o,current,health);if(p.endsWith('/configuration'))return current;if(p.endsWith('/diagnostics'))return health;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],total:0,next_offset:null,truncated:false,snapshot:{config_revision:4,runtime_generation:6,high_watermark:'0'}}},post:async(p,b)=>{calls.push(['post',p,b]);return post?post(p,b):{valid:true,errors:[],config:{...config,configuration_receipt:'p'}}}};const saves=[];const root={children:[]};const app=renderer.createApp(component,{api,pluginId:'Clone',sourcePluginId:'SubscriBetter',initialConfig:{...config,password:'SENTINEL'},...extra,onSave:x=>saves.push(x)});app.config.warnHandler=()=>{};app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);return {root,app,calls,saves,current,api}}
+function fixture(component,{get,post,extra={},seed}={}){clearFollowup('Clone');const calls=[];const config=structuredClone(contract.defaults);const current={revision:4,digest:'a'.repeat(64),config};const health={generation:6,dry_run:true,ordinary_work_active:false,safety_active:true,errors:[],snapshot:{config_revision:4,runtime_generation:6}};seed?.(current,health);const api={get:async(p,o)=>{calls.push(['get',p,o]);if(get)return get(p,o,current,health);if(p.endsWith('/configuration'))return current;if(p.endsWith('/diagnostics'))return health;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],total:0,next_offset:null,truncated:false,snapshot:{config_revision:4,runtime_generation:6,high_watermark:'0'}}},post:async(p,b)=>{calls.push(['post',p,b]);return post?post(p,b):{valid:true,errors:[],config:{...config,configuration_receipt:'p'}}}};const saves=[];const root={children:[]};const app=renderer.createApp(component,{api,pluginId:'Clone',sourcePluginId:'SubscriBetter',initialConfig:{...config,password:'SENTINEL'},...extra,onSave:x=>saves.push(x)});app.config.warnHandler=()=>{};app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);return {root,app,calls,saves,current,api}}
 test('actual Config mount and save omit private initial fields; number controls send numbers; emit once without PUT',async()=>{
  const f=fixture(Config);await settle();assert.equal(f.calls.filter(c=>c[1].endsWith('/configuration')).length,1);
  const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];const number=walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0];assert.ok(number);number.props.onInput({target:{value:'9'}});await settle();
@@ -163,6 +163,20 @@ test('resource replacement separates an explicit reviewed candidate from automat
  const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({ordinary_work_active:true}),error:ref('')},onAction:(...args)=>events.push(args)}});await settle();
  try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'))[0].props.onClick();await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='更换资源')[0].props.onClick();await settle();assert.ok(text(f.root).includes(candidate.title));walk(f.root,n=>n.type==='button'&&text(n).includes(candidate.title))[0].props.onClick();assert.equal(events[0][0][1],'/tasks/{task_id}/select-candidate/preview');assert.equal(events[0][1].decision_id,'decision');assert.deepEqual(events[0][1].target_keys,[key]);
  await walk(f.root,n=>n.type==='button'&&text(n)==='更换资源')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='排除当前资源并自动重搜')[0].props.onClick();assert.equal(events[1][0][1],'/candidates/{candidate_key}/change-source/preview');assert.match(events[1][1]._description,/系统按现有策略重新选择/)}finally{f.app.unmount()}
+});
+
+test('resource replacement continues after an empty history page instead of declaring no candidate',async()=>{
+ const task={id:3,title:'GATE24',media_type:'电视剧',state:'ACTIVE',generation:2},key='["电视剧","douban","24",1,"",9]',reads=[];
+ const unit={target_key:key,publish_phase:'NOT_SENT',processing:{candidate_key:'current',phase:'DOWNLOADING',quality:null,files:[],transfer_files:[],started_at:'2026-09-27T00:00:00Z'}};
+ const candidate={decision_id:'decision-b',candidate_key:'alternative',opportunity_id:'round',plan_digest:'b'.repeat(64),title:'替代资源 B',affected_targets:[key],file_count:1,shared_files:false,change:{reason:'QUALITY_UPGRADE'}};
+ const client={get:async(p,o)=>{
+  if(p==='/tasks')return {items:[task],total:1,next_offset:null};
+  if(p==='/tasks/3')return {task,units:{items:[unit],total:1,next_offset:null},opportunities:{items:[{id:'round',state:'ACTIVE'}]}};
+  if(p.includes('/replacement-candidates')){reads.push(o.params);return o.params.offset?{items:[candidate],total:1,next_offset:null}:{items:[],total:1,next_offset:100};}
+  return {items:[],total:0,next_offset:null};
+ }};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({ordinary_work_active:true}),error:ref('')}}});await settle();
+ try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'))[0].props.onClick();await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='更换资源')[0].props.onClick();await settle();assert.ok(!text(f.root).includes('确实没有其他可选资源'));await walk(f.root,n=>n.type==='button'&&text(n)==='继续查看候选')[0].props.onClick();await settle();assert.ok(text(f.root).includes(candidate.title));assert.deepEqual(reads.map(row=>row.offset),[0,100]);assert.ok(reads.every(row=>row.limit===25&&row.exclude_candidate_key==='current'))}finally{f.app.unmount()}
 });
 
 test('opening a work from discovery returns to its source filter and focus context',async()=>{
@@ -385,6 +399,33 @@ test('nested policy save survives outer discard, keeps scheme inputs, and never 
  walk(child,n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.equal(editors().length,1);btn('继续').props.onClick();await settle();assert.ok(walk(f.root,n=>n.type==='input'&&n.props.value==='/unsaved').length);
  walk(editors()[0],n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.match(text(f.root),/本次已保存的欧美剧仍然生效/);btn('放弃本页修改').props.onClick();await settle();assert.equal(editors().length,0);assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
  }finally{f.app.unmount();delete globalThis.sessionStorage;clearFollowup('Clone')}
+});
+
+test('a successful scheme save consumes only its shared edit ownership',async()=>{
+ const scope={...initial(contract.schemas.CloudScope),cd2_plugin:'cd2',p115_plugin:'p115',root:'/115',allowed_prefixes:['/115/test']};
+ const rule=id=>({...initial(contract.schemas.DeliveryRule),id,enabled:true,cloud_scope_id:'shared',local_root:'/organized/'+id,staging_root:'/115/test/staging',incoming_root:'/115/test/incoming',consumer_roots:['/115/test/incoming']});
+ const mapping={...initial(contract.schemas.Mapping),id:'m',revision:'saved',emby_service:'Emby',library_id:'L',cloud_scope_id:'shared',emby_prefix:'/strm',local_strm_prefix:'/strm',playback_prefix:'/play',cd2_prefix:'/115'};
+ const configured=current=>Object.assign(current.config,{policy:{...current.config.policy,bindings:{tv:'欧美剧',movie:'欧美剧'}},destination_templates:[
+  {id:'a',display_name:'方案 A',category_id:'tv',downloader:'qbt',save_path:'/downloads/a',organized_rule:'r-a',sites:[],custom_words:[]},
+  {id:'b',display_name:'方案 B',category_id:'movie',downloader:'qbt',save_path:'/downloads/b',organized_rule:'r-b',sites:[],custom_words:[]}
+ ],delivery:{classification_revision:1,cloud_scopes:{shared:scope},rules:[rule('r-a'),rule('r-b')],mappings:[mapping],libraries:{Emby:['L']},policy_bindings:{tv:'欧美剧',movie:'欧美剧'}}});
+ const f=fixture(Config,{extra:{focus:{group:'plans',id:'a',step:3}},seed:configured,get:async(p,o,c,h)=>{
+  if(p.endsWith('/configuration'))return structuredClone(c);if(p.endsWith('/diagnostics'))return {...h,snapshot:{config_revision:c.revision}};
+  if(p.includes('/migration/receipts/'))return {state:'APPLIED'};
+  if(p.endsWith('/configuration/categories'))return {revision:1,categories:[{id:'tv',name:'欧美剧',enabled:true},{id:'movie',name:'电影',enabled:true}]};
+  if(p.endsWith('/policies/catalog'))return {result:{default_templates:{欧美剧:{resolutions:[2160,1080],group:'official',source:'movie',dimensions:['resolution']}}}};
+  if(p==='download/clients')return [{name:'qbt'}];if(p==='download/paths'||p==='plugin/'||p==='mediaserver/clients'||p==='mediaserver/library')return [];return {items:[],categories:[],result:{}};
+ },post:async(p,b)=>({valid:true,digest:'b'.repeat(64),config:{...b.patch,configuration_receipt:'scheme-save'}})});
+ const writes=[];f.api.put=async(p,c)=>{writes.push(structuredClone(c));f.current.config=structuredClone(c);f.current.revision++;f.current.digest='b'.repeat(64);return {success:true}};
+ const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0],step=n=>walk(f.root,node=>node.type==='button'&&node.props?.['aria-label']?.startsWith('第 '+n+' 步'))[0];
+ const choose=name=>walk(f.root,n=>n.type==='button'&&n.props?.class==='sb-plan-choice'&&text(n).includes(name))[0];
+ const click=async label=>{const node=button(label);assert.ok(node,'missing button '+label+' in '+text(f.root).slice(-500));node.props.onClick();await settle()},go=async n=>{const node=step(n);assert.ok(node,'missing step '+n);node.props.onClick();await settle()},select=async name=>{const node=choose(name);assert.ok(node,'missing scheme '+name);node.props.onClick();await settle()};
+ const setPath=(label,value)=>{const field=walk(f.root,n=>n.type==='label'&&text(n).startsWith(label))[0],input=walk(field,n=>n.type==='input')[0];input.props.onInput({target:{value}})};
+ try{await settle();setPath('Emby 中的 STRM','/a-saved-v2');await settle();await go(5);await click('保存方案');assert.equal(writes[0].delivery.mappings[0].emby_prefix,'/a-saved-v2');
+  await click('方案列表');await select('方案 B');await go(4);setPath('Emby 中的 STRM','/b-uncommitted');await settle();await click('方案列表');await select('方案 A');await go(2);setPath('下载保存到','/a-next');await settle();await go(5);await click('保存方案');
+  assert.equal(writes[1].destination_templates.find(row=>row.id==='a').save_path,'/a-next');assert.equal(writes[1].delivery.mappings[0].emby_prefix,'/a-saved-v2');
+  await click('方案列表');await select('方案 B');await go(5);await click('保存方案');assert.equal(writes[2].delivery.mappings[0].emby_prefix,'/b-uncommitted');
+ }finally{f.app.unmount();clearFollowup('Clone')}
 });
 
 test('name protection alone can save from the AI page without writing credentials or calling the model',async()=>{

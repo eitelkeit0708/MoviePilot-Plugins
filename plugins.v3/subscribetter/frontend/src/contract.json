@@ -1877,6 +1877,25 @@
             }
           },
           {
+            "name": "exclude_candidate_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9._:-]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Exclude Candidate Key"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,

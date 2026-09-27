@@ -59,6 +59,24 @@ class ExperienceTests(unittest.TestCase):
         self.assertEqual(2,views.decisions(task_id=task['id'],target_key=key,user=None).total)
         self.assertEqual(0,views.decisions(task_id=task['id'],target_key='missing',user=None).total)
 
+    def test_replacement_candidates_exclude_and_deduplicate_before_paging(self):
+        views=load('ui').Views(self.plugin)
+        task=self.repo.submit('replacement-page',self.r.Target('电视剧','themoviedb','43',1),{'name':'作品'},'test')
+        key=json.dumps(['电视剧','themoviedb','43',1,'',7],ensure_ascii=False,separators=(',',':'))
+        with self.repo.connection(write=True) as db:
+            db.execute("INSERT INTO opportunities(id,task_id,scope,mode,state,config,created_at,updated_at) VALUES('replacement-page',?,?,'CONTINUOUS','ACTIVE','{}','now','now')",(task['id'],json.dumps([key])))
+            def add(number,candidate,plan_digest):
+                plan={'candidate_key':candidate,'targets':{key:{'action':'QUALITY_UPGRADE','reason':'QUALITY_UPGRADE'}},'selected_indices':[0],'torrent_files':[{'index':0,'targets':[key]}]}
+                data={'observed':{'title':candidate},'evaluation':{'plans':[plan],'decisions':{key:{'status':'ALLOW'}}},'plan_digests':[plan_digest]}
+                db.execute('INSERT INTO candidate_decisions VALUES(?,?,?,?,?,?,?,?,?)',(f'replacement:{number:04d}',candidate,task['id'],'replacement-page','ACCEPT',0,'d'*64,json.dumps(data,ensure_ascii=False),f'2026-09-27T00:{number//60:02d}:{number%60:02d}Z'))
+            add(0,'alternative','b'*64);add(1,'alternative','c'*64);add(2,'alternative','b'*64)
+            for number in range(3,103):add(number,'current','a'*64)
+        first=views.replacement_candidates(task['id'],key,limit=1,exclude_candidate_key='current',user=None)
+        second=views.replacement_candidates(task['id'],key,limit=1,offset=first.next_offset,exclude_candidate_key='current',user=None)
+        self.assertEqual((2,1,'alternative','b'*64),(first.total,first.next_offset,first.items[0].candidate_key,first.items[0].plan_digest))
+        self.assertEqual((2,None,'alternative','c'*64),(second.total,second.next_offset,second.items[0].candidate_key,second.items[0].plan_digest))
+        self.assertEqual(3,views.replacement_candidates(task['id'],key,user=None).total)
+
     def test_discovery_membership_uses_linked_task_state_and_preserves_known_identity(self):
         self.populate();now=self.r.utcnow()
         with self.repo.connection(write=True) as db:

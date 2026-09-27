@@ -668,15 +668,24 @@ class Views:
         where="(? IS NULL OR candidate_key=?) AND (? IS NULL OR task_id=?) AND (? IS NULL OR status=?) AND (? IS NULL OR EXISTS(SELECT 1 FROM json_each(data,'$.evaluation.decisions') d WHERE d.key=? AND json_extract(d.value,'$.status')='ALLOW'))"
         self._auth(user);return self._page('candidate_decisions',Decision,self._decision,select=select,where=where,args=(candidate_key,candidate_key,task_id,task_id,status,status,target_key,target_key),order='created_at DESC,id DESC' if sort=='newest' else 'created_at,id',limit=limit,offset=offset)
 
-    def replacement_candidates(self,task_id:int,target_key:Key,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[ReplacementCandidate]:
+    def replacement_candidates(self,task_id:int,target_key:Key,limit:Limit=25,offset:Offset=0,exclude_candidate_key:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[ReplacementCandidate]:
         self._auth(user)
-        source="candidate_decisions d JOIN opportunities o ON o.id=d.opportunity_id AND o.task_id=d.task_id JOIN json_each(d.data,'$.evaluation.plans') p"
-        select="d.id decision_id,d.candidate_key,d.opportunity_id,d.created_at,p.value plan,json_extract(d.data,'$.plan_digests['||p.key||']') plan_digest,coalesce(json_extract(d.data,'$.observed.title'),'资源名称暂不可用') title"
-        where="d.task_id=? AND d.status='ACCEPT' AND d.simulation=0 AND o.state='ACTIVE' AND EXISTS(SELECT 1 FROM json_each(p.value,'$.targets') t WHERE t.key=?) AND EXISTS(SELECT 1 FROM json_each(d.data,'$.evaluation.decisions') outcome WHERE outcome.key=? AND json_extract(outcome.value,'$.status')='ALLOW')"
+        source="""(SELECT decision_id,candidate_key,opportunity_id,created_at,plan,plan_digest,title FROM (
+            SELECT d.id decision_id,d.candidate_key,d.opportunity_id,d.created_at,p.value plan,
+                json_extract(d.data,'$.plan_digests['||p.key||']') plan_digest,
+                coalesce(json_extract(d.data,'$.observed.title'),'资源名称暂不可用') title,
+                row_number() OVER (PARTITION BY d.candidate_key,json_extract(d.data,'$.plan_digests['||p.key||']') ORDER BY d.created_at DESC,d.id DESC,p.key DESC) candidate_rank
+            FROM candidate_decisions d JOIN opportunities o ON o.id=d.opportunity_id AND o.task_id=d.task_id JOIN json_each(d.data,'$.evaluation.plans') p
+            WHERE d.task_id=? AND d.status='ACCEPT' AND d.simulation=0 AND o.state='ACTIVE'
+                AND (? IS NULL OR d.candidate_key<>?)
+                AND json_type(d.data,'$.plan_digests['||p.key||']')='text'
+                AND EXISTS(SELECT 1 FROM json_each(p.value,'$.targets') t WHERE t.key=?)
+                AND EXISTS(SELECT 1 FROM json_each(d.data,'$.evaluation.decisions') outcome WHERE outcome.key=? AND json_extract(outcome.value,'$.status')='ALLOW'))
+            WHERE candidate_rank=1) replacement_rows"""
         def project(row):
             plan=json.loads(row['plan']);files=plan.get('torrent_files',[]);chosen=set(plan.get('selected_indices',[]));targets=sorted(plan.get('targets',{}))
             return dict(decision_id=row['decision_id'],candidate_key=row['candidate_key'],opportunity_id=row['opportunity_id'],plan_digest=row['plan_digest'],title=public(row['title']),affected_targets=targets,file_count=len(chosen),shared_files=any(f.get('index') in chosen and len(f.get('targets',[]))>1 for f in files),change=public(plan.get('targets',{}).get(target_key,{})),created_at=row['created_at'])
-        return self._page('candidate_decisions',ReplacementCandidate,project,source=source,select=select,where=where,args=(task_id,target_key,target_key),order='d.created_at DESC,d.id DESC,p.key',limit=limit,offset=offset)
+        return self._page('candidate_decisions',ReplacementCandidate,project,source=source,where='1',args=(task_id,exclude_candidate_key,exclude_candidate_key,target_key,target_key),order='created_at DESC,decision_id DESC',limit=limit,offset=offset)
 
     def decision(self,decision_id:Id,user:TokenPayload=Depends(verify_token))->Decision:
         self._auth(user);return Decision(**self._decision(self._one('candidate_decisions','id',decision_id)))

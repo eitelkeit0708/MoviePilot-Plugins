@@ -32,6 +32,7 @@ const saved=computed(()=>changes.value.length===0);
 watch(()=>[selected.value,step.value,plan.value?.display_name,canonical(editScope.value)],()=>emit('editing',{id:selected.value,name:plan.value?.display_name||deleted.value?.display_name||selected.value,step:step.value,scope:clone(editScope.value)}),{immediate:true});
 watch(()=>props.baseline,()=>{if(selected.value&&!plan.value&&!deleted.value)exit()});
 function exit(){selected.value='';step.value=0;error.value=[]}
+function consume(id,scope){const current=ownership.value[id];if(!current)return;const remaining=Object.fromEntries(Object.entries(current).map(([kind,values])=>[kind,values.filter(value=>!new Set(scope?.[kind]||[]).has(value))]).filter(([,values])=>values.length)),next={...ownership.value};if(Object.keys(remaining).length)next[id]=remaining;else delete next[id];ownership.value=next}
 function submit(){for(let s=0;s<4;s++){const issues=planIssues(props.modelValue,selected.value,s);if(issues.length){step.value=s;error.value=issues;focusError(issues[0].label);return}}emit('save')}
 watch(()=>canonical(props.modelValue),()=>{error.value=[]});
 onBeforeUnmount(()=>emit('editing',{name:'',step:0}));
@@ -62,7 +63,7 @@ function link(){if(props.readonly||!plan.value)return;
  markDelivery(d);
  emit('update:modelValue',{...props.modelValue,delivery:d,destination_templates:props.modelValue.destination_templates.map(t=>t.id===selected.value?{...t,organized_rule:rid}:t)});
 }
-defineExpose({exit});
+defineExpose({exit,consume});
 </script>
 <template><section aria-label="按方案连续配置" :class="{'sb-plan-flow':!!plan}">
  <section v-if="deleted" class="sb-form-section"><h3>删除 {{deleted.display_name||deleted.id}}</h3><p>保存后移除此方案。文件、下载任务、共用云盘和媒体库设置保留；仍在使用的关联会在保存时检查。</p><VBtn variant="text" :disabled="readonly" @click="emit('update:modelValue',{...modelValue,destination_templates:[...modelValue.destination_templates,clone(deleted)]})">恢复方案</VBtn><VBtn v-if="submitted" variant="tonal" @click="emit('confirm')">核对保存结果</VBtn><VBtn v-else color="error" :disabled="readonly" @click="emit('save')">保存删除</VBtn><p v-for="message in saveError||[]" :key="message" role="alert">{{message}}</p></section>
