@@ -1,0 +1,17 @@
+{
+  "revision": 273,
+  "changed_config_keys": [
+    "configuration_receipt",
+    "configuration_revision"
+  ],
+  "business_configuration_restored": true,
+  "temporary_policy_override_removed": true,
+  "scheme_path_unchanged": true,
+  "earlier_check": {
+    "excluded": [
+      "configuration_receipt"
+    ],
+    "equal": false,
+    "explanation": "第一次比较仍包含正常递增的 configuration_revision，故为 false；业务字段逐项复核相同。"
+  }
+}

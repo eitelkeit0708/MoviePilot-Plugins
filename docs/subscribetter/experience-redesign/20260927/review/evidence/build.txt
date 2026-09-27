@@ -1,0 +1,16 @@
+
+> subscribetter-native-ui@0.1.0 build
+> vite build --config ../vite.config.mjs
+
+vite v5.4.11 building for production...
+transforming...
+✓ 113 modules transformed.
+rendering chunks...
+computing gzip size...
+../dist/index.html                                       0.13 kB │ gzip:   0.13 kB
+../dist/assets/__federation_expose_Page-DsjHUO01.css    49.76 kB │ gzip:   9.62 kB
+../dist/assets/__federation_expose_Config-DZZh1lQH.js    0.67 kB │ gzip:   0.42 kB
+../dist/assets/remoteEntry.js                            1.80 kB │ gzip:   0.90 kB
+../dist/assets/__federation_fn_import-E6wRZccp.js        4.71 kB │ gzip:   1.92 kB
+../dist/assets/__federation_expose_Page-DfDfumY1.js    461.60 kB │ gzip: 128.98 kB
+✓ built in 1.24s

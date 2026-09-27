@@ -1,0 +1,49 @@
+{
+  "initialMouse": {
+    "before": {
+      "scroll": 1315.5,
+      "visible": [
+        "求救信号\n2026 · 电影\n已有正片在库\n4K\n等待新资源\n›",
+        "一瓯春\n2026 · 电视剧 · 第 1 季\n已收录 2 集 · 总集数待确认\n4K\n等待新资源\n›",
+        "漫长的季节\n2023 · 电视剧 · 第 1 季\n已收录 0 集 · 总集数待确认\n已交还 MoviePilot\n›",
+        "隐秘的角落\n2020 · 电视剧 · 第 1 季\n已收录 0 集 · 总集数待确认\n已交还 MoviePilot\n›"
+      ]
+    },
+    "after": {
+      "focus": "一瓯春\n2026 · 电视剧 · 第 1 季\n已收录 2 集 · 总集数待确认\n4K\n等待新资源\n›",
+      "scroll": 1292.5
+    },
+    "note": "wheel immediately preceding click; not claimed exact"
+  },
+  "keyboard": {
+    "before": {
+      "height": 565,
+      "row": {
+        "bottom": 455.203125,
+        "height": 121,
+        "left": 57,
+        "right": 1203,
+        "top": 334.203125,
+        "width": 1146,
+        "x": 57,
+        "y": 334.203125
+      },
+      "scroll": 1292.5,
+      "scrollHeight": 1881
+    },
+    "after": {
+      "focus": "一瓯春\n2026 · 电视剧 · 第 1 季\n已收录 2 集 · 总集数待确认\n4K\n等待新资源\n›",
+      "scroll": 1292.5
+    }
+  },
+  "settledMouse": {
+    "before": {
+      "focus": "一瓯春\n2026 · 电视剧 · 第 1 季\n已收录 2 集 · 总集数待确认\n4K\n等待新资源\n›",
+      "scroll": 1292.5
+    },
+    "after": {
+      "focus": "一瓯春\n2026 · 电视剧 · 第 1 季\n已收录 2 集 · 总集数待确认\n4K\n等待新资源\n›",
+      "scroll": 1292.5
+    }
+  }
+}
