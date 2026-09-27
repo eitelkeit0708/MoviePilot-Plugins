@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {adoptionBody,unitLabel,qualitySummary,stateLabel,reasonText,sourceNotice,taskNext,taskProgress,sourceTitle,deliveryNext,taskStage} from '../src/media.mjs';
+import {adoptionBody,unitLabel,qualitySummary,stateLabel,reasonText,sourceNotice,taskNext,taskProgress,sourceTitle,sourceLabels,deliveryNext,deliveryWorkSummary,taskStage} from '../src/media.mjs';
 test('adoption requires an existing native ID and preserves provider, season and episode group',()=>{
  const row={id:42,type:'电视剧',media_source:'douban',media_id:'37029663',tmdb_id:999,name:'侠女内莉',year:'2026',season:1,episode_group:'group'};
  const body=adoptionBody(row,'target','op');
@@ -26,9 +26,22 @@ test('historical due dates never promise a future run and known targets do not i
  assert.equal(deliveryNext({state:'PUBLISH_OUTCOME_UNKNOWN',due},health,now),'先核对发布结果，再决定后续动作');
  assert.match(taskNext({state:'ACTIVE',progress:{observation_until:due}},health,now),/记录已到期/);
  assert.equal(taskProgress({media_type:'电视剧',progress:{targets:2,present:1}}),'已收录 1 集 · 总集数待确认');
+ assert.equal(taskProgress({media_type:'电视剧',progress:{targets:2,present:0}}),'尚未收录剧集 · 总集数待确认');
  assert.equal(taskProgress({media_type:'电影',progress:{targets:1,present:1}}),'已有正片在库');
  assert.equal(taskProgress({media_type:'电影',progress:{targets:1,present:0}}),'尚未在库内找到正片');
  assert.equal(taskProgress({media_type:'电影',progress:{targets:0}}),'正片档案待确认');
+});
+test('duplicate source names stay distinguishable without exposing internal IDs',()=>{
+ const sources=[{source_id:'internal-a',config:{name:'一周口碑电影榜'}},{source_id:'internal-b',config:{name:'一周口碑电影榜'}},{source_id:'only',config:{name:'热播新剧'}}];
+ const labels=sourceLabels(sources);
+ assert.equal(labels.get('internal-a'),'一周口碑电影榜（1/2）');assert.equal(labels.get('internal-b'),'一周口碑电影榜（2/2）');assert.equal(labels.get('only'),'热播新剧');
+ assert.ok(![...labels.values()].join('').includes('internal'));
+});
+test('upload work summaries prioritize unresolved batches over a misleading zero-confirmed ratio',()=>{
+ assert.equal(deliveryWorkSummary({batch_count:1,confirmed_count:0,attention_count:0}),'1 批尚未确认');
+ assert.equal(deliveryWorkSummary({batch_count:3,confirmed_count:3,attention_count:0}),'3 批已全部确认交付');
+ assert.equal(deliveryWorkSummary({batch_count:3,confirmed_count:1,attention_count:1}),'1 批结果待核对');
+ assert.equal(deliveryWorkSummary({batch_count:0,confirmed_count:0,attention_count:0}),'尚无处理批次');
 });
 test('display separates unconfirmed results, stale source errors, paused tasks and unknown scope',()=>{
  assert.equal(reasonText('CD2_REMOTE_UNSETTLED'),'CD2 上传结果尚未确认');

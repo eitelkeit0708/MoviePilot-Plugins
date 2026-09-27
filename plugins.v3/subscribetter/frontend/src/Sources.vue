@@ -3,36 +3,41 @@ import {ref,computed,watch,onBeforeUnmount} from 'vue';
 import SourceFilters from './SourceFilters.vue';
 import {canonical} from './legacy.mjs';
 import {createReadGate,errorText,id} from './client.mjs';
-import {sourceTitle} from './media.mjs';
+import {sourceTitle,sourceLabels} from './media.mjs';
+import {usePanelPosition} from './panel.mjs';
 import {initial,contract} from './schema.mjs';
 
 const props=defineProps({modelValue:Object,routes:Array,templates:Array,readonly:Boolean,client:Object,saved:Object});
 const emit=defineEmits(['update:modelValue']);
 const selected=ref('service'),testing=ref(''),testResults=ref({}),gate=createReadGate();
+const position=usePanelPosition();
 const route=ref(''),custom=ref(''),kind=ref('rsshub'),type=ref(''),error=ref('');
 const activeIndex=computed(()=>props.modelValue.sources.findIndex(source=>source.id===selected.value));
 const active=computed(()=>props.modelValue.sources[activeIndex.value]||null);
 const serviceSaved=computed(()=>['rsshub_base_url','allowed_private_ranges','request_budget'].every(key=>canonical(props.modelValue[key]??null)===canonical(props.saved?.[key]??null)));
 const scheduleText=computed(()=>{const match=/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/.exec(props.modelValue.cron||'');return match?`每天 ${String(match[2]).padStart(2,'0')}:${String(match[1]).padStart(2,'0')}`:'按已保存计划运行'});
 const title=source=>sourceTitle(source,props.routes);
+const titleMap=computed(()=>sourceLabels(props.modelValue.sources,props.routes));
+const sourceLabel=source=>titleMap.value.get(String(source.id))||title(source);
 const numeric=event=>event.target.value===''?null:Number(event.target.value);
 
 watch(()=>canonical(props.modelValue),()=>{gate.begin();testing.value='';testResults.value={};if(!['service','new'].includes(selected.value)&&!props.modelValue.sources.some(source=>source.id===selected.value))selected.value='service'});
 onBeforeUnmount(()=>gate.close());
 function update(change){emit('update:modelValue',{...props.modelValue,...change})}
+function selectSource(value){selected.value=value;position.top()}
 function change(key,value){if(activeIndex.value<0)return;update({sources:props.modelValue.sources.map((source,index)=>index===activeIndex.value?{...source,[key]:value}:source)})}
 function updateActive(value){if(activeIndex.value<0)return;update({sources:props.modelValue.sources.map((source,index)=>index===activeIndex.value?value:source)})}
 function add(){error.value='';try{const source={...Object.fromEntries(Object.entries(contract.schemas.SourceConfig.properties).map(([key,schema])=>[key,initial(schema)])),id:'source-'+id().slice(0,12),kind:kind.value};
  if(kind.value==='rsshub'){if(!route.value)throw Error('请选择一个榜单。');source.route_key=route.value;source.url=null;source.source_type_hint=props.routes.find(item=>item.key===route.value)?.media_type==='电影'?'Movie':'TV'}
  else{const parts=custom.value.trim().split('@@');if(parts.length>2||parts[1]&&!['TV','Movie'].includes(parts[1]))throw Error('类型后缀请使用 @@TV 或 @@Movie。');const raw=parts[0];if(!raw)throw Error('请输入榜单地址。');const url=raw.startsWith('/')?new URL(raw,props.modelValue.rsshub_base_url).href:new URL(raw).href;if(!/^https?:\/\//.test(url))throw Error('仅支持 HTTP 或 HTTPS 榜单地址。');source.url=url;source.route_key=null;source.source_type_hint=parts[1]||type.value||null}
- selected.value=source.id;update({sources:[...props.modelValue.sources,source]});custom.value='';route.value=''}catch(e){error.value=e.message==='Invalid URL'?'请填写完整 HTTP 地址，或先设置 RSSHub 地址再填相对路径。':e.message}}
-function remove(){if(activeIndex.value<0)return;update({sources:props.modelValue.sources.filter((_,index)=>index!==activeIndex.value)});selected.value='service'}
+ selectSource(source.id);update({sources:[...props.modelValue.sources,source]});custom.value='';route.value=''}catch(e){error.value=e.message==='Invalid URL'?'请填写完整 HTTP 地址，或先设置 RSSHub 地址再填相对路径。':e.message}}
+function remove(){if(activeIndex.value<0)return;update({sources:props.modelValue.sources.filter((_,index)=>index!==activeIndex.value)});selectSource('service')}
 function destination(bucket,value){if(!active.value)return;const templates={...active.value.destination_templates},bindings={...active.value.destination_category_bindings};for(const key of Object.keys(bindings))if(bindings[key]===bucket)delete bindings[key];if(value){templates[bucket]=value;const template=props.templates.find(item=>item.id===value);if(template)bindings[template.category_id]=bucket}else delete templates[bucket];updateActive({...active.value,destination_templates:templates,destination_category_bindings:bindings})}
 async function testSource(source){if(!props.client||!serviceSaved.value||testing.value)return;const read=gate.begin();testing.value=source.id;try{const result=await props.client.post('/discovery/test',{source});if(read.current())testResults.value={...testResults.value,[source.id]:result.state==='SUCCESS'?'读取到 '+result.items+' 条作品，未创建订阅。':'试读未成功：'+(result.reason||'来源暂不可用')}}catch(e){if(read.current())testResults.value={...testResults.value,[source.id]:errorText(e)}}finally{if(read.current())testing.value=''}}
 </script>
 
 <template><section aria-label="榜单来源设置" class="sb-source-editor">
- <nav class="sb-source-selector" aria-label="来源列表"><button :aria-current="selected==='service'?'page':undefined" @click="selected='service'"><strong>RSSHub 与全局规则</strong><small>{{scheduleText}} · {{modelValue.sources.filter(source=>source.enabled).length}} 个来源启用</small></button><button v-for="source in modelValue.sources" :key="source.id" :aria-current="selected===source.id?'page':undefined" @click="selected=source.id"><strong>{{title(source)}}</strong><small>{{source.enabled?'已启用':'已停用'}}</small></button><button :aria-current="selected==='new'?'page':undefined" @click="selected='new'"><strong>＋ 添加榜单</strong></button></nav>
+ <label class="sb-source-picker-mobile">当前来源<select :value="selected" @change="selectSource($event.target.value)"><option value="service">RSSHub 与全局规则</option><option v-for="source in modelValue.sources" :key="source.id" :value="source.id">{{sourceLabel(source)}}</option><option value="new">＋ 添加榜单</option></select></label><nav class="sb-source-selector" aria-label="来源列表"><button :aria-current="selected==='service'?'page':undefined" @click="selectSource('service')"><strong>RSSHub 与全局规则</strong><small>{{scheduleText}} · {{modelValue.sources.filter(source=>source.enabled).length}} 个来源启用</small></button><button v-for="source in modelValue.sources" :key="source.id" :aria-current="selected===source.id?'page':undefined" @click="selectSource(source.id)"><strong>{{sourceLabel(source)}}</strong><small>{{source.enabled?'已启用':'已停用'}}</small></button><button :aria-current="selected==='new'?'page':undefined" @click="selectSource('new')"><strong>＋ 添加榜单</strong></button></nav>
  <div class="sb-source-edit-body">
   <template v-if="selected==='service'"><header class="sb-heading"><div><h3>自部署 RSSHub</h3><p class="sb-muted">连接自己的实例，并设置所有来源共用的读取规则。</p></div><label class="sb-inline"><input type="checkbox" :checked="modelValue.enabled" :disabled="readonly" @change="update({enabled:$event.target.checked})">启用榜单发现</label></header><section class="sb-form-section sb-form-narrow"><label>RSSHub 容器地址<input :value="modelValue.rsshub_base_url||''" :disabled="readonly" placeholder="http://192.168.50.6:1200" @input="update({rsshub_base_url:$event.target.value||null})"></label><div class="sb-grid"><label>允许访问的私网范围<textarea :value="modelValue.allowed_private_ranges.join('\n')" :disabled="readonly" placeholder="例如 192.168.50.6/32，每行一个" @input="update({allowed_private_ranges:$event.target.value.split(/\n/).map(value=>value.trim()).filter(Boolean)})"></textarea></label><label>刷新计划（Cron）<input :value="modelValue.cron" :disabled="readonly" @input="update({cron:$event.target.value})"><small>{{scheduleText}}</small></label><label>豆瓣详情读取间隔（秒）<input type="number" min="1" max="60" :value="modelValue.douban_interval_seconds" :disabled="readonly" @input="update({douban_interval_seconds:numeric($event)})"><small>同一媒体复用缓存；间隔只约束新增详情读取。</small></label></div></section><section class="sb-form-section"><h3>全局过滤与读取限额</h3><SourceFilters :model-value="modelValue" :readonly="readonly" @update:model-value="emit('update:modelValue',$event)"/></section></template>
 

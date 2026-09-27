@@ -12,6 +12,7 @@ import {mergeDraft,planDraft,settingScopes} from './configuration-draft.mjs';
 import LibraryPicker from './LibraryPicker.vue';
 import BasicSettings from './BasicSettings.vue';import ScheduleSettings from './ScheduleSettings.vue';import OperationalSettings from './OperationalSettings.vue';import AISettings from './AISettings.vue';
 import Policies from './Policies.vue';import Sources from './Sources.vue';
+import {usePanelPosition} from './panel.mjs';
 const props=defineProps({api:{type:Object,required:true},pluginId:{type:String,required:true},sourcePluginId:String,initialConfig:{type:Object,default:()=>({})},focus:{type:Object,default:()=>({group:'ownership'})}});
 const emit=defineEmits(['save','close','switch','layout','configure','saved','migration','diagnostic','export','stay','context']);
 const client=createClient(props.api,props.pluginId,props.sourcePluginId),status=useStatus(client);
@@ -19,13 +20,14 @@ const savedDraft=ref(null),draftBase=ref(null),refreshing=ref(false),draft=ref(n
 const credentialBusy=ref(false),credentialPending=ref(false),editing=ref({id:props.focus.id||'',name:'',step:0,scope:props.focus.scope||{}}),planSetup=ref(null),leave=ref(''),draftNotice=ref('');let submittedPlan=null;
 const panels={ownership:[['runtime','运行模式'],['adoption','订阅接管'],['lifecycle','升级期限']],candidates:[['search','站点与搜索'],['observation','候选观察'],['replacement','资源替换'],['cooldown','升级冷却'],['failure','失败恢复']],ai:[['naming','解析修正'],['service','AI 服务'],['prompt','提示词与版本'],['limits','缓存与限流']],recovery:[['scope','检查范围'],['schedule','检查计划'],['paths','路径检查'],['exceptions','异常恢复']],safety:[['cleanup','清理权限'],['limits','资源限制'],['backup','备份与迁移'],['diagnostics','诊断']],discovery:[['sources','来源设置'],['history','历史显示']]};
 const availablePanels=computed(()=>panels[group.value]||[]),panel=ref(availablePanels.value.some(([key])=>key===props.focus.tab)?props.focus.tab:availablePanels.value[0]?.[0]||''),componentEpoch=ref(0);
+const position=usePanelPosition();
 const cacheKey='subscribetter:draft:'+props.pluginId+':'+group.value;
 const childSaves=ref([]),conflicts=ref([]);
 const scope=computed(()=>settingScopes[group.value]||[]);
 const locked=computed(()=>refreshing.value||busy.value||submitted.value||!!continuation.value);
 const title=computed(()=>editing.value.name||props.focus.label||({plans:'下载方案',policy:'质量策略',discovery:'榜单来源',ownership:'运行管理',candidates:'搜索与调度',ai:'名称识别',recovery:'媒体库检查',safety:'维护与安全'}[group.value]||'设置'));
 const saveLabel=computed(()=>({ownership:'保存运行管理设置',candidates:'保存搜索与调度设置',ai:'保存名称识别设置',recovery:'保存媒体库检查设置',safety:'保存维护与安全设置',policy:'保存策略',discovery:'保存榜单来源设置'}[group.value]||'保存设置'));
-function selectPanel(value){panel.value=value;emit('context',{tab:value})}
+function selectPanel(value){panel.value=value;emit('context',{tab:value});position.top()}
 function updateAI(value){draft.value={...draft.value,ai_assist:value}}
 function readConfig(config){const value=clean(contract.schemas.Config,clone(config));for(const [key,model] of [['delivery','DeliveryConfig'],['discovery','DiscoveryConfig']])value[key]={...Object.fromEntries(Object.entries(contract.schemas[model].properties).map(([name,schema])=>[name,initial(schema)])),...value[key]};return value}
 function conflictName(path){return path.map(key=>({policy:'质量策略',templates:'策略规则',locks:'所有策略的锁定条件',resolution:'分辨率',destination_templates:'下载方案',save_path:'下载保存到',delivery:'上传与整理',local_root:'从哪里上传'}[key]||labels[key]||draft.value?.destination_templates.find(p=>p.id===key)?.display_name||key)).join(' › ')}
@@ -62,7 +64,7 @@ onMounted(()=>{emit('layout',{maxWidth:'1280px'});start();globalThis.window?.add
 </script>
 <template><section class="sb-editor" :aria-label="title">
   <header class="sb-editor-heading"><VBtn v-if="!focus.root" variant="text" :disabled="busy||credentialBusy" @click="requestLeave('close')">‹ {{focus.returnLabel||'返回'}}</VBtn><div><h2>{{title}}</h2><span v-if="dirty" class="sb-unsaved">未保存</span></div></header>
-  <nav v-if="availablePanels.length" class="sb-settings-tabs" :aria-label="title+'功能'"><button v-for="[key,label] in availablePanels" :key="key" :aria-current="panel===key?'page':undefined" @click="selectPanel(key)">{{label}}</button></nav>
+  <nav v-if="availablePanels.length" class="sb-settings-tabs sb-module-tabs" :aria-label="title+'功能'"><button v-for="[key,label] in availablePanels" :key="key" :aria-current="panel===key?'page':undefined" @click="selectPanel(key)">{{label}}</button></nav><label v-if="availablePanels.length" class="sb-module-picker-mobile"><span>当前功能</span><select :value="panel" @change="selectPanel($event.target.value)"><option v-for="[key,label] in availablePanels" :key="key" :value="key">{{label}}</option></select></label>
   <p v-if="draftNotice" class="sb-notice" role="status">{{draftNotice}}</p>
   <p v-if="continuation" class="sb-notice">已接续本次变更，请确认后保存。</p>
   <p v-if="catalogError" class="sb-warning">{{catalogError}} <VBtn variant="text" @click="readServices">重新读取服务</VBtn></p>
