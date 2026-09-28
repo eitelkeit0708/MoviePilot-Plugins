@@ -66,13 +66,13 @@ test('restored top-level editors discard obsolete back buttons from older browse
  const f=fixture(Page);await settle();
  try{assert.equal(walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹')).length,0)}finally{f.app.unmount();delete globalThis.sessionStorage}
 });
-test('quality policy provides a compact mobile selector without replacing the desktop list',async()=>{
+test('quality policy keeps one visible navigation system',async()=>{
  const f=fixture(Page);await settle();
- try{assert.equal(walk(f.root,n=>n.props?.class==='sb-primary-picker-mobile').length,1);walk(f.root,n=>n.type==='button'&&text(n)==='质量策略')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-picker-mobile').length,1);assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-selector').length,1);assert.ok(!text(f.root).includes('所有策略的限制'));walk(f.root,n=>n.type==='button'&&text(n)==='全局限制')[0].props.onClick();await settle();assert.ok(text(f.root).includes('以下条件影响所有已绑定分类'))}finally{f.app.unmount()}
+ try{assert.equal(walk(f.root,n=>String(n.props?.class||'').includes('picker-mobile')).length,0);walk(f.root,n=>n.type==='button'&&text(n)==='质量策略')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-selector').length,1);assert.ok(!text(f.root).includes('所有策略的限制'));walk(f.root,n=>n.type==='button'&&text(n)==='全局限制')[0].props.onClick();await settle();assert.ok(text(f.root).includes('以下条件影响所有已绑定分类'))}finally{f.app.unmount()}
 });
-test('mobile settings use explicit page, module and function selectors',async()=>{
+test('settings use direct module and function navigation without duplicate selectors',async()=>{
  const f=fixture(Page);await settle();
- try{const page=walk(f.root,n=>n.props?.class==='sb-primary-picker-mobile')[0],pageSelect=walk(page,n=>n.type==='select')[0];pageSelect.props.onChange({target:{value:'settings'}});await settle();const module=walk(f.root,n=>n.props?.class==='sb-settings-picker-mobile')[0];assert.ok(module);const moduleSelect=walk(module,n=>n.type==='select')[0];moduleSelect.props.onChange({target:{value:'ai'}});await settle();const panel=walk(f.root,n=>n.props?.class==='sb-module-picker-mobile')[0];assert.ok(panel);const panelSelect=walk(panel,n=>n.type==='select')[0];panelSelect.props.onChange({target:{value:'prompt'}});await settle();assert.ok(text(f.root).includes('当前提示词'))}finally{f.app.unmount()}
+ try{walk(f.root,n=>n.type==='button'&&text(n)==='设置')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='名称识别')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='提示词与版本')[0].props.onClick();await settle();assert.ok(text(f.root).includes('当前提示词'));assert.equal(walk(f.root,n=>String(n.props?.class||'').includes('picker-mobile')).length,0);assert.ok(!text(f.root).includes('当前页面'));assert.ok(!text(f.root).includes('设置模块'));assert.ok(!text(f.root).includes('当前功能'))}finally{f.app.unmount()}
 });
 test('explicit replacement confirmation shows the selected resource and full affected scope',async()=>{
  const preview={preview_id:'p',preview_digest:'d',kind:'select_candidate',objects:{selection:{title:'GATE24.S01.2160p',affected_targets:['["电视剧","douban","24",1,"",1]','["电视剧","douban","24",1,"",2]'],file_count:1,shared_files:true}},permissions:{},blockers:[],revisions:{},expires_at:'later'};

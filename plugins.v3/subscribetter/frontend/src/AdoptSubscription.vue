@@ -26,7 +26,7 @@ onMounted(load);onBeforeUnmount(()=>{mounted=false;gate.close()});
 <template><section class="sb-root sb-dialog" aria-label="纳管已有订阅">
  <header class="sb-heading"><div><p class="sb-eyebrow">来自 MoviePilot</p><h2>纳管已有订阅</h2></div><VBtn variant="text" :disabled="saving" @click="emit('close')">关闭</VBtn></header>
  <p class="sb-muted">请先在 MoviePilot 原生界面添加订阅。这里保留原有媒体身份、季和分集组，只改变该订阅的管理方式。</p>
- <p v-if="!writable" class="sb-notice">当前只能查看。启用插件、退出演练模式且服务状态正常后才能纳管。</p>
+ <p v-if="!writable" class="sb-notice">当前只能查看。请启用订阅追踪、关闭“仅检查，不执行”，并确认服务状态正常后再接管。</p>
  <template v-if="!selected"><p v-if="loading" role="status">正在读取原生订阅…</p><p v-else-if="!rows.length&&!error" class="sb-empty">本页没有电影或剧集订阅。</p>
   <div class="sb-media-results"><button v-for="row in rows" :key="row.id" class="sb-media-result" @click="select(row)"><span class="sb-poster-placeholder" aria-hidden="true">{{row.type==='电影'?'影':'剧'}}</span><span><strong>{{row.name}}</strong><span class="sb-muted sb-block">{{row.year||'年份待确认'}} · {{row.type}}{{row.type==='电视剧'?' · 第 '+row.season+' 季':''}}</span></span></button></div>
   <div class="sb-pagination"><VBtn :disabled="loading||page===1" @click="page--;load()">上一页</VBtn><span>第 {{page}} 页</span><VBtn :disabled="loading||!hasNext" @click="page++;load()">下一页</VBtn></div>
