@@ -2,7 +2,6 @@
 from datetime import timedelta
 from contextlib import contextmanager, nullcontext
 import json
-from pathlib import PurePosixPath
 import sqlite3
 import time
 import inspect
@@ -36,11 +35,8 @@ T=TypeVar('T')
 
 def _visible_delivery_file(file,assets):
     if not assets:return True
-    asset=assets.get(file.get('file_index'),{});role=asset.get('role')
-    name=file.get('name') or file.get('path') or file.get('snapshot',{}).get('path')
-    if not name:return role in ('video','subtitle')
-    suffix=PurePosixPath(name).suffix.casefold()
-    return role=='video' and suffix in VIDEO_SUFFIXES or role=='subtitle' and suffix in TEXT_SUBTITLE_SUFFIXES
+    from .display import supported_file
+    return supported_file(file,assets.get(file.get('file_index'),{}).get('role'))
 
 
 class Snapshot(Strict):
@@ -179,6 +175,7 @@ class Bundle(Strict):
     file_count:int
     publication_action:str|None
     consumer_pending:bool|None
+    hidden_unsettled_count:int=0
 
 
 class BundleDetail(Strict):
@@ -629,15 +626,25 @@ class Views:
         value['version_count']=db.execute('SELECT count(*) FROM archive_versions WHERE target_key=?',(r['target_key'],)).fetchone()[0]
         return value
 
-    def task(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->TaskDetail:
+    def task(self,task_id:int,limit:Limit=25,offset:Offset=0,activity:Literal['all','processing','attention']='all',user:TokenPayload=Depends(verify_token))->TaskDetail:
         self._auth(user);task=self._one('tasks','id',task_id)
         with self.repository.connection() as db:
             life=db.execute('SELECT * FROM task_lifecycle WHERE task_id=?',(task_id,)).fetchone();snap=self.snapshot(db)
         effective=self.repository.setting('runtime-task:'+str(task_id))
+        where='u.task_id=? AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))'
+        if activity=='processing':where+=" AND p.authorization='ACTIVE' AND pt.state='ACTIVE' AND pt.generation=u.generation AND p.task_generation=t.generation"
+        elif activity=='attention':where+=""" AND (u.publish_phase IN ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','UNKNOWN') OR EXISTS(
+            SELECT 1 FROM delivery_bundles d,json_each(d.data,'$.vector') v
+            WHERE d.plan_id=u.owner_plan_id AND v.key=u.target_key
+            AND json_extract(v.value,'$.generation')=u.generation
+            AND json_extract(v.value,'$.owner_plan_id')=u.owner_plan_id
+            AND d.state NOT IN ('CANCELLED','ABANDONED','CLEANED')
+            AND (d.state IN ('UNKNOWN','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN') OR EXISTS(
+                SELECT 1 FROM json_each(d.data,'$.files') f WHERE json_extract(f.value,'$.state')='UNKNOWN'))))"""
         units=self._page('target_units',Unit,self._unit,
             source='target_units u JOIN tasks t ON t.id=u.task_id LEFT JOIN task_lifecycle l ON l.task_id=u.task_id LEFT JOIN plans p ON p.id=u.owner_plan_id AND p.task_id=u.task_id LEFT JOIN plan_targets pt ON pt.plan_id=p.id AND pt.target_key=u.target_key',
             select='u.*,p.snapshot plan_snapshot,p.transfer_phase plan_phase,p.created_at plan_created_at,pt.transfer_phase target_phase,pt.state target_state,pt.generation target_generation,p.authorization,p.task_generation plan_task_generation,t.generation task_generation',with_db=True,
-            where='u.task_id=? AND (l.task_id IS NULL OR EXISTS(SELECT 1 FROM json_each(l.scope) x WHERE x.value=u.target_key))',args=(task_id,),
+            where=where,args=(task_id,),
             order="CASE WHEN json_valid(u.target_key) THEN CAST(json_extract(u.target_key,'$[3]') AS INTEGER) END, CASE WHEN json_valid(u.target_key) THEN CAST(json_extract(u.target_key,'$[5]') AS INTEGER) END,u.target_key",limit=limit,offset=offset)
         return TaskDetail(task=self._task_page(where='t.id=?',args=(task_id,),limit=1).items[0],lifecycle=self.row(dict(life))['data'] if life else None,
             effective=public(effective) if effective else None,units=units,opportunities=self.rows('opportunities',where='task_id=?',args=(task_id,),order='created_at,id'),
@@ -748,7 +755,8 @@ class Views:
 
     @staticmethod
     def _bundle(r):
-        d=json.loads(r['data']);assets={a.get('file_index'):a for a in d.get('manifest',{}).get('assets',[])};files=d.get('files',[]);visible=[f for f in files if _visible_delivery_file(f,assets)];return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},title=r.get('title') or '未命名作品',task_id=r.get('task_id'),reason=d.get('reason',''),file_count=len(visible),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending')))
+        d=json.loads(r['data']);assets={a.get('file_index'):a for a in d.get('manifest',{}).get('assets',[])};files=d.get('files',[]);visible=[f for f in files if _visible_delivery_file(f,assets)];shown={f.get('file_index') for f in visible}
+        return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},title=r.get('title') or '未命名作品',task_id=r.get('task_id'),reason=d.get('reason',''),file_count=len(visible),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending'),hidden_unsettled_count=sum(f.get('file_index') not in shown and 'UNKNOWN' in str(f.get('state','')) for f in files)))
 
     def delivery_works(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user)

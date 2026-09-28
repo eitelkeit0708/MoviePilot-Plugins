@@ -1,6 +1,15 @@
 """Read-only per-target facts, using the same SQLite snapshot as the page."""
 import json
+from pathlib import PurePosixPath
 from .policy import quality_facts
+from .planner import TEXT_SUBTITLE_SUFFIXES,VIDEO_SUFFIXES
+
+
+def supported_file(file,role=None):
+    role=role or file.get('role');name=file.get('name') or file.get('path') or file.get('snapshot',{}).get('path')
+    if not name:return role in ('video','subtitle')
+    suffix=PurePosixPath(name).suffix.casefold()
+    return role=='video' and suffix in VIDEO_SUFFIXES or role=='subtitle' and suffix in TEXT_SUBTITLE_SUFFIXES
 
 
 def current_quality(current,policy=None):
@@ -20,11 +29,11 @@ def processing(db,row):
     snapshot=json.loads(row['plan_snapshot'] or '{}');key=row['target_key'];plan=row['owner_plan_id']
     target=snapshot.get('targets',{}).get(key,{})
     table={f['index']:f for f in snapshot.get('torrent_files',[])+[a['file'] for a in snapshot.get('local_assets',[])]}
-    indices={i for i in snapshot.get('selected_indices',[]) if i in table and key in table[i]['targets'] and table[i].get('role') in ('video','subtitle')}
+    indices={i for i in snapshot.get('selected_indices',[]) if i in table and key in table[i]['targets'] and supported_file(table[i])}
     pending=list(indices)
     while pending:
         for i in table[pending.pop()].get('requires',[]):
-            if i in table and i not in indices and i in snapshot.get('selected_indices',[]):indices.add(i);pending.append(i)
+            if i in table and i not in indices and i in snapshot.get('selected_indices',[]) and supported_file(table[i]):indices.add(i);pending.append(i)
     files=[table[i] for i in sorted(indices)];videos=[f for f in files if f['role']=='video']
     stats={};times={};states={}
     # Each sample contains selected-file counters. Never use its torrent aggregate.

@@ -46,6 +46,47 @@ test('a stale editor uses the latest baseline and preserves concurrent settings 
  const f=fixture(Config);await settle();try{f.current.revision=5;f.current.digest='b'.repeat(64);f.current.config.candidates.site_ids=[42];await walk(f.root,n=>n.type==='button'&&text(n)==='保存运行管理设置')[0].props.onClick();await settle();const request=f.calls.find(c=>c[0]==='post')[2];assert.equal(request.revision,5);assert.deepEqual(request.patch.candidates.site_ids,[42]);}finally{f.app.unmount()}
 });
 
+test('RT01 refreshing a dirty draft keeps the unresolved same-field conflict and blocks save',async()=>{
+ let fail=false;const f=fixture(Config,{get:async(p,o,c,h)=>{if(p.endsWith('/configuration')){if(fail)throw {status:503};return c}if(p.endsWith('/diagnostics')){if(fail)throw {status:503};return {...h,snapshot:{...h.snapshot,config_revision:c.revision}}}return {items:[],categories:[],result:{}}}});await settle();
+ try{
+  walk(f.root,n=>n.type==='button'&&text(n)==='升级期限')[0].props.onClick();await settle();
+  const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0],input=walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0];input.props.onInput({target:{value:'20'}});await settle();
+  fail=true;f.app._instance.exposed.acceptSaved({revision:f.current.revision,digest:f.current.digest,config:structuredClone(f.current.config)});await settle();assert.ok(text(f.root).includes('状态暂时无法读取'));
+  f.current.revision=5;f.current.digest='b'.repeat(64);f.current.config.lifecycle.movie_days=30;fail=false;
+  await walk(f.root,n=>n.type==='button'&&text(n)==='重新读取状态')[0].props.onClick();await settle();
+  assert.ok(text(f.root).includes('这些设置在编辑期间被修改'),text(f.root));assert.ok(text(f.root).includes('当前已保存：30'));assert.ok(text(f.root).includes('我的修改：20'));
+  assert.equal(walk(f.root,n=>n.type==='button'&&text(n)==='保存运行管理设置')[0].props.disabled,true);
+ }finally{f.app.unmount()}
+});
+
+test('RT02 component refresh merges unrelated remote fields without inventing a conflict',async()=>{
+ const f=fixture(Config,{extra:{focus:{group:'ownership',tab:'lifecycle'}}});await settle();
+ try{const field=label=>walk(f.root,n=>n.type==='label'&&text(n).includes(label))[0],number=label=>walk(field(label),n=>n.type==='input'&&n.props.type==='number')[0];number('电影追踪期限').props.onInput({target:{value:'20'}});await settle();f.current.revision=5;f.current.config.lifecycle.tv_days=44;f.app._instance.exposed.acceptSaved(structuredClone(f.current));await settle();assert.equal(number('电影追踪期限').props.value,20);assert.equal(number('剧集追踪期限').props.value,44);assert.ok(!text(f.root).includes('这些设置在编辑期间被修改'))}finally{f.app.unmount()}
+});
+
+test('RT03 unresolved conflicts survive draft restoration and compare against the newest remote value',async()=>{
+ const storage=new Map();globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+ const first=fixture(Config,{extra:{focus:{group:'ownership',tab:'lifecycle'}}});await settle();
+ try{const input=walk(walk(first.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0],n=>n.type==='input'&&n.props.type==='number')[0];input.props.onInput({target:{value:'20'}});first.current.revision=5;first.current.digest='b'.repeat(64);first.current.config.lifecycle.movie_days=30;first.app._instance.exposed.acceptSaved(structuredClone(first.current));await settle();assert.ok(text(first.root).includes('我的修改：20'));assert.ok(storage.has('subscribetter:draft:Clone:ownership'))}finally{first.app.unmount()}
+ const second=fixture(Config,{extra:{focus:{group:'ownership',tab:'lifecycle'}},seed:(current,health)=>{current.revision=6;current.digest='c'.repeat(64);current.config.lifecycle.movie_days=40;health.snapshot.config_revision=6}});await settle();
+ try{assert.ok(text(second.root).includes('已恢复未保存的修改'));assert.ok(text(second.root).includes('当前已保存：40'));assert.ok(text(second.root).includes('我的修改：20'));assert.equal(walk(second.root,n=>n.type==='button'&&text(n)==='保存运行管理设置')[0].props.disabled,true)}finally{second.app.unmount();delete globalThis.sessionStorage}
+});
+
+test('RT04 an unsaved category binding cannot label or enable the saved-policy check',async()=>{
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs')));
+ const rule={resolutions:[2160,1080],group:'any',source:'any',dimensions:['resolution']};
+ const draft={bindings:{x:'B'},templates:{},locks:{},overrides:{},admission:null,classification_revision:1};
+ const saved={...structuredClone(draft),bindings:{x:'A'}};
+ const f=fixture(Policies,{extra:{modelValue:draft,saved,categories:[{id:'x',name:'测试分类',enabled:true}],defaults:{A:rule,B:rule},focus:{category:'x',policy:'B',tab:'trial'},plans:[],archiveBindings:{},revision:1,client:{get:async()=>({items:[],total:0,next_offset:null})},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')}}});await settle();
+ try{assert.ok(text(f.root).includes('当前生效的是“A”'));assert.ok(text(f.root).includes('本次草稿'));assert.equal(walk(f.root,n=>n.type==='button'&&text(n)==='检查当前生效策略')[0].props.disabled,true)}finally{f.app.unmount()}
+});
+
+test('RT05 a late policy simulation cannot be relabelled as the newly selected policy or category',async()=>{
+ const {default:PolicySimulation}=await import(pathToFileURL(path.join(out,'PolicySimulation.mjs')));let finish,posts=0;const category=ref('x'),categoryName=ref('分类 X'),policyName=ref('策略 A'),currentPolicyName=ref('策略 A'),policy=ref({...structuredClone(contract.defaults.policy),bindings:{x:'策略 A'}});const status={current:ref({revision:4}),health:ref({generation:6})};
+ const client={get:async()=>({items:[{candidate_key:'c',title:'样本',evidence:{title:'样本'}}],total:1,next_offset:null}),post:async()=>++posts===1?new Promise(resolve=>finish=resolve):({status:'ACCEPTED'})};const root={children:[]},app=renderer.createApp({setup(){return()=>h(PolicySimulation,{client,status,policy:policy.value,category:category.value,categoryName:categoryName.value,policyName:policyName.value,currentPolicyName:currentPolicyName.value,effective:true})}});app.config.warnHandler=()=>{};app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.mount(root);await settle();
+ try{walk(root,n=>n.props?.label==='候选资源')[0].props['onUpdate:modelValue']('c');await settle();walk(root,n=>n.type==='button'&&text(n)==='试算本次修改')[0].props.onClick();await settle();category.value='y';categoryName.value='分类 Y';policyName.value='策略 B';currentPolicyName.value='策略 B';policy.value={...policy.value,bindings:{y:'策略 B'}};await settle();finish({status:'ACCEPTED'});await settle();assert.ok(!text(root).includes('本次修改 · 策略 A'));walk(root,n=>n.type==='button'&&text(n)==='试算本次修改')[0].props.onClick();await settle();assert.ok(text(root).includes('本次修改 · 策略 B · 分类 Y · 配置版本 4'))}finally{app.unmount()}
+});
+
 test('actual immutable preview confirmation sends only receipt/opid/confirm and honors blockers',async()=>{
  const calls=[];const preview={preview_id:'p',preview_digest:'d',kind:'history',objects:{record_ids:[1]},permissions:{},blockers:[],revisions:{},expires_at:'later'};
  const client={post:async(p,b)=>{calls.push([p,structuredClone(b)]);return p.endsWith('/preview')?preview:{state:'APPLIED',result:{}}},get:async()=>({})};
@@ -74,7 +115,7 @@ test('settings use direct module and function navigation without duplicate selec
  const f=fixture(Page);await settle();
  try{walk(f.root,n=>n.type==='button'&&text(n)==='设置')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='名称识别')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='提示词与版本')[0].props.onClick();await settle();assert.ok(text(f.root).includes('当前提示词'));assert.equal(walk(f.root,n=>String(n.props?.class||'').includes('picker-mobile')).length,0);assert.ok(!text(f.root).includes('当前页面'));assert.ok(!text(f.root).includes('设置模块'));assert.ok(!text(f.root).includes('当前功能'))}finally{f.app.unmount()}
 });
-test('explicit replacement confirmation shows the selected resource and full affected scope',async()=>{
+test('RT17 complex multi-episode candidate confirmation shows the selected resource and full affected scope',async()=>{
  const preview={preview_id:'p',preview_digest:'d',kind:'select_candidate',objects:{selection:{title:'GATE24.S01.2160p',affected_targets:['["电视剧","douban","24",1,"",1]','["电视剧","douban","24",1,"",2]'],file_count:1,shared_files:true}},permissions:{},blockers:[],revisions:{},expires_at:'later'};
  const f=fixture(Action,{extra:{action:['选择这个候选资源','/tasks/{task_id}/select-candidate/preview'],client:{post:async()=>preview},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')},context:{task_id:3,generation:1,opportunity_id:'round',decision_id:'decision',plan_digest:'a'.repeat(64),target_keys:['["电视剧","douban","24",1,"",1]'],_bound:true,_label:'GATE24'}}});await settle();
  try{await walk(f.root,n=>n.type==='button'&&text(n)==='核对操作')[0].props.onClick();await settle();assert.ok(text(f.root).includes('GATE24.S01.2160p'));assert.ok(text(f.root).includes('第 1 集、第 2 集'));assert.ok(text(f.root).includes('覆盖多集的共享文件'))}finally{f.app.unmount()}
@@ -430,11 +471,59 @@ test('status retry in settings preserves unsaved input and does not become disca
  try{const checkbox=walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0],original=checkbox.props.checked;checkbox.props.onChange({target:{checked:!original}});await settle();walk(f.root,n=>n.type==='button'&&text(n)==='诊断')[0].props.onClick();await settle();fail=true;await walk(f.root,n=>n.type==='button'&&text(n)==='刷新运行状态')[0].props.onClick();await settle();fail=false;await walk(f.root,n=>n.type==='button'&&text(n)==='重新读取状态')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='清理权限')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.checked,!original);assert.ok(text(f.root).includes('修改尚未保存'))}finally{f.app.unmount()}
 });
 
+test('RT06 diagnostics shows the confirmed saved runtime instead of the editor draft',async()=>{
+ const f=fixture(Config,{extra:{focus:{group:'safety',tab:'diagnostics'}},get:async(p,o,c,h)=>{
+  if(p.endsWith('/configuration'))return structuredClone(c);
+  if(p.endsWith('/diagnostics'))return {...structuredClone(h),enabled:c.config.enabled,dry_run:c.config.dry_run,snapshot:{...h.snapshot,config_revision:c.revision}};
+  if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],result:{}};
+ }});await settle();
+ try{assert.ok(text(f.root).includes('订阅追踪未启用'));f.current.config.enabled=true;f.current.config.dry_run=false;f.current.revision=5;await walk(f.root,n=>n.type==='button'&&text(n)==='刷新运行状态')[0].props.onClick();await settle();assert.ok(text(f.root).includes('订阅追踪已启用'));assert.ok(text(f.root).includes('按已保存策略执行下载与上传'))}finally{f.app.unmount()}
+});
+
+test('RT07 failed diagnostics refresh keeps the last confirmed snapshot but labels it stale',async()=>{
+ let fail=false;const f=fixture(Config,{extra:{focus:{group:'safety',tab:'diagnostics'}},get:async(p,o,c,h)=>{
+  if((p.endsWith('/configuration')||p.endsWith('/diagnostics'))&&fail)throw {status:503};
+  if(p.endsWith('/configuration'))return structuredClone(c);if(p.endsWith('/diagnostics'))return {...structuredClone(h),snapshot:{...h.snapshot,config_revision:c.revision}};
+  if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],result:{}};
+ }});await settle();
+ try{fail=true;await walk(f.root,n=>n.type==='button'&&text(n)==='刷新运行状态')[0].props.onClick();await settle();assert.ok(text(f.root).includes('上次读取成功，当前状态可能已过期'));assert.ok(!text(f.root).includes('配置读取正常'))}finally{f.app.unmount()}
+});
+
 test('subscription detail survives auxiliary history failures and reports each unavailable panel',async()=>{
  const task={id:1,title:'侠女内莉',year:'2026',media_type:'电视剧',season:1,state:'ACTIVE'};
  const client={get:async path=>{if(path==='/tasks')return {items:[task],total:1,next_offset:null};if(path==='/tasks/1')return {task,units:{items:[],total:0},snapshot:{}};throw {status:503}}};
  const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({}),error:ref('')}}});await settle();
  try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('侠女内莉'));assert.ok(text(f.root).includes('分集与版本'));walk(f.root,n=>n.type==='button'&&text(n)==='候选比较')[0].props.onClick();await settle();assert.ok(text(f.root).includes('候选比较暂时无法读取'))}finally{f.app.unmount()}
+});
+
+test('RT08 subscription base detail renders without waiting for auxiliary history',async()=>{
+ let finishObservation;const task={id:1,title:'侠女内莉',year:'2026',media_type:'电视剧',season:1,state:'ACTIVE'};
+ const client={get:async path=>{if(path==='/tasks')return {items:[task],total:1,next_offset:null};if(path==='/tasks/1')return {task,units:{items:[],total:0,next_offset:null},opportunities:{items:[]}};if(path.endsWith('/observations'))return new Promise(resolve=>finishObservation=resolve);return {items:[],total:0,next_offset:null}}};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{policy:{bindings:{}}}}),health:ref({}),error:ref('')}}});await settle();
+ try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('分集与版本'));walk(f.root,n=>n.type==='button'&&text(n)==='处理记录')[0].props.onClick();await settle();assert.ok(text(f.root).includes('候选观察记录正在读取'))}finally{finishObservation?.({items:[],total:0,next_offset:null});f.app.unmount()}
+});
+
+test('RT09 auxiliary refresh keeps same-task data as stale and late data cannot bleed into another task',async()=>{
+ const tasks=[{id:1,title:'作品一',media_type:'电视剧',state:'ACTIVE'},{id:2,title:'作品二',media_type:'电视剧',state:'ACTIVE'}];let failPlans=false,deferOld=false,finishOld;
+ const client={get:async(path,o={})=>{if(path==='/tasks')return {items:tasks,total:2,next_offset:null};if(path==='/tasks/1')return {task:tasks[0],units:{items:[],total:0,next_offset:null},opportunities:{items:[]}};if(path==='/tasks/2')return {task:tasks[1],units:{items:[],total:0,next_offset:null},opportunities:{items:[]}};if(path==='/tasks/1/plans'){if(failPlans)throw {status:503};return {items:[{id:'old-plan',state:'ACTIVE',data:{transfer_phase:'DOWNLOAD_STARTED',created_at:'2026-09-29T00:00:00Z'}}],total:1,next_offset:null}};if(path==='/tasks/2/plans')return {items:[],total:0,next_offset:null};if(path==='/candidate-decisions'&&o.params?.task_id===1&&deferOld)return new Promise(resolve=>finishOld=resolve);return {items:[],total:0,next_offset:null}}};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{policy:{bindings:{}}}}),health:ref({}),error:ref('')}}});await settle();const row=title=>walk(f.root,n=>n.type==='button'&&text(n).includes(title))[0],button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];
+ try{row('作品一').props.onClick();await settle();button('处理记录').props.onClick();await settle();assert.ok(text(f.root).includes('2026/9/29'));
+  failPlans=true;deferOld=true;button('刷新').props.onClick();await settle();assert.ok(text(f.root).includes('显示上次读取结果'));assert.ok(text(f.root).includes('2026/9/29'));
+  button('返回列表').props.onClick();await settle();row('作品二').props.onClick();await settle();finishOld?.({items:[{id:'wrong-task',summary:{reason:'wrong-task'}}],total:1,next_offset:null});await settle();assert.ok(!text(f.root).includes('wrong-task'));
+ }finally{f.app.unmount()}
+});
+
+test('RT12 and RT13 episode activity filter finds episode 40 server-side, resets pagination and survives list return',async()=>{
+ const calls=[],task={id:1,title:'五十集测试',media_type:'电视剧',state:'ACTIVE'},unit=episode=>({target_key:JSON.stringify(['电视剧','tmdb','1',1,'',episode]),task_id:1,generation:0,owner_plan_id:null,publish_phase:episode===40?'PUBLISH_OUTCOME_UNKNOWN':'NOT_SENT',publish_action_id:null,current_revision:0,current_facts:null,processing:null,current_quality:[],version_count:0});
+ const client={get:async(path,o={})=>{if(path==='/tasks')return {items:[task],total:1,next_offset:null};if(path==='/tasks/1'){calls.push(structuredClone(o.params));const attention=o.params?.activity==='attention';return {task,units:{items:attention?[unit(40)]:[unit((o.params?.offset||0)+1)],total:attention?1:50,next_offset:attention?null:25},opportunities:{items:[]}}}return {items:[],total:0,next_offset:null}}};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{policy:{bindings:{}}}}),health:ref({}),error:ref('')}}});await settle();const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];
+ try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();button('下页分集').props.onClick();await settle();assert.equal(calls.at(-1).offset,25);button('需核对分集').props.onClick();await settle();assert.equal(calls.at(-1).offset,0);assert.equal(calls.at(-1).activity,'attention');assert.ok(text(f.root).includes('第 40 集'));button('返回列表').props.onClick();await settle();walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();assert.equal(calls.at(-1).activity,'attention');button('全部分集').props.onClick();await settle();assert.equal(calls.at(-1).activity,undefined);assert.equal(calls.at(-1).offset,0)}finally{f.app.unmount()}
+});
+
+test('RT16 selecting an offscreen policy scrolls only its narrow selector into view',async()=>{
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs'))),names=['一','二','三','四','五','六'],rule={resolutions:[2160],group:'any',source:'any',dimensions:['resolution']},defaults=Object.fromEntries(names.map(name=>[name,rule])),model={...structuredClone(contract.defaults.policy),bindings:{x:'一'},templates:{}};
+ const f=fixture(Policies,{extra:{modelValue:model,saved:model,categories:[{id:'x',name:'分类',enabled:true}],defaults,focus:{policy:'一'},plans:[],archiveBindings:{},revision:1}});await settle();
+ try{const selector=walk(f.root,n=>n.props?.class==='sb-policy-selector')[0];selector.clientWidth=200;selector.scrollLeft=0;selector.querySelector=()=>selector.children.find(node=>node.props?.['aria-current']==='page');selector.children.forEach((node,index)=>{node.offsetLeft=index*180;node.offsetWidth=180});const bodyScroll=137;walk(f.root,n=>n.type==='button'&&text(n).includes('六'))[0].props.onClick();await settle();assert.ok(selector.scrollLeft>=880);assert.equal(bodyScroll,137)}finally{f.app.unmount()}
 });
 
 test('subscription polling keeps the applied query until the user submits the draft',async()=>{
@@ -445,7 +534,7 @@ test('subscription polling keeps the applied query until the user submits the dr
 
 test('an unbound policy cannot masquerade as the previously selected category effective policy',async()=>{
  const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs')));const model={...structuredClone(contract.defaults.policy),bindings:{tv:'策略 A'},templates:{'策略 A':{resolutions:[2160,1080],group:'any',source:'any',dimensions:['resolution']},'策略 B':{resolutions:[1080],group:'any',source:'any',dimensions:['audio']}}};
- const f=fixture(Policies,{extra:{modelValue:model,defaults:{},categories:[{id:'tv',name:'电视剧',enabled:true}],focus:{policy:'策略 A',category:'tv',tab:'trial'},client:{get:async()=>({items:[],total:0,next_offset:null})},status:{current:ref({revision:4}),health:ref({generation:6})}}});await settle();
+ const f=fixture(Policies,{extra:{modelValue:model,saved:model,defaults:{},categories:[{id:'tv',name:'电视剧',enabled:true}],focus:{policy:'策略 A',category:'tv',tab:'trial'},client:{get:async()=>({items:[],total:0,next_offset:null})},status:{current:ref({revision:4}),health:ref({generation:6})}}});await settle();
  try{walk(f.root,n=>n.type==='button'&&text(n).includes('策略 B'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('请选择试算分类'));const picker=walk(f.root,n=>n.props?.label==='试算分类')[0];picker.props['onUpdate:modelValue']('tv');await settle();assert.ok(text(f.root).includes('此分类当前生效的是“策略 A”'))}finally{f.app.unmount()}
 });
 
@@ -458,6 +547,27 @@ test('known zero version history is static while unknown history remains queryab
  const {default:VersionHistory}=await import(pathToFileURL(path.join(out,'VersionHistory.mjs'))),base={target:'target',client:{get:async()=>assert.fail('known zero must not query')},status:{error:ref('')},title:'测试'};
  const known=fixture(VersionHistory,{extra:{...base,count:0}});await settle();try{assert.ok(text(known.root).includes('暂无历史版本'));assert.equal(walk(known.root,n=>n.type==='button').length,0)}finally{known.app.unmount()}
  const unknown=fixture(VersionHistory,{extra:{...base,count:null,client:{get:async()=>({versions:{items:[],total:0,next_offset:null}})}}});await settle();try{assert.ok(walk(unknown.root,n=>n.type==='button'&&text(n)==='查看版本记录')[0])}finally{unknown.app.unmount()}
+});
+
+test('RT10 version disclosures expose unique real aria targets and keep trigger focus',async()=>{
+ const {default:VersionHistory}=await import(pathToFileURL(path.join(out,'VersionHistory.mjs'))),client={get:async target=>({versions:{items:[],total:0,next_offset:null},target})},status={error:ref('')};
+ const root={children:[]},app=renderer.createApp({setup(){return()=>h('div',[h(VersionHistory,{key:'a',target:'a',client,status,title:'A'}),h(VersionHistory,{key:'b',target:'b',client,status,title:'B'})])}});app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.mount(root);await settle();
+ try{const buttons=walk(root,n=>n.type==='button'&&text(n)==='查看版本记录');assert.equal(buttons.length,2);assert.equal(new Set(buttons.map(button=>button.props['aria-controls'])).size,2);document.activeElement=buttons[0];await buttons[0].props.onClick();await settle();assert.equal(document.activeElement,buttons[0]);const region=walk(root,n=>n.props?.class==='sb-version-history-content')[0];assert.equal(buttons[0].props['aria-controls'],region.props.id)}finally{document.activeElement=null;app.unmount()}
+});
+
+test('RT11 collapsing or switching version history ignores late data and distinguishes 404 from 503',async()=>{
+ const {default:VersionHistory}=await import(pathToFileURL(path.join(out,'VersionHistory.mjs')));const target=ref('a');let finishA,mode='pending';const client={get:async path=>{if(path.endsWith('/a')&&mode==='pending')return new Promise(resolve=>finishA=resolve);if(mode==='404')throw {status:404};if(mode==='503')throw {status:503};return {versions:{items:[],total:0,next_offset:null}}}},status={error:ref('')};const root={children:[]},app=renderer.createApp({setup(){return()=>h(VersionHistory,{target:target.value,client,status,title:'测试'})}});app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.mount(root);await settle();
+ try{let trigger=walk(root,n=>n.type==='button'&&text(n)==='查看版本记录')[0];document.activeElement=trigger;trigger.props.onClick();await settle();walk(root,n=>n.type==='button'&&text(n)==='收起版本记录')[0].props.onClick();target.value='b';await settle();finishA?.({versions:{items:[{id:'late',data:{quality:{},active:true,data:{reliable:true}}}],total:1,next_offset:null}});await settle();assert.ok(!text(root).includes('late'));assert.equal(document.activeElement,trigger);mode='404';walk(root,n=>n.type==='button'&&text(n)==='查看版本记录')[0].props.onClick();await settle();assert.ok(text(root).includes('尚未建立此集的版本档案'));mode='503';walk(root,n=>n.type==='button'&&text(n)==='重新读取')[0].props.onClick();await settle();assert.ok(text(root).includes('HTTP 503'))}finally{document.activeElement=null;app.unmount()}
+});
+
+test('RT17 media-library picker exposes loading, preserves saved choices on failure, and recovers in place',async()=>{
+ const {default:LibraryPicker}=await import(pathToFileURL(path.join(out,'LibraryPicker.mjs')));let finish,phase='pending';const api={get:async path=>{if(path==='mediaserver/clients')return [{type:'emby',name:'Emby'}];if(phase==='pending')return new Promise(resolve=>finish=resolve);if(phase==='fail')throw {status:503};return [{id:'2',name:'剧集库'}]}};const f=fixture(LibraryPicker,{extra:{api,modelValue:{Emby:['saved']},readonly:false}});await settle();
+ try{assert.ok(text(f.root).includes('正在读取媒体库'));finish([{id:'1',name:'电影库'}]);await settle();assert.ok(text(f.root).includes('电影库'));assert.ok(text(f.root).includes('已保存的媒体库 1'));phase='fail';walk(f.root,n=>n.type==='button'&&text(n)==='重试读取')[0].props.onClick();await settle();assert.ok(text(f.root).includes('媒体库名称暂不可用'));assert.ok(text(f.root).includes('电影库'));phase='recover';walk(f.root,n=>n.type==='button'&&text(n)==='重试读取')[0].props.onClick();await settle();assert.ok(text(f.root).includes('剧集库'));assert.ok(text(f.root).includes('已保存的媒体库 1'))}finally{f.app.unmount()}
+});
+
+test('RT18 dirty refresh and lost save response stay protected until the saved state is confirmed',async()=>{
+ const previous=globalThis.window,listeners={};globalThis.window={addEventListener:(name,fn)=>listeners[name]=fn,removeEventListener:name=>delete listeners[name]};let lost=false,closed=0;const f=fixture(Config,{extra:{focus:{group:'ownership',tab:'lifecycle'},onClose:()=>closed++},get:async(p,o,c,h)=>{if(lost&&(p.endsWith('/configuration')||p.endsWith('/diagnostics')))throw {status:503};if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],result:{}}}});await settle();
+ try{const input=walk(walk(f.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0],n=>n.type==='input'&&n.props.type==='number')[0];input.props.onInput({target:{value:'20'}});await settle();const event={preventDefault(){this.prevented=true}};listeners.beforeunload(event);assert.equal(event.prevented,true);assert.equal(event.returnValue,'');f.app._instance.exposed.requestLeave('close');await settle();assert.ok(text(f.root).includes('保留这次修改吗'));assert.equal(closed,0);walk(f.root,n=>n.type==='button'&&text(n)==='继续编辑')[0].props.onClick();await settle();f.api.put=async()=>{lost=true;return {success:true}};walk(f.root,n=>n.type==='button'&&text(n)==='保存运行管理设置')[0].props.onClick();await settle();assert.ok(text(f.root).includes('保存结果待确认'));assert.ok(walk(f.root,n=>n.type==='button'&&text(n)==='核对保存结果')[0]);f.app._instance.exposed.requestLeave('close');await settle();assert.equal(closed,0)}finally{f.app.unmount();if(previous===undefined)delete globalThis.window;else globalThis.window=previous}
 });
 
 test('a successful scheme save consumes only its shared edit ownership',async()=>{

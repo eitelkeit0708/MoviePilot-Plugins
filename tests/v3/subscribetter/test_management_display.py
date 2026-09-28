@@ -143,10 +143,56 @@ class DisplayTests(unittest.TestCase):
         self.assertEqual(1,processing['download']['file_count'])
         self.assertEqual(0,processing['attachments']['required'])
 
+    def test_rt14_legacy_dependencies_and_image_subtitles_stay_out_of_display_totals(self):
+        self.populate_processing(size=100)
+        with self.repo.connection(write=True) as db:
+            snapshot=json.loads(db.execute("SELECT snapshot FROM plans WHERE id='p6'").fetchone()[0])
+            key=next(iter(snapshot['targets']));video=next(file for file in snapshot['torrent_files'] if file['role']=='video')
+            video['requires']=[98]
+            snapshot['torrent_files'] += [
+                {'index':98,'path':'fonts/effect.ttf','size':50,'role':'other','targets':[key],'requires':[]},
+                {'index':99,'path':'subtitles/legacy.idx','size':25,'role':'subtitle','targets':[key],'requires':[]},
+            ]
+            snapshot['selected_indices'] += [98,99]
+            db.execute("UPDATE plans SET snapshot=? WHERE id='p6'",(json.dumps(snapshot),))
+        value=self.views.task(self.task_id,user=None).units.items[0].processing
+        self.assertEqual(1,value['download']['file_count'])
+        self.assertEqual(100,value['download']['total_bytes'])
+        self.assertEqual(0,value['attachments']['required'])
+
     def test_unit_reports_known_version_count(self):
         self.populate_processing()
         unit=self.views.task(self.task_id,user=None).units.items[0]
         self.assertEqual(0,unit.version_count)
+
+    def test_rt12_attention_filter_runs_before_episode_pagination(self):
+        self.populate()
+        with self.repo.connection(write=True) as db:
+            rows=[]
+            for episode in range(1,51):
+                key=json.dumps(['电视剧','themoviedb','42',1,'',episode],ensure_ascii=False,separators=(',',':'))
+                rows.append((key,self.task_id,key,'PUBLISH_OUTCOME_UNKNOWN' if episode==40 else 'NOT_SENT'))
+            db.executemany('INSERT INTO target_units(target_key,task_id,identity,publish_phase) VALUES(?,?,?,?)',rows)
+        page=self.views.task(self.task_id,activity='attention',limit=25,user=None).units
+        self.assertEqual(1,page.total)
+        self.assertEqual(40,json.loads(page.items[0].target_key)[5])
+        self.assertIsNone(page.next_offset)
+
+    def test_rt13_episode_pages_are_stable_and_filter_reset_restores_all_units(self):
+        self.populate()
+        with self.repo.connection(write=True) as db:
+            rows=[]
+            for episode in range(1,51):
+                key=json.dumps(['电视剧','themoviedb','42',1,'',episode],ensure_ascii=False,separators=(',',':'))
+                rows.append((key,self.task_id,key,'PUBLISH_OUTCOME_UNKNOWN' if episode in (20,40) else 'NOT_SENT'))
+            db.executemany('INSERT INTO target_units(target_key,task_id,identity,publish_phase) VALUES(?,?,?,?)',rows)
+        first=self.views.task(self.task_id,activity='all',limit=25,offset=0,user=None).units
+        second=self.views.task(self.task_id,activity='all',limit=25,offset=25,user=None).units
+        attention=self.views.task(self.task_id,activity='attention',limit=25,user=None).units
+        self.assertEqual(list(range(1,26)),[json.loads(row.target_key)[5] for row in first.items])
+        self.assertEqual(list(range(26,51)),[json.loads(row.target_key)[5] for row in second.items])
+        self.assertEqual([20,40],[json.loads(row.target_key)[5] for row in attention.items])
+        self.assertEqual(50,first.total)
 
     def test_delivery_projection_hides_ignored_assets_and_keeps_legacy_unknown_files(self):
         self.populate_processing()
@@ -178,6 +224,23 @@ class DisplayTests(unittest.TestCase):
         legacy=self.views.bundle('b',user=None)
         self.assertEqual(5,legacy.files.total)
         self.assertEqual(5,legacy.bundle.file_count)
+
+    def test_rt15_hidden_unknown_attachment_remains_an_explicit_reconcile_barrier(self):
+        self.populate_processing()
+        with self.repo.connection(write=True) as db:
+            data=json.loads(db.execute("SELECT data FROM delivery_bundles WHERE id='b'").fetchone()[0])
+            data['files']=[
+                {'file_index':0,'snapshot':{'path':'Example.mkv'},'state':'VERIFIED'},
+                {'file_index':9,'snapshot':{'path':'font.ttf'},'state':'UNKNOWN'},
+            ]
+            data['manifest']['assets']=[
+                {'file_index':0,'role':'video','required':True},
+                {'file_index':9,'role':'other','required':False},
+            ]
+            db.execute("UPDATE delivery_bundles SET state='WAITING',data=? WHERE id='b'",(json.dumps(data),))
+        detail=self.views.bundle('b',user=None)
+        self.assertEqual(1,detail.files.total)
+        self.assertEqual(1,detail.bundle.hidden_unsettled_count)
 
 
 if __name__=='__main__':

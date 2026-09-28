@@ -165,9 +165,10 @@
 .sb-settings-tabs button{min-width:44px;min-height:44px}.sb-tags button{min-width:40px;min-height:40px}
 @media(max-width:750px){
  .sb-product-nav{display:grid;grid-template-columns:minmax(0,1fr) auto}.sb-product-nav>nav{grid-column:1/-1;grid-row:2;width:100%;flex-basis:auto;flex-wrap:nowrap;overflow-x:auto}.sb-product-tools{grid-column:2;grid-row:1;width:auto;margin-left:0;flex:none}.sb-settings-tabs{display:flex;gap:18px;overflow-x:auto;margin-bottom:22px}.sb-settings-tabs button{white-space:nowrap;padding-inline:2px}
- .sb-product-nav>nav,.sb-settings-tabs,.sb-source-selector,.sb-plan-selector,.sb-policy-selector{scrollbar-width:none}.sb-product-nav>nav::-webkit-scrollbar,.sb-settings-tabs::-webkit-scrollbar,.sb-source-selector::-webkit-scrollbar,.sb-plan-selector::-webkit-scrollbar,.sb-policy-selector::-webkit-scrollbar{display:none}
+ .sb-product-nav>nav,.sb-settings-tabs,.sb-source-selector,.sb-plan-selector{scrollbar-width:none}.sb-product-nav>nav::-webkit-scrollbar,.sb-settings-tabs::-webkit-scrollbar,.sb-source-selector::-webkit-scrollbar,.sb-plan-selector::-webkit-scrollbar{display:none}
  .sb-source-editor,.sb-plan-workspace,.sb-policy-editor{display:block}.sb-source-selector,.sb-plan-selector,.sb-policy-selector{display:flex;flex-direction:row;flex-wrap:nowrap;gap:8px;width:100%;overflow-x:auto;margin-bottom:20px;padding:0 0 12px;border:0;border-bottom:1px solid var(--sb-line)}
  .sb-source-selector button,.sb-plan-selector button,.sb-policy-selector button{flex:0 0 180px;min-width:0}.sb-plan-body{padding-top:12px}
+ .sb-policy-selector{scrollbar-width:thin;scrollbar-color:rgba(var(--v-theme-primary),.45) transparent}.sb-policy-selector::-webkit-scrollbar{height:4px}.sb-policy-selector::-webkit-scrollbar-thumb{background:rgba(var(--v-theme-primary),.45);border-radius:4px}
 }
 
 /* Every visible navigation row uses the same hover, keyboard and selected cues. */

@@ -1787,6 +1787,21 @@
             }
           },
           {
+            "name": "activity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "all",
+                "processing",
+                "attention"
+              ],
+              "type": "string",
+              "default": "all",
+              "title": "Activity"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -7545,6 +7560,11 @@
             }
           ],
           "title": "Consumer Pending"
+        },
+        "hidden_unsettled_count": {
+          "type": "integer",
+          "title": "Hidden Unsettled Count",
+          "default": 0
         }
       },
       "additionalProperties": false,
@@ -13201,6 +13221,11 @@
           },
           "type": "array",
           "title": "Current Quality"
+        },
+        "version_count": {
+          "type": "integer",
+          "title": "Version Count",
+          "default": 0
         }
       },
       "additionalProperties": false,

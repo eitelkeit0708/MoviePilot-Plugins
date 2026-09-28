@@ -4,10 +4,10 @@ import {useRead} from './read.mjs';
 import {createReadGate,errorText} from './client.mjs';
 import {clean,contract} from './schema.mjs';
 import {stateLabel,reasonText} from './media.mjs';
-const props=defineProps({client:Object,status:Object,policy:Object,category:String,policyName:String,currentPolicyName:String,effective:Boolean});
+const props=defineProps({client:Object,status:Object,policy:Object,category:String,categoryName:String,policyName:String,currentPolicyName:String,effective:Boolean});
 const offset=ref(0),candidate=ref(''),current=ref(''),manual=ref(false),title=ref(''),subtitle=ref(''),result=ref(null),error=ref(''),busy=ref(false),gate=createReadGate();
 const {data,refresh,error:readError}=useRead(signal=>props.client.get('/candidates',{params:{limit:25,offset:offset.value},signal}));
-watch(()=>JSON.stringify([props.policy,props.category,candidate.value,current.value,manual.value,title.value,subtitle.value,props.status.current.value?.revision]),()=>{gate.begin();result.value=null;error.value='';busy.value=false});
+watch(()=>JSON.stringify([props.policy,props.category,props.categoryName,props.policyName,props.currentPolicyName,candidate.value,current.value,manual.value,title.value,subtitle.value,props.status.current.value?.revision]),()=>{gate.begin();result.value=null;error.value='';busy.value=false});
 onBeforeUnmount(()=>gate.close());
 async function simulate(draft){
  const read=gate.begin();busy.value=true;result.value=null;error.value='';
@@ -15,9 +15,10 @@ async function simulate(draft){
   const selected=manual.value?{title:title.value,description:subtitle.value}:data.value?.items.find(c=>c.candidate_key===candidate.value)?.evidence;
   if(!selected)throw Error('请选择候选资源或填写样本标题');
   const baseline=data.value?.items.find(c=>c.candidate_key===current.value);
-  const body={config_revision:props.status.current.value.revision,runtime_generation:props.status.health.value.generation,category_id:props.category,candidate:clean(contract.schemas.PolicySample,selected),current:baseline?[{version_id:baseline.candidate_key,raw:clean(contract.schemas.PolicySample,baseline.evidence),active:true,reliable:true}]:[],...(draft?{draft_policy:props.policy}:{})};
+  const snapshot={category:props.category,categoryName:props.categoryName,policy:draft?props.policyName:props.currentPolicyName,configRevision:props.status.current.value.revision};
+  const body={config_revision:snapshot.configRevision,runtime_generation:props.status.health.value.generation,category_id:snapshot.category,candidate:clean(contract.schemas.PolicySample,selected),current:baseline?[{version_id:baseline.candidate_key,raw:clean(contract.schemas.PolicySample,baseline.evidence),active:true,reliable:true}]:[],...(draft?{draft_policy:props.policy}:{})};
   const response=await props.client.post('/policies/simulate',body,{signal:read.signal});
-  if(read.current())result.value={...response,mode:draft?'本次修改':'当前生效策略',policy:draft?props.policyName:props.currentPolicyName,category:props.category,config_revision:props.status.current.value.revision};
+  if(read.current())result.value={...response,mode:draft?'本次修改':'当前生效策略',policy:snapshot.policy,category:snapshot.category,category_name:snapshot.categoryName,config_revision:snapshot.configRevision};
  }catch(e){if(read.current())error.value=errorText(e)}finally{if(read.current())busy.value=false}
 }
 </script>
@@ -29,5 +30,5 @@ async function simulate(draft){
  <div v-if="data?.total>25" class="sb-actions"><VBtn variant="text" :disabled="!offset" @click="offset-=25;candidate='';current='';refresh()">上一页样本</VBtn><VBtn variant="text" :disabled="data.next_offset===null" @click="offset=data.next_offset;candidate='';current='';refresh()">下一页样本</VBtn></div>
  <div class="sb-actions"><VBtn color="primary" :loading="busy" :disabled="busy||!category||!(manual?title.trim():candidate)" @click="simulate(true)">试算本次修改</VBtn><VBtn variant="text" :disabled="busy||!effective||!(manual?title.trim():candidate)" @click="simulate(false)">检查当前生效策略</VBtn></div>
  <p v-if="error" role="alert" class="sb-error">{{error}}</p>
- <section v-if="result" class="sb-simulation-result" role="status"><span>{{result.mode}} · {{result.policy||'策略名称暂不可用'}} · 配置版本 {{result.config_revision}}</span><h3>{{stateLabel(result.evidence?.evaluation?.status||result.status)}}</h3><p>{{reasonText(result.evidence?.evaluation?.reason)||'策略已完成比较。'}}</p></section>
+ <section v-if="result" class="sb-simulation-result" role="status"><span>{{result.mode}} · {{result.policy||'策略名称暂不可用'}} · {{result.category_name||'分类名称暂不可用'}} · 配置版本 {{result.config_revision}}</span><h3>{{stateLabel(result.evidence?.evaluation?.status||result.status)}}</h3><p>{{reasonText(result.evidence?.evaluation?.reason)||'策略已完成比较。'}}</p></section>
 </aside></template>
