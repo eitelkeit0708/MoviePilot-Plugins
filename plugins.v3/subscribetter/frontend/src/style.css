@@ -168,3 +168,20 @@
  .sb-source-editor,.sb-plan-workspace,.sb-policy-editor{display:block}.sb-source-selector,.sb-plan-selector,.sb-policy-selector{display:flex;flex-direction:row;flex-wrap:nowrap;gap:8px;width:100%;overflow-x:auto;margin-bottom:20px;padding:0 0 12px;border:0;border-bottom:1px solid var(--sb-line)}
  .sb-source-selector button,.sb-plan-selector button,.sb-policy-selector button{flex:0 0 180px;min-width:0}.sb-plan-body{padding-top:12px}
 }
+
+/* Every visible navigation row uses the same hover, keyboard and selected cues. */
+.sb-product-nav .v-btn,.sb-settings-nav button,.sb-settings-tabs button,.sb-source-selector button,.sb-plan-selector button,.sb-policy-selector button,.sb-nav button{cursor:pointer;transition:background-color .15s ease,color .15s ease}
+.sb-product-nav .v-btn:hover,.sb-settings-nav button:hover,.sb-settings-tabs button:hover,.sb-source-selector button:hover,.sb-plan-selector button:hover,.sb-policy-selector button:hover,.sb-nav button:hover{background:rgba(var(--v-theme-primary),.07);color:rgb(var(--v-theme-on-surface))}
+.sb-product-nav .v-btn:focus-visible,.sb-settings-nav button:focus-visible,.sb-settings-tabs button:focus-visible,.sb-source-selector button:focus-visible,.sb-plan-selector button:focus-visible,.sb-policy-selector button:focus-visible,.sb-nav button:focus-visible{outline:2px solid rgba(var(--v-theme-primary),.7);outline-offset:2px}
+.sb-settings-tabs button{padding-inline:10px;border-radius:8px 8px 0 0}
+.sb-settings-tabs button[aria-current=page]{background:rgba(var(--v-theme-primary),.07)}
+.sb-row-action{font-size:14px!important;color:var(--sb-accent)!important;white-space:nowrap}
+.sb-work-actions{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 20px}
+.sb-target-summary{display:grid;gap:5px;margin:12px 0;font-size:14px;color:rgba(var(--v-theme-on-surface),.78)}
+.sb-file-row>.sb-path-full{grid-column:1/-1;margin:6px 0 0;overflow-wrap:anywhere}
+.sb-root .sb-upload-heading{grid-template-columns:minmax(200px,1fr) minmax(180px,.8fr) auto}
+@media(max-width:750px){
+ .sb-root .sb-upload-heading{grid-template-columns:minmax(0,1fr) auto}
+ .sb-upload-heading>span:nth-child(2){grid-column:1;grid-row:2}
+ .sb-upload-heading>.v-btn{grid-column:2;grid-row:1/3;align-self:center}
+}

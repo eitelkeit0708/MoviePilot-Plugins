@@ -10,7 +10,7 @@ const scalar=v=>v===null||typeof v!=='object';
   <div v-else-if="Array.isArray(value)" class="sb-record-array">
     <p v-if="!value.length" class="sb-muted">无{{label(name)}}记录</p>
     <ol v-else-if="value.every(scalar)"><li v-for="(item,index) in value" :key="index"><Record :value="item" /></li></ol>
-    <details v-else v-for="(item,index) in value" :key="index" :open="value.length<=3"><summary>{{item?.title||item?.name||item?.id||item?.target_key||label(name)+' '+(index+1)}}</summary><Record :value="item" :depth="depth+1" /></details>
+    <section v-else v-for="(item,index) in value" :key="index" class="sb-record-group"><h5>{{item?.title||item?.name||item?.id||item?.target_key||label(name)+' '+(index+1)}}</h5><Record :value="item" :depth="depth+1" /></section>
   </div>
-  <dl v-else class="sb-record"><template v-for="[key,item] in entries" :key="key"><dt>{{label(key)}}</dt><dd><details v-if="!scalar(item)&&depth>0"><summary>{{Array.isArray(item)?item.length+' 项':'查看原始数据'}}</summary><Record :value="item" :name="key" :depth="depth+1" /></details><Record v-else :value="item" :name="key" :depth="depth+1" /></dd></template></dl>
+  <dl v-else class="sb-record"><template v-for="[key,item] in entries" :key="key"><dt>{{label(key)}}</dt><dd><section v-if="!scalar(item)&&depth>0" class="sb-record-group"><Record :value="item" :name="key" :depth="depth+1" /></section><Record v-else :value="item" :name="key" :depth="depth+1" /></dd></template></dl>
 </template>

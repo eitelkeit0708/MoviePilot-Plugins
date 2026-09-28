@@ -34,10 +34,9 @@ test('settings switch one level, preserve the abandoned-page draft and do not sa
  try{btn('升级期限').props.onClick();await settle();const lifetime=walk(f.root,n=>n.type==='label'&&text(n).includes('电影追踪期限'))[0];walk(lifetime,n=>n.type==='input'&&n.props.type==='number')[0].props.onInput({target:{value:'9'}});await settle();btn('搜索与调度').props.onClick();await settle();btn('保留草稿并返回').props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-editor').length,1);const search=walk(f.root,n=>n.type==='label'&&text(n).includes('搜索名称来源'))[0],select=walk(search,n=>n.type==='select')[0];select.props.onChange({target:{value:'original'}});await settle();await btn('保存搜索与调度设置').props.onClick();await settle();assert.notEqual(f.saves[0].lifecycle.movie_days,9);
  }finally{f.app.unmount();delete globalThis.sessionStorage;clearFollowup('Clone')}
 });
-test('Page offers complete business navigation and keeps diagnostics under maintenance without writes',async()=>{
+test('Page offers complete business navigation and keeps diagnostics human and bounded',async()=>{
  const f=fixture(Page);await settle();const btn=t=>walk(f.root,n=>n.type==='button'&&text(n)===t)[0];
- try{for(const title of ['订阅','榜单','上传与入库','质量策略','下载方案','设置'])assert.ok(btn(title),title);btn('设置').props.onClick();await settle();btn('维护与安全').props.onClick();await settle();btn('诊断').props.onClick();await settle();btn('打开高级诊断').props.onClick();await settle();
- for(const title of ['候选决策','版本档案','交付队列','策略与预演','服务与健康','榜单发现','解析与 AI','整合迁移','目标与任务']){assert.ok(btn(title),title);btn(title).props.onClick();await settle();assert.ok(text(f.root).includes(title))}assert.equal(f.calls.filter(c=>c[0]==='post').length,0);
+ try{for(const title of ['订阅','榜单','上传与入库','质量策略','下载方案','设置'])assert.ok(btn(title),title);btn('设置').props.onClick();await settle();btn('维护与安全').props.onClick();await settle();btn('诊断').props.onClick();await settle();assert.ok(text(f.root).includes('运行状态'));assert.equal(btn('打开高级诊断'),undefined);for(const title of ['候选决策','版本档案','交付队列','策略与预演','服务与健康','榜单发现','解析与 AI','整合迁移','目标与任务'])assert.equal(btn(title),undefined);assert.equal(f.calls.filter(c=>c[0]==='post').length,0);
  }finally{f.app.unmount()}
 });
 test('delayed Config preflight cannot emit after unmount',async()=>{
@@ -51,15 +50,16 @@ test('actual immutable preview confirmation sends only receipt/opid/confirm and 
  const calls=[];const preview={preview_id:'p',preview_digest:'d',kind:'history',objects:{record_ids:[1]},permissions:{},blockers:[],revisions:{},expires_at:'later'};
  const client={post:async(p,b)=>{calls.push([p,structuredClone(b)]);return p.endsWith('/preview')?preview:{state:'APPLIED',result:{}}},get:async()=>({})};
  const status={current:ref({revision:4}),health:ref({generation:6}),error:ref('')};
- const f=fixture(Action,{extra:{action:['隐藏历史','/discovery/history/cleanup/preview'],client,status,context:{record_ids:[1]}}});await settle();
- const prepare=walk(f.root,n=>n.type==='button'&&text(n)==='取得不可变预览')[0];await prepare.props.onClick();await settle();
+ const context={record_ids:[1],_bound:true,_label:'当前历史记录',_description:'仅处理当前选中的历史记录。'};
+ const f=fixture(Action,{extra:{action:['隐藏历史','/discovery/history/cleanup/preview'],client,status,context}});await settle();
+ const prepare=walk(f.root,n=>n.type==='button'&&text(n)==='核对操作')[0];await prepare.props.onClick();await settle();
  assert.deepEqual(calls[0][1],{config_revision:4,runtime_generation:6,record_ids:[1]});preview.objects.record_ids.push(2);
- const confirm=walk(f.root,n=>n.type==='button'&&text(n)==='确认此对象与范围')[0];await confirm.props.onClick();await settle();assert.equal(calls.length,2);assert.deepEqual(Object.keys(calls[1][1]).sort(),['confirm','operation_id','preview_digest','preview_id']);assert.equal(calls[1][1].preview_id,'p');f.app.unmount();
- const blocked=fixture(Action,{extra:{action:['隐藏历史','/discovery/history/cleanup/preview'],client:{...client,post:async()=>({...preview,blockers:['UNKNOWN']})},status,context:{record_ids:[1]}}});await settle();await walk(blocked.root,n=>n.type==='button'&&text(n)==='取得不可变预览')[0].props.onClick();await settle();assert.equal(walk(blocked.root,n=>n.type==='button'&&text(n)==='确认此对象与范围')[0].props.disabled,true);blocked.app.unmount();
+ const confirm=walk(f.root,n=>n.type==='button'&&text(n)==='确认隐藏历史')[0];await confirm.props.onClick();await settle();assert.equal(calls.length,2);assert.deepEqual(Object.keys(calls[1][1]).sort(),['confirm','operation_id','preview_digest','preview_id']);assert.equal(calls[1][1].preview_id,'p');f.app.unmount();
+ const blocked=fixture(Action,{extra:{action:['隐藏历史','/discovery/history/cleanup/preview'],client:{...client,post:async()=>({...preview,blockers:['UNKNOWN']})},status,context}});await settle();await walk(blocked.root,n=>n.type==='button'&&text(n)==='核对操作')[0].props.onClick();await settle();assert.equal(walk(blocked.root,n=>n.type==='button'&&text(n)==='确认隐藏历史')[0].props.disabled,true);blocked.app.unmount();
 });
 test('top-level product editors do not show a back button to an empty copy of the same page',async()=>{
  const f=fixture(Page);await settle();
- try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];button('设置').props.onClick();await settle();assert.equal(walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹')).length,0)}finally{f.app.unmount()}
+ try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];button('下载方案').props.onClick();await settle();button('设置').props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']==='设置分区')[0]);assert.equal(walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹')).length,0)}finally{f.app.unmount()}
 });
 test('restored top-level editors discard obsolete back buttons from older browser sessions',async()=>{
  const storage=new Map([['subscribetter:navigation:Clone:subscriptions',JSON.stringify({section:'settings',scroll:0,editors:[{focus:{group:'ai',tab:'prompt'},scroll:0}]})]]);globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
@@ -211,7 +211,7 @@ test('opening a work from discovery returns to its source filter and focus conte
 test('opening a work from uploads returns to its stage filter and expanded work',async()=>{
  const task={id:3,title:'GATE24',media_type:'电视剧',state:'ACTIVE',generation:2},work={id:'work-3',data:{title:'GATE24',task_id:3,batch_count:1,confirmed_count:0,attention_count:1}},reads=[];let focused=0;
  const f=fixture(Page,{get:async(p,o,c,h)=>{if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;if(p.endsWith('/delivery/works')){reads.push(o?.params);return {items:[work],total:1,next_offset:null}}if(p.endsWith('/delivery/bundles'))return {items:[],total:0,next_offset:null};if(p.endsWith('/tasks/3'))return {task,units:{items:[],total:0,next_offset:null},opportunities:{items:[]}};if(p.endsWith('/candidate-decisions')||p.endsWith('/plans')||p.endsWith('/observations')||p.endsWith('/exclusions'))return {items:[],total:0,next_offset:null};return {items:[],total:0,next_offset:null,result:{},categories:[]}}});await settle();
- try{walk(f.root,n=>n.type==='button'&&text(n)==='上传与入库')[0].props.onClick();await settle();const transfer=walk(f.root,n=>n.props?.['aria-label']==='上传与入库')[0],stage=walk(transfer,n=>n.type==='select')[0];stage.props['onUpdate:modelValue']('UNKNOWN');stage.props.onChange();await settle();walk(transfer,n=>n.type==='button'&&String(n.props.class||'').includes('sb-upload-heading'))[0].props.onClick();await settle();walk(transfer,n=>n.type==='button'&&text(n)==='查看作品与下载进度')[0].props.onClick({currentTarget:{focus(){focused++}}});await settle();const back=walk(f.root,n=>n.type==='button'&&text(n)==='返回上传与入库')[0];assert.ok(back);await back.props.onClick();await settle();assert.ok(text(walk(f.root,n=>n.props?.['aria-label']==='上传与入库')[0]).includes('查看作品与下载进度'));assert.equal(reads.at(-1).state,'UNKNOWN');assert.equal(focused,1)}finally{f.app.unmount()}
+ try{walk(f.root,n=>n.type==='button'&&text(n)==='上传与入库')[0].props.onClick();await settle();const transfer=walk(f.root,n=>n.props?.['aria-label']==='上传与入库')[0],stage=walk(transfer,n=>n.type==='select')[0];stage.props['onUpdate:modelValue']('UNKNOWN');stage.props.onChange();await settle();walk(transfer,n=>n.type==='button'&&text(n)==='查看批次')[0].props.onClick();await settle();walk(transfer,n=>n.type==='button'&&text(n)==='查看作品与下载进度')[0].props.onClick({currentTarget:{focus(){focused++}}});await settle();const back=walk(f.root,n=>n.type==='button'&&text(n)==='返回上传与入库')[0];assert.ok(back);await back.props.onClick();await settle();assert.ok(text(walk(f.root,n=>n.props?.['aria-label']==='上传与入库')[0]).includes('查看作品与下载进度'));assert.equal(reads.at(-1).state,'UNKNOWN');assert.equal(focused,1)}finally{f.app.unmount()}
 });
 
 test('library picker preserves unavailable choices and removes only the explicitly unchecked library',async()=>{
@@ -286,7 +286,7 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
  assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
  const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
  for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','视频或必要字幕'],['unknown','外部结果尚未确认'],['superseded','已失效或待核实']]){
-  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='downloading')assert.ok(!text(f.root).includes('等待下载器更新文件进度'));if(scene==='rapid'){assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP']);const toggle=walk(f.root,n=>n.type==='button'&&n.props?.['aria-expanded']===false)[0],body=walk(f.root,n=>n.props?.class==='sb-episode-expanded')[0];assert.equal(body.style.display,'none');toggle.props.onClick();await settle();assert.equal(toggle.props['aria-expanded'],true);assert.notEqual(body.style.display,'none')}}finally{f.app.unmount()}
+  const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='downloading')assert.ok(!text(f.root).includes('等待下载器更新文件进度'));if(scene==='rapid'){assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP']);assert.equal(walk(f.root,n=>n.props?.['aria-expanded']!==undefined).length,0);assert.equal(walk(f.root,n=>n.props?.class==='sb-episode-expanded').length,0)}}finally{f.app.unmount()}
  }
  const multi=structuredClone(dto.scenes.rapid.units.items[0]);
  multi.current_quality.push({...multi.current_quality[0],version_id:'lossless',quality:{...multi.current_quality[0].quality,audio:3}});
@@ -294,7 +294,7 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
  for(const baseline_current of [true,false]){
   multi.processing.change.baseline_current=baseline_current;
   const f=fixture(UnitProgress,{extra:{unit:multi,health:{ordinary_work_active:true}}});await settle();
-  try{assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),baseline_current?['4K','Dolby Vision','DDP','4K','Dolby Vision']:[]);if(!baseline_current)assert.match(text(f.root),/库内记录已变化/)}finally{f.app.unmount()}
+  try{assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),baseline_current?['4K','Dolby Vision','DDP','4K','Dolby Vision']:[]);if(!baseline_current)assert.match(text(f.root),/变化依据未取得/)}finally{f.app.unmount()}
  }
  const {default:CandidateDecision}=await import(pathToFileURL(path.join(out,'CandidateDecision.mjs')));
  let resolve,mode='wait';const calls=[];const decision=ref(dto.list.items[0]);
@@ -305,11 +305,11 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
   assert.match(text(root),/候选版本质量更优/);assert.match(text(root),/分辨率/);assert.equal(calls.length,0);
   button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/正在读取完整比较依据/);
   const detail=structuredClone(dto.detail);for(const episode of [10,2,1])detail.evidence.evaluation.decisions[JSON.stringify(['电视剧','tmdb','numeric',1,'',episode])]={status:'ALLOW',reason:'QUALITY_UPGRADE'};
-  resolve(detail);await settle();assert.ok(text(root).includes('QUALITY_UPGRADE'));
+  resolve(detail);await settle();assert.ok(!text(root).includes('QUALITY_UPGRADE'));assert.ok(text(root).includes('候选版本质量更优'));
   const displayed=walk(root,n=>n.props?.class==='sb-comparison-outcome').map(text).join('|');assert.ok(displayed.indexOf('第 2 集')<displayed.indexOf('第 10 集'),displayed);
   decision.value={...dto.list.items[0],id:'second'};await settle();button('查看本次比较依据').props.onClick();await settle();const late=resolve;
   decision.value={...dto.list.items[0],id:'third'};await settle();late(dto.detail);await settle();assert.ok(!text(root).includes('QUALITY_UPGRADE'));
-  mode='fail';button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/HTTP 503/);assert.ok(!text(root).includes('没有保存完整比较依据'));
+  mode='fail';button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/比较详情暂时无法加载/);assert.ok(!text(root).includes('HTTP 503'));assert.ok(!text(root).includes('没有保存完整比较依据'));
   mode='empty';await button('重新加载').props.onClick();await settle();assert.match(text(root),/没有保存完整比较依据/);
  }finally{app.unmount()}
 });
