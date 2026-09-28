@@ -1,0 +1,43 @@
+{
+  "captured_at": "2026-09-29T02:13:00+08:00",
+  "host": "http://192.168.50.6:13000",
+  "container": "moviepilot-v3-subscribetter-test",
+  "product_commit": "f5b650f23e7d98ea5e219e987ef4072c8c41e083",
+  "deployment": {
+    "scope": "isolated_v3_only",
+    "verified_files": 182,
+    "production_touched": false,
+    "runtime_and_persistent_source_updated": true
+  },
+  "installed_sha256": {
+    "ui.py": "586a6cb851ae2a5f611ee9fffcf370401d36d6497f7be19a5c895233ad4e57fb",
+    "display.py": "2d386696f6a316e87a6b6c5abb873e1fb54e74a1135ed1314bd4ff179e45d6a7",
+    "dist/assets/remoteEntry.js": "2dfe367ff99abf9075affa614374eee4d0ddfb4ac97e667845c8ded657386d0c"
+  },
+  "runtime_status": {
+    "subscription_tracking": "disabled",
+    "execution_mode": "dry_run_plan_only",
+    "task_protection": "running",
+    "configuration_read": "healthy"
+  },
+  "browser_checks": {
+    "subscription_base_detail": "PASS",
+    "version_history_trigger_present": "PASS",
+    "emby_library_names_loaded": "PASS",
+    "narrow_policy_viewport_width": 390,
+    "narrow_policy_scroll_left_after_last_selection": 2137.60009765625,
+    "page_scroll_top_after_last_selection": 0,
+    "screenshot_capture": "BLOCKED_BROWSER_CAPTURE_TIMEOUT"
+  },
+  "automated_validation": {
+    "review_assertions": "18/18 PASS",
+    "frontend": "108/108 PASS",
+    "python": "760 PASS, 5 skipped",
+    "native_ui": "8/8 PASS",
+    "management_display": "12/12 PASS",
+    "build": "PASS",
+    "compileall": "PASS",
+    "diff_check": "PASS"
+  },
+  "mutating_business_flows": "NOT_RUN"
+}
