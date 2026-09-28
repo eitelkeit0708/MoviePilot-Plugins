@@ -282,8 +282,8 @@ test('mapping checks send the selected persisted sample and refuse an unsaved ma
 test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, empty and late responses are distinct',async()=>{
  const {spawnSync}=await import('node:child_process');
  const cwd=fileURLToPath(new URL('../../../../',import.meta.url));
- const run=spawnSync(path.join(cwd,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'),['-X','utf8','tests/v3/subscribetter/test_management_display.py','--fixture'],{cwd,encoding:'utf8',maxBuffer:8*1024*1024});
- assert.equal(run.status,0,run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
+ const run=spawnSync(path.join(cwd,'.venv',process.platform==='win32'?'Scripts/python.exe':'bin/python'),['-X','utf8','tests/v3/subscribetter/test_management_display.py','--fixture'],{cwd,encoding:'utf8',maxBuffer:32*1024*1024});
+ assert.equal(run.status,0,run.error?.message||run.stderr);const dto=JSON.parse(run.stdout);assert.equal(dto.list.items[0].evidence.evaluation,undefined);
  const {default:UnitProgress}=await import(pathToFileURL(path.join(out,'UnitProgress.mjs')));
  for(const [scene,expected] of [['rapid','2 / 6'],['downloading','512.0 MiB'],['assets','视频或必要字幕'],['unknown','外部结果尚未确认'],['superseded','已失效或待核实']]){
   const f=fixture(UnitProgress,{extra:{unit:dto.scenes[scene].units.items[0],health:{ordinary_work_active:true}}});await settle();try{assert.ok(text(f.root).includes(expected),scene+': '+text(f.root));assert.ok(!text(f.root).includes('视频 · 等待接管'));if(scene==='downloading')assert.ok(!text(f.root).includes('等待下载器更新文件进度'));if(scene==='rapid'){assert.deepEqual(walk(f.root,n=>n.type==='mark').map(text),['4K','Dolby Vision','DDP']);assert.equal(walk(f.root,n=>n.props?.['aria-expanded']!==undefined).length,0);assert.equal(walk(f.root,n=>n.props?.class==='sb-episode-expanded').length,0)}}finally{f.app.unmount()}
@@ -306,7 +306,7 @@ test('candidate comparison uses actual SQLite list DTO and lazy detail; errors, 
   button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/正在读取完整比较依据/);
   const detail=structuredClone(dto.detail);for(const episode of [10,2,1])detail.evidence.evaluation.decisions[JSON.stringify(['电视剧','tmdb','numeric',1,'',episode])]={status:'ALLOW',reason:'QUALITY_UPGRADE'};
   resolve(detail);await settle();assert.ok(!text(root).includes('QUALITY_UPGRADE'));assert.ok(text(root).includes('候选版本质量更优'));
-  const displayed=walk(root,n=>n.props?.class==='sb-comparison-outcome').map(text).join('|');assert.ok(displayed.indexOf('第 2 集')<displayed.indexOf('第 10 集'),displayed);
+  const outcomes=walk(root,n=>n.props?.class==='sb-comparison-outcome').map(text);const displayed=outcomes.join('|');assert.equal(outcomes.length,3,displayed);assert.match(displayed,/第 1–2、10 集/);
   decision.value={...dto.list.items[0],id:'second'};await settle();button('查看本次比较依据').props.onClick();await settle();const late=resolve;
   decision.value={...dto.list.items[0],id:'third'};await settle();late(dto.detail);await settle();assert.ok(!text(root).includes('QUALITY_UPGRADE'));
   mode='fail';button('查看本次比较依据').props.onClick();await settle();assert.match(text(root),/比较详情暂时无法加载/);assert.ok(!text(root).includes('HTTP 503'));assert.ok(!text(root).includes('没有保存完整比较依据'));
@@ -412,10 +412,52 @@ test('nested policy save survives outer discard, keeps scheme inputs, and never 
   const btn=(label,root=f.root)=>walk(root,n=>n.type==='button'&&text(n)===label)[0],tab=label=>walk(f.root,n=>n.type==='button'&&n.props?.['aria-label']===label)[0];
    try{await settle();btn('下载方案').props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-plan-workspace').length,1);assert.equal(walk(f.root,n=>n.props?.class==='sb-plan-library').length,0);tab('下载').props.onClick();await settle();const input=walk(f.root,n=>n.type==='label'&&text(n).startsWith('下载保存到'))[0].children.find(n=>n.type==='input');input.props.onInput({target:{value:'/unsaved'}});await settle();tab('概览').props.onClick();await settle();btn('调整所选策略').props.onClick();await settle();
  const editors=()=>walk(f.root,n=>n.type==='section'&&n.props?.class==='sb-editor');assert.equal(editors().length,2);
- const child=editors().at(-1);walk(child,n=>n.props?.['aria-label']==='上移音轨')[0].props.onClick();await settle();await btn('保存策略',child).props.onClick();await settle();assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
+  const child=editors().at(-1);walk(child,n=>n.props?.['aria-label']==='上移音轨')[0].props.onClick();await settle();await btn('保存质量策略设置',child).props.onClick();await settle();assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
   walk(child,n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.equal(editors().length,1);tab('下载').props.onClick();await settle();assert.ok(walk(f.root,n=>n.type==='input'&&n.props.value==='/unsaved').length);
  btn('订阅').props.onClick();await settle();assert.match(text(f.root),/本次已保存的欧美剧仍然生效/);btn('放弃本页修改').props.onClick();await settle();assert.equal(editors().length,0);assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
  }finally{f.app.unmount();delete globalThis.sessionStorage;clearFollowup('Clone')}
+});
+
+test('Page keeps a readable shell when initial status fails and retries in place',async()=>{
+ let fail=true;
+ const f=fixture(Page,{get:async(p,o,c,h)=>{if(p.endsWith('/configuration')||p.endsWith('/diagnostics')){if(fail)throw {status:503};return p.endsWith('/configuration')?c:h}return {items:[],total:0,next_offset:null}}});await settle();
+ try{assert.ok(text(f.root).includes('插件状态暂时无法读取'));const retry=walk(f.root,n=>n.type==='button'&&text(n)==='重新读取')[0];assert.ok(retry);fail=false;await retry.props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']==='订阅作品')[0])}finally{f.app.unmount()}
+});
+
+test('status retry in settings preserves unsaved input and does not become discard-and-reload',async()=>{
+ let fail=false;
+ const f=fixture(Config,{get:async(p,o,c,h)=>{if((p.endsWith('/configuration')||p.endsWith('/diagnostics'))&&fail)throw {status:503};if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[]};return {items:[],result:{}}},extra:{focus:{group:'safety',tab:'cleanup'}}});await settle();
+ try{const checkbox=walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0],original=checkbox.props.checked;checkbox.props.onChange({target:{checked:!original}});await settle();walk(f.root,n=>n.type==='button'&&text(n)==='诊断')[0].props.onClick();await settle();fail=true;await walk(f.root,n=>n.type==='button'&&text(n)==='刷新运行状态')[0].props.onClick();await settle();fail=false;await walk(f.root,n=>n.type==='button'&&text(n)==='重新读取状态')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='清理权限')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.checked,!original);assert.ok(text(f.root).includes('修改尚未保存'))}finally{f.app.unmount()}
+});
+
+test('subscription detail survives auxiliary history failures and reports each unavailable panel',async()=>{
+ const task={id:1,title:'侠女内莉',year:'2026',media_type:'电视剧',season:1,state:'ACTIVE'};
+ const client={get:async path=>{if(path==='/tasks')return {items:[task],total:1,next_offset:null};if(path==='/tasks/1')return {task,units:{items:[],total:0},snapshot:{}};throw {status:503}}};
+ const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{}}),health:ref({}),error:ref('')}}});await settle();
+ try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('侠女内莉'));assert.ok(text(f.root).includes('分集与版本'));walk(f.root,n=>n.type==='button'&&text(n)==='候选比较')[0].props.onClick();await settle();assert.ok(text(f.root).includes('候选比较暂时无法读取'))}finally{f.app.unmount()}
+});
+
+test('subscription polling keeps the applied query until the user submits the draft',async()=>{
+ const calls=[];let component;const client={get:async(p,o={})=>{if(p==='/tasks'){calls.push(o.params?.query??'');return {items:[],total:0,next_offset:null}}return {items:[],total:0,next_offset:null}}};
+ const root={children:[]},app=renderer.createApp({setup(){component=ref(null);return()=>h(Subscriptions,{ref:component,api:{},client,status:{current:ref({config:{}}),health:ref({}),error:ref('')}})}});app.component('VBtn',{inheritAttrs:false,setup(_,ctx){return()=>h('button',ctx.attrs,ctx.slots.default?.())}});app.component('VDialog',{setup(_,ctx){return()=>h('div',{},ctx.slots.default?.())}});app.mount(root);await settle();
+ try{walk(root,n=>n.type==='input'&&n.props.type==='search')[0].props['onUpdate:modelValue']('GATE24');await component.value.load();await settle();assert.equal(calls.at(-1),'');walk(root,n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});await settle();assert.equal(calls.at(-1),'GATE24')}finally{app.unmount()}
+});
+
+test('an unbound policy cannot masquerade as the previously selected category effective policy',async()=>{
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs')));const model={...structuredClone(contract.defaults.policy),bindings:{tv:'策略 A'},templates:{'策略 A':{resolutions:[2160,1080],group:'any',source:'any',dimensions:['resolution']},'策略 B':{resolutions:[1080],group:'any',source:'any',dimensions:['audio']}}};
+ const f=fixture(Policies,{extra:{modelValue:model,defaults:{},categories:[{id:'tv',name:'电视剧',enabled:true}],focus:{policy:'策略 A',category:'tv',tab:'trial'},client:{get:async()=>({items:[],total:0,next_offset:null})},status:{current:ref({revision:4}),health:ref({generation:6})}}});await settle();
+ try{walk(f.root,n=>n.type==='button'&&text(n).includes('策略 B'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('请选择试算分类'));const picker=walk(f.root,n=>n.props?.label==='试算分类')[0];picker.props['onUpdate:modelValue']('tv');await settle();assert.ok(text(f.root).includes('此分类当前生效的是“策略 A”'))}finally{f.app.unmount()}
+});
+
+test('policy editor names the full save scope and lists the changed policy object',async()=>{
+ const template={resolutions:[2160,1080],group:'any',source:'any',dimensions:['resolution','audio']};const f=fixture(Config,{extra:{focus:{group:'policy',policy:'欧美剧',category:'tv',root:true}},seed:current=>{current.config.policy={...current.config.policy,bindings:{tv:'欧美剧'},templates:{欧美剧:template}}},get:async(p,o,c,h)=>{if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[{id:'tv',name:'电视剧',enabled:true}]};if(p.endsWith('/policies/catalog'))return {result:{default_templates:{}}};return {items:[],result:{}}}});await settle();
+ try{const remove=walk(f.root,n=>n.type==='button'&&text(n)==='移除')[0];remove.props.onClick();await settle();assert.ok(text(f.root).includes('本次保存将更新：策略“欧美剧”'));assert.ok(walk(f.root,n=>n.type==='button'&&text(n)==='保存质量策略设置')[0])}finally{f.app.unmount()}
+});
+
+test('known zero version history is static while unknown history remains queryable',async()=>{
+ const {default:VersionHistory}=await import(pathToFileURL(path.join(out,'VersionHistory.mjs'))),base={target:'target',client:{get:async()=>assert.fail('known zero must not query')},status:{error:ref('')},title:'测试'};
+ const known=fixture(VersionHistory,{extra:{...base,count:0}});await settle();try{assert.ok(text(known.root).includes('暂无历史版本'));assert.equal(walk(known.root,n=>n.type==='button').length,0)}finally{known.app.unmount()}
+ const unknown=fixture(VersionHistory,{extra:{...base,count:null,client:{get:async()=>({versions:{items:[],total:0,next_offset:null}})}}});await settle();try{assert.ok(walk(unknown.root,n=>n.type==='button'&&text(n)==='查看版本记录')[0])}finally{unknown.app.unmount()}
 });
 
 test('a successful scheme save consumes only its shared edit ownership',async()=>{

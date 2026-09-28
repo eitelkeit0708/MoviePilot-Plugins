@@ -39,6 +39,9 @@ onMounted(async()=>{emit('layout',{maxWidth:'1400px'});await status.refresh();le
  <div class="sb-product-body" :class="{'sb-with-settings':section==='settings'}">
  <template v-if="section==='settings'"><nav class="sb-settings-nav" aria-label="设置分区"><button v-for="[key,title] in settingGroups" :key="key" :aria-current="editors.at(-1)?.focus.group===key?'page':undefined" @click="setting(key)">{{title}}</button></nav></template>
  <main ref="content" class="sb-app-content">
+ <section v-if="!status.current.value&&status.loading.value" class="sb-empty" role="status"><h2>正在读取插件状态…</h2></section>
+ <section v-else-if="!status.current.value&&status.error.value" class="sb-empty" role="alert"><h2>插件状态暂时无法读取</h2><p>页面尚未取得实际配置和运行状态，暂不显示可能过期的内容。</p><VBtn color="primary" :loading="status.loading.value" @click="refresh">重新读取</VBtn></section>
+ <p v-else-if="status.error.value" class="sb-warning" role="alert">状态刷新失败，当前页面保留上次读取结果。 <VBtn variant="text" :loading="status.loading.value" @click="refresh">重新读取</VBtn></p>
  <div v-if="status.current.value&&status.health.value" v-show="!editors.length&&section==='subscriptions'"><Subscriptions ref="resourceComponent" :api="api" :client="client" :status="status" :return-label="workOrigin?.label" @return="returnToWorkOrigin" @configure="configure" @action="invoke" @changed="status.refresh()"/></div>
  <div v-if="visited.has('discovery')" v-show="!editors.length&&section==='discovery'"><Discovery ref="discoveryComponent" @work="openWork" :client="client" :status="status" @configure="configure" @action="invoke"/></div>
  <div v-if="visited.has('delivery')" v-show="!editors.length&&section==='delivery'"><Transfers ref="deliveryComponent" @work="openWork" :client="client" :status="status" @action="invoke"/></div>

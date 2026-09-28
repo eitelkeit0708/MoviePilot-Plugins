@@ -132,6 +132,53 @@ class DisplayTests(unittest.TestCase):
         summary=p.quality_facts(facts)
         self.assertEqual(0,facts.audio);self.assertIsNone(summary['audio']);self.assertIsNone(summary['picture'])
 
+    def test_ignored_legacy_attachments_do_not_count_as_required_assets(self):
+        self.populate_processing()
+        with self.repo.connection(write=True) as db:
+            snapshot=json.loads(db.execute("SELECT snapshot FROM plans WHERE id='p6'").fetchone()[0])
+            snapshot['torrent_files'].append({'index':99,'path':'fonts/readme.ttf','size':50,'role':'other','targets':[snapshot['selected_indices'] and next(iter(snapshot['targets']))],'requires':[]})
+            snapshot['selected_indices'].append(99)
+            db.execute("UPDATE plans SET snapshot=? WHERE id='p6'",(json.dumps(snapshot),))
+        processing=self.views.task(self.task_id,user=None).units.items[0].processing
+        self.assertEqual(1,processing['download']['file_count'])
+        self.assertEqual(0,processing['attachments']['required'])
+
+    def test_unit_reports_known_version_count(self):
+        self.populate_processing()
+        unit=self.views.task(self.task_id,user=None).units.items[0]
+        self.assertEqual(0,unit.version_count)
+
+    def test_delivery_projection_hides_ignored_assets_and_keeps_legacy_unknown_files(self):
+        self.populate_processing()
+        with self.repo.connection(write=True) as db:
+            data=json.loads(db.execute("SELECT data FROM delivery_bundles WHERE id='b'").fetchone()[0])
+            data['files']=[
+                {'file_index':0,'snapshot':{'path':'Example.mkv'},'state':'PENDING'},
+                {'file_index':1,'snapshot':{'path':'Example.srt'},'state':'VERIFIED'},
+                {'file_index':2,'snapshot':{'path':'Example.idx'},'state':'PENDING'},
+                {'file_index':3,'snapshot':{'path':'Example.sub'},'state':'PENDING'},
+                {'file_index':4,'snapshot':{'path':'font.ttf'},'state':'PENDING'},
+            ]
+            data['manifest']['assets']=[
+                {'file_index':0,'role':'video','required':True},
+                {'file_index':1,'role':'subtitle','required':True},
+                {'file_index':2,'role':'subtitle','required':False},
+                {'file_index':3,'role':'subtitle','required':False},
+                {'file_index':4,'role':'other','required':False},
+            ]
+            db.execute("UPDATE delivery_bundles SET data=? WHERE id='b'",(json.dumps(data),))
+        detail=self.views.bundle('b',user=None)
+        self.assertEqual(2,detail.files.total)
+        self.assertEqual('video',detail.files.items[0].data['role'])
+        self.assertEqual('subtitle',detail.files.items[1].data['role'])
+        self.assertEqual(2,detail.bundle.file_count)
+        with self.repo.connection(write=True) as db:
+            data.pop('manifest')
+            db.execute("UPDATE delivery_bundles SET data=? WHERE id='b'",(json.dumps(data),))
+        legacy=self.views.bundle('b',user=None)
+        self.assertEqual(5,legacy.files.total)
+        self.assertEqual(5,legacy.bundle.file_count)
+
 
 if __name__=='__main__':
     import sys

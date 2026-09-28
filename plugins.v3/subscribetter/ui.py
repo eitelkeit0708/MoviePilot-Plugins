@@ -2,6 +2,7 @@
 from datetime import timedelta
 from contextlib import contextmanager, nullcontext
 import json
+from pathlib import PurePosixPath
 import sqlite3
 import time
 import inspect
@@ -20,7 +21,7 @@ from .management import PrivateRoute, Id, Digest, ConfigPreview
 from .evidence import public, append
 from .ai import digest, DEFAULT_PROMPT
 from .repository import Target, utcnow
-from .planner import encoded
+from .planner import encoded, TEXT_SUBTITLE_SUFFIXES, VIDEO_SUFFIXES
 from .scheduler import instant, parse
 from .execution import Exclusions, MUTATION_LOCK
 
@@ -31,6 +32,15 @@ SampleKey=Annotated[str,Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9:._-]{0,255}$')]
 Limit=Annotated[int,Query(ge=1,le=100)]
 Offset=Annotated[int,Query(ge=0,le=10000000)]
 T=TypeVar('T')
+
+
+def _visible_delivery_file(file,assets):
+    if not assets:return True
+    asset=assets.get(file.get('file_index'),{});role=asset.get('role')
+    name=file.get('name') or file.get('path') or file.get('snapshot',{}).get('path')
+    if not name:return role in ('video','subtitle')
+    suffix=PurePosixPath(name).suffix.casefold()
+    return role=='video' and suffix in VIDEO_SUFFIXES or role=='subtitle' and suffix in TEXT_SUBTITLE_SUFFIXES
 
 
 class Snapshot(Strict):
@@ -79,6 +89,7 @@ class Unit(Strict):
     cooldown_until:str|None
     processing:dict[str,JsonValue]|None=None
     current_quality:list[dict[str,JsonValue]]=Field(default_factory=list)
+    version_count:int=0
 
 
 class Row(Strict):
@@ -611,10 +622,11 @@ class Views:
 
     def _unit(self,r,db):
         from .display import current_quality,processing
-        value={k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields if k not in ('processing','current_quality')}
+        value={k:public(json.loads(r[k]) if k=='current_facts' and r[k] else r[k]) for k in Unit.model_fields if k not in ('processing','current_quality','version_count')}
         archive=getattr(getattr(self.plugin.runtime,'delivery',None),'archive',None)
         value['current_quality']=public(current_quality(json.loads(r['current_facts']) if r['current_facts'] else None,getattr(archive,'policy',None)))
         value['processing']=public(processing(db,r))
+        value['version_count']=db.execute('SELECT count(*) FROM archive_versions WHERE target_key=?',(r['target_key'],)).fetchone()[0]
         return value
 
     def task(self,task_id:int,limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->TaskDetail:
@@ -736,7 +748,7 @@ class Views:
 
     @staticmethod
     def _bundle(r):
-        d=json.loads(r['data']);return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},title=r.get('title') or '未命名作品',task_id=r.get('task_id'),reason=d.get('reason',''),file_count=len(d.get('files',[])),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending')))
+        d=json.loads(r['data']);assets={a.get('file_index'):a for a in d.get('manifest',{}).get('assets',[])};files=d.get('files',[]);visible=[f for f in files if _visible_delivery_file(f,assets)];return public(dict(**{k:r[k] for k in ('id','plan_id','rule_id','state','due','revision')},title=r.get('title') or '未命名作品',task_id=r.get('task_id'),reason=d.get('reason',''),file_count=len(visible),publication_action=d.get('publication_action'),consumer_pending=d.get('consumer_pending')))
 
     def delivery_works(self,limit:Limit=25,offset:Offset=0,state:Id|None=None,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user)
@@ -761,9 +773,12 @@ class Views:
         assets={a.get('file_index'):a for a in d.get('manifest',{}).get('assets',[])}
         def file_row(x):
             value=json.loads(x['value']);asset=assets.get(value.get('file_index'),{})
-            value.update({k:asset[k] for k in ('role','requires') if k in asset})
+            value.update({k:asset[k] for k in ('role','requires','required') if k in asset})
             return dict(id=str(value['file_index']),state=value['state'],revision=str(r['revision']),data=public(value))
-        files=self._page('delivery_bundles',Row,file_row,source="delivery_bundles b,json_each(b.data,'$.files') f",select='f.value',where='b.id=?',args=(bundle_id,),order="json_extract(f.value,'$.file_index')",limit=limit,offset=offset)
+        file_name="COALESCE(json_extract(f.value,'$.name'),json_extract(f.value,'$.path'),json_extract(f.value,'$.snapshot.path'))"
+        suffix=lambda role,values:'(json_extract(a.value,\'$.role\')=\''+role+'\' AND ('+' OR '.join("lower("+file_name+") LIKE '%"+value+"'" for value in values)+'))'
+        supported=suffix('video',sorted(VIDEO_SUFFIXES))+' OR '+suffix('subtitle',sorted(TEXT_SUBTITLE_SUFFIXES))
+        files=self._page('delivery_bundles',Row,file_row,source="delivery_bundles b,json_each(b.data,'$.files') f",select='f.value',where="b.id=? AND (COALESCE(json_array_length(b.data,'$.manifest.assets'),0)=0 OR EXISTS(SELECT 1 FROM json_each(b.data,'$.manifest.assets') a WHERE json_extract(a.value,'$.file_index')=json_extract(f.value,'$.file_index') AND (("+file_name+" IS NULL AND json_extract(a.value,'$.role') IN ('video','subtitle')) OR "+supported+")))",args=(bundle_id,),order="json_extract(f.value,'$.file_index')",limit=limit,offset=offset)
         return BundleDetail(bundle=Bundle(**self._bundle(r)),authority=public(dict(plan=self.row(p),target_count=len(d.get('vector',{})),manifest={k:v for k,v in d.get('manifest',{}).items() if k not in ('assets','targets','publication')},rule_revision=d.get('rule_revision'))),files=files,
             actions=self.rows('plan_actions',where='plan_id=?',args=(r['plan_id'],),order='created_at,id',limit=limit,offset=offset),
             receipts=self.rows('action_receipts',source='action_receipts r JOIN plan_actions a ON a.id=r.action_id',select='r.*',where='a.plan_id=?',args=(r['plan_id'],),order='r.id',limit=limit,offset=offset),

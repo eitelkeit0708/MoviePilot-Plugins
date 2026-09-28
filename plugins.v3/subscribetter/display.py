@@ -20,7 +20,7 @@ def processing(db,row):
     snapshot=json.loads(row['plan_snapshot'] or '{}');key=row['target_key'];plan=row['owner_plan_id']
     target=snapshot.get('targets',{}).get(key,{})
     table={f['index']:f for f in snapshot.get('torrent_files',[])+[a['file'] for a in snapshot.get('local_assets',[])]}
-    indices={i for i in snapshot.get('selected_indices',[]) if i in table and key in table[i]['targets']}
+    indices={i for i in snapshot.get('selected_indices',[]) if i in table and key in table[i]['targets'] and table[i].get('role') in ('video','subtitle')}
     pending=list(indices)
     while pending:
         for i in table[pending.pop()].get('requires',[]):
@@ -48,7 +48,7 @@ def processing(db,row):
             transfer.append(dict(file_index=f['file_index'],name=table[f['file_index']]['path'].rsplit('/',1)[-1],role=table[f['file_index']]['role'],
                 state=f.get('state'),misses=f.get('misses'),miss_limit=b.get('rapid_miss_limit'),due=f.get('due'),
                 local_bytes_sent=f.get('progress',{}).get('bytes_sent'),remote_verified=f.get('state')=='VERIFIED'))
-    attachments=[f for f in files if f['role']!='video'];organized={r['file_index']:r['state'] for r in db.execute('SELECT file_index,state FROM organized_assets WHERE plan_id=?',(plan,))}
+    attachments=[f for f in files if f['role']=='subtitle'];organized={r['file_index']:r['state'] for r in db.execute('SELECT file_index,state FROM organized_assets WHERE plan_id=?',(plan,))}
     phase=row['target_phase'] or row['plan_phase'] or 'UNKNOWN'
     unknown=row['publish_phase'] in ('PUBLISHING','PUBLISH_OUTCOME_UNKNOWN','UNKNOWN') or any(b['state'] in ('UNKNOWN','PUBLISHING','PUBLISH_OUTCOME_UNKNOWN') for b in bundles) or any(f['state']=='UNKNOWN' for f in transfer)
     consumer=any(b['state']=='WAIT_CONSUMER' for b in bundles)
