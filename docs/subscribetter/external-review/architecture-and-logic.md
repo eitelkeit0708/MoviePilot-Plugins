@@ -39,7 +39,7 @@ Symedia 归档/STRM → Emby/文件事实 → 入库确认 → 有权限才清�
 | [delivery.py](../../../plugins.v3/subscribetter/delivery.py), [delivery_cloud.py](../../../plugins.v3/subscribetter/delivery_cloud.py) | 本地扫描、manifest、115/CD2 暂存与发布、外部操作回执和恢复 |
 | [archive.py](../../../plugins.v3/subscribetter/archive.py), [archive_scan.py](../../../plugins.v3/subscribetter/archive_scan.py) | 文件/STRM/Emby 两段路径映射、可信当前版本、定向库存和最终入库 |
 | [migration.py](../../../plugins.v3/subscribetter/migration.py) | 旧配置导入、功能切换和唯一响应者回执；不能凭“已禁用”的静态印象放行 |
-| [frontend/src](../../../plugins.v3/subscribetter/frontend/src), dist/assets | 原生 Page/Config 两入口、九视图、宿主保存与摘要读回；无另起 Web 服务 |
+| [frontend/src](../../../plugins.v3/subscribetter/frontend/src), `dist/assets-v<插件版本>` | 原生 Page/Config 两入口、九视图、宿主保存与摘要读回；版本化远程 URL 避免升级后复用旧模块；无另起 Web 服务 |
 | host_*_contract.py | 已安装宿主的受控合同探针；探针或合成固定输入不是正常业务链路已经验收的证明 |
 
 ## 3. 对象、状态和不变量

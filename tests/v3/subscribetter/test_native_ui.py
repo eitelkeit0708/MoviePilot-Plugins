@@ -2,6 +2,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import tomllib
 import unittest
 from types import SimpleNamespace
 import test_management
@@ -68,7 +69,13 @@ class NativeUITests(unittest.TestCase):
         self.assertEqual(422,response.status_code,response.text)
 
     def test_native_hooks_and_assets(self):
-        self.assertEqual(('vue', 'dist/assets'), self.plugin.get_render_mode())
+        root = Path(__file__).resolve().parents[3]
+        package = json.loads((root/'package.v3.json').read_text(encoding='utf-8'))['SubscriBetter']
+        project = tomllib.loads((root/'plugins.v3/subscribetter/pyproject.toml').read_text(encoding='utf-8'))['project']
+        self.assertEqual(package['version'], self.plugin.plugin_version)
+        self.assertEqual(project['version'], self.plugin.plugin_version)
+        asset_dir = f'dist/assets-v{self.plugin.plugin_version}'
+        self.assertEqual(('vue', asset_dir), self.plugin.get_render_mode())
         form, defaults = self.plugin.get_form()
         self.assertIsNone(form)
         self.assertFalse(defaults['enabled'])
@@ -77,12 +84,14 @@ class NativeUITests(unittest.TestCase):
         self.assertEqual([], self.plugin.get_page())
         response = self.client.get('/diagnostics', headers=self.headers)
         self.assertFalse(response.json()['foundation_only'])
-        root = Path(__file__).resolve().parents[3]
-        remote = root/'plugins.v3/subscribetter/dist/assets/remoteEntry.js'
+        remote = root/'plugins.v3/subscribetter'/asset_dir/'remoteEntry.js'
         self.assertTrue(remote.is_file())
         content = remote.read_text(encoding='utf-8')
         self.assertIn('./Page', content)
         self.assertIn('./Config', content)
+        bundle = ''.join(path.read_text(encoding='utf-8') for path in remote.parent.glob('*.js'))
+        for obsolete_label in ('值的类型', '条件关系', '比较内容'):
+            self.assertNotIn(obsolete_label, bundle)
 
     def test_clone_package_retarget_does_not_break_management_routes(self):
         original = self.mod.__package__

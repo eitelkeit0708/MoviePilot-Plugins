@@ -157,7 +157,7 @@ class SubscriBetter(_PluginBase):
     plugin_name = "subscriBetter"
     plugin_desc = "V3 统一订阅、榜单发现、调度、交付档案与安全隔离。"
     plugin_icon = "mdi-shield-check"
-    plugin_version = "1.0.0"
+    plugin_version = "1.0.1"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708"
     plugin_config_prefix = "subscribetter_"
@@ -711,7 +711,7 @@ class SubscriBetter(_PluginBase):
         return routes
 
     def get_render_mode(self):
-        return 'vue', 'dist/assets'
+        return 'vue', f'dist/assets-v{self.plugin_version}'
 
     def get_form(self):
         # Host Config owns one strict preflight then emits the complete safe model.

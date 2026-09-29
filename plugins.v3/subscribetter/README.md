@@ -51,7 +51,7 @@ npm test
 npm run build
 ```
 
-输出 `dist/assets/remoteEntry.js` 暴露且只暴露 ./Page 和 ./Config。插件根目录 `vite.config.mjs` 是标准构建入口，frontend/build.mjs 复用该目录依赖。宿主 local:// 原生安装复制完整 dist，无需开发服务器。宿主缓存远程模块；替换资产后用新的/完整刷新浏览器会话核验加载摘要。
+输出 `dist/assets-v<插件版本>/remoteEntry.js` 暴露且只暴露 ./Page 和 ./Config。插件根目录 `vite.config.mjs` 是标准构建入口，frontend/build.mjs 复用该目录依赖。宿主 local:// 原生安装复制完整 dist，无需开发服务器。版本化资源目录会使插件升级后的远程模块 URL 同步变化，避免继续复用旧界面。
 
 仓库根目录（使用本仓库测试 Python）可运行：
 

@@ -51,7 +51,7 @@ npm test
 npm run build
 ```
 
-依赖锁在 package-lock.json，已发布资产在 `dist/assets`。构建基线 Node 24.16 / npm 11.17，Vue 3.5.13 / Vuetify 3.7.3 来自宿主。对不同 Node/npm 的复验需记录版本。检查只有 `./Page`、`./Config`、无框架 fallback 和独立服务。行为测试不是已安装宿主浏览器/键盘/布局验收。
+依赖锁在 package-lock.json，已发布资产在 `dist/assets-v<插件版本>`，且目录版本必须与 `package.v3.json`、`plugin_version`、`pyproject.toml` 一致。构建基线 Node 24.16 / npm 11.17，Vue 3.5.13 / Vuetify 3.7.3 来自宿主。对不同 Node/npm 的复验需记录版本。检查只有 `./Page`、`./Config`、无框架 fallback 和独立服务。行为测试不是已安装宿主浏览器/键盘/布局验收。
 
 **本次新增发现 PUB-01：源码与提交的 dist 不一致。** 在干净副本中按锁文件安装后，18 项前端行为测试通过、Vite 构建退出 0；重建的 `style-*.js` 与提交资产存在两处 watcher schema 的 `const:false` 差异，以及 watcher 中文标签差异，进而改变 Config/Page 的引用哈希与 remoteEntry。原资产仍写“当前合同仅关闭”，源码写“可选，失败由完整对账接管”。因此构建成功不能记作提交资产逐字节可复现，也不能假设已安装页面已经提供当前源码的 watcher 能力。原始产物对照摘要和日志见 [checks/frontend.json](checks/frontend.json)。本次只发布固定产品基线及审核资料；该产品资产同步问题作为 T200 外的新增审核发现列出，发布前须重新构建、提交并验证实际宿主界面。
 
