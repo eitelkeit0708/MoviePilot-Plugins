@@ -419,6 +419,23 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.m.import_predicates({"A": {"registered": "B"}, "B": {"registered": "A"}})
 
+    def test_admission_explanation_preserves_short_circuit_and_missing_evidence(self):
+        cases = [
+            ({"all": [{"literal": False}, {"gt": ["size", 0]}]}, "FAIL", "NOT_RUN"),
+            ({"any": [{"literal": True}, {"gt": ["size", 0]}]}, "PASS", "NOT_RUN"),
+            ({"all": [{"literal": True}, {"gt": ["size", 0]}]}, "MISSING", "MISSING"),
+            ({"any": [{"literal": False}, {"gt": ["size", 0]}]}, "MISSING", "MISSING"),
+            ({"not": {"gt": ["size", 0]}}, "MISSING", "MISSING"),
+        ]
+        for expression, expected, leaf in cases:
+            with self.subTest(expression=expression):
+                policy = self.m.Policy({"stable-id": "欧美剧"}, 7, admission=expression)
+                result = policy.explain_admission({"title": "Fictional WEB-DL"})
+                trace = {tuple(item["path"]): item for item in result["trace"]}
+                self.assertEqual(expected, result["status"])
+                self.assertEqual(expected, trace[()]["status"])
+                self.assertEqual(leaf, trace[(1,) if "not" not in expression else (0,)]["status"])
+
     def test_legacy_override_import_and_revision_require_reprofile(self):
         overrides = self.m.import_legacy_overrides([
             {"id": "OfficialGroup", "name": "Local user choice", "include": "-LocalOnly", "exclude": ""},

@@ -109,7 +109,7 @@ test('restored top-level editors discard obsolete back buttons from older browse
 });
 test('quality policy keeps one visible navigation system',async()=>{
  const f=fixture(Page);await settle();
- try{assert.equal(walk(f.root,n=>String(n.props?.class||'').includes('picker-mobile')).length,0);walk(f.root,n=>n.type==='button'&&text(n)==='质量策略')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-selector').length,1);assert.ok(!text(f.root).includes('所有策略的限制'));walk(f.root,n=>n.type==='button'&&text(n)==='全局限制')[0].props.onClick();await settle();assert.ok(text(f.root).includes('以下条件影响所有已绑定分类'))}finally{f.app.unmount()}
+ try{assert.equal(walk(f.root,n=>String(n.props?.class||'').includes('picker-mobile')).length,0);walk(f.root,n=>n.type==='button'&&text(n)==='质量策略')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-selector').length,1);assert.ok(!text(f.root).includes('质量策略 / 全局限制'));walk(f.root,n=>n.type==='button'&&text(n).startsWith('全局限制'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('这里的限制由全部分类和下载方案共用'))}finally{f.app.unmount()}
 });
 test('settings use direct module and function navigation without duplicate selectors',async()=>{
  const f=fixture(Page);await settle();
@@ -195,6 +195,93 @@ test('source editor accepts a private RSSHub route with type suffix',async()=>{
  const f=fixture(Sources,{extra:{modelValue,routes:[],templates:[],'onUpdate:modelValue':v=>updates.push(v)}});await settle();
  walk(f.root,n=>n.type==='button'&&text(n).includes('添加榜单'))[0].props.onClick();await settle();const kind=walk(f.root,n=>n.type==='label'&&text(n).includes('来源方式'))[0];walk(kind,n=>n.type==='select')[0].props['onUpdate:modelValue']('custom');await settle();walk(f.root,n=>n.type==='input'&&n.props.placeholder==='完整地址或 /douban/list/...@@TV')[0].props['onUpdate:modelValue']('/douban/list/tv_american?limit=15@@TV');await settle();walk(f.root,n=>n.type==='button'&&text(n)==='加入来源列表')[0].props.onClick();await settle();
  const source=updates.at(-1).sources[0];assert.equal(source.url,'http://192.168.50.6:1200/douban/list/tv_american?limit=15');assert.equal(source.source_type_hint,'TV');assert.deepEqual(source.destination_templates,{});assert.equal(updates.at(-1).enabled,false);f.app.unmount();
+});
+
+test('CE-T01 condition editor reads as field relation value and separates group controls',async()=>{
+ const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));
+ const expression={all:[{gt:['size',0]},{le:['size',21474836480]},{any:[{regex:['title','A']},{regex:['title','B']}]}]},updates=[];
+ const f=fixture(PredicateEditor,{extra:{modelValue:expression,fields:['title','size'],rules:[],'onUpdate:modelValue':value=>updates.push(value)}});await settle();
+ try{
+  const rows=walk(f.root,n=>String(n.props?.class||'').includes('sb-condition-row'));
+  assert.equal(rows.length,4);assert.match(text(rows[0]),/资源大小/);
+  assert.ok(walk(rows[0],n=>n.type==='select'&&n.props['aria-label']==='字段')[0]);
+  assert.ok(walk(rows[0],n=>n.type==='select'&&n.props['aria-label']==='判断关系')[0]);
+  assert.equal(walk(f.root,n=>n.props?.['aria-label']==='值的类型').length,0);
+  assert.ok(walk(f.root,n=>n.type==='fieldset').length>=2);
+  assert.ok(text(f.root).includes('规则摘要'));
+ }finally{f.app.unmount()}
+});
+
+test('CE-T02 mounted group relation change keeps its children at the same level',async()=>{
+ const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));const updates=[];
+ const f=fixture(PredicateEditor,{extra:{modelValue:{all:[{gt:['size',0]},{le:['size',10]}]},fields:['size'],rules:[],'onUpdate:modelValue':value=>updates.push(value)}});await settle();
+ try{const relation=walk(f.root,n=>n.type==='select'&&n.props['aria-label']==='组合方式')[0];relation.props.onChange({target:{value:'any'}});await settle();assert.deepEqual(updates.at(-1),{any:[{gt:['size',0]},{le:['size',10]}]})}finally{f.app.unmount()}
+});
+
+test('CE-T19 and CE-T20 groups expose real disclosure targets and explicit add actions',async()=>{
+ const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));
+ const f=fixture(PredicateEditor,{extra:{modelValue:{all:[{regex:['title','A']}]},fields:['title'],rules:[]}});await settle();
+ try{const toggle=walk(f.root,n=>n.type==='button'&&n.props['aria-expanded']!==undefined)[0];assert.ok(toggle);const target=toggle.props['aria-controls'];assert.ok(target);assert.equal(walk(f.root,n=>n.props?.id===target).length,1);for(const label of ['添加条件','添加子组'])assert.ok(walk(f.root,n=>n.type==='button'&&text(n)===label)[0],label)}finally{f.app.unmount()}
+});
+
+test('CE-T06 disabling and re-enabling admission restores the same tree in this session',async()=>{
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs')));const expression={all:[{gt:['size',0]},{regex:['title','WEB-DL']}]},updates=[];
+ const wrapper={setup(){const model=ref({...structuredClone(contract.defaults.policy),admission:expression});return()=>h(Policies,{modelValue:model.value,saved:model.value,categories:[],defaults:{},focus:{tab:'global'},plans:[],archiveBindings:{},catalog:{predicate_fields:['title','size'],predicate_rules:[]},'onUpdate:modelValue':value=>{updates.push(value);model.value=value}})}};
+ const f=fixture(wrapper);await settle();
+ try{
+  const toggle=()=>walk(f.root,n=>n.type==='label'&&text(n).includes('启用额外收录条件')).flatMap(n=>walk(n,x=>x.type==='input'&&x.props.type==='checkbox'))[0];
+  toggle().props.onChange({target:{checked:false}});await settle();assert.equal(updates.at(-1).admission,null);
+  toggle().props.onChange({target:{checked:true}});await settle();assert.deepEqual(updates.at(-1).admission,expression);assert.ok(!text(f.root).includes('恒为通过'));
+ }finally{f.app.unmount()}
+});
+
+test('CE-T07 first enable is an incomplete local draft and cannot be saved as unconditional pass',async()=>{
+ const f=fixture(Config,{extra:{focus:{group:'policy',tab:'global'}}});await settle();
+ try{
+  const label=walk(f.root,n=>n.type==='label'&&text(n).includes('启用额外收录条件'))[0],toggle=walk(label,n=>n.type==='input')[0];
+  toggle.props.onChange({target:{checked:true}});await settle();
+  assert.ok(text(f.root).includes('请至少添加一条条件'));
+  assert.ok(text(f.root).includes('请先完成当前条件'));
+  assert.ok(!text(f.root).includes('恒为通过'));
+  const save=walk(f.root,n=>n.type==='button'&&text(n).includes('保存质量策略设置'))[0];assert.equal(save.props.disabled,true);
+ }finally{f.app.unmount()}
+});
+
+test('shared matching rules stay a compact list with only one active editor',async()=>{
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs')));
+ const policy={...structuredClone(contract.defaults.policy),overrides:{Alpha:{regex:['title','A']},Beta:{gt:['size',0]}}};
+ const f=fixture(Policies,{extra:{modelValue:policy,saved:policy,categories:[],defaults:{},focus:{tab:'global'},plans:[],archiveBindings:{},catalog:{predicate_fields:['title','size'],predicate_rules:[]}}});await settle();
+ try{
+  assert.equal(walk(f.root,n=>n.props?.class==='sb-shared-rule-editor').length,0);
+  walk(f.root,n=>n.type==='button'&&text(n)==='编辑规则')[0].props.onClick();await settle();
+  assert.ok(text(f.root).includes('编辑共享规则：Alpha'));assert.equal(walk(f.root,n=>n.props?.class==='sb-shared-rule-editor').length,1);
+  walk(f.root,n=>n.type==='button'&&text(n)==='编辑规则')[0].props.onClick();await settle();
+  assert.ok(text(f.root).includes('编辑共享规则：Beta'));assert.equal(walk(f.root,n=>n.props?.class==='sb-shared-rule-editor').length,1);
+ }finally{f.app.unmount()}
+});
+
+test('CE-T13 and CE-T22 global admission is a separate global scope with an exact save label',async()=>{
+ const expression={gt:['size',0]};
+ const f=fixture(Config,{extra:{focus:{group:'policy',tab:'global'}},seed:current=>{current.config.policy.admission=expression}});await settle();
+ try{
+  assert.ok(text(f.root).includes('质量策略 / 全局限制'));
+  const current=walk(f.root,n=>n.props?.['aria-current']==='page');assert.ok(current.some(n=>text(n).startsWith('全局限制')));assert.ok(!current.some(n=>!text(n).startsWith('全局限制')));
+  const label=walk(f.root,n=>n.type==='label'&&text(n).includes('启用额外收录条件'))[0];walk(label,n=>n.type==='input')[0].props.onChange({target:{checked:false}});await settle();
+  assert.ok(text(f.root).includes('本次保存将更新：全局额外收录条件。'));
+ }finally{f.app.unmount()}
+});
+
+test('CE-T17 admission test is fenced, uses the draft expression and discards a stale reply',async()=>{
+ const {default:ConditionTest}=await import(pathToFileURL(path.join(out,'ConditionTest.mjs')));let finish;const calls=[],expression=ref({gt:['size',0]}),policy={...structuredClone(contract.defaults.policy),bindings:{tv:'欧美剧'}};
+ const client={get:async()=>({items:[{candidate_key:'candidate',title:'候选样本'}]}),post:async(path,body)=>{calls.push([path,body]);return new Promise(resolve=>finish=resolve)}};
+ const status={current:ref({revision:4}),health:ref({generation:6})},wrapper={setup(){return()=>h(ConditionTest,{client,status,policy,expression:expression.value})}};
+ const f=fixture(wrapper);await settle();
+ try{
+  const picker=walk(f.root,n=>n.type==='select'&&n.props['aria-label']==='已有候选')[0];picker.props.onChange({target:{value:'candidate'}});await settle();
+  walk(f.root,n=>n.type==='button'&&text(n)==='开始测试')[0].props.onClick();await settle();
+  assert.equal(calls[0][0],'/policies/admission-test');assert.equal(calls[0][1].config_revision,4);assert.deepEqual(calls[0][1].policy.admission,{gt:['size',0]});assert.equal(calls[0][1].candidate_key,'candidate');
+  expression.value={le:['size',10]};await settle();finish({state:'ADMISSION_EVALUATED',result:{status:'PASS',trace:[{path:[],operator:'gt',field:'size',status:'PASS'}]}});await settle();assert.ok(!text(f.root).includes('这组条件通过'));
+ }finally{f.app.unmount()}
 });
 test('plan path editor distinguishes multiple unavailable media library mappings',async()=>{
  const mapping={...initial(contract.schemas.Mapping),cloud_scope_id:'shared',emby_service:'Emby'},updates=[];const modelValue={cloud_scopes:{shared:initial(contract.schemas.CloudScope)},mappings:[{...mapping,id:'one',library_id:'1'},{...mapping,id:'two',library_id:'2'}],libraries:{Emby:['1','2']},rules:[],policy_bindings:{}};

@@ -74,6 +74,25 @@ class ManagementTests(unittest.TestCase):
             result=asyncio.run(views.draft_mapping_test(ui.DraftMappingTest(config_revision=request.config_revision,runtime_generation=4,mapping=mapping,item_id='sample'),user=None))
         self.assertEqual(locations,result.result['locations'])
 
+    def test_admission_test_uses_draft_policy_and_is_read_only(self):
+        ui=load('ui');views=ui.Views(self.plugin);revision=self.config.view()['revision']
+        policy=self.c.PolicyConfig(bindings={'tv':'欧美剧'},admission={'all':[{'literal':False},{'gt':['size',0]}]})
+        request=ui.AdmissionTest(config_revision=revision,runtime_generation=4,policy=policy,sample={'title':'手工样本'})
+        with self.repo.connection() as db:before=list(db.iterdump())
+        result=views.admission_test(request,user=None)
+        self.assertEqual('FAIL',result.result['status'])
+        self.assertEqual('NOT_RUN',{tuple(row['path']):row['status'] for row in result.result['trace']}[(1,)])
+        with self.repo.connection() as db:self.assertEqual(before,list(db.iterdump()))
+        with self.repo.connection(write=True) as db:
+            db.execute('INSERT INTO candidates VALUES(?,?,?,?)',('candidate',json.dumps({'title':'候选样本','size':10}),'now','now'))
+        with self.repo.connection() as db:before_candidate=list(db.iterdump())
+        candidate_policy=policy.model_copy(update={'admission':{'gt':['size',0]}})
+        result=views.admission_test(ui.AdmissionTest(config_revision=revision,runtime_generation=4,policy=candidate_policy,candidate_key='candidate'),user=None)
+        self.assertEqual('PASS',result.result['status']);self.assertEqual('candidate',result.result['candidate_key'])
+        with self.repo.connection() as db:self.assertEqual(before_candidate,list(db.iterdump()))
+        with self.assertRaises(Exception):
+            views.admission_test(ui.AdmissionTest(config_revision=revision,runtime_generation=4,policy=policy),user=None)
+
     def test_server_page_and_stable_huge_ids_and_failure(self):
         ui=load('ui').Views(self.plugin)
         for i in range(57):self.repo.submit(str(i),self.r.Target('电影','themoviedb',str(10**24+i)),{'name':'x'},'test')

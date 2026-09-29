@@ -15,7 +15,7 @@ from app.sdk.security import verify_token
 from app.schemas.token import TokenPayload
 from .configuration import Strict, PolicyConfig, Mapping, Text
 from .discovery import SourceConfig
-from .policy import MAX_TEXT
+from .policy import FIELDS, MAX_TEXT
 from .management import PrivateRoute, Id, Digest, ConfigPreview
 from .evidence import public, append
 from .ai import digest, DEFAULT_PROMPT
@@ -284,6 +284,12 @@ class DraftMappingTest(Fence):
 class DraftPolicy(Fence):
     policy:PolicyConfig
     category_id:Text
+
+
+class AdmissionTest(Fence):
+    policy:PolicyConfig
+    sample:dict[str,JsonValue]|None=None
+    candidate_key:Id|None=None
 
 
 class Apply(Strict):
@@ -1437,6 +1443,19 @@ class Views:
         return ActionResult(state='DRAFT_POLICY',result=dict(name=name,summary=engine.describe(name),revision=engine.semantic_hash,
             locks=p.locks,custom_admission=p.admission,custom_rules=engine.describe_rules(list(p.overrides))))
 
+    def admission_test(self,request:AdmissionTest,user:TokenPayload=Depends(verify_token))->ActionResult:
+        self._auth(user);self.fence(request)
+        if (request.sample is None)==(request.candidate_key is None):raise HTTPException(422,'EXACTLY_ONE_SAMPLE_REQUIRED')
+        raw=dict(request.sample) if request.sample is not None else json.loads(self._one('candidates','candidate_key',request.candidate_key)['data'])
+        if request.sample is not None and 'missing_fields' not in raw:
+            raw['missing_fields']=sorted(field for field in FIELDS if field!='text' and field not in raw)
+        from .policy import Policy
+        p=request.policy;engine=Policy(p.bindings,p.classification_revision,overrides=p.overrides,admission=p.admission,
+            templates={key:value.model_dump() for key,value in p.templates.items()})
+        result=engine.explain_admission(raw);self.fence(request)
+        return ActionResult(state='ADMISSION_EVALUATED',result=dict(**result,candidate_key=request.candidate_key,
+            config_revision=request.config_revision,policy_revision=engine.semantic_hash,sample_digest=digest(raw)))
+
     async def draft_mapping_test(self,request:DraftMappingTest,user:TokenPayload=Depends(verify_token))->ActionResult:
         from .archive import draft_mapping_check
         locations=[]
@@ -1566,7 +1585,7 @@ class Views:
         actions=[('/discovery/history/cleanup',self.history_preview,self.apply_history),('/delivery/{bundle_id}/cancel',self.cancel_preview,self.apply_cancel),('/delivery/{bundle_id}/cleanup',self.cleanup_preview,self.apply_cleanup),('/archive/invalidate',self.invalidate_preview,self.apply_archive),('/tasks/{task_id}/settings',self.settings_preview,self.apply_settings),('/tasks/{task_id}/select-candidate',self.select_candidate_preview,self.apply_select_candidate),('/exclusions',self.exclusion_preview,self.apply_exclusion),('/exclusions/{exclusion_id}/revoke',self.revoke_preview,self.apply_revoke),('/candidates/{candidate_key}/change-source',self.change_source_preview,self.apply_change_source),('/ai/cache/clear',self.cache_preview,self.apply_cache),('/ai/prompt/restore',self.prompt_preview,self.apply_prompt)]
         for path,preview,apply in actions:
             routes.extend([dict(path=path+'/'+suffix,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute) for suffix,fn,model in [('preview',preview,Preview),('apply',apply,ActionResult)]])
-        for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/configuration/library-samples',self.library_samples,ActionResult),('/configuration/policy-summary',self.draft_policy,ActionResult),('/configuration/mapping-check',self.draft_mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:
+        for path,fn,model in [('/tasks/{task_id}/immediate',self.immediate,ActionResult),('/candidates/search',self.search,ActionResult),('/candidates/{candidate_key}/refresh',self.refresh_candidate,ActionResult),('/candidates/evaluate',self.evaluate,ActionResult),('/policies/simulate',self.simulate,Decision),('/policies/admission-test',self.admission_test,ActionResult),('/delivery/{bundle_id}/retry',self.retry,ActionResult),('/archive/refresh',self.archive_refresh,ActionResult),('/archive/mapping-test',self.mapping_test,ActionResult),('/configuration/library-samples',self.library_samples,ActionResult),('/configuration/policy-summary',self.draft_policy,ActionResult),('/configuration/mapping-check',self.draft_mapping_test,ActionResult),('/health/reconcile',self.health_reconcile,ActionResult),('/downloads/{downloader:path}/{infohash}/reconcile',self.download_reconcile,ActionResult),('/plans/{plan_id}/resume',self.resume,ActionResult),('/plans/{plan_id}/organize/reconcile',self.organize_reconcile,ActionResult)]:
             routes.append(dict(path=path,methods=['POST'],endpoint=fn,response_model=model,auth='bear',route_class_override=PrivateRoute))
         for route in routes:route['endpoint']=self.boundary(route['endpoint'])
         routes.append(dict(path='/ai/connection-test',methods=['POST'],endpoint=self.boundary(self.ai_probe),response_model=ActionResult,auth='bear',route_class_override=PrivateRoute))

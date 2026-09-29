@@ -242,7 +242,7 @@ def import_legacy_overrides(records: list[dict]) -> dict:
 
 
 class _Evaluator:
-    def __init__(self, rules, data):
+    def __init__(self, rules, data, *, explain=False):
         self.rules, self.data = rules, data
         self.missing = set(data.get("missing_fields", ()))
         if self.missing & {"title", "description", "labels", "subtitle_description"}:
@@ -250,31 +250,66 @@ class _Evaluator:
         self.deadline = time.monotonic() + EVALUATION_TIMEOUT
         self.cache = {}
         self.nodes = 0
+        self.trace = [] if explain else None
 
-    def evaluate(self, node):
+    def _record(self, node, path, status, reason=None):
+        if self.trace is None:
+            return
+        op, args = next(iter(node.items()))
+        item = {"path": list(path), "operator": op, "status": status}
+        if op in {*COMPARISONS, "in", "intersects", "regex"}:
+            item["field"] = args[0]
+        if reason:
+            item["reason"] = reason
+        self.trace.append(item)
+
+    def _not_run(self, node, path):
+        self._record(node, path, "NOT_RUN", "SHORT_CIRCUIT")
+        op, args = next(iter(node.items()))
+        if op in {"all", "any"}:
+            for index, child in enumerate(args):
+                self._not_run(child, (*path, index))
+        elif op == "not":
+            self._not_run(args, (*path, 0))
+
+    def evaluate(self, node, path=()):
+        try:
+            value = self._evaluate(node, path)
+        except MissingEvidence as exc:
+            self._record(node, path, "MISSING", str(exc))
+            raise
+        except (ValueError, TypeError, KeyError, TimeoutError, regex.error) as exc:
+            self._record(node, path, "ERROR", str(exc) or type(exc).__name__)
+            raise
+        self._record(node, path, "PASS" if value else "FAIL")
+        return value
+
+    def _evaluate(self, node, path):
         self.nodes += 1
         if self.nodes > MAX_NODES or time.monotonic() >= self.deadline:
             raise TimeoutError("PREDICATE_BUDGET")
         op, args = next(iter(node.items()))
         if op == "registered":
             if args not in self.cache:
-                self.cache[args] = self.evaluate(self.rules[args])
+                self.cache[args] = self.evaluate(self.rules[args], (*path, "rule:" + args))
             return self.cache[args]
         if op in {"all", "any"}:
             unknown = False
-            for child in args:
+            for index, child in enumerate(args):
                 try:
-                    value = self.evaluate(child)
+                    value = self.evaluate(child, (*path, index))
                 except MissingEvidence:
                     unknown = True
                     continue
                 if value == (op == "any"):
+                    for remaining, skipped in enumerate(args[index + 1:], index + 1):
+                        self._not_run(skipped, (*path, remaining))
                     return value
             if unknown:
                 raise MissingEvidence("PREDICATE_EVIDENCE_MISSING")
             return op == "all"
         if op == "not":
-            return not self.evaluate(args)
+            return not self.evaluate(args, (*path, 0))
         if op == "literal":
             return args
         name, expected = args
@@ -664,6 +699,25 @@ class Policy:
                           'EQUIVALENT':'none'}.get(decision.reason,'unknown'), reason=decision.reason,
                     policy_revision=self.semantic_hash, versions=comparisons, version_count=len(versions),
                     truncated=len(versions)>len(comparisons))
+
+    def explain_admission(self, raw):
+        """Evaluate only the global admission expression with the production evaluator."""
+        facts = self.normalize(raw)
+        if facts.errors:
+            op = next(iter(self.admission))
+            return {"status": "ERROR", "reason": facts.errors[0], "trace": [
+                {"path": [], "operator": op, "status": "ERROR", "reason": facts.errors[0]}]}
+        evaluator = _Evaluator(self.rules, facts.raw, explain=True)
+        try:
+            value = evaluator.evaluate(self.admission)
+            status, reason = ("PASS", "MATCHED") if value else ("FAIL", "NOT_MATCHED")
+        except MissingEvidence as exc:
+            status, reason = "MISSING", str(exc)
+        except TimeoutError as exc:
+            status, reason = "ERROR", str(exc) or "PREDICATE_TIMEOUT"
+        except (ValueError, TypeError, KeyError, regex.error) as exc:
+            status, reason = "ERROR", str(exc) or "CUSTOM_PREDICATE_ERROR"
+        return {"status": status, "reason": reason, "trace": evaluator.trace}
 
     def admit(self, facts, classification, *, locked=None, excluded=False, identity_ok=None, scope_ok=None):
         # These explicit constraints always precede any quality/evidence exception.

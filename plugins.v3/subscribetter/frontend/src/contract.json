@@ -6536,6 +6536,62 @@
         }
       }
     },
+    "/policies/admission-test": {
+      "post": {
+        "summary": "Admission Test",
+        "operationId": "admission_test_policies_admission_test_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdmissionTest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/delivery/{bundle_id}/retry": {
       "post": {
         "summary": "Retry",
@@ -7325,6 +7381,59 @@
         "state"
       ],
       "title": "ActionResult"
+    },
+    "AdmissionTest": {
+      "properties": {
+        "config_revision": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Config Revision"
+        },
+        "runtime_generation": {
+          "type": "integer",
+          "minimum": 0.0,
+          "title": "Runtime Generation"
+        },
+        "policy": {
+          "$ref": "#/components/schemas/PolicyConfig"
+        },
+        "sample": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sample"
+        },
+        "candidate_key": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9._:-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Candidate Key"
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "config_revision",
+        "runtime_generation",
+        "policy"
+      ],
+      "title": "AdmissionTest"
     },
     "Apply": {
       "properties": {
