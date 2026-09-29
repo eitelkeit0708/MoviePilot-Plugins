@@ -8,8 +8,25 @@ const withNewIds=node=>{
   return next;
 };
 
-export const fieldLabels={text:'标题、说明、标签与字幕说明',title:'标题',description:'发布说明',subtitle_description:'字幕说明',labels:'资源标签',original_language:'原始语言',production_countries:'制作地区',origin_country:'出品地区',genre_ids:'类型编号',media_type:'媒体类型',size:'资源大小',seeders:'做种人数',downloadvolumefactor:'下载系数',publish_minutes:'发布时长'};
+export const fieldDefinitions={
+  text:{label:'标题、说明、标签与字幕说明',kind:'text',operators:['contains','regex','eq','ne']},
+  title:{label:'标题',kind:'text',operators:['contains','regex','eq','ne']},
+  description:{label:'发布说明',kind:'text',operators:['contains','regex','eq','ne']},
+  subtitle_description:{label:'字幕说明',kind:'text',operators:['contains','regex','eq','ne']},
+  labels:{label:'资源标签',kind:'list',operators:['intersects']},
+  original_language:{label:'原始语言',kind:'category',operators:['eq','ne','in']},
+  production_countries:{label:'制作地区',kind:'list',operators:['intersects']},
+  origin_country:{label:'出品地区',kind:'list',operators:['intersects']},
+  genre_ids:{label:'类型编号',kind:'list',operators:['intersects']},
+  media_type:{label:'媒体类型',kind:'category',operators:['eq','ne','in']},
+  size:{label:'资源大小',kind:'number',operators:['gt','ge','lt','le','eq','ne']},
+  seeders:{label:'做种人数',kind:'number',operators:['gt','ge','lt','le','eq','ne']},
+  downloadvolumefactor:{label:'下载系数',kind:'number',operators:['gt','ge','lt','le','eq','ne']},
+  publish_minutes:{label:'发布时长',kind:'number',operators:['gt','ge','lt','le','eq','ne']}
+};
+export const fieldLabels=Object.fromEntries(Object.entries(fieldDefinitions).map(([name,definition])=>[name,definition.label]));
 export const operatorLabels={contains:'包含文字（忽略大小写）',regex:'匹配正则',eq:'等于',ne:'不等于',gt:'大于',ge:'大于或等于',lt:'小于',le:'小于或等于',in:'属于以下值',intersects:'包含任一值'};
+export const operatorsForField=field=>fieldDefinitions[field]?.operators||['eq','ne'];
 export const units={B:1n,KiB:1024n,MiB:1048576n,GiB:1073741824n,MB:1000000n,GB:1000000000n};
 export const durationUnits={'分钟':1n,'小时':60n,'天':1440n};
 
@@ -59,6 +76,31 @@ function mapChildren(node,id,change){
 export const updateNode=(node,id,values)=>mapNode(node,id,current=>({...current,...clone(values)}));
 export const setGroupOperator=(node,id,operator)=>updateNode(node,id,{operator});
 export const setConditionOperator=(node,id,operator)=>updateNode(node,id,{operator,incomplete:false});
+
+export function isConditionSupported(node){
+  if(node.kind!=='condition'||!operatorsForField(node.field).includes(node.operator))return false;
+  const kind=fieldDefinitions[node.field]?.kind;
+  if(kind==='number')return typeof node.value==='number';
+  if(kind==='text')return typeof node.value==='string';
+  if(kind==='list')return Array.isArray(node.value);
+  if(kind==='category')return node.operator==='in'?Array.isArray(node.value):typeof node.value==='string';
+  return false;
+}
+
+function emptyForField(field){
+  const definition=fieldDefinitions[field],operator=definition?.operators[0]||'eq';
+  if(definition?.kind==='number')return {field,operator,value:0,raw:'',unit:field==='size'?'B':field==='publish_minutes'?'分钟':'',incomplete:true};
+  if(definition?.kind==='list'||operator==='in')return {field,operator,value:[],unit:'',incomplete:true};
+  return {field,operator,value:'',unit:'',incomplete:true};
+}
+
+export function setConditionField(node,id,field){
+  return mapNode(node,id,current=>{
+    if(current.kind!=='condition')return current;
+    const candidate={...current,field,unit:field==='size'?'B':field==='publish_minutes'?'分钟':''};
+    return isConditionSupported(candidate)?candidate:{...current,...emptyForField(field)};
+  });
+}
 
 const emptyCondition=()=>({id:nextId(),kind:'condition',operator:'contains',field:'title',value:'',unit:'',incomplete:true});
 
@@ -158,6 +200,7 @@ export function validateDraft(node,errors=[]){
   else if(node.kind==='condition'){
     if(node.incomplete)errors.push({id:node.id,code:'INCOMPLETE',message:'请填写这条条件。'});
     else if(!node.field||!node.operator)errors.push({id:node.id,code:'INCOMPLETE',message:'请完整选择字段和判断关系。'});
+    else if(!operatorsForField(node.field).includes(node.operator))errors.push({id:node.id,code:'INCOMPATIBLE_FIELD',message:'这个字段不支持当前判断关系；原条件仍保留。'});
     else if((node.operator==='regex'||node.operator==='contains')&&typeof node.value!=='string')errors.push({id:node.id,code:'INCOMPATIBLE_VALUE',message:'文字条件需要文字内容；原值仍保留。'});
     else if((node.operator==='regex'||node.operator==='contains')&&!node.value)errors.push({id:node.id,code:'EMPTY_REGEX',message:'请填写要匹配的文字。'});
     else if(numericOperators.has(node.operator)&&typeof node.value!=='number')errors.push({id:node.id,code:'INCOMPATIBLE_VALUE',message:'数值比较需要数字；原值仍保留。'});

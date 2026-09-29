@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   astToDraft,draftToAst,setGroupOperator,setConditionOperator,
+  setConditionField,operatorsForField,isConditionSupported,
   addCondition,duplicateNode,durationDisplay,durationMinutes,removeNode,restoreSnapshot,sizeBytes,sizeDisplay,wrapNode,
   predicateSummary,referencedFields,validateDraft
 } from '../src/predicate-editor.mjs';
@@ -109,11 +110,37 @@ test('incompatible operator change keeps original value as an explicit invalid d
   const draft=astToDraft({gt:['size',21474836480]});
   const changed=setConditionOperator(draft,draft.id,'regex');
   assert.equal(changed.value,21474836480);
-  assert.equal(validateDraft(changed)[0].code,'INCOMPATIBLE_VALUE');
+  assert.equal(validateDraft(changed)[0].code,'INCOMPATIBLE_FIELD');
   assert.throws(()=>draftToAst(changed),/INCOMPLETE_PREDICATE/);
 });
 
 test('manual samples request the fields referenced by the condition tree',()=>{
   assert.deepEqual(referencedFields({all:[{gt:['size',0]},{regex:['text','WEB']},{registered:'Shared'}]}),
     ['description','labels','size','subtitle_description','title']);
+});
+
+test('text, numeric, category and list fields expose only meaningful relations',()=>{
+  assert.deepEqual(operatorsForField('title'),['contains','regex','eq','ne']);
+  assert.deepEqual(operatorsForField('size'),['gt','ge','lt','le','eq','ne']);
+  assert.deepEqual(operatorsForField('media_type'),['eq','ne','in']);
+  assert.deepEqual(operatorsForField('labels'),['intersects']);
+});
+
+test('changing field preserves compatible conditions and clears incompatible meaning',()=>{
+  const size=astToDraft({le:['size',21474836480]});
+  const seeders=setConditionField(size,size.id,'seeders');
+  assert.equal(seeders.operator,'le');
+  assert.equal(seeders.value,21474836480);
+  assert.equal(seeders.unit,'');
+
+  const title=setConditionField(size,size.id,'title');
+  assert.equal(title.operator,'contains');
+  assert.equal(title.value,'');
+  assert.equal(title.incomplete,true);
+  assert.equal(title.unit,'');
+});
+
+test('legacy field and relation mismatches stay explicit instead of masquerading as another option',()=>{
+  assert.equal(isConditionSupported(astToDraft({le:['title',20]})),false);
+  assert.equal(isConditionSupported(astToDraft({regex:['title','WEB']})),true);
 });
