@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\decision.json",
+    "sha256": "aa251235af31c8ecf4b8e4ec4e82c4c0d985dff7620cbc578eb8748d01efe246",
+    "bytes": 15687
+  },
+  "artifact": {
+    "path": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\decision.html",
+    "sha256": "865ca159b792e8c528e18af1bad2f9d1ee7aa9fe054ae5dec7700c2293980ecd",
+    "bytes": 780852
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\browser-verified-decision\\decision.finalize.json",
+    "summaryReceipt": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\browser-verified-decision\\decision.finalize-summary.json",
+    "browserCheckReceipt": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\browser-verified-decision\\decision.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-09-30T11:25:53.663Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 2667,
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "routesOverSuggestedBends": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [],
+      "detours": [
+        {
+          "relationship": {
+            "id": "authority-to-planstore",
+            "from": "authority",
+            "to": "planstore",
+            "label": "持久认领 / 动作",
+            "collectionIndex": 13,
+            "artifactIndex": 14
+          },
+          "bends": 3,
+          "stretch": 1
+        }
+      ],
+      "truncated": false
+    },
+    "hints": [
+      "authority → planstore needs 3 bends: move node authority or planstore so they share a row or column with matching centers, or sit diagonally with a clear corner."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

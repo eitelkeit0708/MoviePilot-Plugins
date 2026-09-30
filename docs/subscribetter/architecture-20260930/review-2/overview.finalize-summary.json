@@ -1,0 +1,125 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\overview.json",
+    "sha256": "180ae7bc555442dedd72bf9c9f900d9c1ee062057d86ded57d357cd379a1fe48",
+    "bytes": 25905
+  },
+  "artifact": {
+    "path": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\overview.html",
+    "sha256": "e910e890c464632d2aa7ffedfa1860101c194c0697455388941a05b881a84f51",
+    "bytes": 808333
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\review-2\\overview.finalize.json",
+    "summaryReceipt": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\review-2\\overview.finalize-summary.json",
+    "browserCheckReceipt": "D:\\projetcs\\MoviePilot-Plugins\\.archify\\architecture-subscribetter-20260930-191137\\review-2\\overview.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.0.1",
+    "releaseNotes": null,
+    "checkedAt": "2026-09-30T11:25:53.663Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 2702,
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "resolvedCrossovers": 1,
+      "routesOverSuggestedBends": 2
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [
+        {
+          "left": {
+            "id": "migration-to-runtime",
+            "from": "migration",
+            "to": "runtime",
+            "label": "owner 核验",
+            "collectionIndex": 5,
+            "artifactIndex": 6
+          },
+          "right": {
+            "id": "rss-to-discovery",
+            "from": "rss",
+            "to": "discovery",
+            "label": "榜单输入",
+            "collectionIndex": 7,
+            "artifactIndex": 8
+          },
+          "point": [
+            305.06666666666666,
+            357
+          ]
+        }
+      ],
+      "detours": [
+        {
+          "relationship": {
+            "id": "migration-to-runtime",
+            "from": "migration",
+            "to": "runtime",
+            "label": "owner 核验",
+            "collectionIndex": 5,
+            "artifactIndex": 6
+          },
+          "bends": 4,
+          "stretch": 1.305,
+          "directCorridorBlockers": [
+            {
+              "id": "discovery",
+              "label": "榜单作品发现",
+              "box": [
+                350,
+                310,
+                220,
+                80
+              ]
+            }
+          ]
+        },
+        {
+          "relationship": {
+            "id": "archive-to-decision",
+            "from": "archive",
+            "to": "decision",
+            "label": "当前质量事实",
+            "collectionIndex": 25,
+            "artifactIndex": 26
+          },
+          "bends": 3,
+          "stretch": 1.044
+        }
+      ],
+      "truncated": false
+    },
+    "hints": [
+      "migration → runtime crosses rss → discovery: move the node of whichever is a branch, return, or second entrance to the other side of the main path, so that relationship runs through an empty corridor.",
+      "archive → decision needs 3 bends: move node archive or decision so they share a row or column with matching centers, or sit diagonally with a clear corner."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

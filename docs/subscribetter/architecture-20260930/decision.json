@@ -1,0 +1,617 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "subscriBetter V3 · 候选决策与授权",
+    "locale": "zh-CN",
+    "output": ".archify/architecture-subscribetter-20260930-191137/decision.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/eitelkeit0708/MoviePilot-Plugins.git",
+      "revision": "d4b405fab16e501bff0d798f2a1dd325bb8bb43a",
+      "link_mode": "local-only"
+    },
+    "views": [
+      {
+        "id": "recognition",
+        "label": "身份与 AI",
+        "focus": [
+          "candidates",
+          "meta",
+          "assist",
+          "model",
+          "identity",
+          "provider",
+          "files"
+        ],
+        "note": "名称候选仍需真实 ID 和文件范围证明"
+      },
+      {
+        "id": "authorization",
+        "label": "策略到授权",
+        "focus": [
+          "current",
+          "policy",
+          "planner",
+          "schedule",
+          "authority",
+          "planstore",
+          "executor"
+        ],
+        "note": "准入、成熟条件、认领和再次核验"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "pt",
+      "type": "external",
+      "label": "授权 PT 站点",
+      "sublabel": "RSS / 站点搜索",
+      "pos": [
+        40.0,
+        170
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 127,
+          "end_line": 149,
+          "label": "站点输入"
+        }
+      ]
+    },
+    {
+      "id": "assist",
+      "type": "backend",
+      "label": "可选名称辅助",
+      "sublabel": "AIService · name / year",
+      "pos": [
+        350.0,
+        170
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/ai.py",
+          "line": 963,
+          "end_line": 992,
+          "label": "仅名称歧义回退"
+        },
+        {
+          "path": "plugins.v3/subscribetter/ai.py",
+          "line": 706,
+          "end_line": 720,
+          "label": "唯一处理者门禁"
+        }
+      ],
+      "tag": "默认关闭 / owner 有效"
+    },
+    {
+      "id": "model",
+      "type": "external",
+      "label": "已配置模型端点",
+      "sublabel": "HTTPX · 有界请求",
+      "pos": [
+        660.0,
+        170
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/ai.py",
+          "line": 816,
+          "end_line": 924,
+          "label": "TLS、预算与响应限制"
+        }
+      ]
+    },
+    {
+      "id": "candidates",
+      "type": "backend",
+      "label": "候选采集与证据",
+      "sublabel": "CandidateService",
+      "pos": [
+        40.0,
+        420
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 326,
+          "end_line": 434,
+          "label": "有界站点搜索"
+        },
+        {
+          "path": "plugins.v3/subscribetter/evidence.py",
+          "line": 30,
+          "end_line": 46,
+          "label": "评估证据保存"
+        }
+      ]
+    },
+    {
+      "id": "meta",
+      "type": "backend",
+      "label": "解析与名称核验",
+      "sublabel": "MetaService / MetaCorrector",
+      "pos": [
+        350.0,
+        420
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/meta.py",
+          "line": 297,
+          "end_line": 330,
+          "label": "原生解析、确定性修正"
+        },
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 454,
+          "end_line": 503,
+          "label": "AI 回退后媒体识别"
+        },
+        {
+          "path": "plugins.v3/subscribetter/meta_compat.py",
+          "line": 32,
+          "end_line": 86,
+          "label": "可选宿主公共 Meta 包装"
+        }
+      ]
+    },
+    {
+      "id": "identity",
+      "type": "security",
+      "label": "媒体身份与真实范围",
+      "sublabel": "MediaChain / ScopeProvider",
+      "pos": [
+        660.0,
+        420
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 157,
+          "end_line": 166,
+          "label": "低层识别避免事件循环"
+        },
+        {
+          "path": "plugins.v3/subscribetter/runtime.py",
+          "line": 45,
+          "end_line": 100,
+          "label": "实际季集行与 ID 一致性"
+        }
+      ],
+      "tag": "ID / 类型 / season / episode"
+    },
+    {
+      "id": "files",
+      "type": "security",
+      "label": "真实种子文件表",
+      "sublabel": "torrent_table / bind_files",
+      "pos": [
+        970.0,
+        420
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 512,
+          "end_line": 610,
+          "label": "种子及资产绑定"
+        },
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 651,
+          "end_line": 688,
+          "label": "逐物理文件身份与范围"
+        }
+      ],
+      "tag": "文件表完整 / 禁止造集"
+    },
+    {
+      "id": "provider",
+      "type": "external",
+      "label": "真实媒体 Provider",
+      "sublabel": "TMDb 等宿主媒体源",
+      "pos": [
+        660.0,
+        610
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/runtime.py",
+          "line": 26,
+          "end_line": 43,
+          "label": "公共媒体模块调用"
+        },
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 157,
+          "end_line": 166,
+          "label": "实际 ID 验证"
+        }
+      ]
+    },
+    {
+      "id": "current",
+      "type": "database",
+      "label": "当前档案事实",
+      "sublabel": "Archive.current · UNKNOWN 可阻断",
+      "pos": [
+        350.0,
+        800
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/archive.py",
+          "line": 626,
+          "end_line": 656,
+          "label": "版本与证据投影"
+        },
+        {
+          "path": "plugins.v3/subscribetter/runtime.py",
+          "line": 722,
+          "end_line": 726,
+          "label": "未知库存等待"
+        }
+      ]
+    },
+    {
+      "id": "policy",
+      "type": "backend",
+      "label": "准入与质量偏好",
+      "sublabel": "Policy · 分类绑定 / 锁",
+      "pos": [
+        660.0,
+        800
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/policy.py",
+          "line": 818,
+          "end_line": 967,
+          "label": "准入解释与质量比较"
+        },
+        {
+          "path": "plugins.v3/subscribetter/policy.py",
+          "line": 472,
+          "end_line": 490,
+          "label": "有效分类与模板"
+        }
+      ]
+    },
+    {
+      "id": "planner",
+      "type": "backend",
+      "label": "逐目标安全计划",
+      "sublabel": "Planner · 冻结快照",
+      "pos": [
+        970.0,
+        800
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/planner.py",
+          "line": 872,
+          "end_line": 990,
+          "label": "新增、升级、证据及字幕改善"
+        },
+        {
+          "path": "plugins.v3/subscribetter/planner.py",
+          "line": 157,
+          "end_line": 226,
+          "label": "计划输入与完整文件表"
+        }
+      ]
+    },
+    {
+      "id": "schedule",
+      "type": "security",
+      "label": "观察 / 冷却 / 生命周期",
+      "sublabel": "Scheduler.readiness",
+      "pos": [
+        660.0,
+        1060
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/scheduler.py",
+          "line": 76,
+          "end_line": 99,
+          "label": "成熟条件"
+        },
+        {
+          "path": "plugins.v3/subscribetter/scheduler.py",
+          "line": 106,
+          "end_line": 139,
+          "label": "机会范围去重"
+        },
+        {
+          "path": "plugins.v3/subscribetter/scheduler.py",
+          "line": 201,
+          "end_line": 258,
+          "label": "生命周期更新"
+        }
+      ]
+    },
+    {
+      "id": "authority",
+      "type": "security",
+      "label": "原子认领与取代",
+      "sublabel": "Authority · owner / revision",
+      "pos": [
+        970.0,
+        1060
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/planner.py",
+          "line": 283,
+          "end_line": 357,
+          "label": "代次、预算、current 及目标锁"
+        },
+        {
+          "path": "plugins.v3/subscribetter/planner.py",
+          "line": 607,
+          "end_line": 631,
+          "label": "发布最终授权"
+        }
+      ],
+      "tag": "PREPARED → ACTIVE"
+    },
+    {
+      "id": "planstore",
+      "type": "database",
+      "label": "计划、动作与执行证据",
+      "sublabel": "Repository · 事务先于派发",
+      "pos": [
+        660.0,
+        1320
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/planner.py",
+          "line": 556,
+          "end_line": 583,
+          "label": "在途动作持久化"
+        },
+        {
+          "path": "plugins.v3/subscribetter/execution.py",
+          "line": 297,
+          "end_line": 336,
+          "label": "操作记账与原 ID 回读"
+        }
+      ]
+    },
+    {
+      "id": "executor",
+      "type": "backend",
+      "label": "严格执行与重核验",
+      "sublabel": "StrictExecutor",
+      "pos": [
+        970.0,
+        1320
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/candidates.py",
+          "line": 730,
+          "end_line": 764,
+          "label": "执行前重评估"
+        },
+        {
+          "path": "plugins.v3/subscribetter/execution.py",
+          "line": 405,
+          "end_line": 465,
+          "label": "计划、内容和客户端核验"
+        }
+      ],
+      "tag": "实际下载操作另见交付图"
+    }
+  ],
+  "connections": [
+    {
+      "id": "pt-to-candidates",
+      "from": "pt",
+      "to": "candidates",
+      "label": "授权站点输入",
+      "variant": "default"
+    },
+    {
+      "id": "candidates-to-meta",
+      "from": "candidates",
+      "to": "meta",
+      "label": "标题 / 副标题",
+      "variant": "default"
+    },
+    {
+      "id": "meta-to-assist",
+      "from": "meta",
+      "to": "assist",
+      "label": "仅名称歧义",
+      "variant": "dashed"
+    },
+    {
+      "id": "assist-to-model",
+      "from": "assist",
+      "to": "model",
+      "label": "owner / 预算允许",
+      "variant": "security"
+    },
+    {
+      "id": "meta-to-identity",
+      "from": "meta",
+      "to": "identity",
+      "label": "修正后核验 ID",
+      "variant": "emphasis"
+    },
+    {
+      "id": "identity-to-provider",
+      "from": "identity",
+      "to": "provider",
+      "label": "显式媒体查询",
+      "variant": "default"
+    },
+    {
+      "id": "identity-to-files",
+      "from": "identity",
+      "to": "files",
+      "label": "身份与范围已证",
+      "variant": "security"
+    },
+    {
+      "id": "files-to-planner",
+      "from": "files",
+      "to": "planner",
+      "label": "完整资产范围",
+      "variant": "emphasis"
+    },
+    {
+      "id": "current-to-policy",
+      "from": "current",
+      "to": "policy",
+      "label": "当前版本事实",
+      "variant": "default"
+    },
+    {
+      "id": "policy-to-planner",
+      "from": "policy",
+      "to": "planner",
+      "label": "准入 / 比较 / 锁",
+      "variant": "default"
+    },
+    {
+      "id": "planner-to-authority",
+      "from": "planner",
+      "to": "authority",
+      "label": "冻结计划",
+      "variant": "emphasis"
+    },
+    {
+      "id": "schedule-to-authority",
+      "from": "schedule",
+      "to": "authority",
+      "label": "成熟且预算允许",
+      "variant": "security"
+    },
+    {
+      "id": "authority-to-executor",
+      "from": "authority",
+      "to": "executor",
+      "label": "认领后重核验",
+      "variant": "security"
+    },
+    {
+      "id": "authority-to-planstore",
+      "from": "authority",
+      "to": "planstore",
+      "label": "持久认领 / 动作",
+      "variant": "default"
+    },
+    {
+      "id": "planstore-to-executor",
+      "from": "planstore",
+      "to": "executor",
+      "label": "原操作 ID 对账",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "输入与解析",
+      "items": [
+        "PT RSS 和搜索共用 CandidateService；联网有站点、关键词、分页、时间和响应预算。",
+        "MetaService 调用宿主 MetaInfo / MetaInfoPath，再由 MetaCorrector 修正并保存原始差异及可重放证据。",
+        "可选 MetaPatch 只包装受支持宿主公共入口，默认不自动开启。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "AI 的权限边界",
+      "items": [
+        "AI 只建议名称与年份；不能授予下载权、决定文件选择、伪造媒体 ID 或更改季集。",
+        "内部辅助要求有效唯一 owner 与代次；可选 NameRecognize 桥同步只查缓存/投队列，由定时任务排空。",
+        "HTTPX 请求有并发、队列、重试、响应和预算限制；重启保留未决预算与冷却，不盲目重试。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "范围与排序",
+      "items": [
+        "真实 provider 的季集行定义工作范围，episode_count 只可证明覆盖，不用来制造集号。",
+        "种子文件名逐个解析并核验物理身份，完整文件表绑定视频、受支持字幕和目标。",
+        "Policy 的有效分类、模板覆盖、允许项、分组偏好、谓词和锁决定准入及质量向量；未知证据不强行排序。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "认领与执行",
+      "items": [
+        "Planner 比较每个目标的当前事实与候选，保留新增、升级、字幕补充及证据改善的不同动作。",
+        "Authority 在事务中核对目标 owner、任务代次、规则/解析修订、档案修订、观察、冷却及取代预算。",
+        "执行前再次取得实际资源并验证身份、质量、文件表和归属；过期/未知计划不会旁路执行。"
+      ]
+    }
+  ]
+}

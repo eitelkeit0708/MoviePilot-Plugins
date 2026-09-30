@@ -1,0 +1,808 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "subscriBetter V3 · 交付、恢复与入库",
+    "locale": "zh-CN",
+    "output": ".archify/architecture-subscribetter-20260930-191137/delivery.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/eitelkeit0708/MoviePilot-Plugins.git",
+      "revision": "d4b405fab16e501bff0d798f2a1dd325bb8bb43a",
+      "link_mode": "local-only"
+    },
+    "views": [
+      {
+        "id": "upload-view",
+        "label": "上传与回退",
+        "focus": [
+          "organizer",
+          "local",
+          "bundle",
+          "scan",
+          "hash",
+          "upload",
+          "rapid",
+          "p115",
+          "fallback",
+          "cd2",
+          "remote",
+          "staging"
+        ],
+        "note": "秒传、普通上传、原 ID 与独立远端核验"
+      },
+      {
+        "id": "ingest-view",
+        "label": "发布到入库",
+        "focus": [
+          "remote",
+          "publish",
+          "incoming",
+          "symedia",
+          "strm",
+          "consumer",
+          "emby",
+          "archive",
+          "db"
+        ],
+        "note": "实际消费者确认是完成条件"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "organizer",
+      "type": "backend",
+      "label": "宿主整理与回执",
+      "sublabel": "Organizer / TransferChain",
+      "pos": [
+        350.0,
+        80
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/execution.py",
+          "line": 613,
+          "end_line": 698,
+          "label": "文件身份与整理"
+        },
+        {
+          "path": "plugins.v3/subscribetter/execution.py",
+          "line": 967,
+          "end_line": 983,
+          "label": "宿主转移结果核验"
+        }
+      ]
+    },
+    {
+      "id": "local",
+      "type": "database",
+      "label": "本地下载 / 监控文件",
+      "sublabel": "真实 inode / 大小 / Hash",
+      "pos": [
+        660.0,
+        80
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 133,
+          "end_line": 181,
+          "label": "描述符绑定及读取"
+        },
+        {
+          "path": "plugins.v3/subscribetter/execution.py",
+          "line": 624,
+          "end_line": 629,
+          "label": "源内容核验"
+        }
+      ]
+    },
+    {
+      "id": "scan",
+      "type": "backend",
+      "label": "扫描 / 可选 watcher",
+      "sublabel": "LocalReconciler",
+      "pos": [
+        40.0,
+        320
+      ],
+      "size": [
+        192,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 1148,
+          "end_line": 1189,
+          "label": "可选提示事件"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 1191,
+          "end_line": 1265,
+          "label": "重扫与稳定观察"
+        }
+      ],
+      "tag": "扫描不能凭空授予计划"
+    },
+    {
+      "id": "bundle",
+      "type": "backend",
+      "label": "授权资产交付组",
+      "sublabel": "Delivery.prepare",
+      "pos": [
+        350.0,
+        320
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 252,
+          "end_line": 326,
+          "label": "完整整理资产与清单"
+        },
+        {
+          "path": "plugins.v3/subscribetter/runtime.py",
+          "line": 568,
+          "end_line": 586,
+          "label": "准备前重新评估"
+        }
+      ]
+    },
+    {
+      "id": "hash",
+      "type": "security",
+      "label": "稳定窗口与本地 Hash",
+      "sublabel": "LocalSource · 读前复核",
+      "pos": [
+        350.0,
+        560
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 149,
+          "end_line": 181,
+          "label": "本地身份、Hash、范围读"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 252,
+          "end_line": 326,
+          "label": "稳定与规则验证"
+        }
+      ]
+    },
+    {
+      "id": "upload",
+      "type": "backend",
+      "label": "上传状态与 outbox",
+      "sublabel": "Delivery.reconcile",
+      "pos": [
+        350.0,
+        800
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 497,
+          "end_line": 581,
+          "label": "动作先记账、再发送、后核验"
+        }
+      ],
+      "tag": "UNKNOWN 沿原 ID 对账"
+    },
+    {
+      "id": "rapid",
+      "type": "backend",
+      "label": "115 秒传适配",
+      "sublabel": "HostDeliveryCloud.rapid",
+      "pos": [
+        660.0,
+        800
+      ],
+      "size": [
+        192,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 90,
+          "end_line": 112,
+          "label": "实际秒传协议"
+        }
+      ]
+    },
+    {
+      "id": "p115",
+      "type": "cloud",
+      "label": "115 云盘",
+      "sublabel": "目录 / 内容 / 秒传结果",
+      "pos": [
+        970.0,
+        800
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 90,
+          "end_line": 112,
+          "label": "HIT / MISS 结果"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 36,
+          "end_line": 88,
+          "label": "范围与目录读回"
+        }
+      ]
+    },
+    {
+      "id": "staging",
+      "type": "database",
+      "label": "隔离暂存目录",
+      "sublabel": "云 scope + 明确路径",
+      "pos": [
+        40.0,
+        1040
+      ],
+      "size": [
+        192,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 252,
+          "end_line": 326,
+          "label": "隔离目录与 manifest"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 331,
+          "end_line": 353,
+          "label": "远端验证与主动刷新"
+        }
+      ]
+    },
+    {
+      "id": "remote",
+      "type": "security",
+      "label": "远端内容独立核验",
+      "sublabel": "大小 / Hash / 主动目录刷新",
+      "pos": [
+        350.0,
+        1040
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 331,
+          "end_line": 353,
+          "label": "真实 remote 内容验证"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 244,
+          "end_line": 261,
+          "label": "强制刷新父目录"
+        }
+      ]
+    },
+    {
+      "id": "fallback",
+      "type": "backend",
+      "label": "有界普通上传回退",
+      "sublabel": "RemoteUploadChannel / reader",
+      "pos": [
+        660.0,
+        1040
+      ],
+      "size": [
+        192,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 528,
+          "end_line": 544,
+          "label": "有效 MISS 与大小预算"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 114,
+          "end_line": 140,
+          "label": "先订阅再 Start"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 146,
+          "end_line": 242,
+          "label": "原 ID 的有界字节泵"
+        }
+      ],
+      "tag": "MISS 达阈值且大小允许"
+    },
+    {
+      "id": "cd2",
+      "type": "cloud",
+      "label": "CloudDrive2 gRPC",
+      "sublabel": "上传 ID / 读回 / 移动",
+      "pos": [
+        970.0,
+        1040
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 114,
+          "end_line": 140,
+          "label": "StartRemoteUpload"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery_cloud.py",
+          "line": 285,
+          "end_line": 301,
+          "label": "Move / 精确删除"
+        }
+      ]
+    },
+    {
+      "id": "publish",
+      "type": "security",
+      "label": "发布前最终重核验",
+      "sublabel": "PublicationGate / Authority",
+      "pos": [
+        350.0,
+        1280
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 678,
+          "end_line": 716,
+          "label": "全资产验证与发布"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 983,
+          "end_line": 1004,
+          "label": "当前质量、范围和排除"
+        },
+        {
+          "path": "plugins.v3/subscribetter/planner.py",
+          "line": 607,
+          "end_line": 631,
+          "label": "原子发布屏障"
+        }
+      ],
+      "tag": "REMOTE_VERIFIED 才可发布"
+    },
+    {
+      "id": "incoming",
+      "type": "database",
+      "label": "消费者 incoming 目录",
+      "sublabel": "完整组移动 / 受限字幕发布",
+      "pos": [
+        660.0,
+        1280
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 678,
+          "end_line": 716,
+          "label": "移动目的目录"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 661,
+          "end_line": 675,
+          "label": "已验证字幕位置"
+        }
+      ]
+    },
+    {
+      "id": "symedia",
+      "type": "external",
+      "label": "Symedia 消费者",
+      "sublabel": "外部归档与 STRM 生成",
+      "pos": [
+        970.0,
+        1280
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 728,
+          "end_line": 746,
+          "label": "必须实际 settled 的消费者结果"
+        },
+        {
+          "path": "plugins.v3/subscribetter/runtime_delivery.py",
+          "line": 15,
+          "end_line": 25,
+          "label": "目标、映射与观察游标"
+        }
+      ],
+      "tag": "补处理能力须实际验证"
+    },
+    {
+      "id": "emby",
+      "type": "external",
+      "label": "选定 Emby 服务 / 库",
+      "sublabel": "实际条目与 Provider 身份",
+      "pos": [
+        40.0,
+        1520
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/runtime_delivery.py",
+          "line": 19,
+          "end_line": 43,
+          "label": "实际媒体库分页读取"
+        }
+      ]
+    },
+    {
+      "id": "consumer",
+      "type": "backend",
+      "label": "有界消费者观察",
+      "sublabel": "observe_consumer",
+      "pos": [
+        350.0,
+        1520
+      ],
+      "size": [
+        192,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/runtime_delivery.py",
+          "line": 11,
+          "end_line": 108,
+          "label": "Emby、STRM、云内容的交叉关联"
+        },
+        {
+          "path": "plugins.v3/subscribetter/runtime.py",
+          "line": 995,
+          "end_line": 1003,
+          "label": "实际观察后才 confirm"
+        }
+      ],
+      "tag": "未结算保持 WAIT_CONSUMER"
+    },
+    {
+      "id": "strm",
+      "type": "database",
+      "label": "MP 可读 STRM 与云目标",
+      "sublabel": "两段路径映射 / 真实读回",
+      "pos": [
+        660.0,
+        1520
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/archive.py",
+          "line": 80,
+          "end_line": 113,
+          "label": "STRM 流式安全读取"
+        },
+        {
+          "path": "plugins.v3/subscribetter/archive.py",
+          "line": 160,
+          "end_line": 182,
+          "label": "Emby → STRM → CD2"
+        },
+        {
+          "path": "plugins.v3/subscribetter/archive.py",
+          "line": 545,
+          "end_line": 599,
+          "label": "原始文件与云身份核验"
+        }
+      ]
+    },
+    {
+      "id": "archive",
+      "type": "security",
+      "label": "入库确认与档案激活",
+      "sublabel": "Archive.confirm_ingest",
+      "pos": [
+        350.0,
+        1760
+      ],
+      "size": [
+        192,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/archive.py",
+          "line": 1014,
+          "end_line": 1122,
+          "label": "独立重读、质量与原子更新"
+        },
+        {
+          "path": "plugins.v3/subscribetter/delivery.py",
+          "line": 728,
+          "end_line": 746,
+          "label": "真实 accepted 后 CONFIRMED"
+        }
+      ],
+      "tag": "INGEST_CONFIRMED → PRESENT"
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "持久回执与当前版本",
+      "sublabel": "SQLite · 事务 / 修订 / 审计",
+      "pos": [
+        660.0,
+        1760
+      ],
+      "size": [
+        220,
+        80
+      ],
+      "sources": [
+        {
+          "path": "plugins.v3/subscribetter/archive.py",
+          "line": 1095,
+          "end_line": 1122,
+          "label": "当前版本原子激活"
+        },
+        {
+          "path": "plugins.v3/subscribetter/repository.py",
+          "line": 193,
+          "end_line": 207,
+          "label": "事务保证"
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "organizer-to-local",
+      "from": "organizer",
+      "to": "local",
+      "label": "Hash 与整理结果",
+      "variant": "default"
+    },
+    {
+      "id": "organizer-to-bundle",
+      "from": "organizer",
+      "to": "bundle",
+      "label": "完整整理回执",
+      "variant": "emphasis"
+    },
+    {
+      "id": "scan-to-bundle",
+      "from": "scan",
+      "to": "bundle",
+      "label": "合法计划与稳定资产",
+      "variant": "security"
+    },
+    {
+      "id": "bundle-to-hash",
+      "from": "bundle",
+      "to": "hash",
+      "label": "已绑定清单",
+      "variant": "emphasis"
+    },
+    {
+      "id": "hash-to-upload",
+      "from": "hash",
+      "to": "upload",
+      "label": "源身份仍一致",
+      "variant": "security"
+    },
+    {
+      "id": "upload-to-rapid",
+      "from": "upload",
+      "to": "rapid",
+      "label": "优先秒传",
+      "variant": "default"
+    },
+    {
+      "id": "rapid-to-p115",
+      "from": "rapid",
+      "to": "p115",
+      "label": "Hash / range / init",
+      "variant": "default"
+    },
+    {
+      "id": "upload-to-remote",
+      "from": "upload",
+      "to": "remote",
+      "label": "远端独立读回",
+      "variant": "emphasis"
+    },
+    {
+      "id": "upload-to-fallback",
+      "from": "upload",
+      "to": "fallback",
+      "label": "有效 MISS 后回退",
+      "variant": "dashed"
+    },
+    {
+      "id": "fallback-to-cd2",
+      "from": "fallback",
+      "to": "cd2",
+      "label": "原 upload ID / 字节",
+      "variant": "default"
+    },
+    {
+      "id": "cd2-to-p115",
+      "from": "cd2",
+      "to": "p115",
+      "label": "普通上传",
+      "variant": "default"
+    },
+    {
+      "id": "remote-to-staging",
+      "from": "remote",
+      "to": "staging",
+      "label": "scope / 内容 / 刷新",
+      "variant": "default"
+    },
+    {
+      "id": "remote-to-publish",
+      "from": "remote",
+      "to": "publish",
+      "label": "全资产 VERIFIED",
+      "variant": "security"
+    },
+    {
+      "id": "publish-to-incoming",
+      "from": "publish",
+      "to": "incoming",
+      "label": "授权后完整发布",
+      "variant": "emphasis"
+    },
+    {
+      "id": "incoming-to-symedia",
+      "from": "incoming",
+      "to": "symedia",
+      "label": "目录交接",
+      "variant": "default"
+    },
+    {
+      "id": "symedia-to-strm",
+      "from": "symedia",
+      "to": "strm",
+      "label": "外部消费结果",
+      "variant": "dashed"
+    },
+    {
+      "id": "strm-to-consumer",
+      "from": "strm",
+      "to": "consumer",
+      "label": "实际 STRM 与云关联",
+      "variant": "default"
+    },
+    {
+      "id": "consumer-to-emby",
+      "from": "consumer",
+      "to": "emby",
+      "label": "实际条目核验",
+      "variant": "default"
+    },
+    {
+      "id": "publish-to-consumer",
+      "from": "publish",
+      "to": "consumer",
+      "label": "发布后定期观察",
+      "variant": "default"
+    },
+    {
+      "id": "consumer-to-archive",
+      "from": "consumer",
+      "to": "archive",
+      "label": "settled 且完整核验",
+      "variant": "security"
+    },
+    {
+      "id": "archive-to-db",
+      "from": "archive",
+      "to": "db",
+      "label": "原子确认 / 质量更新",
+      "variant": "default"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "本地字节和资产",
+      "items": [
+        "Organizer 核验下载完成、文件选择、源大小与完整 Hash，再调用宿主公共 TransferChain 并核对回执。",
+        "Delivery.prepare 要求原计划、规则、完整整理回执、稳定窗口与全部资产清单；扫描或 watcher 只是发现提示。",
+        "读源拒绝越界、符号链接及身份替换；字幕经历独立稳定观察，未知结果保持等待。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "秒传与普通上传",
+      "items": [
+        "秒传 HIT 后独立读回；只有有效 MISS 消耗预算，达到配置阈值且文件大小允许时才 CD2 回退。",
+        "CD2 先订阅通道再 Start，持久化 upload ID 后按原请求泵送字节；响应超时保留 UNKNOWN。",
+        "主动父目录刷新与云文件大小、Hash 核验完成前，不进入可发布状态。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "发布屏障与恢复",
+      "items": [
+        "PublicationGate 重核验身份、准入、范围、排除、当前质量、资产完整及远端内容；Authority 持久化发布屏障。",
+        "目录 move 响应未知保持 PUBLISH_OUTCOME_UNKNOWN；目录存在或相同大小不能单独证明成功。",
+        "恢复沿原外部 ID 对账，不因时间到期重发或解锁；取消、监控清理、暂存清理、下载器任务和源数据权限独立。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "消费者与档案",
+      "items": [
+        "Symedia 是外部目录消费者，插件不声称自动补处理已发生；缺失消费能力呈现 WAIT_CONSUMER。",
+        "observe_consumer 有界读取选定 Emby 条目、实际 STRM、云目录内容与附件，生成精确 settled 回执。",
+        "Archive 在激活前再次独立核验身份、Hash、当前质量、代次、排除与修订，事务更新入库回执和 PRESENT 版本。"
+      ]
+    }
+  ]
+}

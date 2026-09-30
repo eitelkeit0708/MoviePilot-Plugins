@@ -1,0 +1,75 @@
+{
+  "browser": "153.0.8010.54",
+  "platform": "win32",
+  "native": [
+    {
+      "slug": "overview",
+      "status": "PASS",
+      "dimensions": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "scrollHeight": 2495,
+        "svgs": 2
+      },
+      "screenshot": "overview.full-page.png"
+    },
+    {
+      "slug": "decision",
+      "status": "PASS",
+      "dimensions": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "scrollHeight": 1957,
+        "svgs": 2
+      },
+      "screenshot": "decision.full-page.png"
+    },
+    {
+      "slug": "delivery",
+      "status": "PASS",
+      "dimensions": {
+        "width": 1440,
+        "scrollWidth": 1440,
+        "scrollHeight": 2427,
+        "svgs": 2
+      },
+      "screenshot": "delivery.full-page.png"
+    }
+  ],
+  "portal": [
+    {
+      "label": "完整总览",
+      "status": "PASS",
+      "title": [
+        "subscriBetter V3 · 完整架构总览"
+      ],
+      "semanticNodes": 44
+    },
+    {
+      "label": "候选决策与授权",
+      "status": "PASS",
+      "title": [
+        "subscriBetter V3 · 候选决策与授权"
+      ],
+      "semanticNodes": 30
+    },
+    {
+      "label": "交付、恢复与入库",
+      "status": "PASS",
+      "title": [
+        "subscriBetter V3 · 交付、恢复与入库"
+      ],
+      "semanticNodes": 40
+    }
+  ],
+  "errors": [],
+  "mobile": {
+    "status": "PASS",
+    "width": 390,
+    "scrollWidth": 390,
+    "tabs": 3,
+    "limit": "Navigation containment only; native diagram gate remains the documented desktop viewports."
+  },
+  "jsonDownload": "PASS",
+  "status": "PASS"
+}

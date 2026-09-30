@@ -1,0 +1,635 @@
+{
+  "original_repository": "D:\\projetcs\\MoviePilot-Plugins\\.worktrees\\subscribetter-v3",
+  "original_revision": "7ce7120cdad1a334893908b448f4343954bf6660",
+  "origin": "https://github.com/eitelkeit0708/MoviePilot-Plugins.git",
+  "local_snapshot": "C:\\Users\\LiuYuZe\\AppData\\Local\\Temp\\archify-subscribetter-source-20260930-191137",
+  "local_snapshot_revision": "d4b405fab16e501bff0d798f2a1dd325bb8bb43a",
+  "created_local": "20260930-191137",
+  "changed_plugin_paths": [
+    " M plugins.v3/subscribetter/archive.py",
+    " M plugins.v3/subscribetter/configuration.py",
+    " R plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Config-CEmjsTp4.js -> plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Config-DgsYq8cj.js",
+    " D plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Page-3aSYwXzW.css",
+    " A plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Page-BjhiiRfE.js",
+    " D plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Page-Bvp49MVE.js",
+    " A plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Page-LtHIF4Gp.css",
+    " M plugins.v3/subscribetter/dist/assets-v1.0.1/remoteEntry.js",
+    " A plugins.v3/subscribetter/frontend/dev/policy-catalog.json",
+    " M plugins.v3/subscribetter/frontend/dev/preview.mjs",
+    " M plugins.v3/subscribetter/frontend/dev/study/policies.json",
+    " A plugins.v3/subscribetter/frontend/src/AdmissionEditor.vue",
+    " A plugins.v3/subscribetter/frontend/src/BackButton.vue",
+    " M plugins.v3/subscribetter/frontend/src/ConditionNode.vue",
+    " M plugins.v3/subscribetter/frontend/src/ConfigEditor.vue",
+    " M plugins.v3/subscribetter/frontend/src/DeliverySettings.vue",
+    " M plugins.v3/subscribetter/frontend/src/Discovery.vue",
+    " M plugins.v3/subscribetter/frontend/src/OperationalSettings.vue",
+    " M plugins.v3/subscribetter/frontend/src/Page.vue",
+    " M plugins.v3/subscribetter/frontend/src/PathInput.vue",
+    " M plugins.v3/subscribetter/frontend/src/PlanSetup.vue",
+    " M plugins.v3/subscribetter/frontend/src/Policies.vue",
+    " M plugins.v3/subscribetter/frontend/src/PolicySummary.vue",
+    " M plugins.v3/subscribetter/frontend/src/PredicateEditor.vue",
+    " A plugins.v3/subscribetter/frontend/src/PriorityList.vue",
+    " M plugins.v3/subscribetter/frontend/src/Sources.vue",
+    " M plugins.v3/subscribetter/frontend/src/Subscriptions.vue",
+    " M plugins.v3/subscribetter/frontend/src/Transfers.vue",
+    " M plugins.v3/subscribetter/frontend/src/contract.json",
+    " M plugins.v3/subscribetter/frontend/src/media.mjs",
+    " M plugins.v3/subscribetter/frontend/src/predicate-editor.mjs",
+    " M plugins.v3/subscribetter/frontend/src/style.css",
+    " M plugins.v3/subscribetter/frontend/test/components.test.mjs",
+    " M plugins.v3/subscribetter/frontend/test/media.test.mjs",
+    " M plugins.v3/subscribetter/frontend/tools/export_contract.py",
+    " M plugins.v3/subscribetter/policy.py",
+    " A plugins.v3/subscribetter/quality-options.json",
+    " M plugins.v3/subscribetter/ui.py"
+  ],
+  "files": [
+    {
+      "path": "plugins.v3/subscribetter/LICENSE",
+      "sha256": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+    },
+    {
+      "path": "plugins.v3/subscribetter/README.md",
+      "sha256": "d5174025a20e06437c310d5ba6bdf095c37e76e3a59302997f3736e7e1139eb0"
+    },
+    {
+      "path": "plugins.v3/subscribetter/__init__.py",
+      "sha256": "af88a77a9a056c0a4e02d5c9b02512a5c804331396daddf4e2e14c050a514e9d"
+    },
+    {
+      "path": "plugins.v3/subscribetter/ai.py",
+      "sha256": "25a8614f2d30071a7d79cf4e7312f220f36bc7f84b7a80f02c36088b9aefa90f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/archive.py",
+      "sha256": "8579ac16686a29557e8b54ff8451b0676c100502dd744ac77479370f9106e78a"
+    },
+    {
+      "path": "plugins.v3/subscribetter/archive_scan.py",
+      "sha256": "1b6e719941221bd910696a9d4b47608f660666cf35e73ecbada750ddadcb904d"
+    },
+    {
+      "path": "plugins.v3/subscribetter/candidates.py",
+      "sha256": "5114ea2b1457935b67e927b91bd4771ff94a011c1b46e0a78c7afe83faad22a5"
+    },
+    {
+      "path": "plugins.v3/subscribetter/configuration.py",
+      "sha256": "9331a354c9a4f87e12f28bd21b512a09c8e875a3ae8887c43cd5b7cb0f10275e"
+    },
+    {
+      "path": "plugins.v3/subscribetter/delivery.py",
+      "sha256": "000ffd0ba3818d07c6ea90410c816f419a6d36a204177acdbfb0b24b78101e5f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/delivery_cloud.py",
+      "sha256": "173e6f67302705fe0024edc180b3415067bf83d96f7e91904a2b944d531b1f45"
+    },
+    {
+      "path": "plugins.v3/subscribetter/discovery.py",
+      "sha256": "49516910c5335ef0e5b1654929d4124c24f247096f12691199f3ba636203b819"
+    },
+    {
+      "path": "plugins.v3/subscribetter/display.py",
+      "sha256": "2d386696f6a316e87a6b6c5abb873e1fb54e74a1135ed1314bd4ff179e45d6a7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Config-DgsYq8cj.js",
+      "sha256": "f369d051eb4920e7dec8df15353a54c7343eaa8ad5f5035ec143e83ad7ca0a24"
+    },
+    {
+      "path": "plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Page-BjhiiRfE.js",
+      "sha256": "55446aac27d5841ebcd8f23abf65dfc29d18326709fd96f3234109cbf1b1d2e7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_expose_Page-LtHIF4Gp.css",
+      "sha256": "fc2fd77f0393132bd79df569df1beaa2d65bc474b0477c813e9eeb348767edd5"
+    },
+    {
+      "path": "plugins.v3/subscribetter/dist/assets-v1.0.1/__federation_fn_import-E6wRZccp.js",
+      "sha256": "11a2d68813601dffb4a4bb619cabf25526a7a445b054e418100e24128f6bdca2"
+    },
+    {
+      "path": "plugins.v3/subscribetter/dist/assets-v1.0.1/remoteEntry.js",
+      "sha256": "155207f2ae1ba0c5ecf8fb62c77b9f354530a3070ec8a3fd6adfc5c8d184c093"
+    },
+    {
+      "path": "plugins.v3/subscribetter/dist/index.html",
+      "sha256": "0d21d1a21d94eeecd36f8194c5db52b8a8c333eb9b65626186a7fe5fdad944e7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/evidence.py",
+      "sha256": "a49884714ffc1c251083c489e76408824f6c60d9301ed2557cf20b34075406c3"
+    },
+    {
+      "path": "plugins.v3/subscribetter/execution.py",
+      "sha256": "7610626e8b593052035c7e15366bccd2730cbbd5229579c8d144de4bc1d3e9a7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/.gitignore",
+      "sha256": "5e421710a7cf6ae6b2b9a9a8563a7c2f91ee359de3e26d9e52f0e2986f69d717"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/API.md",
+      "sha256": "ef6eda70f78d31a68190855cddc03681f1d8784f2ab1ed89f727cb56dbf4db64"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/build.mjs",
+      "sha256": "0bf82fcd169444e35028865b12d995060ce37cec56174553f8f7e7c6bab62e47"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/display-fixtures.json",
+      "sha256": "26f44f2af43cceb758d33af77654adeb120b79d4de78fe63f929e2e59860ded9"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/index.html",
+      "sha256": "a1bd1ae20d0cfc04b95eb33a8b60ad850bbf0f7e29fe800cd6c37ce8c1eb20ce"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/policy-catalog.json",
+      "sha256": "e534c24a186707caadd12e2eecce7f7b0d216803542d8559057c164acda14162"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/preview.mjs",
+      "sha256": "af30248121d44deef7372c8985c65b6551e0c0af0d4e856f309208893019e865"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study-review.html",
+      "sha256": "c0d2cc9911e2362aed08959ab1e0c7a0baf88f0370ee89f22884e4cb0f2a7a4a"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study.html",
+      "sha256": "e6a5335783ec2545139b3a61d48537903482be2a0e92a0068c536d20831b5360"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/App.vue",
+      "sha256": "1500cc9b159042d6e7081c5d17dfbe85959b8f82ba4ca054cd894033685b0efa"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/Episode.vue",
+      "sha256": "1347641a97ce70c4508930cae9ba9356ccafb5fa98a8b1dfa3b62d6b36672c91"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/MediaRow.vue",
+      "sha256": "e35381ca9828a94feb4dc3538a17a4e1af447645e4af97cee3bce2be208dd062"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/Scheme.vue",
+      "sha256": "b7e3dcc7accbebbf7ec8ac5d684590980794f12697ce2d5c328b572caa2af2eb"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/export_policies.py",
+      "sha256": "db4e8f82a20aa8022a31e5d9d95f867987a1850cdc77f3f2ae6850ebc873d06c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/main.mjs",
+      "sha256": "94a3ff7900c4ee0b68147255b71b414a999ddcecb88a95efd8302117944cab79"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/model.mjs",
+      "sha256": "55b81e62d704e1f14a1340e2b1b74ad2bd4836531778e1d2672d7c2350139e64"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/policies.json",
+      "sha256": "24c0b145d4b685f63c555f49d9d3857e3a4ea9de55c69f092be4fdd29d0d3dcb"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/study/style.css",
+      "sha256": "471a28faff0280541c40795b121e029df1f2ac0885727af679d2712922b1649b"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/visual-review.html",
+      "sha256": "5165e9baa99666ba5ddc45b87a4cd923816c104a71f37511b47337d954b4426c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/dev/vite.config.mjs",
+      "sha256": "7185f61ee30306b4947d73cf0e2a96f336afe270c16d46f7ae1010f2774078e7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/index.html",
+      "sha256": "0d21d1a21d94eeecd36f8194c5db52b8a8c333eb9b65626186a7fe5fdad944e7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/licenses/README.md",
+      "sha256": "0c6f1019682fc89d09e0ffcefa778ff17800ff3cfc6a9d61313e86e79547d23c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/licenses/noble-hashes-LICENSE.txt",
+      "sha256": "865494526385e7ee6025ab830b0c96c45f483e48068cb18212e2a66bdcd17122"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/licenses/originjs-vite-plugin-federation-LICENSE.txt",
+      "sha256": "3c1e0660f782af0b4b31eac50fc1f4b3c890c0d04963fe4c9d94ccf90ca52c84"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/licenses/vite-LICENSE.txt",
+      "sha256": "14b5adf3697cd08eed6ab6970941e7bd52e93cbb5397e9a630988739c597dae1"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/licenses/vitejs-plugin-vue-LICENSE.txt",
+      "sha256": "42bc6d3df0acc930217a741791507bf62e2163a1fbe00b5606dd5e9a11691f7c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/licenses/vue-LICENSE.txt",
+      "sha256": "5818899c48b48d0c1e898741974b91ffaf938962349b32e25d4b37a031771364"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/licenses/vuetify-LICENSE.txt",
+      "sha256": "677c3a16251e8a5f67244455a5975a2f292971e8f1baf18f3f8f8238d28cc0fc"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/package-lock.json",
+      "sha256": "87fb596b5dec1265d344bc50be433d0e4f1fe6f6bbba9ebf7a76f2dd3624dc35"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/package.json",
+      "sha256": "10f35cb89b0d1db7a98ef468857e13fe3e8a6e80e2e376daa66b9b8e693e3c40"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/AISettings.vue",
+      "sha256": "76db6fec59faa8a70664a2813065c9535de3fdac208990e8901a784f069567fb"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Action.vue",
+      "sha256": "0f9015156a1643c7719ae03670370ff30d05b79c839d21936ea358f21a555e48"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/AdmissionEditor.vue",
+      "sha256": "a997e86207b56a181ccb4d7e2b96e65e09d137ac527ef49190d388ff827106d1"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/AdoptSubscription.vue",
+      "sha256": "e67ab42dbb572f93d2bdffb763cd0cb91272758131affa6b2816d7222c690b50"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/BackButton.vue",
+      "sha256": "e0f61bf1174d6e2c4a1f8bfe478ecc540f83fde144f45570b436abee944fb5ab"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/BasicSettings.vue",
+      "sha256": "8301104e5d1ae4fb98a2a247832ada5b12bb1a43cf3a833c02f0b5e041e2cbd1"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/CandidateDecision.vue",
+      "sha256": "59d759288ceb1a2e46bb6dce82815dbc0a33c5d85a9c49408424d6b5fc58b6c2"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/ConditionNode.vue",
+      "sha256": "cf82edda29eb61ff51d5b269ea5140592bb18968a8369b73405ab9fe2fe4b023"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/ConditionTest.vue",
+      "sha256": "d8b31389234b303e35bffa93ca9805c68399bbcb437e6d7185f703dd0ad81228"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Config.vue",
+      "sha256": "46fad4686f56bb39075cd03bbbd53f3f0690656848fd4d1c463deda2e559e11c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/ConfigEditor.vue",
+      "sha256": "dee39c012ca73186bb73034ae03ffa893665fa169cb97daba3e744e8390e77ee"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/DeliverySettings.vue",
+      "sha256": "d26f5bfe5ff735cab7a19c0e1328f4a9746ca13e2df0dd35d3bed37e73f6aae1"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Destinations.vue",
+      "sha256": "1a99293684a278f6280b96e584e27c47292ec50f8f85bba2b2eda2b55acb06e3"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Detail.vue",
+      "sha256": "fee0e10004782446943b6981252a6ac080af5bf7be428ed89a4ff89e6d357fad"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Discovery.vue",
+      "sha256": "fcfc38f71c9fbdcfe21703f7306596d889cc2d1b31689043daf28d28b89fb225"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Field.vue",
+      "sha256": "4add1de7f163e2f808e38db61252ce0e0e7530aad91300bec02c75be34be50cd"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/LibraryPicker.vue",
+      "sha256": "d324bb2ba5ac2133700443ba279f72d6d5bdaf93cc411d14bd2151647bd7518a"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/MappingCheck.vue",
+      "sha256": "5659a33fb4eda5612cb465e8e89ae4b1346b509f61a99dee1c646c8d63294325"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/MediaCover.vue",
+      "sha256": "9104526dc8e352f8916ef8bf4c413646dc7312417c2c5d911f26c0feee18b6a3"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/MediaRow.vue",
+      "sha256": "a5e39c22ca68b315c8eda5b5c198c5c7548bc060c1bf2d978f13bc88ee2521f3"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Migration.vue",
+      "sha256": "870a6a74dac2ab0ec454c5de994c6c8816e3578c70d6d4e078220eaa2abeeaab"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/OperationalSettings.vue",
+      "sha256": "f5df0f0d0592be7f58a1e49fd6bc684c9895b19b7c0e293f4516d750499a286a"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Page.vue",
+      "sha256": "1f3abeaf9d494ac2a62e1873a587e412010089caebfdcd30a7c4807ae3ca9e56"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PathInput.vue",
+      "sha256": "6fe14293acb1031566f8b0c339635a235d6c182a4b63710d9af30c37c8c9a319"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PlanSetup.vue",
+      "sha256": "ca6e0a63f4f922114176c5ab89ac90326654c035f473e452ccc4db22a309c835"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Policies.vue",
+      "sha256": "fa9534a5bfa4b4bf686dae48d68eba1d84387017afb7e2745de9b278ce09a1e2"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PolicyOverview.vue",
+      "sha256": "a18eb58a349eb420d7e257fa9c6915fa22108be1d34c6c665d2e0eb85dbaf698"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PolicySimulation.vue",
+      "sha256": "324037453ac881fd41a2c6148290fad4bae6145b84ac50e88df1250ff6396161"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PolicySummary.vue",
+      "sha256": "46a0c3f00d39f54ffa54136fc6362a5ac3afc310b3908ccc266a586bcdd6c83c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PredicateEditor.vue",
+      "sha256": "9f925943a853b19ed6d394dd479f8d14d61e7a545854958253ac2004ce5b9d14"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PriorityList.vue",
+      "sha256": "9d06e887089269b659ed87849d8dca9bc14da618fae819da632284cb0e20f9c7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/PrivateInput.vue",
+      "sha256": "ebf4e83061c1a1ac9b1e096c78a2470f61b9e9ab1fbb19896474b27139f9a60a"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Quantity.vue",
+      "sha256": "c85736e47e0daf5391971b7a53832315774b2af53254ac4951ae22657ff37db8"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/ReconcileButton.vue",
+      "sha256": "27b3440ceca2b98c077cdb344ac8ce807bad80105189ec6367134cbfd6d934d0"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Record.vue",
+      "sha256": "c8a5a96736ee7a58363e5bb56dff0086d57c2be2abf68c00b8e607c045a4b413"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Resource.vue",
+      "sha256": "2e68ae626f0a8b42a25e4331fd4c55cb57286fe956a97076a9578b43acf0b29e"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/SavedMappingCheck.vue",
+      "sha256": "d7fcf7f985b72d984d3144a38578a5e03673c4e75174c01d233ac6ecaac8f284"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/ScheduleSettings.vue",
+      "sha256": "fa0f2acb20cb73790b232a77d41c2c3dfe0456174dab30776a5a3906feb3064c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/SitePicker.vue",
+      "sha256": "063b98636cdd1a6e12081366549f0f2c3fc53bf136ceca647a78bf82a54b0b2f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/SourceFilters.vue",
+      "sha256": "ebc075e69d411b01a8f2b985597fe8000e950b3b1d99a054026ebee0dee69c36"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Sources.vue",
+      "sha256": "d6f7b2652b2c84f7f458f4a8fb03620aacf4c63a602200f864b4aeda912c6b1f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Subscriptions.vue",
+      "sha256": "8191051b9fd4e9c165ec8e497c42e164a8bb03f31c177a7e09132b32306e4ea2"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/Transfers.vue",
+      "sha256": "b819f5f72b6ec31a5d140c09d8b8b80b56b71ec9a60c6f2bbf51be175e02f24c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/UnitProgress.vue",
+      "sha256": "0e38afa0fb0995b16bebb4635301796d9a0e262b315411b0be26b883b9090c56"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/VersionDifference.vue",
+      "sha256": "4bbfc818e0f1b1ea0489d0b1fc3f5ccf062e9ef1b659600560b8a546d6383d26"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/VersionHistory.vue",
+      "sha256": "72814a8c306d04376820852a1944fd915ceeaf7ed388a3092b737b8709cadeed"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/catalog.mjs",
+      "sha256": "4338038645ea53add55f1a1695812593af3236b2925f2acf55a32613a85d390f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/client.mjs",
+      "sha256": "85b96e0d107a0eb475a1095e427c0b012b9644d9ae59e6ccfd382dcd0279fd52"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/configuration-draft.mjs",
+      "sha256": "2cb4d6da16fdf2585976ea95d87f7f06bc5f4b5931de70c0e4f4d0ddfb82967e"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/contract.json",
+      "sha256": "d6ed13d5a76f3eeef7268ca905a5adcb7c78fe09019bda73d063ed88f9d10984"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/labels.mjs",
+      "sha256": "63f4c6fcb3620ad700f2ed7b3891c942b8da9a9dec273d2ab812f7ec651e3ade"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/legacy.mjs",
+      "sha256": "db552050456967ee9f1b76f724ca904ba4b2bfcdc90d80b11bb5148bde4ffcdb"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/media.mjs",
+      "sha256": "c90ef050f8dd229b33fa1ff0db08d5bf8306a2f39d7270520b9ca1e27180ad2b"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/panel.mjs",
+      "sha256": "facfe066c158408f903d9b6a739bf00da0055bbd2620943094611e04214ed8d9"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/plan-flow.mjs",
+      "sha256": "ebb63682a3d6cb5f1e5c1641020f6146936251b5c880121f0805df9c1972cbfc"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/predicate-editor.mjs",
+      "sha256": "0d0da51b0364702b8fb5faae094ecd29a60db6fcd79ccf0eced02b4f3f5b31ea"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/read.mjs",
+      "sha256": "900984c8409816dbada2e1f457773a6cb4a6cca991198dad8be49abddd0b1eca"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/schema.mjs",
+      "sha256": "35fb50079314192acafb0d3bdb5478d009e5ceabb4b241d72b7803c105ebb497"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/status.mjs",
+      "sha256": "880f4b5570f76abbba0189de766b9c31f8b85cc863be5120dae894fdf934c0cb"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/src/style.css",
+      "sha256": "24e37e4d594d744b26684b906695977365dc1871663b377d3f5c6e588b559f34"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/client.test.mjs",
+      "sha256": "7020d9b843fcdca2db5d3132a1df5f0b06a699a7e5216ad204894aa434f9a876"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/components.test.mjs",
+      "sha256": "67bde6f0391a1a172f014d798c4fb37152b3dbe7a8388bf3384a1ca5f2da39c5"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/configuration-draft.test.mjs",
+      "sha256": "84a91fd7833d6d38ef5299e336d646409f07659e85b0b8dbc44daab92f473379"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/contract.test.mjs",
+      "sha256": "676f2b4dd35d7c08680da275effbb09a364874483e0ad9244d93bd1a9c2e9964"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/design-study.test.mjs",
+      "sha256": "621c36ecac49a5e30d86633eef58e405a49adcf424fe429745a7ae7043a11d07"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/fixtures/legacy-native-json.json",
+      "sha256": "7205a46c57d00b72929fc2a6ba8545533a288e3a320861a47360f047ad911acf"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/legacy.test.mjs",
+      "sha256": "9e7f3d55cdfffb2c5f164da85fb41c610bc86da34164d98108232dc6be3e9318"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/media.test.mjs",
+      "sha256": "9bce5d8b935cb4dd3ef1d21f18381942583427a974fec6fb5dd3fdb00fc37889"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/predicate-editor.test.mjs",
+      "sha256": "6af11d1e09ca0bf487077a312876a600d13ad6ec6c6370f3369d7f66ebc2d7af"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/test/product-flow.test.mjs",
+      "sha256": "1f01b049ab6844eaca22ce46876c0f7f5adef941e17621cbdb927a41dd9b41e0"
+    },
+    {
+      "path": "plugins.v3/subscribetter/frontend/tools/export_contract.py",
+      "sha256": "2aa7c034ba812e2557a29a27723ddd390eae50281826fafa36b1a772f95d1dc7"
+    },
+    {
+      "path": "plugins.v3/subscribetter/host_archive_contract.py",
+      "sha256": "2cf1dde24b95371caebbd9536f25f6919513018fe911089fc9b004f27fe7a48c"
+    },
+    {
+      "path": "plugins.v3/subscribetter/host_delivery_contract.py",
+      "sha256": "fec6348a9d1d7a1158b9d4787ae4f1c8f8d99e6bcf6ac7961ad72b6018167516"
+    },
+    {
+      "path": "plugins.v3/subscribetter/host_discovery_contract.py",
+      "sha256": "8aab99b9f4661fd39c6bb2fd6697a86a103798b8d24676760a715f9783ef0167"
+    },
+    {
+      "path": "plugins.v3/subscribetter/host_execution_contract.py",
+      "sha256": "35a55e98f521a3b24a5e19175ba9cd61062a3af6212cf47f515a7c870bdef243"
+    },
+    {
+      "path": "plugins.v3/subscribetter/management.py",
+      "sha256": "a0f4c0704894e5089d795dbddf82d6a79afb219bf81b117afd662b1e5337c757"
+    },
+    {
+      "path": "plugins.v3/subscribetter/meta.py",
+      "sha256": "d3b052f953b90fe9c4f000b9b9dc7f74fb58054c455027354b39086d790b8db2"
+    },
+    {
+      "path": "plugins.v3/subscribetter/meta_compat.py",
+      "sha256": "d11b25014ada3d6c7396681adc3714a5084b6272b48f429382200076d608d3da"
+    },
+    {
+      "path": "plugins.v3/subscribetter/migration.py",
+      "sha256": "f94f28ef38f78fb4238506c5532c038422a8700c51b2396c15a57b8e13b99921"
+    },
+    {
+      "path": "plugins.v3/subscribetter/mp_adapter.py",
+      "sha256": "0aa05369ff5c0df1adcf9c9b02a15bb9bb5f3b95d9b8a55bdac407174e0fa934"
+    },
+    {
+      "path": "plugins.v3/subscribetter/ownership.py",
+      "sha256": "8823a07d5e6320f8bcca590cf1f9e5df596bbffb3df73636408f0c5de2da0be4"
+    },
+    {
+      "path": "plugins.v3/subscribetter/planner.py",
+      "sha256": "c4aab44f020d0a441dc5cd29907df3d3397227a7b0ac1157049992dccc52db3f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/policy-data.json",
+      "sha256": "288dc6057cb930f087ab21edf0bfa73af4dcef116f81ccb059cdb43bdac77c11"
+    },
+    {
+      "path": "plugins.v3/subscribetter/policy.py",
+      "sha256": "862830e89d12ca8ddd16e9579ef117b4c0ee34074dd7c3c85f1981a9dd7be3a1"
+    },
+    {
+      "path": "plugins.v3/subscribetter/pyproject.toml",
+      "sha256": "16bcb9b3c2d084ba2e978b76843f7812b5d7eb2fdcdc8d3222f0a364854fce98"
+    },
+    {
+      "path": "plugins.v3/subscribetter/quality-options.json",
+      "sha256": "e44cc627b2b9c8e76664391b273dbf47ab638e0e3a7b0633d26eac641322e6b1"
+    },
+    {
+      "path": "plugins.v3/subscribetter/repository.py",
+      "sha256": "71d7136422d4980ee18dfa89ee5e9ab96fb12ff0b49336357ac773ca9f984698"
+    },
+    {
+      "path": "plugins.v3/subscribetter/runtime.py",
+      "sha256": "7624d3821147453a221c51f3976e47b169c390d9cb9ccbed422a578fda524bb6"
+    },
+    {
+      "path": "plugins.v3/subscribetter/runtime_assets.py",
+      "sha256": "6e2e1a8cdd4f8da3af241213111bb8b4f4512bdebca0004d75ee349f2cf7a82f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/runtime_delivery.py",
+      "sha256": "1173f9613e2ff6978b744c21cff0b26d5d44b70c79c702a475a958fcf3fa7edf"
+    },
+    {
+      "path": "plugins.v3/subscribetter/runtime_passive.py",
+      "sha256": "fcb473a8c356021832493ca78d2f8f5ab565b3db50315cbd8c5d3f4086cc85c2"
+    },
+    {
+      "path": "plugins.v3/subscribetter/scheduler.py",
+      "sha256": "a19419101984150ced040a8b229fc36a910d0af81f6c304f68ae4d2ab8a10034"
+    },
+    {
+      "path": "plugins.v3/subscribetter/site_identity.py",
+      "sha256": "c7431d3f23a1f38e6bc172d7ff6b1fa674aace83ef9dea953118fe99bde2206a"
+    },
+    {
+      "path": "plugins.v3/subscribetter/site_identity_bridge.py",
+      "sha256": "6408456c2c97aa2d51a589c2e17cdd9055e4e01732964284e003dddd35b8965f"
+    },
+    {
+      "path": "plugins.v3/subscribetter/ui.py",
+      "sha256": "c3409436bab6c7b3bf3ff5e629540544022cc8fe72c711d7163c2487e39ee5ec"
+    },
+    {
+      "path": "plugins.v3/subscribetter/vite.config.mjs",
+      "sha256": "e9b388c4805f969fe9085a4ba60e17f7ba2f20347e8dd012b2c6fabae315da83"
+    }
+  ],
+  "scope": "Current tracked plugin sources only; no runtime credentials, live database or deployment files"
+}

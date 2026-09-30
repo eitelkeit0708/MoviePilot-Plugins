@@ -1,0 +1,6 @@
+# Keep generated HTML and verification receipts byte-for-byte across checkouts.
+# Review editable diagram changes through JSON; HTML embeds the complete renderer.
+*.html binary
+*.json -text whitespace=cr-at-eol
+*.zip binary
+*.png binary

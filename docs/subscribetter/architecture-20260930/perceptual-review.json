@@ -1,0 +1,12 @@
+{
+  "status": "PASS",
+  "scope": "Three 2048x1320 light viewport captures, three 1440px full-page captures, overview 1440x900 dark capture inspected",
+  "findings": [
+    "No clipped node labels, misleading arrow directions or uncontained native diagrams observed.",
+    "Overview retains one geometrically crossing owner/source relationship pair; distinct colors and arrowheads make it traceable."
+  ],
+  "limits": [
+    "Mobile evidence is navigation containment only.",
+    "No live product/deployment acceptance performed."
+  ]
+}

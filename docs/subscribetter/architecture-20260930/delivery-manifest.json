@@ -1,0 +1,77 @@
+{
+  "archify_version": "3.0.1",
+  "archify_revision": "d5a1333d7447c866a765adac7d4d062f2f02e4d2",
+  "snapshot_revision": "d4b405fab16e501bff0d798f2a1dd325bb8bb43a",
+  "diagrams": [
+    {
+      "id": "overview",
+      "label": "完整总览",
+      "sha256": "e910e890c464632d2aa7ffedfa1860101c194c0697455388941a05b881a84f51",
+      "receipt": "review-2/overview.finalize-summary.json"
+    },
+    {
+      "id": "decision",
+      "label": "候选决策与授权",
+      "sha256": "865ca159b792e8c528e18af1bad2f9d1ee7aa9fe054ae5dec7700c2293980ecd",
+      "receipt": "browser-verified-decision/decision.finalize-summary.json"
+    },
+    {
+      "id": "delivery",
+      "label": "交付、恢复与入库",
+      "sha256": "920194d8916f4a2bf422cf615fb5dc2b8598d6ae894608536e3591b8cec1b16b",
+      "receipt": "browser-verified-delivery/delivery.finalize-summary.json"
+    }
+  ],
+  "native_archify_full_renderer": true,
+  "quality": "showcase",
+  "browser_evidence": "PASS",
+  "visual_review": {
+    "status": "PASS",
+    "scope": "Three 2048x1320 light viewport captures, three 1440px full-page captures, overview 1440x900 dark capture inspected",
+    "findings": [
+      "No clipped node labels, misleading arrow directions or uncontained native diagrams observed.",
+      "Overview retains one geometrically crossing owner/source relationship pair; distinct colors and arrowheads make it traceable."
+    ],
+    "limits": [
+      "Mobile evidence is navigation containment only.",
+      "No live product/deployment acceptance performed."
+    ]
+  },
+  "package_browser_review": "package-browser-review.json",
+  "verification": [
+    {
+      "diagram": "overview",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "artifact_checks": 9,
+      "sources": 55
+    },
+    {
+      "diagram": "decision",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "artifact_checks": 9,
+      "sources": 30
+    },
+    {
+      "diagram": "delivery",
+      "gates": {
+        "validate": "pass",
+        "deliver": "pass",
+        "check": "pass",
+        "browser-check": "pass"
+      },
+      "artifact_checks": 9,
+      "sources": 40
+    }
+  ],
+  "portal_sha256": "27bdc2efa600e9d95f8af39da9d594f9b82b3ab14bf69447bf8e51b4226cafa2"
+}
