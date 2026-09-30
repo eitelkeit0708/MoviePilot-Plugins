@@ -219,7 +219,7 @@ class ManagementTests(unittest.TestCase):
         description=policy.describe('欧美剧')
         self.assertEqual([1080],description['resolutions'])
         self.assertEqual(['audio','resolution'],[r['dimension'] for r in description['comparison']])
-        self.assertEqual('无损音轨',description['comparison'][0]['order'][0])
+        self.assertEqual('TrueHD Atmos',description['comparison'][0]['order'][0])
         self.assertEqual('仅 WEB 片源',description['source'])
 
     def test_history_preview_stale_idempotent_and_visibility_independent_metrics(self):

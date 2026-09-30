@@ -1,6 +1,6 @@
 {
   "source": "Offline examples: Policy.describe + repository defaults; not a live MP configuration",
-  "policy_source_sha256": "bb55004239f3ea76c9b300edc1954d6ba6ff8175265919c59d3ad5047cad0ce4",
+  "policy_source_sha256": "4ec3b0f53e76c0869ed44786c8309dbb828ed1f97ae1ee59415adf0e9fedf180",
   "categories": [
     {
       "id": "tv-west",
@@ -23,7 +23,7 @@
       "id": "policy-tv-west",
       "category_id": "tv-west",
       "name": "欧美剧默认策略",
-      "revision": "e9c6e2aab61f875ea13babcbc7c1286792b97f22ff0847cc46aad161e69923af",
+      "revision": "e36646c2e9cc65a366e6bea9cb595f87aa9c68c33bd25633acd5d56ead3c9ce0",
       "summary": {
         "resolutions": [
           2160,
@@ -35,35 +35,83 @@
           {
             "dimension": "resolution",
             "order": [
-              "2160p",
-              "1080p"
+              "8K · 4320p",
+              "4K · 2160p",
+              "1080p",
+              "720p",
+              "576p",
+              "480p"
             ],
-            "note": ""
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "picture",
             "order": [
-              "Dolby Vision",
-              "HDR",
-              "普通画面"
+              "Dolby Vision P7 FEL",
+              "Dolby Vision P7 MEL",
+              "Dolby Vision P7（层类型未标明）",
+              "Dolby Vision P5",
+              "Dolby Vision P8",
+              "Dolby Vision（Profile 未标明）",
+              "HDR Vivid",
+              "HDR10+",
+              "HDR10",
+              "HLG",
+              "HDR（格式未标明）",
+              "SDR / 未声明 HDR"
             ],
-            "note": "仅 2160p 比较画面类型"
+            "note": "先比较主类；主类相同再比较子类。同优先级不决定升级，细分证据不足时等待核实。",
+            "groups": [
+              {
+                "id": "2",
+                "title": "杜比视界",
+                "order": [
+                  "Dolby Vision P7 FEL",
+                  "Dolby Vision P7 MEL",
+                  "Dolby Vision P7（层类型未标明）",
+                  "Dolby Vision P5",
+                  "Dolby Vision P8",
+                  "Dolby Vision（Profile 未标明）"
+                ]
+              },
+              {
+                "id": "1",
+                "title": "HDR",
+                "order": [
+                  "HDR Vivid",
+                  "HDR10+",
+                  "HDR10",
+                  "HLG",
+                  "HDR（格式未标明）"
+                ]
+              },
+              {
+                "id": "0",
+                "title": "SDR",
+                "order": [
+                  "SDR / 未声明 HDR"
+                ]
+              }
+            ]
           },
           {
             "dimension": "special",
             "order": [
               "有中文特效字幕",
-              "无中文特效字幕"
+              "未声明中文特效字幕"
             ],
-            "note": ""
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "source",
             "order": [
               "REMUX",
-              "其他已准入片源"
+              "Blu-ray 编码",
+              "WEB-DL",
+              "WEBRip",
+              "WEB（类型未标明）"
             ],
-            "note": ""
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "hq",
@@ -71,17 +119,71 @@
               "高码率",
               "普通码率"
             ],
-            "note": "仅 2160p 比较；REMUX 不比较此项"
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "audio",
             "order": [
-              "无损音轨",
-              "沉浸音轨",
-              "Dolby Digital Plus",
-              "其他音轨"
+              "TrueHD Atmos",
+              "DTS-HD MA + DTS:X",
+              "TrueHD",
+              "DTS-HD MA",
+              "FLAC",
+              "PCM / LPCM",
+              "无损音轨（编码未标明）",
+              "DTS:X（无损状态未确认）",
+              "DDP Atmos",
+              "空间音频（编码未标明）",
+              "Dolby Digital Plus / E-AC-3",
+              "DTS-HD HRA",
+              "DTS",
+              "Dolby Digital / AC-3",
+              "AAC",
+              "其他 / 未声明音轨"
             ],
-            "note": ""
+            "note": "先比较主类；主类相同再比较子类。同优先级不决定升级，细分证据不足时等待核实。",
+            "groups": [
+              {
+                "id": "lossless_spatial",
+                "title": "无损空间音频",
+                "order": [
+                  "TrueHD Atmos",
+                  "DTS-HD MA + DTS:X"
+                ]
+              },
+              {
+                "id": "lossless",
+                "title": "无损",
+                "order": [
+                  "TrueHD",
+                  "DTS-HD MA",
+                  "FLAC",
+                  "PCM / LPCM",
+                  "无损音轨（编码未标明）"
+                ]
+              },
+              {
+                "id": "spatial",
+                "title": "空间音频",
+                "order": [
+                  "DTS:X（无损状态未确认）",
+                  "DDP Atmos",
+                  "空间音频（编码未标明）"
+                ]
+              },
+              {
+                "id": "other",
+                "title": "其他音轨",
+                "order": [
+                  "Dolby Digital Plus / E-AC-3",
+                  "DTS-HD HRA",
+                  "DTS",
+                  "Dolby Digital / AC-3",
+                  "AAC",
+                  "其他 / 未声明音轨"
+                ]
+              }
+            ]
           }
         ],
         "rule_details": [
@@ -103,7 +205,9 @@
             "summary": "WEB-DL / WEBRip，或带编码声明的 Blu-ray / BDRip / BRRip；位置与边界条件见匹配表达式。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?:(?<![A-Za-z0-9])(?:WEB[\\s._/\\-]*(?:DL|RIP)|WEB(?=[\\s._/\\-]+(?:H\\.?26[45]|x26[45]|HEVC|AVC)))(?![A-Za-z0-9]))|(?:\\A(?=[\\s\\S]*(?:(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:(?:BD|BR)[\\s._\\-]*RIP)(?![A-Za-z0-9]))|\\A(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:Blu[\\s._/\\-]*Ray)(?![A-Za-z0-9]))))(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:x[._\\-]?26[45]|ENCODE|ENCODED)(?![A-Za-z0-9]))))[\\s\\S]*)))[\\s\\S]*)））"
           }
-        ]
+        ],
+        "allowed": {},
+        "admission": null
       },
       "configuration": {
         "locks": {},
@@ -115,7 +219,7 @@
       "id": "policy-tv-cn",
       "category_id": "tv-cn",
       "name": "国产剧默认策略",
-      "revision": "e9c6e2aab61f875ea13babcbc7c1286792b97f22ff0847cc46aad161e69923af",
+      "revision": "e36646c2e9cc65a366e6bea9cb595f87aa9c68c33bd25633acd5d56ead3c9ce0",
       "summary": {
         "resolutions": [
           2160
@@ -126,19 +230,64 @@
           {
             "dimension": "resolution",
             "order": [
-              "2160p",
-              "1080p"
+              "8K · 4320p",
+              "4K · 2160p",
+              "1080p",
+              "720p",
+              "576p",
+              "480p"
             ],
-            "note": ""
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "picture",
             "order": [
-              "Dolby Vision",
-              "HDR",
-              "普通画面"
+              "Dolby Vision P7 FEL",
+              "Dolby Vision P7 MEL",
+              "Dolby Vision P7（层类型未标明）",
+              "Dolby Vision P5",
+              "Dolby Vision P8",
+              "Dolby Vision（Profile 未标明）",
+              "HDR Vivid",
+              "HDR10+",
+              "HDR10",
+              "HLG",
+              "HDR（格式未标明）",
+              "SDR / 未声明 HDR"
             ],
-            "note": "仅 2160p 比较画面类型"
+            "note": "先比较主类；主类相同再比较子类。同优先级不决定升级，细分证据不足时等待核实。",
+            "groups": [
+              {
+                "id": "2",
+                "title": "杜比视界",
+                "order": [
+                  "Dolby Vision P7 FEL",
+                  "Dolby Vision P7 MEL",
+                  "Dolby Vision P7（层类型未标明）",
+                  "Dolby Vision P5",
+                  "Dolby Vision P8",
+                  "Dolby Vision（Profile 未标明）"
+                ]
+              },
+              {
+                "id": "1",
+                "title": "HDR",
+                "order": [
+                  "HDR Vivid",
+                  "HDR10+",
+                  "HDR10",
+                  "HLG",
+                  "HDR（格式未标明）"
+                ]
+              },
+              {
+                "id": "0",
+                "title": "SDR",
+                "order": [
+                  "SDR / 未声明 HDR"
+                ]
+              }
+            ]
           },
           {
             "dimension": "hq",
@@ -146,17 +295,71 @@
               "高码率",
               "普通码率"
             ],
-            "note": "仅 2160p 比较；REMUX 不比较此项"
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "audio",
             "order": [
-              "无损音轨",
-              "沉浸音轨",
-              "Dolby Digital Plus",
-              "其他音轨"
+              "TrueHD Atmos",
+              "DTS-HD MA + DTS:X",
+              "TrueHD",
+              "DTS-HD MA",
+              "FLAC",
+              "PCM / LPCM",
+              "无损音轨（编码未标明）",
+              "DTS:X（无损状态未确认）",
+              "DDP Atmos",
+              "空间音频（编码未标明）",
+              "Dolby Digital Plus / E-AC-3",
+              "DTS-HD HRA",
+              "DTS",
+              "Dolby Digital / AC-3",
+              "AAC",
+              "其他 / 未声明音轨"
             ],
-            "note": ""
+            "note": "先比较主类；主类相同再比较子类。同优先级不决定升级，细分证据不足时等待核实。",
+            "groups": [
+              {
+                "id": "lossless_spatial",
+                "title": "无损空间音频",
+                "order": [
+                  "TrueHD Atmos",
+                  "DTS-HD MA + DTS:X"
+                ]
+              },
+              {
+                "id": "lossless",
+                "title": "无损",
+                "order": [
+                  "TrueHD",
+                  "DTS-HD MA",
+                  "FLAC",
+                  "PCM / LPCM",
+                  "无损音轨（编码未标明）"
+                ]
+              },
+              {
+                "id": "spatial",
+                "title": "空间音频",
+                "order": [
+                  "DTS:X（无损状态未确认）",
+                  "DDP Atmos",
+                  "空间音频（编码未标明）"
+                ]
+              },
+              {
+                "id": "other",
+                "title": "其他音轨",
+                "order": [
+                  "Dolby Digital Plus / E-AC-3",
+                  "DTS-HD HRA",
+                  "DTS",
+                  "Dolby Digital / AC-3",
+                  "AAC",
+                  "其他 / 未声明音轨"
+                ]
+              }
+            ]
           }
         ],
         "rule_details": [
@@ -172,7 +375,9 @@
             "summary": "匹配 WEB-DL / WEBRip，或 WEB 后紧接视频编码的发布写法。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?<![A-Za-z0-9])(?:WEB[\\s._/\\-]*(?:DL|RIP)|WEB(?=[\\s._/\\-]+(?:H\\.?26[45]|x26[45]|HEVC|AVC)))(?![A-Za-z0-9])））"
           }
-        ]
+        ],
+        "allowed": {},
+        "admission": null
       },
       "configuration": {
         "locks": {},
@@ -184,7 +389,7 @@
       "id": "policy-movie-animation",
       "category_id": "movie-animation",
       "name": "动画电影默认策略",
-      "revision": "e9c6e2aab61f875ea13babcbc7c1286792b97f22ff0847cc46aad161e69923af",
+      "revision": "e36646c2e9cc65a366e6bea9cb595f87aa9c68c33bd25633acd5d56ead3c9ce0",
       "summary": {
         "resolutions": [
           2160,
@@ -196,35 +401,83 @@
           {
             "dimension": "resolution",
             "order": [
-              "2160p",
-              "1080p"
+              "8K · 4320p",
+              "4K · 2160p",
+              "1080p",
+              "720p",
+              "576p",
+              "480p"
             ],
-            "note": ""
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "picture",
             "order": [
-              "Dolby Vision",
-              "HDR",
-              "普通画面"
+              "Dolby Vision P7 FEL",
+              "Dolby Vision P7 MEL",
+              "Dolby Vision P7（层类型未标明）",
+              "Dolby Vision P5",
+              "Dolby Vision P8",
+              "Dolby Vision（Profile 未标明）",
+              "HDR Vivid",
+              "HDR10+",
+              "HDR10",
+              "HLG",
+              "HDR（格式未标明）",
+              "SDR / 未声明 HDR"
             ],
-            "note": "仅 2160p 比较画面类型"
+            "note": "先比较主类；主类相同再比较子类。同优先级不决定升级，细分证据不足时等待核实。",
+            "groups": [
+              {
+                "id": "2",
+                "title": "杜比视界",
+                "order": [
+                  "Dolby Vision P7 FEL",
+                  "Dolby Vision P7 MEL",
+                  "Dolby Vision P7（层类型未标明）",
+                  "Dolby Vision P5",
+                  "Dolby Vision P8",
+                  "Dolby Vision（Profile 未标明）"
+                ]
+              },
+              {
+                "id": "1",
+                "title": "HDR",
+                "order": [
+                  "HDR Vivid",
+                  "HDR10+",
+                  "HDR10",
+                  "HLG",
+                  "HDR（格式未标明）"
+                ]
+              },
+              {
+                "id": "0",
+                "title": "SDR",
+                "order": [
+                  "SDR / 未声明 HDR"
+                ]
+              }
+            ]
           },
           {
             "dimension": "special",
             "order": [
               "有中文特效字幕",
-              "无中文特效字幕"
+              "未声明中文特效字幕"
             ],
-            "note": ""
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "source",
             "order": [
               "REMUX",
-              "其他已准入片源"
+              "Blu-ray 编码",
+              "WEB-DL",
+              "WEBRip",
+              "WEB（类型未标明）"
             ],
-            "note": ""
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "hq",
@@ -232,17 +485,71 @@
               "高码率",
               "普通码率"
             ],
-            "note": "仅 2160p 比较；REMUX 不比较此项"
+            "note": "同优先级不决定升级；细分证据不足时等待核实。"
           },
           {
             "dimension": "audio",
             "order": [
-              "无损音轨",
-              "沉浸音轨",
-              "Dolby Digital Plus",
-              "其他音轨"
+              "TrueHD Atmos",
+              "DTS-HD MA + DTS:X",
+              "TrueHD",
+              "DTS-HD MA",
+              "FLAC",
+              "PCM / LPCM",
+              "无损音轨（编码未标明）",
+              "DTS:X（无损状态未确认）",
+              "DDP Atmos",
+              "空间音频（编码未标明）",
+              "Dolby Digital Plus / E-AC-3",
+              "DTS-HD HRA",
+              "DTS",
+              "Dolby Digital / AC-3",
+              "AAC",
+              "其他 / 未声明音轨"
             ],
-            "note": ""
+            "note": "先比较主类；主类相同再比较子类。同优先级不决定升级，细分证据不足时等待核实。",
+            "groups": [
+              {
+                "id": "lossless_spatial",
+                "title": "无损空间音频",
+                "order": [
+                  "TrueHD Atmos",
+                  "DTS-HD MA + DTS:X"
+                ]
+              },
+              {
+                "id": "lossless",
+                "title": "无损",
+                "order": [
+                  "TrueHD",
+                  "DTS-HD MA",
+                  "FLAC",
+                  "PCM / LPCM",
+                  "无损音轨（编码未标明）"
+                ]
+              },
+              {
+                "id": "spatial",
+                "title": "空间音频",
+                "order": [
+                  "DTS:X（无损状态未确认）",
+                  "DDP Atmos",
+                  "空间音频（编码未标明）"
+                ]
+              },
+              {
+                "id": "other",
+                "title": "其他音轨",
+                "order": [
+                  "Dolby Digital Plus / E-AC-3",
+                  "DTS-HD HRA",
+                  "DTS",
+                  "Dolby Digital / AC-3",
+                  "AAC",
+                  "其他 / 未声明音轨"
+                ]
+              }
+            ]
           }
         ],
         "rule_details": [
@@ -258,7 +565,9 @@
             "summary": "WEB-DL / WEBRip，或带编码声明的 Blu-ray / BDRip / BRRip；位置与边界条件见匹配表达式。",
             "explanation": "（（标题与描述 匹配正则（忽略大小写） (?:(?<![A-Za-z0-9])(?:WEB[\\s._/\\-]*(?:DL|RIP)|WEB(?=[\\s._/\\-]+(?:H\\.?26[45]|x26[45]|HEVC|AVC)))(?![A-Za-z0-9]))|(?:\\A(?=[\\s\\S]*(?:(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:(?:BD|BR)[\\s._\\-]*RIP)(?![A-Za-z0-9]))|\\A(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:Blu[\\s._/\\-]*Ray)(?![A-Za-z0-9]))))(?=[\\s\\S]*(?:\\A(?:(?!(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))[\\s\\S])*?(?=(?<![A-Za-z0-9])(?:(?:3840|4096)[x×]2160|(?:1920|1440)[x×]1080|2160p|1080[pi]|720[pi]|480[pi]|576[pi]|4k|WEB[\\s._/\\-]*(?:DL|RIP)|Blu[\\s._/\\-]*Ray|(?:BD|BR)[\\s._\\-]*RIP|REMUX)(?![A-Za-z0-9]))(?:(?![\\r\\n]|\\b(?:thanks?|credits?|source|subtitles?|synopsis|description)\\b)[\\s\\S])*?(?:(?<![A-Za-z0-9])(?:x[._\\-]?26[45]|ENCODE|ENCODED)(?![A-Za-z0-9]))))[\\s\\S]*)))[\\s\\S]*)））"
           }
-        ]
+        ],
+        "allowed": {},
+        "admission": null
       },
       "configuration": {
         "locks": {},
@@ -659,6 +968,144 @@
             }
           ]
         }
+      ]
+    },
+    "DVProfile7FEL": {
+      "regex": [
+        "text",
+        "(?:D(?:olby[ ._-]*)?V(?:ision)?|DoVi)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?7\\b.*\\bFEL\\b|\\bFEL\\b.*(?:DV|DoVi|Dolby[ ._-]*Vision)"
+      ]
+    },
+    "DVProfile7MEL": {
+      "regex": [
+        "text",
+        "(?:D(?:olby[ ._-]*)?V(?:ision)?|DoVi)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?7\\b.*\\bMEL\\b|\\bMEL\\b.*(?:DV|DoVi|Dolby[ ._-]*Vision)"
+      ]
+    },
+    "DVProfile7": {
+      "regex": [
+        "text",
+        "(?:Dolby[ ._-]*Vision|DoVi|DV)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?7(?:[ ._-]|$)|\\b(?:dvh[1e])\\.07\\."
+      ]
+    },
+    "DVProfile5": {
+      "regex": [
+        "text",
+        "(?:Dolby[ ._-]*Vision|DoVi|DV)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?5(?:[ ._-]|$)|\\b(?:dvh[1e])\\.05\\."
+      ]
+    },
+    "DVProfile8": {
+      "regex": [
+        "text",
+        "(?:Dolby[ ._-]*Vision|DoVi|DV)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?8(?:[ ._-]|$)|\\b(?:dvh[1e])\\.08\\."
+      ]
+    },
+    "HDRVivid": {
+      "regex": [
+        "text",
+        "\\bHDR[ ._-]*Vivid\\b|\\bCUVA\\b|菁彩HDR"
+      ]
+    },
+    "HDR10Plus": {
+      "regex": [
+        "text",
+        "\\bHDR[ ._-]*10(?:\\+|[ ._-]*Plus\\b)"
+      ]
+    },
+    "HDR10": {
+      "regex": [
+        "text",
+        "\\bHDR[ ._-]*10(?!\\+|[ ._-]*Plus)(?!\\d)"
+      ]
+    },
+    "HLGVideo": {
+      "regex": [
+        "text",
+        "\\bHLG\\b"
+      ]
+    },
+    "TrueHDAtmos": {
+      "regex": [
+        "text",
+        "\\bTrue[ ._-]*HD\\b.{0,40}\\bAtmos\\b|\\bAtmos\\b.{0,40}\\bTrue[ ._-]*HD\\b"
+      ]
+    },
+    "DTSHDMAX": {
+      "regex": [
+        "text",
+        "\\bDTS[ ._-]*HD[ ._-]*(?:MA|Master[ ._-]*Audio)\\b.{0,40}\\bDTS[ ._-]*:[ ._-]*X\\b|\\bDTS[ ._-]*:[ ._-]*X\\b.{0,40}\\bDTS[ ._-]*HD[ ._-]*(?:MA|Master[ ._-]*Audio)\\b"
+      ]
+    },
+    "DTSX": {
+      "regex": [
+        "text",
+        "\\bDTS[ ._-]*:[ ._-]*X\\b"
+      ]
+    },
+    "TrueHDCodec": {
+      "regex": [
+        "text",
+        "\\bTrue[ ._-]*HD\\b"
+      ]
+    },
+    "DTSHDMA": {
+      "regex": [
+        "text",
+        "\\bDTS[ ._-]*HD[ ._-]*(?:MA|Master[ ._-]*Audio)\\b"
+      ]
+    },
+    "FLACAudio": {
+      "regex": [
+        "text",
+        "\\bFLAC\\b"
+      ]
+    },
+    "PCMAudio": {
+      "regex": [
+        "text",
+        "\\bL?PCM\\b"
+      ]
+    },
+    "DDPAtmos": {
+      "regex": [
+        "text",
+        "\\b(?:DDP|DD\\+|E[ ._-]*AC[ ._-]*3|Dolby[ ._-]*Digital[ ._-]*Plus)(?![A-Za-z0-9]).{0,40}\\bAtmos\\b|\\bAtmos\\b.{0,40}\\b(?:DDP|DD\\+|E[ ._-]*AC[ ._-]*3|Dolby[ ._-]*Digital[ ._-]*Plus)(?![A-Za-z0-9])"
+      ]
+    },
+    "DTSHDHRA": {
+      "regex": [
+        "text",
+        "\\bDTS[ ._-]*HD[ ._-]*HRA\\b"
+      ]
+    },
+    "DTSCore": {
+      "regex": [
+        "text",
+        "\\bDTS\\b(?![ ._-]*(?:HD|:))"
+      ]
+    },
+    "AC3Audio": {
+      "regex": [
+        "text",
+        "(?<!E[ ._-])\\bAC[ ._-]*3\\b|\\bDolby[ ._-]*Digital\\b(?![ ._-]*Plus)"
+      ]
+    },
+    "AACAudio": {
+      "regex": [
+        "text",
+        "\\bAAC\\b"
+      ]
+    },
+    "WebDownload": {
+      "regex": [
+        "text",
+        "\\bWEB[ ._-]*DL\\b"
+      ]
+    },
+    "WebRip": {
+      "regex": [
+        "text",
+        "\\bWEB[ ._-]*Rip\\b"
       ]
     }
   }

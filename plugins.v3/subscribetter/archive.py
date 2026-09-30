@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 from http.cookies import SimpleCookie
 
 from .planner import Authority, BARRIERS, TargetUnit, encoded, asset_table
-from .policy import Version
+from .policy import Version, QUALITY_VALUES, QUALITY_GROUPS
 from .repository import Target, utcnow
 from .scheduler import instant, parse, stamp
 
@@ -270,25 +270,37 @@ def stream_facts(item, media_source):
     resolution = None
     if type(width) is int and type(height) is int and width > 0 and height > 0:
         resolution = 4320 if width > 5000 or height > 2500 else 2160 if width > 2560 or height > 1440 else 1080 if width > 1280 or height > 720 else 720
-    vr = str(v.get('VideoRangeType') or v.get('VideoRange') or '').casefold()
-    picture = 2 if 'dovi' in vr or 'dolbyvision' in vr or v.get('DvProfile') else 1 if 'hdr' in vr or 'hlg' in vr else 0 if vr == 'sdr' else None
-    codecs = {str(a.get('Codec', '')).casefold() for a in audio}
-    audio_rank = 3 if codecs & {'truehd', 'flac', 'dts-hd', 'dtshd', 'pcm_s16le', 'pcm_s24le'} else 1 if codecs & {'eac3', 'e-ac-3'} else 0 if all(codecs) else None
-    # Metadata titles are declarations, not independent bitstream detection.
-    declarations = [dict(kind='declaration', field=field, value=a[field])
-                    for a in audio for field in ('Profile', 'Title')
-                    if isinstance(a.get(field), str) and (
-                        str(a.get('Codec', '')).casefold() in {'eac3', 'e-ac-3', 'truehd'}
-                        and re.search(r'(?<![A-Za-z0-9])Atmos(?![A-Za-z])', a[field], re.I)
-                        or str(a.get('Codec', '')).casefold() in {'dts', 'dts-hd', 'dtshd'}
-                        and re.search(r'(?<![A-Za-z0-9])DTS[\s._:/-]*X(?![A-Za-z])', a[field], re.I))]
-    if declarations and audio_rank != 3:
-        audio_rank = 2
+    vr = str(v.get('VideoRangeType') or v.get('VideoRange') or '').casefold().replace(' ', '')
+    picture = 2 if 'dovi' in vr or 'dolbyvision' in vr or v.get('DvProfile') else 1 if any(token in vr for token in ('hdr','hlg','vivid','cuva')) else 0 if vr == 'sdr' else None
+    picture_format = ('dv_p'+str(v['DvProfile']) if str(v.get('DvProfile')) in ('5','7','8') else 'dv') if picture==2 else 'hdr10plus' if 'hdr10plus' in vr or 'hdr10+' in vr else 'hdr_vivid' if 'vivid' in vr or 'cuva' in vr else 'hdr10' if 'hdr10' in vr else 'hlg' if 'hlg' in vr else 'sdr' if picture==0 else 'hdr' if picture==1 else None
+    tracks=[]
+    for track in audio:
+        codec=str(track.get('Codec') or '').casefold()
+        profile=str(track.get('Profile') or '')
+        option={'truehd':'truehd','flac':'flac','pcm_s16le':'pcm','pcm_s24le':'pcm',
+                'eac3':'ddp','e-ac-3':'ddp','dts':'dts','ac3':'ac3','ac-3':'ac3','aac':'aac'}.get(codec,'other' if codec else None)
+        evidence={'kind':'stream','field':'Codec/Profile'}
+        dts=codec in {'dts','dts-hd','dtshd'}
+        if dts:
+            option='dtshdma' if re.search(r'\b(?:DTS[ ._-]*HD[ ._-]*MA|Master[ ._-]*Audio)\b',profile,re.I) else 'dtshdhra' if re.search(r'\b(?:HRA|High[ ._-]*Resolution)\b',profile,re.I) else 'dts' if codec=='dts' else None
+        # Declarations must refer to this track, never another track's base codec.
+        pattern=r'(?<![A-Za-z0-9])Atmos(?![A-Za-z])' if codec in {'truehd','eac3','e-ac-3'} else r'(?<![A-Za-z0-9])DTS[\s._:/-]*X(?![A-Za-z])' if dts else None
+        declaration=next((dict(kind='declaration',field=key,value=track[key]) for key in ('Profile','Title')
+                          if pattern and isinstance(track.get(key),str) and re.search(pattern,track[key],re.I)),None)
+        if declaration:
+            option='truehd_atmos' if codec=='truehd' else 'ddp_atmos' if codec in {'eac3','e-ac-3'} else 'dtshdma_x' if option=='dtshdma' else 'dtsx'
+            evidence=declaration
+        tracks.append((option,evidence))
+    audio_format,audio_evidence=(None,{'kind':'stream','field':'Codec/Profile'}) if any(option is None for option,_ in tracks) else max(
+        tracks,key=lambda row:QUALITY_GROUPS['audio'][QUALITY_VALUES['audio'][row[0]]['group']]['rank']*1000+QUALITY_VALUES['audio'][row[0]]['rank'])
+    # A second DTS:X track may have an unreported lossless base; retain uncertainty.
+    if audio_format in ('truehd','dtshdma','flac','pcm') and any(option=='dtsx' for option,_ in tracks):audio_format='lossless'
+    audio_rank=QUALITY_VALUES['audio'][audio_format]['family'] if audio_format else None
     zh = {'chi', 'zho', 'zh', 'zh-cn', 'zh-tw', 'cmn', 'mandarin'}
     pgs = any(s.get('Type') == 'Subtitle' and str(s.get('Codec', '')).lower() in ('pgssub', 'hdmv_pgs_subtitle', 'pgs') and str(s.get('Language', '')).lower() in zh for s in streams)
     return {'title': PurePosixPath(media_source.get('Path') or item.get('Path') or '').name,
-            'technical': {'resolution': resolution, 'picture': picture, 'audio': audio_rank},
-            'audio_evidence': declarations[0] if declarations and audio_rank == 2 else {'kind': 'stream', 'field': 'Codec/Profile'},
+            'technical': {'resolution': resolution, 'picture': picture, 'audio': audio_rank, 'picture_format':picture_format,'audio_format':audio_format},
+            'audio_evidence': audio_evidence,
             'chinese_pgs': pgs, 'missing_fields': ['description', 'labels'], 'description': '', 'labels': []}, streams
 
 

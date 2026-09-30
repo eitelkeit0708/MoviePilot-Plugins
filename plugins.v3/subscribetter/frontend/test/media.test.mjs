@@ -58,7 +58,7 @@ test('quality distinguishes picture, four audio tiers and explicit versus inferr
  const a=qualitySummary({...base,picture:0,audio:1,special_zh_subtitles:false});
  const b=qualitySummary({...base,picture:2,audio:3,special_zh_subtitles:true,evidence:'explicit'});
  assert.notEqual(a,b);assert.match(a,/SDR/);assert.match(a,/DDP/);assert.match(b,/Dolby Vision/);assert.match(b,/无损/);assert.match(b,/特效字幕/);
- for(const [audio,label] of [[0,'普通音轨'],[1,'DDP'],[2,'沉浸式'],[3,'无损']])assert.ok(qualitySummary({audio}).includes(label));
+ for(const [audio,label] of [[0,'普通音轨'],[1,'DDP'],[2,'空间音频'],[3,'无损']])assert.ok(qualitySummary({audio}).includes(label));
  assert.match(qualitySummary({audio:null,picture:null}),/音频未知/);assert.match(qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}),/PGS.*推断/);
  assert.ok(!qualitySummary({special_zh_subtitles:true,evidence:'inferred_pgs'}).includes('特效字幕已确认'));
 });

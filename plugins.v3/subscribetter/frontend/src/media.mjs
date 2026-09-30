@@ -1,3 +1,5 @@
+import qualityOptions from '../../quality-options.json' with {type:'json'};
+const formatLabel=(dimension,value)=>qualityOptions[dimension].values.find(v=>v.id===value)?.title;
 export const states={ACTIVE:'追踪中',PENDING:'等待接管',PAUSED:'已暂停',PASSIVE:'仅观察',STOPPED:'已停止',RELEASING:'正在退出管理',RELEASED_NATIVE:'已交还 MoviePilot',PREPARED:'准备就绪',TRANSFERRING:'正在传输',STAGING:'准备暂存',PUBLISHING:'正在发布',PUBLISHED:'已发布',COMPLETED:'处理完成',CONFIRMED:'已确认',UNKNOWN:'结果待核实',FAILED:'处理失败',ERROR:'处理失败',ABANDONED:'已取消',WAITING:'等待处理',READY:'准备就绪',NOT_SENT:'尚未发布',SENT:'已发送，等待确认',ALLOW:'符合策略',ACCEPT:'符合策略',REJECT:'不符合策略',DEFER:'等待条件满足',ENRICH:'等待补充信息',PRESENT:'已找到',MISSING:'未找到',INVALID:'已失效'};
 export const stateLabel=value=>states[value]||'待确认状态';
 export const fileStateLabel=value=>value==='PENDING'?'待传输':stateLabel(value);
@@ -8,13 +10,13 @@ export function qualitySummary(facts,mainOnly=false){
  if(facts.state&&facts.state!=='PRESENT')return stateLabel(facts.state)+'，质量待核实';
  if(Array.isArray(facts.versions)){const versions=facts.versions.filter(v=>v.reliable===true);return [...new Set(versions.map(v=>qualitySummary(v.raw?.technical)))].join(' / ')||'版本质量待核实'}
  const f=facts.quality||facts;
- const picture=f.picture===0&&f.basis?.picture==='release'?'未声明 HDR':({0:'SDR',1:'HDR',2:'Dolby Vision'}[f.picture]||'画面类型未知');
- const audio={0:'普通音轨',1:'DDP',2:'沉浸式音频',3:'无损音频'}[f.audio]||'音频未知';
+ const picture=(f.picture_format&&!['dv','hdr','sdr'].includes(f.picture_format)?formatLabel('picture',f.picture_format):null)||(f.picture===0&&f.basis?.picture==='release'?'未声明 HDR':({0:'SDR',1:'HDR',2:'Dolby Vision'}[f.picture]||'画面类型未知'));
+ const audio=(f.audio_format&&!['lossless','immersive','other','ddp'].includes(f.audio_format)?formatLabel('audio',f.audio_format):null)||{0:'普通音轨',1:'DDP',2:'空间音频',3:'无损音频'}[f.audio]||'音频未知';
  return [f.resolution?`${f.resolution}p`:'分辨率未知',picture,audio,mainOnly?'':qualityExtra(f)].filter(Boolean).join(' · ');
 }
 export function qualityExtra(f={}){
  const subtitles=f.evidence==='inferred_pgs'?'中文 PGS（推断）':f.special_zh_subtitles===true&&f.evidence==='explicit'?'特效字幕（明确声明）':f.special_zh_subtitles===false?'未声明特效字幕':'字幕规格未知';
- return [subtitles,{web:'WEB',remux:'REMUX',bluray:'Blu-ray'}[f.source],f.hq===true?'高码率':null,f.group,f.platform].filter(Boolean).join(' · ');
+ return [subtitles,formatLabel('source',f.source_format)||{web:'WEB',remux:'REMUX',bluray:'Blu-ray'}[f.source],f.hq===true?'高码率':null,f.group,f.platform].filter(Boolean).join(' · ');
 }
 export function processingNext(processing,health,now=Date.now()){
  if(processing.phase==='QUEUED')return '等待下载任务开始';
@@ -38,7 +40,7 @@ export function adoptionBody(row,template,operation){
 
 export const dimensions={resolution:'分辨率',picture:'HDR / 画质',special:'特效字幕',source:'片源',hq:'高码率',audio:'音轨',anime:'动画偏好'};
 Object.assign(states,{OK:'抓取正常',NEW:'等待处理',READY:'准备处理',DEFERRED:'等待重试',FILTERED:'未符合筛选',RECOGNIZED:'已识别',SUBMITTED:'已提交订阅',EXISTING:'已有记录',MANAGED:'已纳管',ADDED:'已提交订阅',BLOCKED:'需要处理',UPLOADING:'正在上传',REMOTE_VERIFIED:'暂存已验证',WAIT_CONSUMER:'等待整理 / 入库',PUBLISH_OUTCOME_UNKNOWN:'发布结果待核实',VERIFIED:'文件已验证',CD2_UPLOADING:'CD2 正在上传',CD2_PAUSED:'CD2 已暂停'});
-export function reasonText(reason){const messages={READER_OR_REMOTE_UNSETTLED:'文件读取或云端操作尚未结束，取消仍在等待',CD2_OUTCOME_UNKNOWN:'CD2 本次操作结果尚未确认',UPLOAD_OUTCOME_UNKNOWN:'上传结果尚未确认',MOVE_RESPONSE_UNKNOWN:'移动请求的结果尚未确认',PUBLISH_LOCATION_UNKNOWN:'整理入口中的文件位置尚未确认',MISSING:'补充尚未在库的版本',EVIDENCE_UPGRADE:'补充更明确的字幕依据',CURRENT_OR_CANDIDATE_UNKNOWN:'现有版本或候选规格尚未核实',READY_FOR_OBSERVATION_AND_CLAIM:'比较完成，等待观察条件满足',WAITING_ASSETS:'等待视频或必要字幕齐备后继续',ADMITTED:'符合准入条件',QUALITY_UPGRADE:'候选版本质量更优',CURRENT_BETTER:'现有版本质量更优',EQUIVALENT:'与现有版本质量相当',SOURCE_CONFIG_CHANGED:'来源设置已变更，尚未重新检查',CD2_REMOTE_UNSETTLED:'CD2 上传结果尚未确认',CD2_PENDING:'等待 CD2 完成上传',CD2_PAUSED:'CD2 上传已暂停，请检查云盘任务',CONSUMER_SETTLEMENT_REQUIRED:'等待 Symedia 整理及媒体库确认',RAPID_EXHAUSTED:'秒传尝试已用尽，等待后续处理',FALLBACK_LIMIT:'已达到普通上传预算',EXTERNAL_OUTCOME_UNKNOWN:'外部结果未知，需要先核对实际状态',REPROCESS_REQUESTED:'已安排重新判定',CHINESE_LANGUAGE:'缺少符合策略的中文音轨或字幕依据',RSSHUB_BASE_REQUIRED:'尚未配置自部署 RSSHub 地址',WAIT_OWNER:'存在其他处理者，先解决纳管冲突'};return messages[reason]||(reason?'需要查看详情确认处理条件':'')}
+export function reasonText(reason){if(reason?.startsWith('QUALITY_NOT_ALLOWED:'))return (dimensions[reason.split(':')[1]]||'质量子类')+'不在此策略允许的范围内';if(reason?.startsWith('QUALITY_EVIDENCE_MISSING:'))return (dimensions[reason.split(':')[1]]||'质量子类')+'信息不足，等待核实';if(reason?.startsWith('CURRENT_EVIDENCE_MISSING:'))return '现有版本的'+(dimensions[reason.split(':')[1]]||'质量')+'细节不足，暂不升级';const messages={POLICY_ADMISSION:'未满足本策略的额外收录条件',CUSTOM_ADMISSION:'未满足全局额外收录条件',READER_OR_REMOTE_UNSETTLED:'文件读取或云端操作尚未结束，取消仍在等待',CD2_OUTCOME_UNKNOWN:'CD2 本次操作结果尚未确认',UPLOAD_OUTCOME_UNKNOWN:'上传结果尚未确认',MOVE_RESPONSE_UNKNOWN:'移动请求的结果尚未确认',PUBLISH_LOCATION_UNKNOWN:'整理入口中的文件位置尚未确认',MISSING:'补充尚未在库的版本',EVIDENCE_UPGRADE:'补充更明确的字幕依据',CURRENT_OR_CANDIDATE_UNKNOWN:'现有版本或候选规格尚未核实',READY_FOR_OBSERVATION_AND_CLAIM:'比较完成，等待观察条件满足',WAITING_ASSETS:'等待视频或必要字幕齐备后继续',ADMITTED:'符合准入条件',QUALITY_UPGRADE:'候选版本质量更优',CURRENT_BETTER:'现有版本质量更优',EQUIVALENT:'与现有版本质量相当',SOURCE_CONFIG_CHANGED:'来源设置已变更，尚未重新检查',CD2_REMOTE_UNSETTLED:'CD2 上传结果尚未确认',CD2_PENDING:'等待 CD2 完成上传',CD2_PAUSED:'CD2 上传已暂停，请检查云盘任务',CONSUMER_SETTLEMENT_REQUIRED:'等待 Symedia 整理及媒体库确认',RAPID_EXHAUSTED:'秒传尝试已用尽，等待后续处理',FALLBACK_LIMIT:'已达到普通上传预算',EXTERNAL_OUTCOME_UNKNOWN:'外部结果未知，需要先核对实际状态',REPROCESS_REQUESTED:'已安排重新判定',CHINESE_LANGUAGE:'缺少符合策略的中文音轨或字幕依据',RSSHUB_BASE_REQUIRED:'尚未配置自部署 RSSHub 地址',WAIT_OWNER:'存在其他处理者，先解决纳管冲突'};return messages[reason]||(reason?'需要查看详情确认处理条件':'')}
 export function taskProgress(task){const p=task.progress;if(task.media_type==='电影')return !p?.targets||p.present==null?'正片档案待确认':p.present>0?'已有正片在库':'尚未在库内找到正片';if(!p?.targets)return '集数范围待确认';return p.present==null?'在库集数待核实':p.present===0?'尚未收录剧集 · 总集数待确认':`已收录 ${p.present} 集 · 总集数待确认`}
 export function taskNext(task,health,now=Date.now()){if(task.state==='PAUSED')return '恢复追踪后继续';if(task.state==='PENDING')return '等待接管确认后开始追踪';if(['STOPPED','RELEASED_NATIVE','RELEASING'].includes(task.state))return task.state==='STOPPED'?'不再自动检查':task.state==='RELEASED_NATIVE'?'由 MoviePilot 继续管理':'等待退出管理完成';if(!health?.ordinary_work_active)return health?.dry_run?'演练中，不执行下载交付':'等待追踪启用';const p=task.progress;if(!p)return '';if(p?.stages?.some(s=>['UNKNOWN','PUBLISH_OUTCOME_UNKNOWN'].includes(s.phase)))return '需要核对外部操作结果';if(p?.unsettled)return '有旧处理记录待核对，先查看详情';const waiting=[['观察',p?.observation_until],['冷却',p?.cooldown_until]].filter(([,v])=>v).map(([name,value])=>new Date(value).getTime()>now?name+'至 '+dateText(value):name+'记录已到期，等待重新核对');if(waiting.length)return waiting.join('；');return p?.processing?'':'自动寻找符合策略的新资源'}
 export function deliveryNext(bundle,health,now=Date.now()){
@@ -75,7 +77,7 @@ export function qualityParts(q){
  const main=qualitySummary(q,true).replace(/2160p/g,'4K').split(' · ');
  return [...['resolution','picture','audio'].map((dimension,i)=>({dimension,text:main[i]})),
   {dimension:'special',text:q.evidence==='inferred_pgs'?'PGS 推定':q.evidence==='explicit'&&q.special_zh_subtitles===true?'发布者明确标注':q.special_zh_subtitles===false?'未声明特效字幕':'字幕依据未知'},
-  {dimension:'source',text:({web:'WEB',remux:'REMUX',bluray:'Blu-ray'})[q.source]||'片源未知'},
+  {dimension:'source',text:formatLabel('source',q.source_format)||({web:'WEB',remux:'REMUX',bluray:'Blu-ray'})[q.source]||'片源未知'},
   {dimension:'hq',text:q.hq===true?'高码率':q.hq===false?'普通码率':'码率类型未知'},
   {dimension:'anime',text:[q.group,q.platform].filter(Boolean).join(' · ')||'动画发行信息未知'}];
 }
@@ -92,6 +94,6 @@ export function taskStage(task){if(!['ACTIVE','PASSIVE'].includes(task.state))re
 Object.assign(states,{PUBLISHING:'正在交给 Symedia',PUBLISHED:'已交给 Symedia',WAIT_CONSUMER:'等待 Emby 确认',PUBLISH_OUTCOME_UNKNOWN:'整理结果待核实',READY_TO_PUBLISH:'等待交给 Symedia',RAPID_WAIT:'等待 115 秒传',WAITING_ASSETS:'等待视频或字幕',MANAGED:'已接管'});
 Object.assign(states,{PREPARED:'等待开始上传',CANCEL_PENDING:'正在取消交付'});
 
-export const lockText=(key,value)=>key==='resolution'?value+'p':key==='picture'?['普通画面','HDR','Dolby Vision'][value]??value:key==='audio'?['其他音轨','Dolby Digital Plus','沉浸音轨','无损音轨'][value]??value:typeof value==='boolean'?value?'是':'否':value;
+export const lockText=(key,value)=>key==='resolution'?value+'p':key==='picture'?['普通画面','HDR','Dolby Vision'][value]??value:key==='audio'?['其他音轨','Dolby Digital Plus','空间音频','无损音轨'][value]??value:typeof value==='boolean'?value?'是':'否':value;
 
 Object.assign(states,{QUEUED:"等待下载"});

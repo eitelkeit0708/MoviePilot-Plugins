@@ -1,0 +1,389 @@
+{
+  "resolution": {
+    "title": "分辨率",
+    "values": [
+      {
+        "id": "2160",
+        "title": "4K · 2160p",
+        "rank": 2160
+      },
+      {
+        "id": "1080",
+        "title": "1080p",
+        "rank": 1080
+      },
+      {
+        "id": "4320",
+        "title": "8K · 4320p",
+        "rank": 4320
+      },
+      {
+        "id": "720",
+        "title": "720p",
+        "rank": 720
+      },
+      {
+        "id": "576",
+        "title": "576p",
+        "rank": 576
+      },
+      {
+        "id": "480",
+        "title": "480p",
+        "rank": 480
+      }
+    ]
+  },
+  "picture": {
+    "title": "画质 / HDR",
+    "groups": [
+      {"id": "2", "title": "杜比视界", "rank": 2},
+      {"id": "1", "title": "HDR", "rank": 1},
+      {"id": "0", "title": "SDR", "rank": 0}
+    ],
+    "values": [
+      {
+        "id": "dv_p7_fel",
+        "title": "Dolby Vision P7 FEL",
+        "rank": 240,
+        "family": 2,
+        "rule": "DVProfile7FEL",
+        "pattern": "(?:D(?:olby[ ._-]*)?V(?:ision)?|DoVi)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?7\\b.*\\bFEL\\b|\\bFEL\\b.*(?:DV|DoVi|Dolby[ ._-]*Vision)"
+      },
+      {
+        "id": "dv_p7_mel",
+        "title": "Dolby Vision P7 MEL",
+        "rank": 230,
+        "family": 2,
+        "rule": "DVProfile7MEL",
+        "pattern": "(?:D(?:olby[ ._-]*)?V(?:ision)?|DoVi)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?7\\b.*\\bMEL\\b|\\bMEL\\b.*(?:DV|DoVi|Dolby[ ._-]*Vision)"
+      },
+      {
+        "id": "dv_p7",
+        "title": "Dolby Vision P7（层类型未标明）",
+        "rank": 230,
+        "family": 2,
+        "rule": "DVProfile7",
+        "pattern": "(?:Dolby[ ._-]*Vision|DoVi|DV)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?7(?:[ ._-]|$)|\\b(?:dvh[1e])\\.07\\."
+      },
+      {
+        "id": "dv_p5",
+        "title": "Dolby Vision P5",
+        "rank": 220,
+        "family": 2,
+        "rule": "DVProfile5",
+        "pattern": "(?:Dolby[ ._-]*Vision|DoVi|DV)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?5(?:[ ._-]|$)|\\b(?:dvh[1e])\\.05\\."
+      },
+      {
+        "id": "dv_p8",
+        "title": "Dolby Vision P8",
+        "rank": 210,
+        "family": 2,
+        "rule": "DVProfile8",
+        "pattern": "(?:Dolby[ ._-]*Vision|DoVi|DV)[ ._-]*(?:P(?:rofile)?[ ._-]*)?0?8(?:[ ._-]|$)|\\b(?:dvh[1e])\\.08\\."
+      },
+      {
+        "id": "dv",
+        "title": "Dolby Vision（Profile 未标明）",
+        "rank": 200,
+        "family": 2
+      },
+      {
+        "id": "hdr_vivid",
+        "title": "HDR Vivid",
+        "rank": 140,
+        "family": 1,
+        "rule": "HDRVivid",
+        "pattern": "\\bHDR[ ._-]*Vivid\\b|\\bCUVA\\b|菁彩HDR"
+      },
+      {
+        "id": "hdr10plus",
+        "title": "HDR10+",
+        "rank": 140,
+        "family": 1,
+        "rule": "HDR10Plus",
+        "pattern": "\\bHDR[ ._-]*10(?:\\+|[ ._-]*Plus\\b)"
+      },
+      {
+        "id": "hdr10",
+        "title": "HDR10",
+        "rank": 120,
+        "family": 1,
+        "rule": "HDR10",
+        "pattern": "\\bHDR[ ._-]*10(?!\\+|[ ._-]*Plus)(?!\\d)"
+      },
+      {
+        "id": "hlg",
+        "title": "HLG",
+        "rank": 110,
+        "family": 1,
+        "rule": "HLGVideo",
+        "pattern": "\\bHLG\\b"
+      },
+      {
+        "id": "hdr",
+        "title": "HDR（格式未标明）",
+        "rank": 100,
+        "family": 1
+      },
+      {
+        "id": "sdr",
+        "title": "SDR / 未声明 HDR",
+        "rank": 0,
+        "family": 0
+      }
+    ]
+  },
+  "audio": {
+    "title": "音轨",
+    "groups": [
+      {"id": "lossless_spatial", "title": "无损空间音频", "rank": 3},
+      {"id": "lossless", "title": "无损", "rank": 2},
+      {"id": "spatial", "title": "空间音频", "rank": 1},
+      {"id": "other", "title": "其他音轨", "rank": 0}
+    ],
+    "legacy_groups": {"3": ["lossless_spatial", "lossless"], "2": ["spatial"], "1": ["other"], "0": ["other"]},
+    "values": [
+      {
+        "id": "truehd_atmos",
+        "title": "TrueHD Atmos",
+        "rank": 330,
+        "family": 3,
+        "group": "lossless_spatial",
+        "rule": "TrueHDAtmos",
+        "pattern": "\\bTrue[ ._-]*HD\\b.{0,40}\\bAtmos\\b|\\bAtmos\\b.{0,40}\\bTrue[ ._-]*HD\\b"
+      },
+      {
+        "id": "dtshdma_x",
+        "title": "DTS-HD MA + DTS:X",
+        "rank": 330,
+        "family": 3,
+        "group": "lossless_spatial",
+        "rule": "DTSHDMAX",
+        "pattern": "\\bDTS[ ._-]*HD[ ._-]*(?:MA|Master[ ._-]*Audio)\\b.{0,40}\\bDTS[ ._-]*:[ ._-]*X\\b|\\bDTS[ ._-]*:[ ._-]*X\\b.{0,40}\\bDTS[ ._-]*HD[ ._-]*(?:MA|Master[ ._-]*Audio)\\b"
+      },
+      {
+        "id": "dtsx",
+        "title": "DTS:X（无损状态未确认）",
+        "rank": 320,
+        "family": 2,
+        "group": "spatial",
+        "rule": "DTSX",
+        "pattern": "\\bDTS[ ._-]*:[ ._-]*X\\b"
+      },
+      {
+        "id": "truehd",
+        "title": "TrueHD",
+        "rank": 310,
+        "family": 3,
+        "group": "lossless",
+        "rule": "TrueHDCodec",
+        "pattern": "\\bTrue[ ._-]*HD\\b"
+      },
+      {
+        "id": "dtshdma",
+        "title": "DTS-HD MA",
+        "rank": 310,
+        "family": 3,
+        "group": "lossless",
+        "rule": "DTSHDMA",
+        "pattern": "\\bDTS[ ._-]*HD[ ._-]*(?:MA|Master[ ._-]*Audio)\\b"
+      },
+      {
+        "id": "flac",
+        "title": "FLAC",
+        "rank": 310,
+        "family": 3,
+        "group": "lossless",
+        "rule": "FLACAudio",
+        "pattern": "\\bFLAC\\b"
+      },
+      {
+        "id": "pcm",
+        "title": "PCM / LPCM",
+        "rank": 310,
+        "family": 3,
+        "group": "lossless",
+        "rule": "PCMAudio",
+        "pattern": "\\bL?PCM\\b"
+      },
+      {
+        "id": "lossless",
+        "title": "无损音轨（编码未标明）",
+        "rank": 300,
+        "family": 3,
+        "group": "lossless"
+      },
+      {
+        "id": "ddp_atmos",
+        "title": "DDP Atmos",
+        "rank": 220,
+        "family": 2,
+        "group": "spatial",
+        "rule": "DDPAtmos",
+        "pattern": "\\b(?:DDP|DD\\+|E[ ._-]*AC[ ._-]*3|Dolby[ ._-]*Digital[ ._-]*Plus)(?![A-Za-z0-9]).{0,40}\\bAtmos\\b|\\bAtmos\\b.{0,40}\\b(?:DDP|DD\\+|E[ ._-]*AC[ ._-]*3|Dolby[ ._-]*Digital[ ._-]*Plus)(?![A-Za-z0-9])"
+      },
+      {
+        "id": "immersive",
+        "title": "空间音频（编码未标明）",
+        "rank": 200,
+        "family": 2,
+        "group": "spatial"
+      },
+      {
+        "id": "ddp",
+        "title": "Dolby Digital Plus / E-AC-3",
+        "rank": 100,
+        "family": 1,
+        "group": "other"
+      },
+      {
+        "id": "dtshdhra",
+        "title": "DTS-HD HRA",
+        "rank": 0,
+        "family": 0,
+        "group": "other",
+        "rule": "DTSHDHRA",
+        "pattern": "\\bDTS[ ._-]*HD[ ._-]*HRA\\b"
+      },
+      {
+        "id": "dts",
+        "title": "DTS",
+        "rank": 0,
+        "family": 0,
+        "group": "other",
+        "rule": "DTSCore",
+        "pattern": "\\bDTS\\b(?![ ._-]*(?:HD|:))"
+      },
+      {
+        "id": "ac3",
+        "title": "Dolby Digital / AC-3",
+        "rank": 0,
+        "family": 0,
+        "group": "other",
+        "rule": "AC3Audio",
+        "pattern": "(?<!E[ ._-])\\bAC[ ._-]*3\\b|\\bDolby[ ._-]*Digital\\b(?![ ._-]*Plus)"
+      },
+      {
+        "id": "aac",
+        "title": "AAC",
+        "rank": 0,
+        "family": 0,
+        "group": "other",
+        "rule": "AACAudio",
+        "pattern": "\\bAAC\\b"
+      },
+      {
+        "id": "other",
+        "title": "其他 / 未声明音轨",
+        "rank": 0,
+        "family": 0,
+        "group": "other"
+      }
+    ]
+  },
+  "source": {
+    "title": "片源",
+    "values": [
+      {
+        "id": "remux",
+        "title": "REMUX",
+        "rank": 100,
+        "family": "remux"
+      },
+      {
+        "id": "bluray",
+        "title": "Blu-ray 编码",
+        "rank": 0,
+        "family": "bluray"
+      },
+      {
+        "id": "webdl",
+        "title": "WEB-DL",
+        "rank": 0,
+        "family": "web",
+        "rule": "WebDownload",
+        "pattern": "\\bWEB[ ._-]*DL\\b"
+      },
+      {
+        "id": "webrip",
+        "title": "WEBRip",
+        "rank": 0,
+        "family": "web",
+        "rule": "WebRip",
+        "pattern": "\\bWEB[ ._-]*Rip\\b"
+      },
+      {
+        "id": "web",
+        "title": "WEB（类型未标明）",
+        "rank": 0,
+        "family": "web"
+      }
+    ]
+  },
+  "special": {
+    "title": "特效字幕",
+    "values": [
+      {
+        "id": "true",
+        "title": "有中文特效字幕",
+        "rank": 1
+      },
+      {
+        "id": "false",
+        "title": "未声明中文特效字幕",
+        "rank": 0
+      }
+    ]
+  },
+  "hq": {
+    "title": "高码率",
+    "values": [
+      {
+        "id": "true",
+        "title": "高码率",
+        "rank": 1
+      },
+      {
+        "id": "false",
+        "title": "普通码率",
+        "rank": 0
+      }
+    ]
+  },
+  "anime": {
+    "title": "动画资源偏好",
+    "values": [
+      {
+        "id": "5",
+        "title": "1080p VCB",
+        "rank": 5
+      },
+      {
+        "id": "4",
+        "title": "2160p B-Global",
+        "rank": 4
+      },
+      {
+        "id": "3",
+        "title": "1080p 官方动画平台",
+        "rank": 3
+      },
+      {
+        "id": "2",
+        "title": "1080p B-Global",
+        "rank": 2
+      },
+      {
+        "id": "1",
+        "title": "1080p 其他官方组",
+        "rank": 1
+      },
+      {
+        "id": "0",
+        "title": "其他动画资源",
+        "rank": 0
+      }
+    ]
+  }
+}

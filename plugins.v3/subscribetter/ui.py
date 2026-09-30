@@ -897,9 +897,9 @@ class Views:
 
     def policy_catalog(self,user:TokenPayload=Depends(verify_token))->ActionResult:
         self._auth(user)
-        from .policy import CATEGORIES,category_templates,FIELDS,_DEFAULT_RULES
+        from .policy import category_templates,policy_catalog
         categories=category_templates(self.plugin.configuration.view()['config']['policy'].get('templates'))
-        return ActionResult(state='AVAILABLE',result=dict(predicate_fields=sorted(FIELDS),predicate_rules=sorted(_DEFAULT_RULES),default_templates={k:dict(resolutions=list(v[0]),group=v[1],source=v[2],dimensions=list(v[3])) for k,v in CATEGORIES.items()},policies=[dict(binding=k,resolutions=list(v[0]),admission=v[1],source_order=v[2],dimensions=list(v[3])) for k,v in categories.items()]))
+        return ActionResult(state='AVAILABLE',result=dict(**policy_catalog(),policies=[dict(binding=k,resolutions=list(v[0]),admission=v[1],source_order=v[2],dimensions=list(v[3])) for k,v in categories.items()]))
 
     def local_scan(self,rule_id:Text,section:Literal['stack','directories','failed_paths'],limit:Limit=25,offset:Offset=0,user:TokenPayload=Depends(verify_token))->Page[Row]:
         self._auth(user);scope='local:'+rule_id;self._one('reconcile_checkpoints','scope',scope)

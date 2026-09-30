@@ -116,6 +116,17 @@ class ArchiveTests(unittest.TestCase):
                     self.assertEqual('Title', observed['raw']['audio_evidence']['field'])
                     self.assertEqual(title, observed['streams'][1]['Title'])
 
+    def test_measured_dolby_profile_and_hdr_format_survive_archive_projection(self):
+        for profile,video_range,expected in [(5,'DOVI','dv_p5'),(7,'DOVI','dv_p7'),(8,'DOVI','dv_p8'),(None,'HDR10Plus','hdr10plus'),(None,'HDRVivid','hdr_vivid'),(None,'CUVA','hdr_vivid'),(None,'Dolby Vision','dv')]:
+            item=copy.deepcopy(self.item)
+            video=item['MediaSources'][0]['MediaStreams'][0]
+            video.update(DvProfile=profile,VideoRangeType=video_range)
+            projected=self.m.item_projection(item)
+            raw,_=self.m.stream_facts(projected,projected['MediaSources'][0])
+            facts=self.policy.normalize(raw,current=True)
+            self.assertEqual(expected,facts.picture_format)
+            self.assertFalse(facts.errors)
+
     def test_audio_profile_uses_the_same_codec_and_token_guards(self):
         for codec, profile, expected in (('eac3', 'Dolby Atmos', 2), ('eac3', 'Atmospheric', 1), ('aac', 'Atmos', 0)):
             with self.subTest(codec=codec, profile=profile):
@@ -123,6 +134,28 @@ class ArchiveTests(unittest.TestCase):
                 item['MediaSources'][0]['MediaStreams'][1].update(Codec=codec, Profile=profile)
                 observed = self.archive.resolve_item('test', '10', item)[0]
                 self.assertEqual(expected, observed['raw']['technical']['audio'])
+
+    def test_audio_projection_keeps_spatial_and_lossless_evidence_on_the_same_track(self):
+        cases=[([dict(Codec='truehd',Title='Dolby Atmos')],3,'truehd_atmos'),
+               ([dict(Codec='truehd'),dict(Codec='eac3',Title='Dolby Atmos')],3,'truehd'),
+               ([dict(Codec='eac3',Title='Dolby Atmos')],2,'ddp_atmos'),
+               ([dict(Codec='dts-hd',Profile='DTS-HD MA',Title='DTS:X')],3,'dtshdma_x'),
+               ([dict(Codec='dts-hd',Title='DTS:X')],2,'dtsx'),
+               ([dict(Codec='dts',Profile='DTS-HD MA')],3,'dtshdma'),
+               ([dict(Codec='dts-hd',Profile='DTS-HD HRA')],0,'dtshdhra'),
+               ([dict(Codec='dts-hd')],None,None),
+               ([dict(Codec='aac'),dict(Codec='dts-hd')],None,None),
+               ([dict(Codec='truehd'),dict(Codec='dts',Title='DTS:X')],3,'lossless')]
+        for tracks,family,option in cases:
+            with self.subTest(tracks=tracks):
+                item=copy.deepcopy(self.item);source=item['MediaSources'][0]
+                source['MediaStreams']=source['MediaStreams'][:1]+[dict(Type='Audio',**track) for track in tracks]
+                raw,_=self.m.stream_facts(item,source)
+                facts=self.policy.normalize(raw,current=True)
+                self.assertEqual((family,option),(facts.audio,facts.audio_format))
+                self.assertFalse(facts.errors)
+                if option in ('truehd_atmos','ddp_atmos','dtshdma_x','dtsx'):
+                    self.assertEqual('declaration',raw['audio_evidence']['kind'])
 
     def test_scoped_two_stage_unicode_and_changed_target_with_identical_strm(self):
         first = self.archive.resolve_item('test', '10', self.item)[0]

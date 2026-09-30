@@ -16,6 +16,101 @@ function element(type){return {type,tagName:type.toUpperCase(),props:{},children
 const renderer=createRenderer({insertStaticContent(value,parent,anchor){const node={type:'#static',text:value,parent};const i=parent.children.indexOf(anchor);if(i<0)parent.children.push(node);else parent.children.splice(i,0,node);return [node,node]},createElement:element,createText:text=>({type:'#text',text}),createComment:text=>({type:'#comment',text}),setText:(n,t)=>n.text=t,setElementText:(n,t)=>n.text=t,patchProp:(n,k,_,v)=>{n.props[k]=v;if(k==='value')n.value=v},insert(n,p,anchor){p.children??=[];if(n.parent)n.parent.children=n.parent.children.filter(x=>x!==n);const i=p.children.indexOf(anchor);if(i<0)p.children.push(n);else p.children.splice(i,0,n);n.parent=p},remove(n){if(n.parent)n.parent.children=n.parent.children.filter(x=>x!==n)},parentNode:n=>n?.parent,nextSibling:n=>n?.parent?.children[n.parent.children.indexOf(n)+1]||null});
 const walk=(node,predicate)=>[...(predicate(node)?[node]:[]),...(node.children||[]).flatMap(n=>walk(n,predicate))];const text=node=>[node.text||'',...(node.children||[]).map(text)].join('');
 const settle=async()=>{for(let i=0;i<20;i++){await Promise.resolve();await nextTick()}};
+test('top-level editors open directly even when an older session contains no editor frames',async()=>{
+ for(const section of ['policy','plans','settings']){
+  const storage=new Map([['subscribetter:navigation:Clone:subscriptions',JSON.stringify({section,editors:[],scroll:0})]]);
+  globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+  const f=fixture(Page);await settle();
+  try{assert.equal(walk(f.root,n=>n.props?.class==='sb-editor').length,1,section);assert.equal(walk(f.root,n=>n.type==='button'&&/^打开(质量策略|下载方案|设置)$/.test(text(n))).length,0);assert.equal(walk(f.root,n=>n.type==='button'&&n.props.class==='sb-back-button').length,0)}finally{f.app.unmount();delete globalThis.sessionStorage}
+ }
+ const f=fixture(Page,{extra:{startSection:'policy'}});await settle();try{assert.equal(walk(f.root,n=>n.props?.class==='sb-editor').length,1)}finally{f.app.unmount()}
+});
+test('equal priority can be created, preserved through other moves and split',async()=>{
+ const {default:PriorityList}=await import(pathToFileURL(path.join(out,'PriorityList.mjs')));
+ const items=ref(['a','b','c','d'].map((id,i)=>({id,title:id.toUpperCase(),priority:4-i}))),writes=[];
+ const f=fixture({setup(){return()=>h(PriorityList,{items:items.value,label:'规格顺序',editableTiers:true,onTiers:tiers=>{writes.push(tiers);items.value=tiers.flatMap((tier,i)=>tier.map(id=>({id,title:id.toUpperCase(),priority:tiers.length-i})))}})}});await settle();
+ const button=name=>walk(f.root,n=>n.type==='button'&&text(n)===name)[0];
+ try{
+  button('设置同等优先').props.onClick();await settle();
+  for(const id of ['b','c'])walk(f.root,n=>n.type==='input'&&n.props['aria-label']==='选择'+id.toUpperCase()+'设为同等优先')[0].props.onChange({target:{checked:true}});
+  await settle();button('合并为同等优先').props.onClick();await settle();assert.deepEqual(writes.at(-1),[['a'],['b','c'],['d']]);
+  walk(f.root,n=>n.props?.['data-order-handle']==='d')[0].props.onKeydown({key:'Home',preventDefault(){}});await settle();assert.deepEqual(writes.at(-1),[['d'],['a'],['b','c']]);
+  button('拆开').props.onClick();await settle();assert.deepEqual(writes.at(-1),[['d'],['a'],['b'],['c']]);
+ }finally{f.app.unmount()}
+});
+test('priority handles reorder by pointer and keyboard, cancel safely and preserve read-only state',async()=>{
+ const {default:PriorityList}=await import(pathToFileURL(path.join(out,'PriorityList.mjs')));
+ const items=ref([{id:'a',title:'A'},{id:'b',title:'B'},{id:'c',title:'C'}]),readonly=ref(false),writes=[];
+ const f=fixture({setup(){return()=>h(PriorityList,{items:items.value,label:'规格顺序',readonly:readonly.value,onReorder:ids=>{writes.push(ids);items.value=ids.map(id=>items.value.find(v=>v.id===id))}})}});await settle();
+ const handle=id=>walk(f.root,n=>n.props?.['data-order-handle']===id)[0];
+ try{
+  const list=walk(f.root,n=>n.props?.role==='list')[0];list.getBoundingClientRect=()=>({top:0,bottom:144});list.querySelectorAll=selector=>selector==='[data-order-id]'?walk(list,n=>!!n.props?.['data-order-id']).map((row,i)=>({...row,getBoundingClientRect:()=>({top:i*48,bottom:(i+1)*48})})):[];
+  const event=y=>({button:0,pointerId:1,clientY:y,currentTarget:{setPointerCapture(){}},preventDefault(){}});
+  handle('a').props.onPointerdown(event(20));handle('a').props.onPointermove(event(120));handle('a').props.onPointerup();await settle();assert.deepEqual(writes.at(-1),['b','c','a']);
+  handle('a').props.onKeydown({key:'Home',preventDefault(){}});await settle();assert.deepEqual(writes.at(-1),['a','b','c']);
+  handle('a').props.onPointerdown(event(20));handle('a').props.onPointermove(event(120));handle('a').props.onPointercancel();handle('a').props.onPointerup();await settle();assert.equal(writes.length,2);
+  readonly.value=true;await settle();handle('b').props.onKeydown({key:'ArrowUp',preventDefault(){}});assert.equal(writes.length,2);
+ }finally{f.app.unmount()}
+});
+test('exclude checkbox preserves group editing and reverses the exact condition expression',async()=>{
+ const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));const model=ref({all:[{ge:['seeders',3]}]});
+ const f=fixture({setup(){return()=>h(PredicateEditor,{modelValue:model.value,fields:['seeders'],rules:[],'onUpdate:modelValue':v=>model.value=v})}});await settle();
+ const toggle=()=>walk(f.root,n=>n.type==='label'&&text(n)==='排除符合这组条件的资源').flatMap(n=>walk(n,x=>x.type==='input'))[0];
+ try{toggle().props.onChange();await settle();assert.deepEqual(model.value,{not:{all:[{ge:['seeders',3]}]}});walk(f.root,n=>n.props?.['aria-label']==='比较值')[0].props.onInput({target:{value:'5'}});await settle();assert.deepEqual(model.value,{not:{all:[{ge:['seeders',5]}]}});toggle().props.onChange();await settle();assert.deepEqual(model.value,{all:[{ge:['seeders',5]}]})}finally{f.app.unmount()}
+});
+test('new shared rule edits inline and applies to a selected policy without replacing its conditions',async()=>{
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs'))),catalog=JSON.parse(fs.readFileSync(new URL('../dev/policy-catalog.json',import.meta.url),'utf8'));
+ const original={ge:['seeders',3]},model=ref({...structuredClone(contract.defaults.policy),bindings:{tv:'欧美剧'},templates:{'欧美剧':{...catalog.default_templates['欧美剧'],admission:original}}});
+ const f=fixture({setup(){return()=>h(Policies,{modelValue:model.value,saved:model.value,defaults:catalog.default_templates,catalog,categories:[],focus:{policy:'欧美剧',tab:'shared'},'onUpdate:modelValue':v=>model.value=v})}});await settle();
+ const button=(name,root=f.root)=>walk(root,n=>n.type==='button'&&text(n)===name)[0];
+ try{
+  const form=walk(f.root,n=>n.type==='form')[0],input=walk(form,n=>n.type==='input')[0];input.props['onUpdate:modelValue']('只选我的发布组');await settle();form.props.onSubmit({preventDefault(){}});await settle();
+  const row=()=>walk(f.root,n=>n.props?.['aria-label']==='共享规则 只选我的发布组')[0];
+  assert.ok(walk(row(),n=>n.props?.['aria-label']==='编辑共享规则 只选我的发布组').length);assert.equal(button('用于策略',row()).props.disabled,true);
+  button('添加条件',row()).props.onClick();await settle();walk(row(),n=>n.props?.['aria-label']==='比较值')[0].props.onInput({target:{value:'MYGROUP'}});await settle();
+  button('用于策略',row()).props.onClick();await settle();button('加入收录条件',row()).props.onClick();await settle();
+  assert.deepEqual(model.value.templates['欧美剧'].admission,{all:[original,{registered:'只选我的发布组'}]});assert.equal(model.value.admission,null);
+  button('加入收录条件',row()).props.onClick();await settle();assert.equal(model.value.templates['欧美剧'].admission.all.length,2);assert.ok(text(row()).includes('已用于 欧美剧'));
+ }finally{f.app.unmount()}
+});
+test('quality subtypes, local conditions and rule definitions edit the actual policy draft',async()=>{
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs')));
+ const catalog=JSON.parse(fs.readFileSync(new URL('../dev/policy-catalog.json',import.meta.url),'utf8'));
+ const model=ref({...structuredClone(contract.defaults.policy),bindings:{tv:'欧美剧'}}),validation=ref([]);
+ const wrapper={setup(){return()=>h(Policies,{modelValue:model.value,saved:model.value,defaults:catalog.default_templates,catalog,categories:[{id:'tv',name:'剧集'}],focus:{policy:'欧美剧'},'onUpdate:modelValue':value=>model.value=value,onValidation:value=>validation.value=value})}};
+ const f=fixture(wrapper);await settle();const button=name=>walk(f.root,n=>n.type==='button'&&text(n)===name)[0];
+ try{
+  const labelled=label=>walk(f.root,n=>n.props?.['aria-label']===label)[0];
+  const move=(label,key)=>labelled('调整'+label+'优先级').props.onKeydown({key,preventDefault(){}});
+  assert.equal(labelled('限制画质 / HDR'),undefined);
+  assert.equal(labelled('允许HDR10').props.checked,true);
+  labelled('允许HDR10').props.onChange({target:{checked:false}});await settle();assert.ok(!model.value.templates['欧美剧'].allowed.picture.includes('hdr10'));
+  assert.ok(model.value.templates['欧美剧'].allowed.picture.includes('hdr_vivid'));
+  labelled('编辑HDR优先级').props.onClick();await settle();move('HDR10+','ArrowUp');await settle();assert.ok(model.value.templates['欧美剧'].preferences.picture.indexOf('hdr10plus')<model.value.templates['欧美剧'].preferences.picture.indexOf('hdr_vivid'));
+  assert.ok(!model.value.templates['欧美剧'].preferences.picture.includes('dv_p5'));
+  move('HDR','ArrowUp');await settle();assert.deepEqual(model.value.templates['欧美剧'].family_preferences.picture,['1','2','0']);
+  const pictureOrder=[...model.value.templates['欧美剧'].preferences.picture];
+  labelled('编辑杜比视界优先级').props.onClick();await settle();move('P8','ArrowUp');await settle();
+  assert.deepEqual(model.value.templates['欧美剧'].preferences.picture.filter(id=>pictureOrder.includes(id)),pictureOrder);
+  labelled('允许Dolby Vision P5').props.onChange({target:{checked:false}});await settle();assert.ok(!model.value.templates['欧美剧'].allowed.picture.includes('dv_p5'));
+  assert.equal(labelled('音轨主类顺序'),undefined);
+  labelled('编辑音轨优先级').props.onClick();await settle();assert.ok(labelled('音轨主类顺序'));assert.ok(labelled('编辑无损空间音频优先级'));
+  assert.equal(labelled('杜比视界规格顺序'),undefined);
+  const toggle=()=>walk(f.root,n=>n.type==='label'&&text(n).includes('启用额外收录条件')).flatMap(n=>walk(n,x=>x.type==='input'))[0];
+  toggle().props.onChange({target:{checked:true}});await settle();button('添加条件').props.onClick();await settle();
+  assert.ok(validation.value.length);button('国产剧0 个分类使用').props.onClick();await settle();assert.equal(toggle().props.checked,false);
+  button('欧美剧1 个分类使用').props.onClick();await settle();assert.equal(toggle().props.checked,true);assert.ok(validation.value.length);
+  walk(f.root,n=>n.props?.['aria-label']==='比较值')[0].props.onInput({target:{value:'LOCAL'}});await settle();
+  assert.deepEqual(model.value.templates['欧美剧'].admission,{all:[{regex:['title','LOCAL']}]});assert.equal(model.value.admission,null);assert.equal(validation.value.length,0);
+  button('定义发布组规则').props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']==='共享规则 OfficialGroup').length);
+  const pattern=walk(f.root,n=>n.props?.['aria-label']==='正则表达式')[0];assert.ok(pattern.props.value.includes('HHWEB'));pattern.props.onInput({target:{value:'MY-GROUP'}});await settle();assert.ok(JSON.stringify(model.value.overrides.OfficialGroup).includes('MY-GROUP'));
+ }finally{f.app.unmount()}
+});
+test('condition fields stay populated when an older preview omits its catalog',async()=>{
+ const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));
+ const f=fixture(PredicateEditor,{extra:{modelValue:{all:[{regex:['title','WEB']}]},fields:[]}});await settle();
+ try{const select=walk(f.root,n=>n.props?.['aria-label']==='字段')[0];assert.ok(walk(select,n=>n.type==='option').length>=14);assert.equal(select.props.value,'title')}finally{f.app.unmount()}
+});
 test('saved confirmation requires applied readback and disappears when a later refresh fails',async()=>{
  let status,fail=false;const client={pluginId:'status-test',get:async p=>{if(fail)throw {status:503};if(p==='/configuration')return {revision:4,digest:'digest',config:{configuration_receipt:'receipt'}};if(p==='/diagnostics')return {snapshot:{config_revision:4}};return {state:'APPLIED'}}};
  const root={children:[]},app=renderer.createApp({setup(){status=useStatus(client);return()=>h('div')}});app.mount(root);
@@ -78,7 +173,7 @@ test('RT04 an unsaved category binding cannot label or enable the saved-policy c
  const draft={bindings:{x:'B'},templates:{},locks:{},overrides:{},admission:null,classification_revision:1};
  const saved={...structuredClone(draft),bindings:{x:'A'}};
  const f=fixture(Policies,{extra:{modelValue:draft,saved,categories:[{id:'x',name:'测试分类',enabled:true}],defaults:{A:rule,B:rule},focus:{category:'x',policy:'B',tab:'trial'},plans:[],archiveBindings:{},revision:1,client:{get:async()=>({items:[],total:0,next_offset:null})},status:{current:ref({revision:4}),health:ref({generation:6}),error:ref('')}}});await settle();
- try{assert.ok(text(f.root).includes('当前生效的是“A”'));assert.ok(text(f.root).includes('本次草稿'));assert.equal(walk(f.root,n=>n.type==='button'&&text(n)==='检查当前生效策略')[0].props.disabled,true)}finally{f.app.unmount()}
+ try{assert.ok(text(f.root).includes('当前生效：“A”'));assert.ok(text(f.root).includes('保存后改用：“B”'));assert.equal(walk(f.root,n=>n.type==='button'&&text(n)==='检查当前生效策略')[0].props.disabled,true)}finally{f.app.unmount()}
 });
 
 test('RT05 a late policy simulation cannot be relabelled as the newly selected policy or category',async()=>{
@@ -100,16 +195,16 @@ test('actual immutable preview confirmation sends only receipt/opid/confirm and 
 });
 test('top-level product editors do not show a back button to an empty copy of the same page',async()=>{
  const f=fixture(Page);await settle();
- try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];button('下载方案').props.onClick();await settle();button('设置').props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']==='设置分区')[0]);assert.equal(walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹')).length,0)}finally{f.app.unmount()}
+ try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];button('下载方案').props.onClick();await settle();button('设置').props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']==='设置分区')[0]);assert.equal(walk(f.root,n=>n.type==='button'&&n.props.class==='sb-back-button').length,0)}finally{f.app.unmount()}
 });
 test('restored top-level editors discard obsolete back buttons from older browser sessions',async()=>{
  const storage=new Map([['subscribetter:navigation:Clone:subscriptions',JSON.stringify({section:'settings',scroll:0,editors:[{focus:{group:'ai',tab:'prompt'},scroll:0}]})]]);globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
  const f=fixture(Page);await settle();
- try{assert.equal(walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹')).length,0)}finally{f.app.unmount();delete globalThis.sessionStorage}
+ try{assert.equal(walk(f.root,n=>n.type==='button'&&n.props.class==='sb-back-button').length,0)}finally{f.app.unmount();delete globalThis.sessionStorage}
 });
 test('quality policy keeps one visible navigation system',async()=>{
  const f=fixture(Page);await settle();
- try{assert.equal(walk(f.root,n=>String(n.props?.class||'').includes('picker-mobile')).length,0);walk(f.root,n=>n.type==='button'&&text(n)==='质量策略')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-selector').length,1);assert.ok(!text(f.root).includes('质量策略 / 全局限制'));walk(f.root,n=>n.type==='button'&&text(n).startsWith('全局限制'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('这里的限制由全部分类和下载方案共用'))}finally{f.app.unmount()}
+ try{assert.equal(walk(f.root,n=>String(n.props?.class||'').includes('picker-mobile')).length,0);walk(f.root,n=>n.type==='button'&&text(n)==='质量策略')[0].props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-policy-selector').length,1);assert.ok(!text(f.root).includes('质量策略 / 全局限制'));walk(f.root,n=>n.type==='button'&&text(n).startsWith('全局限制'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('以下设置对全部分类和下载方案生效'))}finally{f.app.unmount()}
 });
 test('settings use direct module and function navigation without duplicate selectors',async()=>{
  const f=fixture(Page);await settle();
@@ -197,6 +292,13 @@ test('source editor accepts a private RSSHub route with type suffix',async()=>{
  const source=updates.at(-1).sources[0];assert.equal(source.url,'http://192.168.50.6:1200/douban/list/tv_american?limit=15');assert.equal(source.source_type_hint,'TV');assert.deepEqual(source.destination_templates,{});assert.equal(updates.at(-1).enabled,false);f.app.unmount();
 });
 
+test('board settings open the selected board or the add form directly',async()=>{
+ for(const sourceId of ['weekly','new','missing']){
+  const f=fixture(Config,{extra:{focus:{group:'discovery',sourceId}},seed:c=>{c.config.discovery.sources=[{...Object.fromEntries(Object.entries(contract.schemas.SourceConfig.properties).map(([key,schema])=>[key,initial(schema)])),id:'weekly',name:'指定榜单'}]}});await settle();
+  try{if(sourceId==='weekly')assert.ok(walk(f.root,n=>n.type==='input'&&n.props.value==='指定榜单')[0]);else if(sourceId==='new')assert.ok(walk(f.root,n=>n.type==='button'&&text(n)==='加入来源列表')[0]);else assert.ok(text(f.root).includes('自部署 RSSHub'));}finally{f.app.unmount()}
+ }
+});
+
 test('CE-T01 condition editor reads as field relation value and separates group controls',async()=>{
  const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));
  const expression={all:[{gt:['size',0]},{le:['size',21474836480]},{any:[{regex:['title','A']},{regex:['title','B']}]}]},updates=[];
@@ -208,20 +310,20 @@ test('CE-T01 condition editor reads as field relation value and separates group 
   assert.ok(walk(rows[0],n=>n.type==='select'&&n.props['aria-label']==='判断关系')[0]);
   assert.equal(walk(f.root,n=>n.props?.['aria-label']==='值的类型').length,0);
   assert.ok(walk(f.root,n=>n.type==='fieldset').length>=2);
-  assert.ok(text(f.root).includes('规则摘要'));
+  assert.ok(text(f.root).includes('查看整组条件的含义'));
  }finally{f.app.unmount()}
 });
 
 test('CE-T02 mounted group relation change keeps its children at the same level',async()=>{
  const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));const updates=[];
  const f=fixture(PredicateEditor,{extra:{modelValue:{all:[{gt:['size',0]},{le:['size',10]}]},fields:['size'],rules:[],'onUpdate:modelValue':value=>updates.push(value)}});await settle();
- try{const relation=walk(f.root,n=>n.type==='select'&&n.props['aria-label']==='组合方式')[0];relation.props.onChange({target:{value:'any'}});await settle();assert.deepEqual(updates.at(-1),{any:[{gt:['size',0]},{le:['size',10]}]})}finally{f.app.unmount()}
+ try{const relation=walk(f.root,n=>n.type==='select'&&n.props['aria-label']==='匹配方式')[0];relation.props.onChange({target:{value:'any'}});await settle();assert.deepEqual(updates.at(-1),{any:[{gt:['size',0]},{le:['size',10]}]})}finally{f.app.unmount()}
 });
 
 test('CE-T19 and CE-T20 groups expose real disclosure targets and explicit add actions',async()=>{
  const {default:PredicateEditor}=await import(pathToFileURL(path.join(out,'PredicateEditor.mjs')));
  const f=fixture(PredicateEditor,{extra:{modelValue:{all:[{regex:['title','A']}]},fields:['title'],rules:[]}});await settle();
- try{const toggle=walk(f.root,n=>n.type==='button'&&n.props['aria-expanded']!==undefined)[0];assert.ok(toggle);const target=toggle.props['aria-controls'];assert.ok(target);assert.equal(walk(f.root,n=>n.props?.id===target).length,1);for(const label of ['添加条件','添加子组'])assert.ok(walk(f.root,n=>n.type==='button'&&text(n)===label)[0],label)}finally{f.app.unmount()}
+ try{const toggle=walk(f.root,n=>n.type==='button'&&n.props['aria-expanded']!==undefined)[0];assert.ok(toggle);const target=toggle.props['aria-controls'];assert.ok(target);assert.equal(walk(f.root,n=>n.props?.id===target).length,1);for(const label of ['添加条件','添加条件组'])assert.ok(walk(f.root,n=>n.type==='button'&&text(n)===label)[0],label)}finally{f.app.unmount()}
 });
 
 test('CE-T06 disabling and re-enabling admission restores the same tree in this session',async()=>{
@@ -254,9 +356,9 @@ test('shared matching rules stay a compact list with only one active editor',asy
  try{
   assert.equal(walk(f.root,n=>n.props?.class==='sb-shared-rule-editor').length,0);
   walk(f.root,n=>n.type==='button'&&text(n)==='编辑规则')[0].props.onClick();await settle();
-  assert.ok(text(f.root).includes('编辑共享规则：Alpha'));assert.equal(walk(f.root,n=>n.props?.class==='sb-shared-rule-editor').length,1);
+  const active=()=>walk(f.root,n=>n.props?.class==='sb-shared-rule-editor'&&n.style.display!=='none');assert.equal(active()[0].parent.props['aria-label'],'共享规则 Alpha');assert.equal(active().length,1);
   walk(f.root,n=>n.type==='button'&&text(n)==='编辑规则')[0].props.onClick();await settle();
-  assert.ok(text(f.root).includes('编辑共享规则：Beta'));assert.equal(walk(f.root,n=>n.props?.class==='sb-shared-rule-editor').length,1);
+  assert.equal(active()[0].parent.props['aria-label'],'共享规则 Beta');assert.equal(active().length,1);
  }finally{f.app.unmount()}
 });
 
@@ -264,10 +366,10 @@ test('CE-T13 and CE-T22 global admission is a separate global scope with an exac
  const expression={gt:['size',0]};
  const f=fixture(Config,{extra:{focus:{group:'policy',tab:'global'}},seed:current=>{current.config.policy.admission=expression}});await settle();
  try{
-  assert.ok(text(f.root).includes('质量策略 / 全局限制'));
+  assert.ok(text(f.root).includes('以下设置对全部分类和下载方案生效'));
   const current=walk(f.root,n=>n.props?.['aria-current']==='page');assert.ok(current.some(n=>text(n).startsWith('全局限制')));assert.ok(!current.some(n=>!text(n).startsWith('全局限制')));
   const label=walk(f.root,n=>n.type==='label'&&text(n).includes('启用额外收录条件'))[0];walk(label,n=>n.type==='input')[0].props.onChange({target:{checked:false}});await settle();
-  assert.ok(text(f.root).includes('本次保存将更新：全局额外收录条件。'));
+  assert.ok(text(f.root).includes('本次保存：全局额外收录条件。'));
  }finally{f.app.unmount()}
 });
 
@@ -330,10 +432,25 @@ test('resource replacement continues after an empty history page instead of decl
  try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'))[0].props.onClick();await settle();await walk(f.root,n=>n.type==='button'&&text(n)==='更换资源')[0].props.onClick();await settle();assert.ok(!text(f.root).includes('确实没有其他可选资源'));await walk(f.root,n=>n.type==='button'&&text(n)==='继续查看候选')[0].props.onClick();await settle();assert.ok(text(f.root).includes(candidate.title));assert.deepEqual(reads.map(row=>row.offset),[0,100]);assert.ok(reads.every(row=>row.limit===25&&row.exclude_candidate_key==='current'))}finally{f.app.unmount()}
 });
 
+test('discovery starts with boards and never shows a previous board under a new board title',async()=>{
+ const {default:Discovery}=await import(pathToFileURL(path.join(out,'Discovery.mjs')));const reads=[],configured=[];let finish,focused=0;
+ const sources=[{id:'weekly',name:'每周剧集',enabled:true},{id:'movies',name:'热门电影',enabled:true}];
+ const get=async(p,o)=>{reads.push([p,o?.params]);if(p==='/discovery/sources')return {items:sources.map(config=>({source_id:config.id,config})),total:2,next_offset:null};if(p==='/discovery/catalog')return {result:{routes:[]}};if(p==='/discovery/statistics')return {result:{}};if(p==='/discovery/records'){if(o.params.source_id==='movies')return new Promise(resolve=>{finish=resolve});return {items:[{id:1,source_id:'weekly',raw:{title:'只属于剧集榜的作品'},membership:'not_added'}],total:1,next_offset:null}}};
+ const f=fixture(Discovery,{extra:{client:{get},status:{current:ref({config:{discovery:{sources}}})},onConfigure:(...args)=>configured.push(args)}});await settle();
+ const button=label=>walk(f.root,n=>n.type==='button'&&(n.props['aria-label']===label||text(n)===label))[0];
+ try{
+  assert.ok(button('打开每周剧集'));assert.ok(button('打开热门电影'));assert.equal(button('作品'),undefined);assert.equal(reads.some(([p])=>p==='/discovery/records'),false);
+  const entry=button('打开每周剧集');entry.props.onClick({currentTarget:{focus(){focused++}}});await settle();assert.ok(text(f.root).includes('只属于剧集榜的作品'));assert.equal(reads.find(([p])=>p==='/discovery/records')[1].source_id,'weekly');
+  button('榜单设置').props.onClick();assert.equal(configured[0][0],'discovery');assert.equal(configured[0][1].sourceId,'weekly');
+  button('返回榜单列表').props.onClick();await settle();assert.equal(focused,1);assert.equal(button('打开每周剧集'),entry);button('打开热门电影').props.onClick();await settle();assert.ok(!text(f.root).includes('只属于剧集榜的作品'));assert.ok(text(f.root).includes('正在读取榜单'));
+  finish({items:[],total:0,next_offset:null});await settle();assert.ok(text(f.root).includes('这个榜单还没有作品'));
+ }finally{f.app.unmount()}
+});
+
 test('opening a work from discovery returns to its source filter and focus context',async()=>{
  const task={id:3,title:'GATE24',media_type:'电视剧',state:'ACTIVE',generation:2};const record={id:7,source_id:'weekly',raw:{title:'GATE24'},membership:'managed',targets:[{task_id:3,season:1}],target_count:1},reads=[];let focused=0;
  const f=fixture(Page,{get:async(p,o,c,h)=>{if(p.endsWith('/configuration')){c.config.discovery.sources=[{id:'weekly',name:'每周榜单',enabled:true,destination_templates:{}}];return c}if(p.endsWith('/diagnostics'))return h;if(p.endsWith('/discovery/sources'))return {items:[{source_id:'weekly',last_state:'OK',config:{name:'每周榜单'}}],total:1,next_offset:null};if(p.endsWith('/discovery/catalog'))return {result:{routes:[]}};if(p.endsWith('/discovery/records')){reads.push(o?.params);return {items:[record],total:1,next_offset:null}}if(p.endsWith('/discovery/statistics'))return {result:{}};if(p.endsWith('/tasks/3'))return {task,units:{items:[],total:0,next_offset:null},opportunities:{items:[]}};if(p.endsWith('/candidate-decisions')||p.endsWith('/plans')||p.endsWith('/observations')||p.endsWith('/exclusions'))return {items:[],total:0,next_offset:null};return {items:[],total:0,next_offset:null,result:{},categories:[]}}});await settle();
- try{walk(f.root,n=>n.type==='button'&&text(n)==='榜单')[0].props.onClick();await settle();const discovery=walk(f.root,n=>n.props?.['aria-label']==='豆瓣榜单')[0],source=walk(discovery,n=>n.type==='select')[0];source.props['onUpdate:modelValue']('weekly');source.props.onChange();await settle();walk(discovery,n=>n.type==='button'&&text(n)==='查看第 1 季')[0].props.onClick({currentTarget:{focus(){focused++}}});await settle();const back=walk(f.root,n=>n.type==='button'&&text(n)==='返回榜单')[0];assert.ok(back);await back.props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']==='豆瓣榜单')[0]);assert.equal(reads.at(-1).source_id,'weekly');assert.equal(focused,1)}finally{f.app.unmount()}
+ try{walk(f.root,n=>n.type==='button'&&text(n)==='榜单')[0].props.onClick();await settle();const discovery=walk(f.root,n=>n.props?.['aria-label']==='豆瓣榜单')[0];walk(discovery,n=>n.props?.['aria-label']==='打开每周榜单')[0].props.onClick();await settle();walk(discovery,n=>n.type==='button'&&text(n)==='查看第 1 季')[0].props.onClick({currentTarget:{focus(){focused++}}});await settle();const back=walk(f.root,n=>n.type==='button'&&text(n)==='返回每周榜单')[0];assert.ok(back);await back.props.onClick();await settle();assert.ok(walk(f.root,n=>n.props?.['aria-label']==='豆瓣榜单')[0]);assert.equal(reads.at(-1).source_id,'weekly');assert.equal(focused,1)}finally{f.app.unmount()}
 });
 
 test('opening a work from uploads returns to its stage filter and expanded work',async()=>{
@@ -354,11 +471,16 @@ test('saved source test stays inline and sends only the selected source without 
   if(p.endsWith('/configuration')){c.config.discovery.sources=[{id:'weekly',name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}];return c;}if(p.endsWith('/diagnostics'))return h;
   if(p.endsWith('/discovery/sources'))return {items:[{source_id:'weekly',last_state:'OK',config:{name:'每周剧集',url:'https://rss.invalid/douban/list/tv'}},{source_id:'removed',config:{name:'已移除'}}],total:2,next_offset:null};
   return {items:[],total:0,next_offset:null,result:{},categories:[]};},post:async()=>({items:12,state:'SUCCESS'})});await settle();
- try{walk(f.root,n=>n.type==='button'&&text(n)==='榜单')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='运行记录')[0].props.onClick();await settle();
+ try{walk(f.root,n=>n.type==='button'&&text(n)==='榜单')[0].props.onClick();await settle();walk(f.root,n=>n.props?.['aria-label']==='打开每周剧集')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='运行记录')[0].props.onClick();await settle();
   await walk(f.root,n=>n.type==='button'&&text(n)==='试读榜单')[0].props.onClick();await settle();
-  const old=walk(f.root,n=>n.type==='button'&&text(n)==='试读榜单')[1];assert.equal(old.props.disabled,true);await old.props.onClick();await settle();const writes=f.calls.filter(c=>c[0]==='post');assert.equal(writes.length,1);assert.deepEqual(writes[0].slice(1),['plugin/Clone/discovery/test',{source_id:'weekly'}]);
-  assert.ok(text(f.root).includes('抓取 12 条'));assert.ok(!text(f.root).includes('条目名称（精确配置引用）'));
+  assert.ok(text(f.root).includes('抓取 12 条'));walk(f.root,n=>n.type==='button'&&text(n)==='返回榜单列表')[0].props.onClick();await settle();walk(f.root,n=>n.props?.['aria-label']==='打开已移除')[0].props.onClick();await settle();walk(f.root,n=>n.type==='button'&&text(n)==='运行记录')[0].props.onClick();await settle();
+  const old=walk(f.root,n=>n.type==='button'&&text(n)==='试读榜单')[0];assert.equal(old.props.disabled,true);await old.props.onClick();await settle();const writes=f.calls.filter(c=>c[0]==='post');assert.equal(writes.length,1);assert.deepEqual(writes[0].slice(1),['plugin/Clone/discovery/test',{source_id:'weekly'}]);assert.ok(!text(f.root).includes('条目名称（精确配置引用）'));
  }finally{f.app.unmount()}
+});
+
+test('page back controls share an explicit destination and visible arrow',async()=>{
+ const f=fixture(Config,{extra:{focus:{group:'ownership',returnLabel:'订阅作品'}}});await settle();
+ try{const back=walk(f.root,n=>n.type==='button'&&n.props.class==='sb-back-button')[0];assert.ok(back);assert.equal(text(back),'返回订阅作品');assert.equal(back.props.type,'button');assert.ok(walk(back,n=>n.type==='svg'&&n.props['aria-hidden']==='true')[0]);assert.equal(back.parent.children.findIndex(n=>n===back)<back.parent.children.findIndex(n=>n.type==='header'),true);}finally{f.app.unmount()}
 });
 
 test('opening a subscription uses a full-width detail and returning retains list filters',async()=>{
@@ -367,7 +489,7 @@ test('opening a subscription uses a full-width detail and returning retains list
  try{walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].props['onUpdate:modelValue']('GATE24');
   await walk(f.root,n=>n.type==='button'&&String(n.props.class||'').split(' ').includes('sb-work-row'))[0].props.onClick();await settle();
   const list=walk(f.root,n=>n.props?.['aria-label']==='作品列表')[0];assert.equal(list.style.display,'none');
-  walk(f.root,n=>n.type==='button'&&text(n)==='返回列表')[0].props.onClick();await settle();
+  walk(f.root,n=>n.type==='button'&&text(n)==='返回订阅列表')[0].props.onClick();await settle();
   assert.notEqual(list.style.display,'none');assert.equal(walk(f.root,n=>n.type==='input'&&n.props.placeholder==='输入作品名称')[0].value,'GATE24');
  }finally{f.app.unmount()}
 });
@@ -476,7 +598,7 @@ test('blank configuration creates a linked plan, completes its steps and retains
 test('native save with lost reply locks duplicate submission until exact applied readback',async()=>{
  const f=fixture(Config,{get:async(p,o,c,h)=>{if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return {...h,snapshot:{config_revision:c.revision}};if(p.includes('/migration/receipts/'))return {state:'APPLIED'};return {categories:[],items:[],result:{}}},post:async(p,b)=>({valid:true,digest:'b'.repeat(64),config:{...b.patch,configuration_receipt:'native-receipt'}})});
  let writes=0;f.api.put=async(p,config)=>{writes++;assert.equal(p,'plugin/Clone');f.current.config=config;f.current.revision++;f.current.digest='b'.repeat(64);throw {status:503}};
- await settle();try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];await button('保存运行管理设置').props.onClick();await settle();assert.equal(writes,1);assert.equal(button('保存运行管理设置'),undefined);await walk(f.root,n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();assert.match(text(f.root),/先核对本次保存结果/);assert.equal(writes,1);await button('核对保存结果').props.onClick();await settle();assert.match(text(f.root),/设置已保存并确认生效/);assert.equal(writes,1);assert.equal(f.saves.length,0);const toggle=walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0];toggle.props.onChange({target:{checked:!toggle.props.checked}});await settle();assert.ok(!text(f.root).includes('设置已保存并确认生效'))}finally{f.app.unmount()}
+ await settle();try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];await button('保存运行管理设置').props.onClick();await settle();assert.equal(writes,1);assert.equal(button('保存运行管理设置'),undefined);await walk(f.root,n=>n.type==='button'&&n.props.class==='sb-back-button')[0].props.onClick();assert.match(text(f.root),/先核对本次保存结果/);assert.equal(writes,1);await button('核对保存结果').props.onClick();await settle();assert.match(text(f.root),/设置已保存并确认生效/);assert.equal(writes,1);assert.equal(f.saves.length,0);const toggle=walk(f.root,n=>n.type==='input'&&n.props.type==='checkbox')[0];toggle.props.onChange({target:{checked:!toggle.props.checked}});await settle();assert.ok(!text(f.root).includes('设置已保存并确认生效'))}finally{f.app.unmount()}
 });
 
 test('draft path checks use the selected library while disabled, and discard stale successes',async()=>{
@@ -540,8 +662,8 @@ test('nested policy save survives outer discard, keeps scheme inputs, and never 
   const btn=(label,root=f.root)=>walk(root,n=>n.type==='button'&&text(n)===label)[0],tab=label=>walk(f.root,n=>n.type==='button'&&n.props?.['aria-label']===label)[0];
    try{await settle();btn('下载方案').props.onClick();await settle();assert.equal(walk(f.root,n=>n.props?.class==='sb-plan-workspace').length,1);assert.equal(walk(f.root,n=>n.props?.class==='sb-plan-library').length,0);tab('下载').props.onClick();await settle();const input=walk(f.root,n=>n.type==='label'&&text(n).startsWith('下载保存到'))[0].children.find(n=>n.type==='input');input.props.onInput({target:{value:'/unsaved'}});await settle();tab('概览').props.onClick();await settle();btn('调整所选策略').props.onClick();await settle();
  const editors=()=>walk(f.root,n=>n.type==='section'&&n.props?.class==='sb-editor');assert.equal(editors().length,2);
-  const child=editors().at(-1);walk(child,n=>n.props?.['aria-label']==='上移音轨')[0].props.onClick();await settle();await btn('保存质量策略设置',child).props.onClick();await settle();assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
-  walk(child,n=>n.type==='button'&&text(n).startsWith('‹'))[0].props.onClick();await settle();assert.equal(editors().length,1);tab('下载').props.onClick();await settle();assert.ok(walk(f.root,n=>n.type==='input'&&n.props.value==='/unsaved').length);
+  const child=editors().at(-1);walk(child,n=>n.props?.['aria-label']==='编辑音轨优先级')[0].props.onClick();await settle();walk(child,n=>n.props?.['aria-label']==='调整音轨优先级')[0].props.onKeydown({key:'ArrowUp',preventDefault(){}});await settle();await btn('保存质量策略设置',child).props.onClick();await settle();assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
+  walk(child,n=>n.type==='button'&&n.props.class==='sb-back-button')[0].props.onClick();await settle();assert.equal(editors().length,1);tab('下载').props.onClick();await settle();assert.ok(walk(f.root,n=>n.type==='input'&&n.props.value==='/unsaved').length);
  btn('订阅').props.onClick();await settle();assert.match(text(f.root),/本次已保存的欧美剧仍然生效/);btn('放弃本页修改').props.onClick();await settle();assert.equal(editors().length,0);assert.equal(writes,1);assert.equal(f.current.config.destination_templates[0].save_path,'/old');assert.deepEqual(f.current.config.policy.templates['欧美剧'].dimensions,['audio','resolution']);
  }finally{f.app.unmount();delete globalThis.sessionStorage;clearFollowup('Clone')}
 });
@@ -596,7 +718,7 @@ test('RT09 auxiliary refresh keeps same-task data as stale and late data cannot 
  const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{policy:{bindings:{}}}}),health:ref({}),error:ref('')}}});await settle();const row=title=>walk(f.root,n=>n.type==='button'&&text(n).includes(title))[0],button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];
  try{row('作品一').props.onClick();await settle();button('处理记录').props.onClick();await settle();assert.ok(text(f.root).includes('2026/9/29'));
   failPlans=true;deferOld=true;button('刷新').props.onClick();await settle();assert.ok(text(f.root).includes('显示上次读取结果'));assert.ok(text(f.root).includes('2026/9/29'));
-  button('返回列表').props.onClick();await settle();row('作品二').props.onClick();await settle();finishOld?.({items:[{id:'wrong-task',summary:{reason:'wrong-task'}}],total:1,next_offset:null});await settle();assert.ok(!text(f.root).includes('wrong-task'));
+  button('返回订阅列表').props.onClick();await settle();row('作品二').props.onClick();await settle();finishOld?.({items:[{id:'wrong-task',summary:{reason:'wrong-task'}}],total:1,next_offset:null});await settle();assert.ok(!text(f.root).includes('wrong-task'));
  }finally{f.app.unmount()}
 });
 
@@ -604,11 +726,11 @@ test('RT12 and RT13 episode activity filter finds episode 40 server-side, resets
  const calls=[],task={id:1,title:'五十集测试',media_type:'电视剧',state:'ACTIVE'},unit=episode=>({target_key:JSON.stringify(['电视剧','tmdb','1',1,'',episode]),task_id:1,generation:0,owner_plan_id:null,publish_phase:episode===40?'PUBLISH_OUTCOME_UNKNOWN':'NOT_SENT',publish_action_id:null,current_revision:0,current_facts:null,processing:null,current_quality:[],version_count:0});
  const client={get:async(path,o={})=>{if(path==='/tasks')return {items:[task],total:1,next_offset:null};if(path==='/tasks/1'){calls.push(structuredClone(o.params));const attention=o.params?.activity==='attention';return {task,units:{items:attention?[unit(40)]:[unit((o.params?.offset||0)+1)],total:attention?1:50,next_offset:attention?null:25},opportunities:{items:[]}}}return {items:[],total:0,next_offset:null}}};
  const f=fixture(Subscriptions,{extra:{client,status:{current:ref({config:{policy:{bindings:{}}}}),health:ref({}),error:ref('')}}});await settle();const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];
- try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();button('下页分集').props.onClick();await settle();assert.equal(calls.at(-1).offset,25);button('需核对分集').props.onClick();await settle();assert.equal(calls.at(-1).offset,0);assert.equal(calls.at(-1).activity,'attention');assert.ok(text(f.root).includes('第 40 集'));button('返回列表').props.onClick();await settle();walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();assert.equal(calls.at(-1).activity,'attention');button('全部分集').props.onClick();await settle();assert.equal(calls.at(-1).activity,undefined);assert.equal(calls.at(-1).offset,0)}finally{f.app.unmount()}
+ try{walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();button('下页分集').props.onClick();await settle();assert.equal(calls.at(-1).offset,25);button('需核对分集').props.onClick();await settle();assert.equal(calls.at(-1).offset,0);assert.equal(calls.at(-1).activity,'attention');assert.ok(text(f.root).includes('第 40 集'));button('返回订阅列表').props.onClick();await settle();walk(f.root,n=>n.type==='button'&&String(n.props.class||'').includes('sb-work-row'))[0].props.onClick();await settle();assert.equal(calls.at(-1).activity,'attention');button('全部分集').props.onClick();await settle();assert.equal(calls.at(-1).activity,undefined);assert.equal(calls.at(-1).offset,0)}finally{f.app.unmount()}
 });
 
 test('RT16 selecting an offscreen policy scrolls only its narrow selector into view',async()=>{
- const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs'))),names=['一','二','三','四','五','六'],rule={resolutions:[2160],group:'any',source:'any',dimensions:['resolution']},defaults=Object.fromEntries(names.map(name=>[name,rule])),model={...structuredClone(contract.defaults.policy),bindings:{x:'一'},templates:{}};
+ const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs'))),names=['一','二','三','四','五','六'],rule={resolutions:[2160],group:'any',source:'any',dimensions:['resolution']},defaults=Object.fromEntries(names.map(name=>[name,rule])),model={...structuredClone(contract.defaults.policy),bindings:Object.fromEntries(names.map((name,index)=>[index?'x'+index:'x',name])),templates:{}};
  const f=fixture(Policies,{extra:{modelValue:model,saved:model,categories:[{id:'x',name:'分类',enabled:true}],defaults,focus:{policy:'一'},plans:[],archiveBindings:{},revision:1}});await settle();
  try{const selector=walk(f.root,n=>n.props?.class==='sb-policy-selector')[0];selector.clientWidth=200;selector.scrollLeft=0;selector.querySelector=()=>selector.children.find(node=>node.props?.['aria-current']==='page');selector.children.forEach((node,index)=>{node.offsetLeft=index*180;node.offsetWidth=180});const bodyScroll=137;walk(f.root,n=>n.type==='button'&&text(n).includes('六'))[0].props.onClick();await settle();assert.ok(selector.scrollLeft>=880);assert.equal(bodyScroll,137)}finally{f.app.unmount()}
 });
@@ -622,12 +744,12 @@ test('subscription polling keeps the applied query until the user submits the dr
 test('an unbound policy cannot masquerade as the previously selected category effective policy',async()=>{
  const {default:Policies}=await import(pathToFileURL(path.join(out,'Policies.mjs')));const model={...structuredClone(contract.defaults.policy),bindings:{tv:'策略 A'},templates:{'策略 A':{resolutions:[2160,1080],group:'any',source:'any',dimensions:['resolution']},'策略 B':{resolutions:[1080],group:'any',source:'any',dimensions:['audio']}}};
  const f=fixture(Policies,{extra:{modelValue:model,saved:model,defaults:{},categories:[{id:'tv',name:'电视剧',enabled:true}],focus:{policy:'策略 A',category:'tv',tab:'trial'},client:{get:async()=>({items:[],total:0,next_offset:null})},status:{current:ref({revision:4}),health:ref({generation:6})}}});await settle();
- try{walk(f.root,n=>n.type==='button'&&text(n).includes('策略 B'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('请选择试算分类'));const picker=walk(f.root,n=>n.props?.label==='试算分类')[0];picker.props['onUpdate:modelValue']('tv');await settle();assert.ok(text(f.root).includes('此分类当前生效的是“策略 A”'))}finally{f.app.unmount()}
+ try{walk(f.root,n=>n.type==='button'&&text(n).includes('策略 B'))[0].props.onClick();await settle();assert.ok(text(f.root).includes('请先选择要试算的分类'));const picker=walk(f.root,n=>n.props?.label==='试算分类')[0];picker.props['onUpdate:modelValue']('tv');await settle();assert.ok(text(f.root).includes('当前生效：“策略 A”'))}finally{f.app.unmount()}
 });
 
 test('policy editor names the full save scope and lists the changed policy object',async()=>{
  const template={resolutions:[2160,1080],group:'any',source:'any',dimensions:['resolution','audio']};const f=fixture(Config,{extra:{focus:{group:'policy',policy:'欧美剧',category:'tv',root:true}},seed:current=>{current.config.policy={...current.config.policy,bindings:{tv:'欧美剧'},templates:{欧美剧:template}}},get:async(p,o,c,h)=>{if(p.endsWith('/configuration'))return c;if(p.endsWith('/diagnostics'))return h;if(p.endsWith('/configuration/categories'))return {revision:1,categories:[{id:'tv',name:'电视剧',enabled:true}]};if(p.endsWith('/policies/catalog'))return {result:{default_templates:{}}};return {items:[],result:{}}}});await settle();
- try{const remove=walk(f.root,n=>n.type==='button'&&text(n)==='移除')[0];remove.props.onClick();await settle();assert.ok(text(f.root).includes('本次保存将更新：策略“欧美剧”'));assert.ok(walk(f.root,n=>n.type==='button'&&text(n)==='保存质量策略设置')[0])}finally{f.app.unmount()}
+ try{const remove=walk(f.root,n=>n.type==='button'&&n.props['aria-label']==='移除分辨率')[0];remove.props.onClick();await settle();assert.ok(text(f.root).includes('本次保存：策略“欧美剧”'));assert.ok(walk(f.root,n=>n.type==='button'&&text(n)==='保存质量策略设置')[0])}finally{f.app.unmount()}
 });
 
 test('known zero version history is static while unknown history remains queryable',async()=>{
@@ -724,7 +846,7 @@ test('search and scheduling exposes each function as a tab with stable parameter
 
 test('discovery statistics is a business summary and keeps the raw object out of the normal page',async()=>{
  const get=async p=>{
-  if(p==='/discovery/sources')return {items:[],total:0,next_offset:null};
+  if(p==='/discovery/sources')return {items:[{source_id:'weekly',config:{name:'每周剧集'}}],total:1,next_offset:null};
   if(p==='/discovery/catalog')return {result:{routes:[]}};
   if(p==='/discovery/records')return {items:[],total:2,next_offset:null};
   if(p==='/discovery/statistics')return {state:'AVAILABLE',result:{records:{SUBMITTED:2},targets:{SUBMITTED:3},record_denominator:2,target_denominator:3,stages:{recognition:{numerator:2,denominator:2,eligible_denominator:2},intent_ack:{numerator:3,denominator:3,eligible_denominator:3}},cohort:{source_id:null,first_seen:'2026-09-01T00:00:00Z',last_seen:'2026-09-28T00:00:00Z',includes_hidden:true}}};
@@ -732,5 +854,5 @@ test('discovery statistics is a business summary and keeps the raw object out of
  };
  const {default:Discovery}=await import(pathToFileURL(path.join(out,'Discovery.mjs')));
  const f=fixture(Discovery,{extra:{client:{get,post:async()=>({})},status:{current:ref({config:{discovery:{sources:[]}}})}}});await settle();
- try{const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];for(const label of ['作品','来源设置','运行记录','统计'])assert.ok(button(label),label);button('统计').props.onClick();await settle();assert.match(text(f.root),/榜单条目\s*2/);assert.match(text(f.root),/处理目标\s*3/);assert.match(text(f.root),/识别完成\s*2 \/ 2/);assert.equal(walk(f.root,n=>n.props?.class==='sb-record').length,0);for(const internal of ['record_denominator','target_denominator','cohort'])assert.ok(!text(f.root).includes(internal));}finally{f.app.unmount()}
+ try{walk(f.root,n=>n.props?.['aria-label']==='打开每周剧集')[0].props.onClick();await settle();const button=label=>walk(f.root,n=>n.type==='button'&&text(n)===label)[0];for(const label of ['作品','运行记录','统计'])assert.ok(button(label),label);button('统计').props.onClick();await settle();assert.match(text(f.root),/榜单条目\s*2/);assert.match(text(f.root),/处理目标\s*3/);assert.match(text(f.root),/识别完成\s*2 \/ 2/);assert.equal(walk(f.root,n=>n.props?.class==='sb-record').length,0);for(const internal of ['record_denominator','target_denominator','cohort'])assert.ok(!text(f.root).includes(internal));}finally{f.app.unmount()}
 });

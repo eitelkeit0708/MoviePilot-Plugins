@@ -11483,12 +11483,16 @@
         "resolutions": {
           "items": {
             "enum": [
+              480,
+              576,
+              720,
               1080,
-              2160
+              2160,
+              4320
             ],
             "type": "integer"
           },
-          "maxItems": 2,
+          "maxItems": 6,
           "minItems": 1,
           "title": "Resolutions",
           "type": "array"
@@ -11529,6 +11533,62 @@
           "minItems": 1,
           "title": "Dimensions",
           "type": "array"
+        },
+        "allowed": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "maxProperties": 7,
+          "title": "Allowed",
+          "type": "object"
+        },
+        "preferences": {
+          "additionalProperties": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          "maxProperties": 7,
+          "title": "Preferences",
+          "type": "object"
+        },
+        "family_preferences": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "maxProperties": 2,
+          "title": "Family Preferences",
+          "type": "object"
+        },
+        "admission": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Admission"
         }
       },
       "required": [

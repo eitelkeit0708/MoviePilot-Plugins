@@ -30,6 +30,19 @@ FIELDS = frozenset({"text", "title", "description", "labels", "original_language
                     "publish_minutes", "subtitle_description"})
 COMPARISONS = {"eq": operator.eq, "ne": operator.ne, "gt": operator.gt,
                "ge": operator.ge, "lt": operator.lt, "le": operator.le}
+QUALITY_OPTIONS = json.loads(Path(__file__).with_name('quality-options.json').read_text(encoding='utf-8'))
+QUALITY_VALUES = {dimension: {v['id']: v for v in row['values']} for dimension, row in QUALITY_OPTIONS.items()}
+QUALITY_GROUPS = {dimension: {v['id']: v for v in row['groups']} for dimension, row in QUALITY_OPTIONS.items() if 'groups' in row}
+
+
+def _quality_group(option):
+    # Primary preference groups are separate from persisted numeric codec facts.
+    return option.get('group', str(option.get('family')))
+
+
+def quality_group_order(dimension, order):
+    legacy=QUALITY_OPTIONS[dimension].get('legacy_groups',{})
+    return list(dict.fromkeys(group for value in order for group in legacy.get(value,[value])))
 
 # These names are migration bindings, never a runtime country classifier.
 # Resolution is retained as the leading dimension even in a single-resolution policy
@@ -57,15 +70,31 @@ def category_templates(overrides=None):
     if not isinstance(values,dict) or set(values)-set(CATEGORIES):raise ValueError('UNKNOWN_POLICY_TEMPLATE')
     result=dict(CATEGORIES)
     for name,value in values.items():
-        if not isinstance(value,dict) or set(value)!={'resolutions','group','source','dimensions'}:raise ValueError('INVALID_POLICY_TEMPLATE')
+        required={'resolutions','group','source','dimensions'}
+        if not isinstance(value,dict) or not required<=set(value) or set(value)-required-{'allowed','preferences','family_preferences','admission'}:raise ValueError('INVALID_POLICY_TEMPLATE')
         resolutions=value['resolutions'];dimensions=value['dimensions']
-        if (not isinstance(resolutions,list) or not resolutions or len(resolutions)>2
-                or any(type(v)is not int or v not in (1080,2160) for v in resolutions)
+        if (not isinstance(resolutions,list) or not resolutions or len(resolutions)>6
+                or any(type(v)is not int or str(v) not in QUALITY_VALUES['resolution'] for v in resolutions)
                 or len(set(resolutions))!=len(resolutions)):raise ValueError('INVALID_POLICY_RESOLUTIONS')
         if (not isinstance(dimensions,list) or not dimensions or len(dimensions)>7
                 or any(v not in ('resolution','picture','special','source','hq','audio','anime') for v in dimensions)
                 or len(set(dimensions))!=len(dimensions)):raise ValueError('INVALID_POLICY_DIMENSIONS')
         if value['group'] not in ('any','official','anime','hhweb') or value['source'] not in ('any','movie','web'):raise ValueError('INVALID_POLICY_ADMISSION')
+        for key in ('allowed','preferences'):
+            settings=value.get(key,{})
+            if not isinstance(settings,dict) or set(settings)-set(QUALITY_VALUES):raise ValueError('INVALID_QUALITY_OPTIONS')
+            for dimension, options in settings.items():
+                if not isinstance(options,list) or not options:raise ValueError('INVALID_QUALITY_OPTIONS')
+                tiers=[v if key=='preferences' and isinstance(v,list) else [v] for v in options]
+                if any(not tier or any(not isinstance(v,str) or v not in QUALITY_VALUES[dimension] for v in tier) for tier in tiers):raise ValueError('INVALID_QUALITY_OPTIONS')
+                flattened=[v for tier in tiers for v in tier]
+                if len(set(flattened))!=len(flattened):raise ValueError('INVALID_QUALITY_OPTIONS')
+                if dimension in QUALITY_GROUPS and any(len({_quality_group(QUALITY_VALUES[dimension][v]) for v in tier})>1 for tier in tiers):raise ValueError('INVALID_QUALITY_OPTIONS')
+        orders=value.get('family_preferences',{})
+        if not isinstance(orders,dict) or set(orders)-set(QUALITY_GROUPS):raise ValueError('INVALID_QUALITY_GROUPS')
+        for dimension, order in orders.items():
+            valid_sets=(set(QUALITY_GROUPS[dimension]),set(QUALITY_OPTIONS[dimension].get('legacy_groups',{})))
+            if not isinstance(order,list) or any(not isinstance(v,str) for v in order) or len(order)!=len(QUALITY_GROUPS[dimension]) or set(order) not in valid_sets:raise ValueError('INVALID_QUALITY_GROUPS')
         result[name]=(tuple(resolutions),value['group'],value['source'],tuple(dimensions))
     return result
 
@@ -168,6 +197,15 @@ def _migrate_rule(rule):
 
 _SNAPSHOT = json.loads(Path(__file__).with_name("policy-data.json").read_text(encoding="utf-8"))
 _DEFAULT_RULES = {name: _migrate_rule(rule) for name, rule in _SNAPSHOT.items()}
+_DEFAULT_RULES.update({v['rule']:{'regex':['text',v['pattern']]} for row in QUALITY_OPTIONS.values() for v in row['values'] if 'rule' in v})
+
+
+def policy_catalog():
+    """One catalog for the real editor and its offline preview."""
+    return dict(predicate_fields=sorted(FIELDS),predicate_rules=sorted(_DEFAULT_RULES),
+                rule_definitions=_bounded_copy(_DEFAULT_RULES),quality_options=_bounded_copy(QUALITY_OPTIONS),
+                rule_descriptions={v['name']:dict(title=v['title'],summary=v['summary']) for v in Policy({'catalog':'欧美剧'},1).describe_rules(list(_DEFAULT_RULES))},
+                default_templates={k:dict(resolutions=list(v[0]),group=v[1],source=v[2],dimensions=list(v[3]),allowed={},preferences={},family_preferences={},admission=None) for k,v in CATEGORIES.items()})
 
 
 def import_predicates(overrides: Mapping) -> dict:
@@ -179,7 +217,8 @@ def import_predicates(overrides: Mapping) -> dict:
     """
     overrides = _bounded_copy(dict(overrides))
     rules = {**_DEFAULT_RULES, **overrides}
-    if len(rules) > MAX_RULES:
+    # New built-in recognizers must not consume slots from existing custom rules.
+    if len(rules) > MAX_RULES + len(_DEFAULT_RULES) - len(_SNAPSHOT):
         raise ValueError("RULE_LIMIT")
     count = 0
 
@@ -356,6 +395,9 @@ class Facts:
     raw: Mapping = field(default_factory=dict, repr=False, compare=False)
     predicate_hash: str = ""
     source_admission: Mapping = field(default_factory=dict)
+    picture_format: str | None = None
+    audio_format: str | None = None
+    source_format: str | None = None
 
 
 @dataclass(frozen=True)
@@ -368,12 +410,12 @@ class Version:
 
 def quality_facts(facts):
     """Display the facts used in comparison, without raw titles or a second score."""
-    fields=('resolution','picture','source','hq','audio','special_zh_subtitles','evidence','group','platform')
+    fields=('resolution','picture','picture_format','source','source_format','hq','audio','audio_format','special_zh_subtitles','evidence','group','platform')
     values={key:getattr(facts,key) for key in fields}
     technical=facts.raw.get('technical',{})
     # A comparison's fallback tier is not a measured SDR/basic-audio assertion.
     for key in ('picture','audio'):
-        if values[key]==0 and technical.get(key) is None:values[key]=None
+        if values[key]==0 and technical.get(key) is None and values.get(key+'_format') in (None,'sdr','other'):values[key]=None
     values['basis']={key:'measured' if technical.get(key) is not None else 'release' for key in ('resolution','picture','audio')}
     return values
 
@@ -409,7 +451,7 @@ def _lock_value(name, value):
         if name == "platform":
             return {"amazon": "amzn", "netflix": "nf", "crunchyroll": "cr"}.get(value, value)
         return value
-    allowed = {"resolution": {1080, 2160}, "picture": {0, 1, 2}, "audio": {0, 1, 2, 3},
+    allowed = {"resolution": {480,576,720,1080,2160,4320}, "picture": {0, 1, 2}, "audio": {0, 1, 2, 3},
                "source": {"remux", "web", "bluray"}, "hq": {False, True}}[name]
     expected_type = str if name == "source" else bool if name == "hq" else int
     if type(value) is not expected_type or value not in allowed:
@@ -431,6 +473,7 @@ class Policy:
     def __init__(self, bindings: Mapping[str, str], classification_revision: int, *, overrides=None, admission=None,templates=None):
         self.bindings = _bounded_copy(dict(bindings))
         self.categories=category_templates(templates)
+        self.templates=_bounded_copy(templates or {})
         if (type(classification_revision) is not int or classification_revision < 1 or not self.bindings
                 or any(not key or val not in CATEGORIES for key, val in self.bindings.items())):
             raise ValueError("INVALID_POLICY_BINDINGS")
@@ -438,11 +481,13 @@ class Policy:
         custom = import_predicates(overrides or {})
         if admission is not None:
             import_predicates({**custom, "__admission__": admission})
+        for template in self.templates.values():
+            if template.get('admission') is not None:import_predicates({**custom,'__admission__':template['admission']})
         self.rules = {**_DEFAULT_RULES, **custom}
         self.admission = _bounded_copy(admission) if admission is not None else {"literal": True}
-        self.predicate_hash = _hash({"normalization": 2, "rules": self.rules})
+        self.predicate_hash = _hash({"normalization": 3, "rules": self.rules})
         self.semantic_hash = _hash({"semantics": 1, "categories": self.categories, "bindings": self.bindings,
-                                    "rules": self.rules, "admission": self.admission})
+                                    "rules": self.rules, "admission": self.admission, "templates":self.templates,"quality_options":QUALITY_OPTIONS})
 
     def normalize(self, raw: Mapping, current=False) -> Facts:
         """Normalize release claims; optional `technical` fields come from archive probes.
@@ -487,11 +532,25 @@ class Policy:
             if resolution4k is False and resolution1080 is False and regex.search(
                     r"(?<![A-Za-z0-9])(?:720[pi]|480[pi]|576[pi]|4320p|8k|1280[x×]720|x720)(?![A-Za-z0-9])",
                     data["text"], regex.I, timeout=REGEX_TIMEOUT):
-                resolution = 0  # Explicit unsupported resolution, distinct from missing evidence.
+                match=regex.search(r'(480|576|720|4320)[pi]|8k|1280[x×]720|x720',data['text'],regex.I,timeout=REGEX_TIMEOUT)
+                resolution=int(match[1]) if match[1] else 4320 if match[0].lower()=='8k' else 720
             picture = _first_known(((p("DolbyVision"), 2), (p("HDRVideo"), 1)), 0)
             audio = _first_known(((p("LosslessAudio"), 3), (p("ImmersiveAudio"), 2), (p("DolbyPlus"), 1)), 0)
+            def subtype(dimension, fallback, minimum_family=None):
+                for option in QUALITY_OPTIONS[dimension]['values']:
+                    if minimum_family is not None and option.get('family',minimum_family)<minimum_family:continue
+                    if 'rule' in option:
+                        matched=p(option['rule'])
+                        if matched is None:return None
+                        if matched:return option['id']
+                return fallback
+            picture_format=subtype('picture',{0:'sdr',1:'hdr',2:'dv'}.get(picture),picture)
+            audio_format=subtype('audio',{0:'other',1:'ddp',2:'immersive',3:'lossless'}.get(audio))
+            if picture_format:picture=QUALITY_VALUES['picture'][picture_format]['family']
+            if audio_format:audio=QUALITY_VALUES['audio'][audio_format]['family']
             remux, web, movie = p("RemuxSource"), p("WEBDL"), p("MovieSource")
             source = _first_known(((remux, "remux"), (web, "web"), (movie, "bluray")))
+            source_format=subtype('source',source) if source=='web' else source
             source_admission = {"web": web, "movie": evaluate({"any": [
                 {"registered": "RemuxSource"}, {"registered": "MovieSource"}]})}
             hq = p("HighBitrate")
@@ -519,9 +578,14 @@ class Policy:
             group = _lock_value("group", group) if group is not None else None
             platform = _lock_value("platform", platform) if platform is not None else None
             technical = data.get("technical", {})
-            if not isinstance(technical, dict) or set(technical) - {"resolution", "picture", "audio"}:
+            if not isinstance(technical, dict) or set(technical) - {"resolution", "picture", "audio",'picture_format','audio_format'}:
                 raise ValueError("INVALID_TECHNICAL_FIELDS")
             for key, val in technical.items():
+                if key.endswith('_format'):
+                    dimension=key[:-7]
+                    if val is not None and (not isinstance(val,str) or val not in QUALITY_VALUES[dimension]):raise ValueError('INVALID_TECHNICAL_VALUE')
+                    if val is not None and technical.get(dimension) != QUALITY_VALUES[dimension][val]['family']:raise ValueError('CONFLICTING_TECHNICAL_VALUE')
+                    continue
                 allowed = {"resolution": {480, 576, 720, 1080, 2160, 4320},
                            "picture": {0, 1, 2}, "audio": {0, 1, 2, 3}}[key]
                 if val is not None and (type(val) is not int or val not in allowed):
@@ -529,10 +593,12 @@ class Policy:
             resolution = technical.get("resolution", resolution)
             picture = technical.get("picture", picture)
             audio = technical.get("audio", audio)
+            if 'picture' in technical:picture_format=technical.get('picture_format') or {0:'sdr',1:'hdr',2:'dv'}.get(picture)
+            if 'audio' in technical:audio_format=technical.get('audio_format') or {0:'other',1:'ddp',2:'immersive',3:'lossless'}.get(audio)
             result = Facts(resolution, picture, source, hq, audio, special, evidence, official, hhweb,
                            vcb, bglobal, anime_platform, group, platform, language, p("GeneralFilter"),
                            bool(current), tuple(errors), tuple(missing), MappingProxyType(data), self.predicate_hash,
-                           MappingProxyType(source_admission))
+                           MappingProxyType(source_admission),picture_format,audio_format,source_format)
             dimensions = {"resolution", "picture", "source", "hq", "audio", "special_zh_subtitles",
                           "official", "hhweb", "vcb", "bglobal", "anime_platform", "group", "platform", "language", "base"}
             changes = {key: None for key in set(missing) & dimensions}
@@ -542,6 +608,8 @@ class Policy:
                 changes.update(bglobal=None, anime_platform=None)
             if "special_zh_subtitles" in changes:
                 changes["evidence"] = "unknown"
+            for dimension in ('picture','audio','source'):
+                if dimension in changes:changes[dimension+'_format']=None
             result = replace(result, **changes)
             for key in set(missing) & FIELDS:
                 data[key] = None
@@ -598,45 +666,92 @@ class Policy:
     def rank(self, facts, policy_name):
         if policy_name not in self.categories:
             raise ValueError("UNKNOWN_POLICY")
-        is4k = facts.resolution == 2160
-        values = {"resolution": facts.resolution, "picture": facts.picture if is4k else 0,
-                  "special": facts.special_zh_subtitles,
-                  "source": None if facts.source is None else int(facts.source == "remux"),
-                  "hq": facts.hq if is4k and (policy_name == "现场" or facts.source != "remux") else False,
-                  "audio": facts.audio, "anime": self._anime(facts)}
-        return tuple(values[key] for key in self.categories[policy_name][3])
+        return tuple(self.option_rank(facts,key,policy_name) for key in self.categories[policy_name][3])
+
+    def option(self, facts, dimension):
+        if dimension in ('picture','audio','source'):
+            detail=getattr(facts,dimension+'_format')
+            family=getattr(facts,dimension)
+            if detail in QUALITY_VALUES[dimension] and QUALITY_VALUES[dimension][detail]['family']==family:return detail
+            return {'picture':{0:'sdr',1:'hdr',2:'dv'},'audio':{0:'other',1:'ddp',2:'immersive',3:'lossless'},'source':{'web':'web','bluray':'bluray','remux':'remux'}}[dimension].get(family)
+        value=self._anime(facts) if dimension=='anime' else getattr(facts,'special_zh_subtitles' if dimension=='special' else dimension)
+        return None if value is None else str(value).lower()
+
+    def value_rank(self, option, dimension, policy_name):
+        if option is None:return None
+        order=self.templates.get(policy_name,{}).get('preferences',{}).get(dimension)
+        if order is not None:order=[value if isinstance(value,list) else [value] for value in order]
+        if order is not None and dimension in QUALITY_GROUPS:
+            order=[tier for tier in order if _quality_group(QUALITY_VALUES[dimension][tier[0]])==_quality_group(QUALITY_VALUES[dimension][option])] or None
+        # Explicitly listed choices precede unlisted choices; unlisted choices tie.
+        secondary=next((len(order)-index for index,tier in enumerate(order) if option in tier),0) if order is not None else QUALITY_VALUES[dimension][option]['rank']
+        if dimension not in QUALITY_GROUPS:return secondary
+        family=_quality_group(QUALITY_VALUES[dimension][option])
+        # Keep scalar ranks for stored plans, but a subtype can never cross its primary tier.
+        return self.family_rank(family,dimension,policy_name)*1000+secondary
+
+    def family_rank(self, family, dimension, policy_name):
+        order=self.templates.get(policy_name,{}).get('family_preferences',{}).get(dimension)
+        if order:order=quality_group_order(dimension,order)
+        return len(order)-order.index(family) if order else QUALITY_GROUPS[dimension][family]['rank']
+
+    def option_rank(self, facts, dimension, policy_name):
+        return self.value_rank(self.option(facts,dimension),dimension,policy_name)
+
+    def possibilities(self, facts, dimension):
+        option=self.option(facts,dimension)
+        broad={'dv','hdr','lossless','immersive','other','web','dv_p7'}
+        if option is None:return []
+        # An old immersive fact or bare DTS:X claim does not establish the base codec.
+        if dimension=='audio' and option=='dtsx':return ['dtsx','dtshdma_x']
+        if dimension=='audio' and option=='immersive':return [v['id'] for v in QUALITY_OPTIONS['audio']['values'] if v['group'] in ('spatial','lossless_spatial')]
+        if option not in broad:return [option]
+        if option=='dv_p7':return ['dv_p7','dv_p7_fel','dv_p7_mel']
+        family=QUALITY_VALUES[dimension][option].get('family')
+        return [v['id'] for v in QUALITY_OPTIONS[dimension]['values'] if v.get('family')==family]
+
+    def uncertain_comparison(self, candidate, current, dimension, name):
+        if dimension not in ('picture','audio','source') or self.option(candidate,dimension)==self.option(current,dimension):return False
+        a=[self.value_rank(v,dimension,name) for v in self.possibilities(candidate,dimension)]
+        b=[self.value_rank(v,dimension,name) for v in self.possibilities(current,dimension)]
+        return bool(a and b and len({(x>y)-(x<y) for x in a for y in b})>1)
 
     def describe(self, name):
         """Read-only display of the saved template and the same rank used by comparison."""
         resolutions, group, source, dimensions = self.categories[name]
-        options = {
-            'resolution': [('2160p', dict(resolution=2160)), ('1080p', dict(resolution=1080))],
-            'picture': [('Dolby Vision', dict(picture=2)), ('HDR', dict(picture=1)), ('普通画面', dict(picture=0))],
-            'special': [('有中文特效字幕', dict(special_zh_subtitles=True)), ('无中文特效字幕', dict(special_zh_subtitles=False))],
-            'source': [('REMUX', dict(source='remux')), ('其他已准入片源', dict(source='web'))],
-            'hq': [('高码率', dict(hq=True)), ('普通码率', dict(hq=False))],
-            'audio': [('无损音轨', dict(audio=3)), ('沉浸音轨', dict(audio=2)), ('Dolby Digital Plus', dict(audio=1)), ('其他音轨', dict(audio=0))],
-            'anime': [('1080p VCB', dict(resolution=1080,vcb=True)), ('2160p B-Global', dict(bglobal=True)),
-                      ('1080p 官方动画平台', dict(resolution=1080,official=True,anime_platform=True)),
-                      ('1080p B-Global', dict(resolution=1080,bglobal=True)), ('1080p 其他官方组', dict(resolution=1080,official=True)), ('其他已准入资源', {})],
-        }
-        notes = {'picture':'仅 2160p 比较画面类型', 'hq':'仅 2160p 比较；REMUX 不比较此项' if name!='现场' else '仅 2160p 比较'}
-        base = Facts(resolution=2160,source='web',vcb=False,bglobal=False,official=False,anime_platform=False)
         rows=[]
-        for index,dimension in enumerate(dimensions):
-            ordered=sorted(options[dimension],key=lambda item:self.rank(replace(base,**item[1]),name)[index],reverse=True)
-            rows.append(dict(dimension=dimension,order=[item[0] for item in ordered],note=notes.get(dimension,'')))
+        for dimension in dimensions:
+            ordered=sorted(QUALITY_OPTIONS[dimension]['values'],key=lambda item:self.value_rank(item['id'],dimension,name),reverse=True)
+            row=dict(dimension=dimension,order=[item['title'] for item in ordered],note='先比较主类；主类相同再比较子类。同优先级不决定升级，细分证据不足时等待核实。' if dimension in QUALITY_GROUPS else '同优先级不决定升级；细分证据不足时等待核实。')
+            if dimension in QUALITY_GROUPS:
+                groups=sorted(QUALITY_GROUPS[dimension].values(),key=lambda group:self.family_rank(group['id'],dimension,name),reverse=True)
+                row['groups']=[dict(id=group['id'],title=group['title'],order=[item['title'] for item in ordered if _quality_group(item)==group['id']]) for group in groups]
+            rows.append(row)
         names={'official':['OfficialGroup'],'hhweb':['HHWEBGroup'],'anime':['VCBGroup','BGlobal','AnimePlatform','OfficialGroup'],'any':[]}[group]
         names += {'movie':['RemuxSource','MovieSource'],'web':['WEBDL'],'any':[]}[source]
         return dict(resolutions=sorted(resolutions,reverse=True),
                     group={'any':'不限制发布组','official':'需符合官方发布组规则','anime':'需符合动画发布组规则','hhweb':'需符合 HHWEB 规则'}[group],
                     source={'any':'不额外限制片源','movie':'需符合影视片源规则','web':'仅 WEB 片源'}[source],
-                    comparison=rows,rule_details=self.describe_rules(names))
+                    comparison=rows,rule_details=self.describe_rules(names),allowed=self.templates.get(name,{}).get('allowed',{}),admission=self.templates.get(name,{}).get('admission'))
 
     def describe_rules(self, names):
         """Explain the validated saved predicates, without a second matching engine."""
         pending=list(names);seen=set();result=[]
         descriptions={
+            'Resolution4K':('4K 分辨率','识别 2160p、4K 与对应像素尺寸。'),
+            'Resolution1080':('1080 分辨率','识别 1080p / 1080i 与对应像素尺寸。'),
+            'DolbyVision':('Dolby Vision','识别 Dolby Vision、DV 与 DoVi 声明。'),
+            'HDRVideo':('HDR 画面','识别 HDR 声明；具体格式另行识别。'),
+            'HighBitrate':('高码率声明','识别发布者的高码率标记。'),
+            'LosslessAudio':('无损音轨','识别无损音频的发布声明。'),
+            'ImmersiveAudio':('空间音频','识别 Atmos 与 DTS:X 等发布声明。'),
+            'DolbyPlus':('Dolby Digital Plus','识别 DDP / E-AC-3。'),
+            'MandarinAudio':('中文音轨','识别中文配音，并排除明确缺少音轨的声明。'),
+            'ChineseSubtitles':('中文字幕','识别中文字幕，并排除明确缺少字幕的声明。'),
+            'SpecialSubtitles':('特效字幕','识别发布者明确声明的特效字幕。'),
+            'GeneralFilter':('基础过滤','排除不接收的资源类型和发布标记。修改会影响所有策略。'),
+            'NativeLanguageGuard':('原始语言条件','原始语言与中文字幕的组合判断。'),
+            'CNSUB':('中文语言补充条件','中文语言资源使用的字幕补充判断。'),
             'OfficialGroup':('官方发布组','匹配带 - 或 @ 标记的 MWeb、M-Team / MTeam、TPTV、ADE、ADWeb、Audies、HHWEB、CHDWEB、CHDBits、CHDTV、CHDHKTV、SGNB、OurTV、OurBits、UBWEB、UBits、UBTV、Dream、DBTV、QHstudIo。'),
             'HHWEBGroup':('综艺发布组','匹配带 - 或 @ 标记的 HHWEB。'),
             'VCBGroup':('VCB 动画组','匹配 VCB-Studio 发布组标记，支持括号和常见分隔符。'),
@@ -646,6 +761,7 @@ class Policy:
             'MovieSource':('影视片源','WEB-DL / WEBRip，或带编码声明的 Blu-ray / BDRip / BRRip；位置与边界条件见匹配表达式。'),
             'WEBDL':('WEB 片源','匹配 WEB-DL / WEBRip，或 WEB 后紧接视频编码的发布写法。'),
         }
+        descriptions.update({v['rule']:(v['title'],'识别 '+v['title']+' 的发布声明。') for row in QUALITY_OPTIONS.values() for v in row['values'] if 'rule' in v})
         labels={'text':'标题与描述','title':'标题','description':'描述','labels':'标签','original_language':'原始语言','production_countries':'制片地区','origin_country':'来源地区','genre_ids':'类型','media_type':'媒体类型','size':'体积','seeders':'做种数','downloadvolumefactor':'下载优惠','publish_minutes':'发布时间（分钟）','subtitle_description':'字幕描述'}
         def explain(node):
             op,args=next(iter(node.items()))
@@ -685,10 +801,9 @@ class Policy:
                 field = fields.get(dimension, dimension)
                 # Rank uses zero for inapplicable dimensions (e.g. HDR at 1080p).
                 # That sentinel is not a measured SDR/non-HQ value for display.
-                if dimension in ('picture', 'hq'):
-                    new, old = target.get(field), current.get(field)
                 unknown = (not version.reliable or bool(version.facts.errors) or
                            version.facts.predicate_hash != self.predicate_hash or new is None or old is None or
+                           self.uncertain_comparison(candidate,version.facts,dimension,name) or
                            (dimension != 'anime' and (target.get(field) is None or current.get(field) is None)))
                 order = None if unknown else (new > old) - (new < old)
                 evidence = (dimension == 'special' and order == 0 and target.get(field) is True and current.get(field) is True
@@ -768,14 +883,24 @@ class Policy:
             return self._decision("REJECT", "SOURCE_NOT_ALLOWED", category)
         if group in {"official", "hhweb"} and getattr(facts, group) is not True:
             return self._decision("DEFER" if getattr(facts, group) is None else "REJECT", "GROUP_NOT_ALLOWED", category)
+        for dimension, allowed in self.templates.get(policy_name,{}).get('allowed',{}).items():
+            option=self.option(facts,dimension)
+            if option is None:return self._decision('DEFER','QUALITY_EVIDENCE_MISSING:'+dimension,category)
+            if option not in allowed:
+                incomplete=bool(set(self.possibilities(facts,dimension)) & set(allowed))
+                return self._decision('DEFER' if incomplete else 'REJECT',('QUALITY_EVIDENCE_MISSING:' if incomplete else 'QUALITY_NOT_ALLOWED:')+dimension,category)
         rank = self.rank(facts, policy_name)
-        if group == "anime" and rank[0] == 0:
+        if group == "anime" and self._anime(facts) == 0:
             return self._decision("REJECT", "ANIME_TIER_NOT_ALLOWED", category)
+        if group == 'anime' and self._anime(facts) is None:return self._decision('DEFER','QUALITY_EVIDENCE_MISSING:anime',category)
         if any(val is None for val in rank):
             return self._decision("DEFER", "QUALITY_EVIDENCE_MISSING", category, rank=rank)
         try:
             if not _Evaluator(self.rules, facts.raw).evaluate(self.admission):
                 return self._decision("REJECT", "CUSTOM_ADMISSION", category, rank=rank)
+            local=self.templates.get(policy_name,{}).get('admission')
+            if local is not None and not _Evaluator(self.rules,facts.raw).evaluate(local):
+                return self._decision('REJECT','POLICY_ADMISSION',category,rank=rank)
         except MissingEvidence:
             return self._decision("DEFER", "CUSTOM_EVIDENCE_MISSING", category)
         except (ValueError, TypeError, TimeoutError, regex.error):
@@ -805,6 +930,8 @@ class Policy:
             old_rank = self.rank(current, policy_name)
             difference = 0
             for name, new, old in zip(self.categories[policy_name][3], decision.rank, old_rank):
+                if self.uncertain_comparison(candidate,current,name,policy_name):
+                    return replace(decision,status='DEFER',reason='CURRENT_EVIDENCE_MISSING:'+name,comparisons=tuple(comparisons))
                 if new is None or old is None:
                     return replace(decision, status="DEFER", reason="CURRENT_EVIDENCE_MISSING:" + name,
                                    comparisons=tuple(comparisons))

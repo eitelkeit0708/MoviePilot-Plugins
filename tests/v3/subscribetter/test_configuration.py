@@ -71,6 +71,24 @@ class ConfigurationTests(unittest.TestCase):
         self.apply({'policy':{'locks':{'season':2}}})
         self.assertEqual({'resolution':2160,'season':2},self.config.view()['config']['policy']['locks'])
 
+    def test_quality_subtypes_and_local_conditions_survive_save_restart_and_old_schema(self):
+        template=dict(resolutions=[2160,1080],group='any',source='any',dimensions=['picture','audio'],
+                      allowed={'picture':['hdr10plus','hdr10']},preferences={'picture':[['hdr10plus','hdr_vivid'],'hdr10']},
+                      family_preferences={'picture':['1','2','0']},
+                      admission={'ge':['seeders',3]})
+        result=self.apply({'policy':{'bindings':{'tv':'欧美剧'},'templates':{'欧美剧':template},'overrides':{'OfficialGroup':{'regex':['title','MY-GROUP']}}}})
+        self.assertEqual(template,result['config']['policy']['templates']['欧美剧'])
+        self.config.initialize(self.saved[-1]);self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual(template,self.config.view()['config']['policy']['templates']['欧美剧'])
+        # Previously saved templates without the new optional fields remain bootable.
+        old=self.config.view()
+        for key in ('allowed','preferences','family_preferences','admission'):old['config']['policy']['templates']['欧美剧'].pop(key)
+        old['digest']=self.c.digest(self.c.content(old['config']));self.repo.setting(self.config.key,old)
+        self.config.initialize(old['config']);self.assertTrue(self.config.ready,self.config.errors)
+        self.assertEqual({},self.config.view()['config']['policy']['templates']['欧美剧']['allowed'])
+        bad=copy.deepcopy(template);bad['allowed']={'picture':[]}
+        current=self.config.view();self.assertFalse(self.config.preview({'policy':{'templates':{'欧美剧':bad}}},current['revision'],current['digest'],'admin')['valid'])
+
     def test_existing_configuration_adds_empty_template_defaults_without_requiring_new_receipt(self):
         previous=self.apply({'policy':{'locks':{'resolution':2160}}})
         previous['config']['policy'].pop('templates',None)
@@ -81,6 +99,18 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(previous['revision'],self.config.view()['revision'])
         self.assertEqual({},self.config.view()['config']['policy']['templates'])
         self.assertEqual({'resolution':2160},self.config.view()['config']['policy']['locks'])
+
+    def test_audio_group_orders_survive_save_without_reinterpreting_numeric_facts(self):
+        for order in [['1','3','0','2'],['other','lossless_spatial','lossless','spatial']]:
+            template=dict(resolutions=[2160],group='any',source='any',dimensions=['audio'],
+                          family_preferences={'audio':order},preferences={'audio':['aac','ddp']})
+            result=self.apply({'policy':{'bindings':{'tv':'欧美剧'},'templates':{'欧美剧':template},'locks':{'audio':1}}})
+            self.config.initialize(self.saved[-1]);self.assertTrue(self.config.ready,self.config.errors)
+            stored=self.config.view()['config']['policy']
+            self.assertEqual(order,stored['templates']['欧美剧']['family_preferences']['audio'])
+            self.assertEqual(1,stored['locks']['audio'])
+            policy=self.c.Policy(stored['bindings'],stored['classification_revision'],templates=stored['templates'])
+            self.assertEqual(['other','lossless_spatial','lossless','spatial'],[row['id'] for row in policy.describe('欧美剧')['comparison'][0]['groups']])
 
     def test_unnamed_source_upgrade_preserves_digest_and_named_edit_requires_receipt(self):
         previous=self.apply({'discovery':{'rsshub_base_url':'https://rss.invalid','sources':[{'id':'hot','kind':'rsshub','route_key':'tv_real_time_hotest'}]}})

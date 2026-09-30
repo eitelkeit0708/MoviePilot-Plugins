@@ -42,3 +42,5 @@ if __name__ == '__main__':
     output = Path(__file__).resolve().parents[1] / 'src/contract.json'
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(contract(), ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    catalog = load('policy').policy_catalog()
+    (output.parents[1] / 'dev/policy-catalog.json').write_text(json.dumps(catalog,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')

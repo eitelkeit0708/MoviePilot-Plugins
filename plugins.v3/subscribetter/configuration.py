@@ -89,10 +89,14 @@ class Safety(Strict):
 
 
 class PolicyTemplate(Strict):
-    resolutions:list[Literal[1080,2160]]=Field(min_length=1,max_length=2)
+    resolutions:list[Literal[480,576,720,1080,2160,4320]]=Field(min_length=1,max_length=6)
     group:Literal['any','official','anime','hhweb']
     source:Literal['any','movie','web']
     dimensions:list[Literal['resolution','picture','special','source','hq','audio','anime']]=Field(min_length=1,max_length=7)
+    allowed:dict[str,list[str]]=Field(default_factory=dict,max_length=7)
+    preferences:dict[str,list[str|list[str]]]=Field(default_factory=dict,max_length=7)
+    family_preferences:dict[str,list[str]]=Field(default_factory=dict,max_length=2)
+    admission:dict|None=None
 
 
 class PolicyConfig(Strict):
@@ -108,6 +112,7 @@ class PolicyConfig(Strict):
         templates={k:v.model_dump() for k,v in self.templates.items()};category_templates(templates)
         if self.bindings: Policy(self.bindings,self.classification_revision,overrides=self.overrides,admission=self.admission,templates=templates)
         elif self.overrides or self.admission: raise ValueError('POLICY_BINDINGS_REQUIRED')
+        elif templates:Policy({'__validation__':next(iter(templates))},self.classification_revision,templates=templates)
         if set(self.locks)-{'resolution','season','group','platform','picture','source','audio','hq'}:raise ValueError('UNKNOWN_POLICY_LOCK')
         for name,value in self.locks.items():
             if name=='season':
@@ -419,6 +424,10 @@ class Configuration:
             if 'templates' not in current['config']['policy']:
                 current['config']['policy']['templates']={}
                 current['digest']=digest(content(current['config']))
+            for template in current['config']['policy']['templates'].values():
+                if any(key not in template for key in ('allowed','preferences','family_preferences','admission')):
+                    template.setdefault('allowed',{});template.setdefault('preferences',{});template.setdefault('family_preferences',{});template.setdefault('admission',None)
+                    current['digest']=digest(content(current['config']))
             if any('display_name' not in t for t in current['config']['destination_templates']):
                 for t in current['config']['destination_templates']:t.setdefault('display_name','')
                 current['digest']=digest(content(current['config']))

@@ -135,11 +135,11 @@ class PolicyTests(unittest.TestCase):
     def test_audio_and_resolution_picture_normalization(self):
         for token, rank in [("TrueHD Atmos", 3), ("TrueHD", 3), ("FLAC", 3), ("DTS-HD MA", 3),
                             ("DDP Atmos", 2), ("DTS:X", 2), ("DDP", 1), ("EAC3", 1), ("DD+", 1),
-                            ("PCM", 0), ("LPCM", 0), ("DTS-HD HRA", 0), ("AAC", 0)]:
+                            ("PCM", 3), ("LPCM", 3), ("DTS-HD HRA", 0), ("AAC", 0)]:
             self.assertEqual(rank, self.facts(f"2160p WEB-DL {token}").audio)
         a = self.facts("1080i WEB-DL DV HQ -HHWEB 中文字幕")
         b = self.facts("1080p WEB-DL -HHWEB 中文字幕")
-        self.assertEqual("EQUIVALENT", self.compare(a, b).reason)
+        self.assertEqual("QUALITY_UPGRADE", self.compare(a, b).reason)
         self.assertEqual((0, False), (self.facts("2160p EDR").picture, self.facts("2160p EDR").hq))
         self.assertNotEqual(2160, self.facts("4K修复 1080p").resolution)
 
@@ -159,8 +159,8 @@ class PolicyTests(unittest.TestCase):
             for claim in ("DV", "HDR", "HQ", "DV HDR HQ"):
                 with self.subTest(resolution=resolution, claim=claim):
                     tagged = self.facts(f"{resolution} WEB-DL {claim} -HHWEB 中文字幕")
-                    self.assertEqual("EQUIVALENT", self.compare(tagged, plain).reason)
-                    self.assertEqual("EQUIVALENT", self.compare(plain, tagged).reason)
+                    self.assertEqual("QUALITY_UPGRADE", self.compare(tagged, plain).reason)
+                    self.assertEqual("CURRENT_BETTER", self.compare(plain, tagged).reason)
         for resolution in ("1080p", "2160p"):
             edr = self.facts(f"{resolution} WEB-DL EDR -HHWEB 中文字幕")
             self.assertEqual((0, False), (edr.picture, edr.hq))

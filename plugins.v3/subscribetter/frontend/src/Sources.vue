@@ -7,9 +7,9 @@ import {sourceTitle,sourceLabels} from './media.mjs';
 import {usePanelPosition} from './panel.mjs';
 import {initial,contract} from './schema.mjs';
 
-const props=defineProps({modelValue:Object,routes:Array,templates:Array,readonly:Boolean,client:Object,saved:Object});
+const props=defineProps({modelValue:Object,routes:Array,templates:Array,readonly:Boolean,client:Object,saved:Object,initialSource:String});
 const emit=defineEmits(['update:modelValue']);
-const selected=ref('service'),testing=ref(''),testResults=ref({}),gate=createReadGate();
+const selected=ref(['service','new'].includes(props.initialSource)||props.modelValue.sources.some(s=>s.id===props.initialSource)?props.initialSource:'service'),testing=ref(''),testResults=ref({}),gate=createReadGate();
 const position=usePanelPosition();
 const route=ref(''),custom=ref(''),kind=ref('rsshub'),type=ref(''),error=ref('');
 const activeIndex=computed(()=>props.modelValue.sources.findIndex(source=>source.id===selected.value));

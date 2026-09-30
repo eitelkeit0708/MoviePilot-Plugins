@@ -104,9 +104,9 @@ export function setConditionField(node,id,field){
 
 const emptyCondition=()=>({id:nextId(),kind:'condition',operator:'contains',field:'title',value:'',unit:'',incomplete:true});
 
-export function addCondition(node,groupId){
+export function addCondition(node,groupId,ruleName){
   const id=groupId||node.id;
-  return mapNode(node,id,current=>current.kind==='group'?{...current,children:[...current.children,emptyCondition()]}:current);
+  return mapNode(node,id,current=>current.kind==='group'?{...current,children:[...current.children,ruleName===undefined?emptyCondition():{id:nextId(),kind:'registered',name:ruleName}]}:current);
 }
 
 export function addGroup(node,groupId){
@@ -196,7 +196,7 @@ export function validateDraft(node,errors=[]){
     node.children.forEach(child=>validateDraft(child,errors));
   }else if(node.kind==='not')validateDraft(node.child,errors);
   else if(node.kind==='literal'&&typeof node.value!=='boolean')errors.push({id:node.id,code:'INVALID_LITERAL',message:'固定结果无效。'});
-  else if(node.kind==='registered'&&!node.name)errors.push({id:node.id,code:'MISSING_RULE',message:'请选择已有规则。'});
+  else if(node.kind==='registered'&&!node.name)errors.push({id:node.id,code:'MISSING_RULE',message:'请选择共享规则。'});
   else if(node.kind==='condition'){
     if(node.incomplete)errors.push({id:node.id,code:'INCOMPLETE',message:'请填写这条条件。'});
     else if(!node.field||!node.operator)errors.push({id:node.id,code:'INCOMPLETE',message:'请完整选择字段和判断关系。'});
@@ -227,7 +227,7 @@ function summary(node,nested=false){
   }
   if(node.kind==='not')return `不满足（${predicateSummary(node.child)}）`;
   if(node.kind==='literal')return node.value?'恒为通过':'恒为不通过';
-  if(node.kind==='registered')return `使用规则“${node.name}”`;
+  if(node.kind==='registered')return `使用共享规则“${node.name}”`;
   return `${fieldLabels[node.field]||node.field}${operatorLabels[node.operator]||node.operator} ${valueText(node)}`;
 }
 
