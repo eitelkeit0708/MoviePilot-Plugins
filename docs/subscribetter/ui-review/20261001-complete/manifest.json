@@ -1,0 +1,5510 @@
+{
+  "sourceCommit": "2fb389ee9c3e15b1cd4ca962ce85b4ce2a3a2bbd",
+  "date": "2026-10-01",
+  "environment": "actual Vue frontend, synthetic preview fixtures",
+  "shots": [
+    {
+      "id": "02-subscriptions-full-01",
+      "title": "订阅列表完整分段 · 1",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 628
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50075,
+      "sha256": "ea81e9f843a977401264691dff6a39a4a1d82f354a4db4dad32e5489d0210155",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "02-subscriptions-full-02",
+      "title": "订阅列表完整分段 · 2",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 63,
+          "total": 628
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52081,
+      "sha256": "a95e05ab1e3b25fd3fb49dad2119ba9404e412e201c8960f80e4f70f9aecb73d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "03-subscriptions-filters-01",
+      "title": "更多筛选展开 · 1",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 781
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47051,
+      "sha256": "e8802d0dbf10086ab6077739d85f2bdbd7179eaf744d28b0d987c72d9ff349ed",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "03-subscriptions-filters-02",
+      "title": "更多筛选展开 · 2",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 216,
+          "total": 781
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51356,
+      "sha256": "6100e0c09b1123d93d51ff3a128a74d647aa6310e724a9280c0f6393c5b86dd6",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "04-adoption-empty",
+      "title": "纳管已有订阅 · 空列表",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 781
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50890,
+      "sha256": "2c41da9d62c873132e391ffd6628bb4ba41bdda9d51d4773946811d12d5af12a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "05-work-detail-01",
+      "title": "作品详情完整分段 · 1",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1991
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45541,
+      "sha256": "58c0ae8dd41a8685e7ed898ec91f109e3537c62053a473445ca12fb89f55e90e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "05-work-detail-02",
+      "title": "作品详情完整分段 · 2",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1991
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 55527,
+      "sha256": "28a791e617ca7cff11e5b39cf48d2637cb3ee8547f12905d07b14e12d3ada7ff",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "05-work-detail-03",
+      "title": "作品详情完整分段 · 3",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1991
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 54819,
+      "sha256": "abe44827f9be075bc31b3de61050c5ff38c67421eda10c2900c022d32884cf94",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "05-work-detail-04",
+      "title": "作品详情完整分段 · 4",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 960,
+          "total": 1991
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 63914,
+      "sha256": "fdb970139e0f601809763a9efc504d0ec605929c988d8b6cbd5d6633e7b88955",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "05-work-detail-05",
+      "title": "作品详情完整分段 · 5",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1280,
+          "total": 1991
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50921,
+      "sha256": "808056a43da2b1371cf7e0115042aefc009721c83243a145333b2d010ab1f364",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "05-work-detail-06",
+      "title": "作品详情完整分段 · 6",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1426.5,
+          "total": 1991
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 53110,
+      "sha256": "3317c4f9a42cff2b3725a5e4b73237a974ff6b21f0c63663eefc97a8d5d2b254",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "06-version-record-01",
+      "title": "分集版本记录 · 1",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 2187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51211,
+      "sha256": "12d9f2adc6681c361765b35e1df82131e6bb59ba68a206836c9719d4ac42d4dc",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "06-version-record-02",
+      "title": "分集版本记录 · 2",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 2187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 60515,
+      "sha256": "cdd0b602f3378684a0175d71bd214bc2989fbf8ce25afd6d5f0f07391611f34c",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "06-version-record-03",
+      "title": "分集版本记录 · 3",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 2187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 56533,
+      "sha256": "b9e2ac30ca169d36646c9dd96b760c0dc13d4ad8d2480872568975817b42fa2a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "06-version-record-04",
+      "title": "分集版本记录 · 4",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 960,
+          "total": 2187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 61245,
+      "sha256": "7e2be5c7ca80c6c504e289c1903ccd750bfea2701f374588c9a994706a20a949",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "06-version-record-05",
+      "title": "分集版本记录 · 5",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1280,
+          "total": 2187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52780,
+      "sha256": "0ea474a223c2fed326b26b27156d1f20111ada6b143dd2bab1cad74ea69a81ec",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "06-version-record-06",
+      "title": "分集版本记录 · 6",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1600,
+          "total": 2187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52342,
+      "sha256": "481a862b316f6e8f41bc2419c82e4de4d0a139607aca82ba35f9601e720e9994",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "06-version-record-07",
+      "title": "分集版本记录 · 7",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1622.5,
+          "total": 2187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 53084,
+      "sha256": "327999422d25284a8bd69667d2abec42fff7eb656b5d7e9f965fcb7396c994e0",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "07-candidates-01",
+      "title": "候选比较记录 · 1",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45659,
+      "sha256": "bef5d48dd7d2c71dfe909be932d405887502b9208b2913ee39e36353e604090e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "08-candidate-evidence-01",
+      "title": "候选比较依据展开 · 1",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 817
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49741,
+      "sha256": "9369952f5898509761682aab86c3773d76a7b995ce6d33bd544030b6a824101d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "08-candidate-evidence-02",
+      "title": "候选比较依据展开 · 2",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 252,
+          "total": 817
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50352,
+      "sha256": "9ce46b2494d6a33707d0c7abe7f00efeeb9940d84f6f5ec838b454e2ab007ee3",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "09-processing-history-01",
+      "title": "处理记录 · 1",
+      "section": "订阅",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44421,
+      "sha256": "3566e5b5486a27df0ff0ac11c6a1c88e69448747915cc70b95d66b3c167680b5",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "10-boards-01",
+      "title": "榜单入口 · 1",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 36110,
+      "sha256": "b5f9af2a4b0a921063e78d565e4a137a35d012ce9f7677f02ff3006ebbc0bc54",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "11-board-works-01",
+      "title": "榜单作品与收录状态 · 1",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 940
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 42885,
+      "sha256": "1a3b82f132d182186aa72210ae18ab8283919f9beaa99b0890c796b9c9d16579",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "11-board-works-02",
+      "title": "榜单作品与收录状态 · 2",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 376,
+          "total": 940
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46558,
+      "sha256": "a67c6f3bce92400dab7be5504dd746fe2d33d96e9413a89f59f735cadc3ba18c",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "12-board-runs-01",
+      "title": "榜单运行记录 · 1",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 34038,
+      "sha256": "b5730ee5ff0eff32cc28f2f9ecab0223ea6a27e503cf2f35fdc0f47cfb0c420e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "13-board-statistics-01",
+      "title": "榜单统计 · 1",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 30449,
+      "sha256": "8023d8250ab16c1fc0448b710e4d40d5bce7f3bff97762116a5e1ddbdb1d3383",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "14-board-settings-01",
+      "title": "单个榜单来源设置 · 1",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1286
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46754,
+      "sha256": "1f6376de89686966eb88b8d832e7a3d4127618fbca6ba55f27b4facf49bdff00",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "14-board-settings-02",
+      "title": "单个榜单来源设置 · 2",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 396,
+          "total": 1286
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45735,
+      "sha256": "71a6f8b8eb7493aa4fa99e53d97cdf102e6b0f1611a648b0e2737c0af68b4fd3",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "14-board-settings-03",
+      "title": "单个榜单来源设置 · 3",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 722,
+          "total": 1286
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 39106,
+      "sha256": "26f8ba13e5fb59b75759cc54228392e8d828250ce250bc44c50d99f6d68cdc88",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "15-board-global-01",
+      "title": "RSSHub 与全局规则 · 1",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1585
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47388,
+      "sha256": "e870b5a2d471c3d84035326ce92a95620ee63ec57706d7e1f9b8399e5895d970",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "15-board-global-02",
+      "title": "RSSHub 与全局规则 · 2",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 396,
+          "total": 1585
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43901,
+      "sha256": "613c9457d73ebb1ef7d8470cf9505c59ca055050f42a837a4e7dd5e3c35a2b71",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "15-board-global-03",
+      "title": "RSSHub 与全局规则 · 3",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 792,
+          "total": 1585
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43217,
+      "sha256": "9cd6024c960d967a1d9725a187568a67c39c8990c3ed1087a2efc351b4accceb",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "15-board-global-04",
+      "title": "RSSHub 与全局规则 · 4",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1021,
+          "total": 1585
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 39825,
+      "sha256": "6cda67bf35daf0f5dba004f72e10e4cb8f0313268139dd0f7f1ff683e0f905bd",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "16-board-history-settings-01",
+      "title": "榜单历史显示设置 · 1",
+      "section": "榜单",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 31530,
+      "sha256": "bb8aa6873cf64847599cc92fa57c427c9ec81b69d8c1ac1e849f2a95c8e8cf88",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "17-transfers-01",
+      "title": "上传与入库列表 · 1",
+      "section": "上传与入库",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 31027,
+      "sha256": "a7d35244b3cc3974eac894b3943ecdb7be3653d3ec2042f4422bc61e70b07da3",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "18-transfer-batches-01",
+      "title": "作品交付批次 · 1",
+      "section": "上传与入库",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 35498,
+      "sha256": "ba5f06c8a822baf6e4e447974e98d94bd371d20e9bb5935225f06fe61fb75732",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "19-transfer-detail-01",
+      "title": "交付详情、文件与清理入口 · 1",
+      "section": "上传与入库",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 734
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 41803,
+      "sha256": "df431d870c03e409976f40b0d790bd80d8ea5203440f9fa9cb46448a4bec855f",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "19-transfer-detail-02",
+      "title": "交付详情、文件与清理入口 · 2",
+      "section": "上传与入库",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 169.5,
+          "total": 734
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43125,
+      "sha256": "de892b9173414285dfad15482f599f153a3bafe70f9362fb99afe2d4c64995bd",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "20-policy-dv-01",
+      "title": "杜比视界主类与规格优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1274
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 55545,
+      "sha256": "30b830d0dd60c7cb9704240f8f3388b3133caa573080af02781681e885baaf1c",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "20-policy-dv-02",
+      "title": "杜比视界主类与规格优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1274
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49893,
+      "sha256": "b492a58cec42e3fdd3e31e9b894390a9fc6e25bce725db5fe0d76030d88417ca",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "20-policy-dv-03",
+      "title": "杜比视界主类与规格优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1274
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50593,
+      "sha256": "d84c1d4098d47a04d918260a3c7b95b7cfea35f096275819224caac1ddb66263",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "20-policy-dv-04",
+      "title": "杜比视界主类与规格优先级 · 4",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 708.7999877929688,
+          "total": 1274
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49202,
+      "sha256": "af1f390ef21ec0ac72519acb1db785d222cb3bafc4e46c9fbb47b3b70c056cff",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "21-equal-select-01",
+      "title": "设置同等优先：选择 P5 与 P8 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1345
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 56215,
+      "sha256": "6f7e78ea5daa43378f74af8b2cc43faaf0a16642dbbe300d7f758920d3e0cc48",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "21-equal-select-02",
+      "title": "设置同等优先：选择 P5 与 P8 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1345
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49690,
+      "sha256": "755f1c62bf42a01231cdec44ddfd6e75f39df284f99c1936471be8027448f94d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "21-equal-select-03",
+      "title": "设置同等优先：选择 P5 与 P8 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1345
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47468,
+      "sha256": "246b5dac78580eaa801f7c9c0304121c3e58fc178307c15c8faf239a1ccc2d2a",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "21-equal-select-04",
+      "title": "设置同等优先：选择 P5 与 P8 · 4",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 780,
+          "total": 1345
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48625,
+      "sha256": "3a0c644eae54d955d7dc54c119cc3431c7f0da4c70c680e8e026c0617497cefe",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "22-equal-merged-01",
+      "title": "同等优先合并结果与拆开入口 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1320
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 55545,
+      "sha256": "30b830d0dd60c7cb9704240f8f3388b3133caa573080af02781681e885baaf1c",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "22-equal-merged-02",
+      "title": "同等优先合并结果与拆开入口 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1320
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51182,
+      "sha256": "f4b779c7404071632898c9b6fa65ec337b333ca760fb0f769e6ec0e248954d88",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "22-equal-merged-03",
+      "title": "同等优先合并结果与拆开入口 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1320
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50671,
+      "sha256": "4aae394c3bc14eda9f2a6aeb966ed90ae24e3a0360036872786809bd1207e3b7",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "22-equal-merged-04",
+      "title": "同等优先合并结果与拆开入口 · 4",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 755.2000122070312,
+          "total": 1320
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48449,
+      "sha256": "5f35df44d70947a9096d8c723aef47710c05221fbb6641065c278486f5ad8738",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "23-hdr-01",
+      "title": "HDR 格式优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 55858,
+      "sha256": "2b8f36a300b1268e22dcec1464f0719f9da20dd6c2dcf342e3e6b777b4443019",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "23-hdr-02",
+      "title": "HDR 格式优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 54815,
+      "sha256": "f94b514cc319715d8062ee156e32a2a058db7800ae0fc538fe92eb5e292b6d4b",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "23-hdr-03",
+      "title": "HDR 格式优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50643,
+      "sha256": "c5c189a03fe76f480e044bba899efe909dcb8eb35d4cefeedc4bcb5b089c1f2d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "24-audio-lossless-spatial-01",
+      "title": "无损空间音频优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 57243,
+      "sha256": "20e847b1b1611f7ccdff86510475845edc450b8e4164d8ab313bad1a0c1ab0df",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "24-audio-lossless-spatial-02",
+      "title": "无损空间音频优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 54533,
+      "sha256": "463675059de173e96a2ba791fb610ea078afcad0d3155f18f4974dbae6d26e9a",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "24-audio-lossless-spatial-03",
+      "title": "无损空间音频优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45741,
+      "sha256": "5d37ad268dac2a6afa4ccd3e8d63f3f2ed8859e86a5b57a0b7a07b6c5291f24d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "25-audio-lossless-01",
+      "title": "无损音轨优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 55936,
+      "sha256": "6bfecae744add59d7503dd94afcfc96aedb70c376eec559be6447f3e2731e6b4",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "25-audio-lossless-02",
+      "title": "无损音轨优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 56913,
+      "sha256": "fe45754f8abb1d99d7e62de395fb07e5a5a5bbf2e44e1098bbc93ee64ee201e7",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "25-audio-lossless-03",
+      "title": "无损音轨优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51530,
+      "sha256": "419399f2732b3bf06a7e3b0446edf7369493bf5640749b1e2a85e05dca74630d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "26-audio-spatial-01",
+      "title": "空间音频优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 55463,
+      "sha256": "3b5e3c4bf38f81c520a04ff5fd6b190098b8dbcd75c1186e3a133fe74becd8b5",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "26-audio-spatial-02",
+      "title": "空间音频优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50398,
+      "sha256": "ca0859a77285401b2e2b1370abd4cf7bb1c3277439e10f1ccc9bae51ec8afe0d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "26-audio-spatial-03",
+      "title": "空间音频优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45741,
+      "sha256": "5d37ad268dac2a6afa4ccd3e8d63f3f2ed8859e86a5b57a0b7a07b6c5291f24d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "27-audio-other-01",
+      "title": "其他音轨优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1209
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 56676,
+      "sha256": "f6ddf7525d7230464fca2f3e0e47bfac33d3b22c3f781180efc3589a357cedd1",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "27-audio-other-02",
+      "title": "其他音轨优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1209
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 57399,
+      "sha256": "c527cbc569b5aa7f9eb8ad287dc75b53d7a136baf1f95c405086172f5933671d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "27-audio-other-03",
+      "title": "其他音轨优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1209
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51909,
+      "sha256": "f0a1819504a57e9b576bc0e674c59c6de245b9d07339d205267479a86f35192e",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "27-audio-other-04",
+      "title": "其他音轨优先级 · 4",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 644,
+          "total": 1209
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51029,
+      "sha256": "d1300ad510005062dce559cfd549bf81dd26fc7e0eac62dc60776551be47f60e",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "28-resolution-01",
+      "title": "分辨率优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50139,
+      "sha256": "cd608c3e9754a2f09944dc1eb055287efca272fbb8ee40ba0f46fdd9a7694e74",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "28-resolution-02",
+      "title": "分辨率优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46444,
+      "sha256": "735a3afd98ea20e9cc3448c9ec556e712770d03270d679cb8e44560f92b7c438",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "28-resolution-03",
+      "title": "分辨率优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47193,
+      "sha256": "d1a782dcd13b0d22c35f4f4225ad67cd20801fcb88b81ade40a2277279cd83a5",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "29-source-priority-01",
+      "title": "片源优先级与同等优先分组 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50739,
+      "sha256": "bddd68845f8e4d3a9bf9c837d1ee89e23a30fbd12f588a3afbf2c8ca3bd8ce8e",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "29-source-priority-02",
+      "title": "片源优先级与同等优先分组 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52848,
+      "sha256": "69c93856fe2531902725233e318016cd4fcd9327e56c63372136e1ac42bc97af",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "29-source-priority-03",
+      "title": "片源优先级与同等优先分组 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51306,
+      "sha256": "200be56071bd3d929a731fbd9f1dec38587dd6352340ead5bab214a6e4839a7d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-01",
+      "title": "收录范围：所有规格勾选项完整展开 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50739,
+      "sha256": "bddd68845f8e4d3a9bf9c837d1ee89e23a30fbd12f588a3afbf2c8ca3bd8ce8e",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-02",
+      "title": "收录范围：所有规格勾选项完整展开 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52848,
+      "sha256": "69c93856fe2531902725233e318016cd4fcd9327e56c63372136e1ac42bc97af",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-03",
+      "title": "收录范围：所有规格勾选项完整展开 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 54865,
+      "sha256": "ed82333cb93085afbe2943f7349dd909077b220a90e1e928aa1b3420780a56b7",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-04",
+      "title": "收录范围：所有规格勾选项完整展开 · 4",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 960,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 53630,
+      "sha256": "bc5c726f4e8329108cdfa807ff3d0aee4a1fcf1ae0780a980e92c99d58f6a62d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-05",
+      "title": "收录范围：所有规格勾选项完整展开 · 5",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1280,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49027,
+      "sha256": "4bb3e71ecfd9f3019aecb44a7ac4cbe6100e360fdad3d8f9a674424a599d743c",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-06",
+      "title": "收录范围：所有规格勾选项完整展开 · 6",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1600,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 54620,
+      "sha256": "ae26b9d2a5f3cbf1f691169535a3ddd0f20da63cf16287a8383083e2d117b206",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-07",
+      "title": "收录范围：所有规格勾选项完整展开 · 7",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1920,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49753,
+      "sha256": "9a443feb31c19ba45777baba283643fa505d2158a00f633de2c10703312af75f",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "30-admission-expanded-08",
+      "title": "收录范围：所有规格勾选项完整展开 · 8",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 2224,
+          "total": 2789
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48954,
+      "sha256": "3b22913b48003064f8aaee5119456a6e32e0ff3d51aa8d9c934c9f1136f988e4",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "31-local-conditions-01",
+      "title": "分类额外条件 · 嵌套与摘要 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 2110
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47054,
+      "sha256": "0b5fa8d2cd4b9f59ff421a1811c04abb2e2d644ab88e1f8f0d0e749055477863",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "31-local-conditions-02",
+      "title": "分类额外条件 · 嵌套与摘要 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 2110
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50120,
+      "sha256": "8ae9fc0bf77abab71560fd7d8d56a0f73c904eb13e1fd6f1282e9b65e772dafe",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "31-local-conditions-03",
+      "title": "分类额外条件 · 嵌套与摘要 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 2110
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48571,
+      "sha256": "6fc256246da66e5769b738a33ddd858737eb809c6cad4305d81231574aa00ed2",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "31-local-conditions-04",
+      "title": "分类额外条件 · 嵌套与摘要 · 4",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 960,
+          "total": 2110
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48527,
+      "sha256": "9ec261dc04f784082dfdac91b8ef435e2a968892528c5add60f3007697239e23",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "31-local-conditions-05",
+      "title": "分类额外条件 · 嵌套与摘要 · 5",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1280,
+          "total": 2110
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46196,
+      "sha256": "0999cb3d4b47dd2d3f39c3f30be07246a7988f1ce2fa85ff9099932be9d57761",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "31-local-conditions-06",
+      "title": "分类额外条件 · 嵌套与摘要 · 6",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1545,
+          "total": 2110
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 40021,
+      "sha256": "5bf294a3fdc765b5de138641f9dd415cb6b6c932fa45f3991d6020e58aa92d0d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "32-policy-trial-form-01",
+      "title": "质量策略 · 手动试算 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1047
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45665,
+      "sha256": "2854622cbf5fd49877b75734d709452c9103e583e65089274fa997177380e5d2",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "32-policy-trial-form-02",
+      "title": "质量策略 · 手动试算 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1047
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48713,
+      "sha256": "05e7af0367d1a13c0131fde71a463dbbc94bb59bee2ddc5b164f119304a57b8c",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "32-policy-trial-form-03",
+      "title": "质量策略 · 手动试算 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 483,
+          "total": 1047
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47657,
+      "sha256": "5f4878b16f81bf9c98fde5b252cd7ddb22ce3d6d5cb1179338ee8e47487b8ff5",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "33-policy-trial-result-01",
+      "title": "质量策略 · 合成试算结果 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1173
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45677,
+      "sha256": "7cbba52aba471ecedec874aa9de086f37a758f96672d67376ee1dfa2485ec863",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "33-policy-trial-result-02",
+      "title": "质量策略 · 合成试算结果 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1173
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48720,
+      "sha256": "90d60816c9c87254eaf8a00bde21e576b84697a975765719d38bb7e19bf9135f",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "33-policy-trial-result-03",
+      "title": "质量策略 · 合成试算结果 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 609,
+          "total": 1173
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48304,
+      "sha256": "ff4c04e87a10eea5f35b839e673e23717f8f6ea4ffb1f079b151aceb5d47421d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "34-policy-scope-01",
+      "title": "质量策略 · 使用范围 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 705
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43138,
+      "sha256": "135075e61d626cf1958b5d5b09493ff06384e66b3fc460409c4d806f60b48306",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "34-policy-scope-02",
+      "title": "质量策略 · 使用范围 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 140.5,
+          "total": 705
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46667,
+      "sha256": "00935d41028cd405baa6e4481faf655a478cf5a5e7659c6380d6dff025226bc5",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "35-global-limits-01",
+      "title": "全局限制 · 固定收录规格 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1006
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47763,
+      "sha256": "08c07d71d9d90e5758b8c870f220277618c1ca35f7936c064e666836a0789635",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "35-global-limits-02",
+      "title": "全局限制 · 固定收录规格 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1006
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47098,
+      "sha256": "0fd4778668bf5c9487381272ab4fd8b25d440720971e049496afe9c834bb207a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "35-global-limits-03",
+      "title": "全局限制 · 固定收录规格 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 441.5,
+          "total": 1006
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44974,
+      "sha256": "8ad001085c031b74804b163d1f6273c6cc76cbcef2b69783f5aa2b9809c15f60",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-01",
+      "title": "共享规则完整目录 · 1",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48953,
+      "sha256": "171f78f8cbf2a23daf22ff0639657b083845f2866a76e574677234367d570576",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-02",
+      "title": "共享规则完整目录 · 2",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50034,
+      "sha256": "f852d438a7d1332f487922493e28284945b23d5e835eba19d4e7581e93c59b25",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-03",
+      "title": "共享规则完整目录 · 3",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47770,
+      "sha256": "a55626605d305109aa7b2682745952c3638e9524c82a5a1305bd87b2be89737f",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-04",
+      "title": "共享规则完整目录 · 4",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 960,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 56227,
+      "sha256": "8fd909ffbd94fa26fffd96a09ccdfb1f0be16b4d7067f32a61d8714ea59c298d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-05",
+      "title": "共享规则完整目录 · 5",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1280,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52216,
+      "sha256": "d8f110ac5b92a2d7204cf89be99f222970871502840cec5216a510a850809765",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-06",
+      "title": "共享规则完整目录 · 6",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1600,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50415,
+      "sha256": "89b5197f3e773aa23c6b2ed6dd7cd6cfc230b646ef5148365f607c1ad28b095d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-07",
+      "title": "共享规则完整目录 · 7",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1920,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51430,
+      "sha256": "2e347f2a076466b416f957151feec26ffb90042174b1e82d413ef93366f08082",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-08",
+      "title": "共享规则完整目录 · 8",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 2240,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52900,
+      "sha256": "4f83cb9bcb5c352eb905c8f35eb2d9e4af2eee3bc4a0fc2f2491cc33cbf1407d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-09",
+      "title": "共享规则完整目录 · 9",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 2560,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 54019,
+      "sha256": "15576166c8f5cc92a36917b7fb8e03050967abc79390781901659da9ff8e92a8",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-10",
+      "title": "共享规则完整目录 · 10",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 2880,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51590,
+      "sha256": "cfac177017453abc1c8b8890c56ebb8e632d5b7589f3eb35b8d060babd536c59",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-11",
+      "title": "共享规则完整目录 · 11",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 3200,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47388,
+      "sha256": "5adfd1a366cd56463908bf6093bca38e543a967d04b03950f37ea1fd8b3080ee",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-12",
+      "title": "共享规则完整目录 · 12",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 3520,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46332,
+      "sha256": "066027146c181a44ce394e775139da4180d215a3bdb03edad47c09e006f001d4",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-13",
+      "title": "共享规则完整目录 · 13",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 3840,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50955,
+      "sha256": "1bdd48ade416ef08a224642ecfbeb1dbb698341b321d80b27fbde7929deee098",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-14",
+      "title": "共享规则完整目录 · 14",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 4160,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48536,
+      "sha256": "76d70caff2a086e6c9526f763d3ed60ad56f27184e51cbb28e3f04a0374377d9",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-15",
+      "title": "共享规则完整目录 · 15",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 4480,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48270,
+      "sha256": "9bf5bad49f34f325153b4a343208f8f48a36be648c1a1e6bc748dd59d8e38843",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-16",
+      "title": "共享规则完整目录 · 16",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 4800,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46807,
+      "sha256": "bdbca4543244c6c146b2e131e2fec313934acb273b82144061eff323d54f72bf",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "36-shared-rules-17",
+      "title": "共享规则完整目录 · 17",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 5016,
+          "total": 5581
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45152,
+      "sha256": "7399066d327a8a7031d4e226e6a88ff969c7384540d182eb6e2272dd8d3ff15a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "37-rule-inline",
+      "title": "发布组规则 · 条目下就地编辑",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 859.5,
+          "total": 6361
+        },
+        {
+          "cls": "",
+          "height": 42,
+          "tag": "TEXTAREA",
+          "top": 0,
+          "total": 136
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47845,
+      "sha256": "14082ce8c13932def15424b138d646e719176225007dd2f9a2d5b9b334390d2d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "38-rule-inline-detail",
+      "title": "发布组条件编辑器 · 下半部分",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 1139.5,
+          "total": 6361
+        },
+        {
+          "cls": "",
+          "height": 42,
+          "tag": "TEXTAREA",
+          "top": 0,
+          "total": 136
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50604,
+      "sha256": "2c67c9474f6ecfcbdb2539465ee6edb3129ab4171a346b8e0b77120531abaefd",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "39-rule-usage",
+      "title": "共享规则 · 选择应用位置",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 859.5,
+          "total": 5762
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49011,
+      "sha256": "9d2b1d812dc18ed9e52ea2dd8a98d9297735daec660de5a265ecad6b20069c7d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "40-custom-rule",
+      "title": "新建共享规则 · 填写匹配条件",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 486,
+          "total": 6442
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 39623,
+      "sha256": "e8550dab7fd7344df0629a41076fd88ac35bf5e92f025ce2e4391624f8921a40",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "41-custom-rule-used",
+      "title": "共享规则已加入策略收录条件",
+      "section": "共享匹配规则",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 856.5,
+          "total": 6486
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 38042,
+      "sha256": "186b5141c05c7aec819a315d78c8150743af532d6dee336195b7440fb7926371",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "42-plan-overview-01",
+      "title": "下载方案 · 概览 · 1",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 746
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43666,
+      "sha256": "ca4ec1234d07677cd94cd01da1ff86316de81817d62000b095d857fcb238868b",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "42-plan-overview-02",
+      "title": "下载方案 · 概览 · 2",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 181.5,
+          "total": 746
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46703,
+      "sha256": "a8d89b553d91b725e33c9476ce942875d71a30d8b83397431d0600263377e395",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "43-plan-download-01",
+      "title": "下载方案 · 下载 · 1",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 740
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 41580,
+      "sha256": "7f4ccc65dda24c5f5bcc5aaf10bcd95f9ff7daa6d13962c25b289861c5649867",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "43-plan-download-02",
+      "title": "下载方案 · 下载 · 2",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 175.5,
+          "total": 740
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43933,
+      "sha256": "091d8d87b581c16a50ef081d0ae95c60af05320a215d408e239ac2474ad4353a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "44-plan-transfer-01",
+      "title": "下载方案 · 上传与整理 · 1",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1444
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45943,
+      "sha256": "051667ddbb62b4e95d5c0c84efe20ace53ffbcb1a5da3230be296865381632e9",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "44-plan-transfer-02",
+      "title": "下载方案 · 上传与整理 · 2",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1444
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46282,
+      "sha256": "4092d4938275b3af33259b0546e079726aad4392207b279bb9e1c0e398c18452",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "44-plan-transfer-03",
+      "title": "下载方案 · 上传与整理 · 3",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1444
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49032,
+      "sha256": "f6ab4ffc49e8e380e392d3d0248c2e8a24792e674cae2f52ceea6e6edb864f26",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "44-plan-transfer-04",
+      "title": "下载方案 · 上传与整理 · 4",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 879.5,
+          "total": 1444
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45667,
+      "sha256": "3e839b3b8fecf40bb3f434823fca873dc58ea6f72f5ae1b31133d26bd7460522",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "45-plan-library-01",
+      "title": "下载方案 · 媒体库与路径 · 1",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1531
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45694,
+      "sha256": "2e197d2bbe8a3c289e43e6b2ac4434f336d6ac62536ddf26c33eae74c42faad0",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "45-plan-library-02",
+      "title": "下载方案 · 媒体库与路径 · 2",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1531
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46494,
+      "sha256": "00f927af6269bc2e7902660bc3333b8084a9e224ef23267e995a2ebf7b2f713a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "45-plan-library-03",
+      "title": "下载方案 · 媒体库与路径 · 3",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1531
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45189,
+      "sha256": "f335d7c24dd9e2d03653bf76fbbed99d0584d1bcacab45ca8d6b4cecdfd96749",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "45-plan-library-04",
+      "title": "下载方案 · 媒体库与路径 · 4",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 960,
+          "total": 1531
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44307,
+      "sha256": "c36ff048e91972c3b8e971748daa3df015121aff8d5532516ab8ed460da5f05f",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "45-plan-library-05",
+      "title": "下载方案 · 媒体库与路径 · 5",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 966.5,
+          "total": 1531
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44897,
+      "sha256": "542ccf18d5dcc5a5118c08e5fdee48e3ed970e6a3473a9a238706e6b0f235524",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "46-plan-cleanup-01",
+      "title": "下载方案 · 清理与保留 · 1",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 972
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46165,
+      "sha256": "4a341953c593da2acf968e799ccfd002c865930b814f13e25e16b9201610f9b5",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "46-plan-cleanup-02",
+      "title": "下载方案 · 清理与保留 · 2",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 972
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49168,
+      "sha256": "64d74e093305d882a4472900dfc240a095d8b375167c3c230aadb560423acdba",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "46-plan-cleanup-03",
+      "title": "下载方案 · 清理与保留 · 3",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 408,
+          "total": 972
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45699,
+      "sha256": "60c0a17aa2fde26c97d7280ca50fa316121a65e6a49c01d875f6e503d9b90063",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "47-new-plan",
+      "title": "新建下载方案 · 命名入口",
+      "section": "下载方案",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 34188,
+      "sha256": "6c2b85b2cf3065257d35ad903b029ffaf1ee747cdffb7c88ee9415e56b89afef",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "48-settings-runtime-01",
+      "title": "运行管理 · 运行模式",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 38002,
+      "sha256": "5e7583bdd3b81156a140b7141007e131b6824b5120fd850ae19e5d66bc14cce6",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "49-settings-adoption-01",
+      "title": "运行管理 · 订阅接管 · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 627
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46374,
+      "sha256": "c37b3d986be6115c6008603d931ce105dd2186f9a0f08810f2798a8f3d83f5a8",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "49-settings-adoption-02",
+      "title": "运行管理 · 订阅接管 · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 62,
+          "total": 627
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49703,
+      "sha256": "ca0689403f4d11fdce939cfae23393539b545d13d16debdadce707317723e8db",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "50-settings-deadline-01",
+      "title": "运行管理 · 升级期限 · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 576
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47708,
+      "sha256": "1cf4f915b578ecf959c92986c4ad54512f57899af985ca8e3010645fb9adf80e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "50-settings-deadline-02",
+      "title": "运行管理 · 升级期限 · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 11.5,
+          "total": 576
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50984,
+      "sha256": "7a8b2ad9f6b262675409c1c2d64e6034edff27c56325561450967838267e0539",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "51-settings-search-01",
+      "title": "搜索与调度 · 站点与搜索（高级项展开） · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1098
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46171,
+      "sha256": "48bff7b75787d7fdef68f42fb945fa86247ae2a8612f4520b39292b269334ea0",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "51-settings-search-02",
+      "title": "搜索与调度 · 站点与搜索（高级项展开） · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1098
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46723,
+      "sha256": "88b244b6087f4a7236ede177e846d08b08b398e3d41fdbdf1ea8ba3ae96f8347",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "51-settings-search-03",
+      "title": "搜索与调度 · 站点与搜索（高级项展开） · 3",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 533,
+          "total": 1098
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47739,
+      "sha256": "1cadc5a435f8bb40e1af1ee113d98c22b9df00146098879f39d65011bfbaf4ee",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "52-settings-observation-01",
+      "title": "搜索与调度 · 候选观察",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49768,
+      "sha256": "65ac39e1fdfde9b20be9884c13bb9a4d63c30628eb82e97a2202d74e2aa0cce0",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "53-settings-replacement-01",
+      "title": "搜索与调度 · 资源替换",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47239,
+      "sha256": "c3ec320c31b8c8474205fcfc9714aa97a1b38e38067c8f3ede2896387bf0ee36",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "54-settings-cooldown-01",
+      "title": "搜索与调度 · 升级冷却",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 38871,
+      "sha256": "ab6175beb04af1df8bed1639bb67f352cfdbe5435f2d46fa76e29f632469ed3c",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "55-settings-retry-01",
+      "title": "搜索与调度 · 失败恢复",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 37427,
+      "sha256": "8fe8fa7088f01515511df69d23e5699975fba7c9be86bc2dddbb3f07d086ed8c",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "56-settings-name-01",
+      "title": "名称识别 · 解析修正",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 42479,
+      "sha256": "15a86804e8836d56baf4133004fd9db6f5a92a5bb12d8ba453fd0a14154daa59",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "57-settings-ai-01",
+      "title": "名称识别 · AI 服务 · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1012
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45447,
+      "sha256": "c426b7828fb473bf1d2c0d50ffd2544accd84816a254d9a1eee513169dc820e4",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "57-settings-ai-02",
+      "title": "名称识别 · AI 服务 · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1012
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52917,
+      "sha256": "046f5ce7d140f6f88c21292b6b597cdef3035199a46fd1adef565755545c255a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "57-settings-ai-03",
+      "title": "名称识别 · AI 服务 · 3",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 448,
+          "total": 1012
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49086,
+      "sha256": "628472a99e5160fcf9d9bbdf1c7c5373ee8b238124db5a7c6f68ee44910963df",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "58-settings-prompts-01",
+      "title": "名称识别 · 提示词与版本 · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 824
+        },
+        {
+          "cls": "sb-prompt",
+          "height": 381,
+          "tag": "TEXTAREA",
+          "top": 0,
+          "total": 1095
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 74031,
+      "sha256": "20cd35f94cb7a0c130ab2b964e1ba60b36d393155e664940f3b43092d24edbb8",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "58-settings-prompts-02",
+      "title": "名称识别 · 提示词与版本 · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 259,
+          "total": 824
+        },
+        {
+          "cls": "sb-prompt",
+          "height": 381,
+          "tag": "TEXTAREA",
+          "top": 0,
+          "total": 1095
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 91227,
+      "sha256": "0fbfc4076d6098531d99eba183bd73c3923153f81d61d39cfd40ae77b7b98deb",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "59-settings-cache-01",
+      "title": "名称识别 · 缓存与限流 · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 671
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44098,
+      "sha256": "1fbc2b44df6571cb3203a283196144316cf6ad379144bc454e8fbebe5584c6c7",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "59-settings-cache-02",
+      "title": "名称识别 · 缓存与限流 · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 106,
+          "total": 671
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49013,
+      "sha256": "702dcac09a59ee2eaac2aebe0b6f96ddbeab042ccd764f1d8c301e772da347fa",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "60-settings-library-scope-01",
+      "title": "媒体库检查 · 检查范围",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 35823,
+      "sha256": "7457f492b09edaf9e01ba8f2a1c3a78ed2b6b9698b7ecddfe84a70069110b30f",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "61-settings-library-schedule-01",
+      "title": "媒体库检查 · 检查计划 · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 685
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44518,
+      "sha256": "344e0a1a5ca6250677f5c83eba921967b6e12e816516370fc390f0353204b842",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "61-settings-library-schedule-02",
+      "title": "媒体库检查 · 检查计划 · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 120.5,
+          "total": 685
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48702,
+      "sha256": "da4d586b5adb24a62915848c42a7da0a554198fb41afd663d12367df60258a6e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "62-settings-library-path-01",
+      "title": "媒体库检查 · 路径检查",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 35944,
+      "sha256": "9cd891db3ba21fea43e9d64706e65d7091f37d60e4020ad99db55a51093120c8",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "63-settings-library-recovery-01",
+      "title": "媒体库检查 · 异常恢复",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 36779,
+      "sha256": "28499f0207812f9897d530659e34dcdb95366557542593d108d0d4e576dc5a85",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "64-settings-cleanup-01",
+      "title": "维护与安全 · 清理权限 · 1",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 862
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43922,
+      "sha256": "ee9676ccdb11a5525e7d1b72a3757ab01a866354e47b96445f5da6b344aa7e29",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "64-settings-cleanup-02",
+      "title": "维护与安全 · 清理权限 · 2",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 297,
+          "total": 862
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46692,
+      "sha256": "e93622d152e526aafff0348a3a65c36518fdb1e27bc15a6bb0054f44b199fb32",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "65-settings-limits-01",
+      "title": "维护与安全 · 资源限制",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44519,
+      "sha256": "9d6a916efbcb0553233d7aadf9a66fef66ae9be94d6d697216e2c2b35b00a1d9",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "66-settings-backup-01",
+      "title": "维护与安全 · 备份与迁移",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 33060,
+      "sha256": "9dfc36722637e77e1691ef1881b5f620cb69db6916707695d5d1b072e20b51f3",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "67-settings-diagnostics-01",
+      "title": "维护与安全 · 诊断",
+      "section": "设置",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 38353,
+      "sha256": "62bda58f4ecb30940d9e8e0d1305470c96d05aa2c76ddb798d053599aa65c411",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "68-migration-01",
+      "title": "导入与迁移 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 852
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44562,
+      "sha256": "08470c8422cf7b9fd12c1ebc6f339cf8e23f7acba5348ab3c92d1ea3aee4b4a2",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "68-migration-02",
+      "title": "导入与迁移 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 287,
+          "total": 852
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 42130,
+      "sha256": "c4d9fc34da331de80160eb8fb0b44caf966520c6eaba4c02349fd3de78b18412",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "69-migration-boards-01",
+      "title": "迁移 · 读取旧榜单 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 852
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44606,
+      "sha256": "dc73b99ec308d89c68149c56b10afc190109cd08dd226753184cf345da6b20c7",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "69-migration-boards-02",
+      "title": "迁移 · 读取旧榜单 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 287,
+          "total": 852
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 42130,
+      "sha256": "c4d9fc34da331de80160eb8fb0b44caf966520c6eaba4c02349fd3de78b18412",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "70-migration-switch-01",
+      "title": "迁移 · 切换功能 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 936
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47691,
+      "sha256": "53bd19b19a6aa73c9a59792b82423c796f41acd10e2c22cbce019ca14b6bd6b0",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "70-migration-switch-02",
+      "title": "迁移 · 切换功能 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 936
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47129,
+      "sha256": "59c12a1fb9bdeabd3ab50dbf1c951678052f768efdab1a60ab328467dc699cdc",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "70-migration-switch-03",
+      "title": "迁移 · 切换功能 · 3",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 371.5,
+          "total": 936
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45906,
+      "sha256": "8f495e471d19fb0cb75f359f34547e8f52a457fd99bb381ce2d98b082304b49f",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "71-blank-configuration-01",
+      "title": "空白配置 · 默认运行模式",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 37919,
+      "sha256": "3d39122a0f1a4c715b069540f8d5754b915abf7aafcfdda53fe7f0e447e4c49c",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "72-blank-plans-01",
+      "title": "空白配置 · 尚无下载方案",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 31628,
+      "sha256": "6d0f0277bf5c7e104feb91e0015124e81bb7c09f716376ea1902edcc4aa8e4e2",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "73-first-plan-01",
+      "title": "首次配置 · 新建方案表单 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 726
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46721,
+      "sha256": "9340f9f99b5d50e0d511cf76704298b90f41ea13b926736020499d76961cd4ee",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "73-first-plan-02",
+      "title": "首次配置 · 新建方案表单 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 161,
+          "total": 726
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47467,
+      "sha256": "715285856912256afbc1e4088cdd78662fcf783cd00210ea66719a257c89ae27",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "74-first-download-01",
+      "title": "首次配置 · 下载 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 755
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45465,
+      "sha256": "3cab02a850025ed32217ea5788bec09c32cf5e8888929bc1e0e8a00edb529728",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "74-first-download-02",
+      "title": "首次配置 · 下载 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 190.5,
+          "total": 755
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44913,
+      "sha256": "4a070d1d0d761a9d541248eb048c7fda4a8a736df35fa9744a7d71dbfe970ec9",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "74-first-validation",
+      "title": "首次配置 · 必填项校验提示",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 269,
+          "total": 834
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46779,
+      "sha256": "8df0baae46aa48500e079e4603188117d0dac21dfb00955d492c1a614df5bcc6",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "75-first-upload-01",
+      "title": "首次配置 · 上传与整理 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1349
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50385,
+      "sha256": "73ce026cf5fb59d819050e81c76fe73be369f8c0292618a53136917080ca705a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "75-first-upload-02",
+      "title": "首次配置 · 上传与整理 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1349
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48404,
+      "sha256": "e4516ff69f5fd8136c6739c688f24c4e80668da8eca273e0595e368a2cb83160",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "75-first-upload-03",
+      "title": "首次配置 · 上传与整理 · 3",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1349
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47364,
+      "sha256": "c7e7037084250d16a7a05a90a6d5a0856845115d0d0777e7db1b681ea90f1703",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "75-first-upload-04",
+      "title": "首次配置 · 上传与整理 · 4",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 784.5,
+          "total": 1349
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44619,
+      "sha256": "f63b731d8b295af819f895372cc52cbad6f28602dbead371a1febad36f06c7e6",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "76-first-paths-01",
+      "title": "首次配置 · 媒体库与路径 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1436
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 47482,
+      "sha256": "e7b89df50d400afb7027a83225bdb803fe1bf51eebc6a96be72540a0da46bca8",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "76-first-paths-02",
+      "title": "首次配置 · 媒体库与路径 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1436
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48691,
+      "sha256": "9714dcb7958eb0557449cc6656388ed9086dbfa82e10adefaf74e150cc43357b",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "76-first-paths-03",
+      "title": "首次配置 · 媒体库与路径 · 3",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 640,
+          "total": 1436
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49231,
+      "sha256": "31dc67936d8a3721f6e5561ed2557f0a3867f25fa2fe6518ff5f9ab9657660c3",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "76-first-paths-04",
+      "title": "首次配置 · 媒体库与路径 · 4",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 871.5,
+          "total": 1436
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48907,
+      "sha256": "9fe7df566ad16ab27fd40d30a545bf2452c8671d8937c31cb47de916196150d2",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "77-first-finish-01",
+      "title": "首次配置 · 清理与保留 · 1",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 943
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48819,
+      "sha256": "1c5a5adf6f88c255757884e2bbcf93188679ffe89c9cd5275a1585a945bba88c",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "77-first-finish-02",
+      "title": "首次配置 · 清理与保留 · 2",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 943
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51450,
+      "sha256": "e591e1cf7bc3c8bcaca3f33eb74a59d26c02f775922da02d1f6318fb89e04127",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "77-first-finish-03",
+      "title": "首次配置 · 清理与保留 · 3",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 379,
+          "total": 943
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49967,
+      "sha256": "38b440414279e2fef749e930188970d3a45901b7cabaad1005008871bf2674c2",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "78-unsaved-dialog",
+      "title": "离开未保存配置的确认对话框",
+      "section": "异常与提示",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 38.5,
+          "total": 755
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 46944,
+      "sha256": "fd4154373c132dfdabe4ddfc9eb5ba37d9e4c8a34b92ba58670332f0dcbee3b0",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "79-first-saved",
+      "title": "首次配置 · 方案保存后的下一步",
+      "section": "初始化与迁移",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 364,
+          "total": 972
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44357,
+      "sha256": "223c9dac8a346fee86775c0cc55937c75742c4a05ddfb0c375fabf0afdb10389",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "80-candidate-error-01",
+      "title": "候选比较依据读取失败提示 · 1",
+      "section": "异常与提示",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 641
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48712,
+      "sha256": "1424b1b6b5689bbd88ba734ac3affa5660c7ec2c52e2beec5e62c5061bc68ba0",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "80-candidate-error-02",
+      "title": "候选比较依据读取失败提示 · 2",
+      "section": "异常与提示",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 76.5,
+          "total": 641
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 52235,
+      "sha256": "d11aad27d38895605e68914ec2ed38e70f54c0330a4f3758df3fff7d4d5c4e4e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "81-scene-rapid-01",
+      "title": "分集处理状态 · 已有版本＋秒传等待",
+      "section": "处理状态",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43699,
+      "sha256": "e1a4f2f18960a82055830d5babfac4542efc7694ce73133472c83b8bddd6a61e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "82-scene-downloading-01",
+      "title": "分集处理状态 · 下载进行中",
+      "section": "处理状态",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 42884,
+      "sha256": "c6329dab2b8bb0988d0bc684eed25a1957c5fa04efe77f91158b888513a712e5",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "83-scene-assets-01",
+      "title": "分集处理状态 · 等待附件",
+      "section": "处理状态",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 42901,
+      "sha256": "f4647c5882568fed01c01096102708a7957a4808b6191e4f89f4e725455a6290",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "84-scene-unknown-01",
+      "title": "分集处理状态 · 发布结果未知",
+      "section": "处理状态",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43448,
+      "sha256": "1040676b71711fcea83a65822b4a988ce0569094cdcd89f0cb74e390c07c120d",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "85-scene-superseded-01",
+      "title": "分集处理状态 · 旧计划晚到结果",
+      "section": "处理状态",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 40252,
+      "sha256": "38070179cd29d8238064af0ae8b3857233a0f1bb9dac2d238c2a7213206efd3a",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "86-light-subscriptions-01",
+      "title": "浅色主题 · 订阅列表 · 1",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 628
+        }
+      ],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49925,
+      "sha256": "733de34f22cdd536073bb423cd0efafce446896beaf5117ca0789e4a3c5d4a54",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "86-light-subscriptions-02",
+      "title": "浅色主题 · 订阅列表 · 2",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 63,
+          "total": 628
+        }
+      ],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 54394,
+      "sha256": "058bf3957e2a0a3aaa4d658ea78c3e7ca4f4862eac23da70443bd956fc8f7869",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "87-light-policy-01",
+      "title": "浅色主题 · 质量策略 · 1",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1180
+        }
+      ],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49300,
+      "sha256": "090f23ef4c8faa0dd5a269c513e8d617e60c070cc17a39c2c1f79f7694b4286b",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "87-light-policy-02",
+      "title": "浅色主题 · 质量策略 · 2",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1180
+        }
+      ],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45634,
+      "sha256": "1cbd8646d0063dba15be07b0064bafc02ec21ecff0c2d959696b5d1e38d3eb0e",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "87-light-policy-03",
+      "title": "浅色主题 · 质量策略 · 3",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 615.5,
+          "total": 1180
+        }
+      ],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 43896,
+      "sha256": "bd579944e17cf9f66a0a4cc3f23bcf5867cb7fc77383066b9d75017fd1471c66",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "88-light-plan-01",
+      "title": "浅色主题 · 下载方案 · 1",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 746
+        }
+      ],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 42648,
+      "sha256": "925ea06f24b6b28c2b7d23f7a601390f4fc9e8c3acc0a9aaebbe00ea93259326",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "88-light-plan-02",
+      "title": "浅色主题 · 下载方案 · 2",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 181.5,
+          "total": 746
+        }
+      ],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45195,
+      "sha256": "c50626677bab6881724d3bb992becb4a64dfea3aebfd3c0b9ca10ad0860cc219",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "89-light-settings-01",
+      "title": "浅色主题 · 设置",
+      "section": "浅色主题",
+      "notes": "",
+      "scrolls": [],
+      "theme": "v-application v-theme--light v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 36684,
+      "sha256": "a6b956e8af198590210e3a3bf84570f668dfbbb6dca6faeee4dd050ccf1eedba",
+      "imageSize": {
+        "width": 1265,
+        "height": 712
+      }
+    },
+    {
+      "id": "90-special-subtitles-01",
+      "title": "特效字幕优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 51304,
+      "sha256": "6ea7224ad5058758fac7c8a27aa47a3468c6ab9c44386578140bab138e089dd3",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "90-special-subtitles-02",
+      "title": "特效字幕优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45300,
+      "sha256": "5034cc6abbff067b96aa21a2a28eae713d4f8796d99554a0f58afcfb58ee7bfc",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "90-special-subtitles-03",
+      "title": "特效字幕优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45584,
+      "sha256": "f8cb901965483d80ac6abd5fbe75e20f427b5ddff7cefdfac739f75bc78cc8e2",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "91-high-bitrate-01",
+      "title": "高码率优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49498,
+      "sha256": "82526c5e8b650d8a6a233fd2f93b02c50ce6eb41fdad0864577e46954841289d",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "91-high-bitrate-02",
+      "title": "高码率优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 44071,
+      "sha256": "bc19131c47f497dbf07d76b4fbbefdebc40e46e1d8650dc7eb98cfcc3c356fec",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "91-high-bitrate-03",
+      "title": "高码率优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 617.5999755859375,
+          "total": 1182
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 45584,
+      "sha256": "f8cb901965483d80ac6abd5fbe75e20f427b5ddff7cefdfac739f75bc78cc8e2",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "92-add-comparison",
+      "title": "添加比较项入口",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 380,
+          "total": 1226
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 39516,
+      "sha256": "76d3bd3402f9a04b168f6e5d54ed4662012a81a0e7d37945f8f76911b9fbc9d8",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "93-animation-priority-01",
+      "title": "动画资源偏好优先级 · 1",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 0,
+          "total": 1187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 50487,
+      "sha256": "a0390e1bd898f24c41e0029f8c559607ee405d12fa5f45fbfce91a4d73b4e1d1",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "93-animation-priority-02",
+      "title": "动画资源偏好优先级 · 2",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 320,
+          "total": 1187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 49570,
+      "sha256": "dd5383e38d2611d652260cc8e362532f628d9dae00b44d85530148322ac879a5",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    },
+    {
+      "id": "93-animation-priority-03",
+      "title": "动画资源偏好优先级 · 3",
+      "section": "质量策略",
+      "notes": "",
+      "scrolls": [
+        {
+          "cls": "sb-app-content",
+          "height": 565,
+          "tag": "MAIN",
+          "top": 622.4000244140625,
+          "total": 1187
+        }
+      ],
+      "theme": "v-application v-theme--dark v-layout v-layout--full-height v-locale--is-ltr",
+      "viewport": {
+        "height": 720,
+        "width": 1280
+      },
+      "bytes": 48603,
+      "sha256": "dc7b8f02337c38857235bedd71e8b80074c42120771f5acb9a5ac55f82bb4c14",
+      "imageSize": {
+        "width": 1264,
+        "height": 720
+      }
+    }
+  ],
+  "count": 219,
+  "sceneCount": 93,
+  "validation": {
+    "jpegFiles": "PASS",
+    "minimumWidth": "PASS",
+    "verticalCoverage": "PASS",
+    "segmentedScenesChecked": 54,
+    "imageDimensions": {
+      "1265x712": 167,
+      "1264x720": 52
+    },
+    "orphanFiles": 0
+  }
+}

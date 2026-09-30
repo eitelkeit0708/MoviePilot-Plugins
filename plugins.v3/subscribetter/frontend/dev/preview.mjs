@@ -38,6 +38,7 @@ if(parameters.has('blank'))config=structuredClone(contract.defaults);
 let revision=4,digest='a'.repeat(64);
 const snapshot={config_revision:4,runtime_generation:6,high_watermark:'1'};
 const api={get:async(p,{params={}}={})=>{
+if(p.includes('/archive/targets/'))return {versions:{items:[{id:'preview-current-version',data:{active:true,quality:{resolution:1080,picture:0,audio:0,special_zh_subtitles:false,source:'web'},data:{reliable:true,raw:{title:'GATE24.S01E01.1080p.WEB-DL（合成版本记录）'}}}},{id:'preview-previous-version',data:{active:false,quality:{resolution:720,picture:0,audio:0,special_zh_subtitles:false,source:'web'},data:{reliable:true,raw:{title:'GATE24.S01E01.720p.WEB-DL（合成历史记录）'}}}}],total:2,next_offset:null}};
 if(p==='site/')return [{id:1,name:'OurBits（演示）'},{id:2,name:'未选站点（演示）'}];if(p==='plugin/')return [{id:'CloudDriveDisk',plugin_name:'CD2 服务'},{id:'P115Disk',plugin_name:'115 网盘'}];if(p==='mediaserver/clients')return [{name:'测试 Emby',type:'emby'}];if(p==='mediaserver/library')return [{id:'tv-test',name:'测试剧集'},{id:'movie-test',name:'测试电影'}];if(p==='subscribe/')return [];if(p==='download/clients')return [{name:'测试下载器',type:'qbittorrent'}];if(p==='download/paths')return [{name:'测试目录',storage:'local',download_path:'/downloads/test'}];
 if(p.endsWith('/configuration'))return {revision,digest,config:structuredClone(config)};
 if(p.endsWith('/configuration/categories'))return {revision:1,categories:[{id:'tv',name:'欧美剧',media_type:'电视剧',enabled:true}]};
