@@ -4,7 +4,7 @@ import re
 import xml.dom.minidom
 from copy import copy, deepcopy
 from threading import Event, Lock
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 from typing import Optional, Tuple, List, Dict, Any, TypedDict
 import time
 import random
@@ -86,15 +86,15 @@ class RssInfo(TypedDict):
 
 class DoubanRankPlusOptimized(_PluginBase):
     # 插件名称
-    plugin_name = "豆瓣榜单Plus优化版"
+    plugin_name = "豆瓣榜单订阅Plus优化版"
     # 插件描述
-    plugin_desc = "豆瓣热门榜单优化版 - 改进识别率，移除豆瓣API依赖，更快更稳定"
+    plugin_desc = "豆瓣榜单自动洗版订阅：电影洗版、剧集分集洗版，支持自定义RSS、按季重试与历史去重"
     # 插件图标
-    plugin_icon = "https://raw.githubusercontent.com/boeto/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
+    plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "1.0.10"
+    plugin_version = "1.0.11"
     # 插件作者
-    plugin_author = "eitelkeit"
+    plugin_author = "eitelkeit0708 (based on boeto's work)"
     # 作者主页
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     # 插件配置项ID前缀
@@ -104,9 +104,6 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 可使用的用户级别
     auth_level = 2
 
-    # 退出事件
-    _event = Event()
-    _task_lock = Lock()
     _retry_delays = (15 * 60, 60 * 60, 6 * 60 * 60)
     _retryable_statuses = {
         Status.UNRECOGNIZED.value, Status.SUBSCRIPTION_FAILED.value,
@@ -120,8 +117,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     doubanapi: DoubanApi
 
     # 私有属性
-    _plugin_id = "DoubanRankPlusOptimized"
-    _msg_install = "如果MP是V1版本需要**重启一次**让API生效，V2版本无需重启"
+    _msg_install = "适用于 MoviePilot V2；API 在安装或重载插件时自动注册"
     _msg_migrate_install = "请确保原MP已**安装并启用**此插件"
 
     _scheduler = None
@@ -149,11 +145,27 @@ class DoubanRankPlusOptimized(_PluginBase):
     _migrate_api_token = ""
     _migrate_once = False
 
+    def __init__(self):
+        """每个运行实例独立持有退出信号、任务锁及可变状态。"""
+        super().__init__()
+        self._event = Event()
+        self._task_lock = Lock()
+        self._scheduler = None
+        self._rss_addrs = []
+        self._ranks = []
+
+    @property
+    def _plugin_id(self):
+        """使用宿主为原插件或分身分配的当前类名。"""
+        return self.__class__.__name__
+
     def init_plugin(self, config: dict[str, Any] | None = None):
         self.stop_service()
         # 等旧任务退出后再更新配置，避免清除退出信号使旧任务继续运行。
         with self._task_lock:
             self._event.clear()
+            self._clearflag = False
+            self._clearflag_unrecognized = False
             self.__configure_plugin(config)
 
     @staticmethod
@@ -172,55 +184,56 @@ class DoubanRankPlusOptimized(_PluginBase):
         self.mediachain = MediaChain()
         self.doubanapi = DoubanApi()
 
-        if config:
-            self._enabled = config.get("enabled", False)
-            self._proxy = config.get("proxy", False)
-            self._onlyonce = config.get("onlyonce", False)
-            self._is_seasons_all = config.get("is_seasons_all", True)
-            self._is_only_movies = config.get("is_only_movies", False)
+        config = config or {}
+        self._enabled = config.get("enabled", False)
+        self._proxy = config.get("proxy", False)
+        self._onlyonce = config.get("onlyonce", False)
+        self._is_seasons_all = config.get("is_seasons_all", True)
+        self._is_only_movies = config.get("is_only_movies", False)
 
-            self._migrate_from_url = config.get("migrate_from_url", "")
-            self._migrate_api_token = config.get("migrate_api_token", "")
-            self._migrate_once = config.get("migrate_once", False)
+        self._migrate_from_url = config.get("migrate_from_url", "")
+        self._migrate_api_token = config.get("migrate_api_token", "")
+        self._migrate_once = config.get("migrate_once", False)
 
-            self._cron = (
-                config.get("cron", "").strip()
-                if config.get("cron", "").strip()
-                else ""
-            )
+        self._cron = (
+            config.get("cron", "").strip()
+            if config.get("cron", "").strip()
+            else ""
+        )
 
-            self._release_year = (
-                int(config.get("release_year", "").strip())
-                if config.get("release_year", "").strip()
-                else 0
-            )
+        self._release_year = (
+            int(str(config.get("release_year") or "").strip())
+            if str(config.get("release_year") or "").strip()
+            else 0
+        )
 
-            self._vote = (
-                float(str(config.get("vote", "")).strip())
-                if str(config.get("vote", "")).strip()
-                else 0.0
-            )
+        self._vote = (
+            float(str(config.get("vote", "")).strip())
+            if str(config.get("vote", "")).strip()
+            else 0.0
+        )
 
-            self._min_sleep_time, self._max_sleep_time = self.__sleep_range(config.get("sleep_time", "3,10"))
+        self._min_sleep_time, self._max_sleep_time = self.__sleep_range(config.get("sleep_time", "3,10"))
 
-            rss_addrs = config.get("rss_addrs")
-            if rss_addrs and isinstance(rss_addrs, str):
-                self._rss_addrs = rss_addrs.split("\n")
-            else:
-                self._rss_addrs = []
+        rss_addrs = config.get("rss_addrs")
+        if rss_addrs and isinstance(rss_addrs, str):
+            self._rss_addrs = rss_addrs.split("\n")
+        else:
+            self._rss_addrs = []
 
-            self._ranks = config.get("ranks", [])
-            self._clear = config.get("clear", False)
-            self._clear_unrecognized = config.get("clear_unrecognized", False)
-            self._history_type = config.get(
-                "history_type", HistoryDataType.LATEST.value
-            )
-            self._is_exit_ip_rate_limit = config.get(
-                "is_exit_ip_rate_limit", False
-            )
+        self._ranks = config.get("ranks", [])
+        self._clear = config.get("clear", False)
+        self._clear_unrecognized = config.get("clear_unrecognized", False)
+        self._history_type = config.get(
+            "history_type", HistoryDataType.LATEST.value
+        )
+        self._is_exit_ip_rate_limit = config.get(
+            "is_exit_ip_rate_limit", False
+        )
 
         # 启动服务
         if self._enabled or self._onlyonce:
+            save_config = self._onlyonce or self._clear or self._clear_unrecognized
             if self._onlyonce:
                 self._scheduler = BackgroundScheduler(timezone=settings.TZ)
                 logger.info("豆瓣榜单Plus服务启动，立即运行一次")
@@ -250,7 +263,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 # 关闭未识别清理缓存
                 self._clear_unrecognized = False
 
-            if self._onlyonce or self._clear or self._clear_unrecognized:
+            if save_config:
                 # 关闭一次性开关
                 self._onlyonce = False
                 # 保存配置
@@ -278,24 +291,28 @@ class DoubanRankPlusOptimized(_PluginBase):
                 "path": "/delete_history",
                 "endpoint": self.delete_history,
                 "methods": ["GET"],
+                "auth": "bear",
                 "summary": "删除豆瓣榜单Plus历史记录",
             },
             {
                 "path": "/retry_history",
                 "endpoint": self.retry_history,
                 "methods": ["POST"],
+                "auth": "bear",
                 "summary": "重新处理失败的榜单条目",
             },
             {
                 "path": "/migrate-history",
                 "endpoint": self.get_migrate_history,
                 "methods": ["GET"],
+                "auth": "apikey",
                 "summary": "获取豆瓣榜单Plus历史记录",
             },
             {
                 "path": "/migrate-config",
                 "endpoint": self.get_migrate_config,
                 "methods": ["GET"],
+                "auth": "apikey",
                 "summary": "获取豆瓣榜单Plus配置",
             },
         ]
@@ -809,31 +826,31 @@ class DoubanRankPlusOptimized(_PluginBase):
         }
         return component
 
-    @staticmethod
-    def __get_icon_content():
+    @classmethod
+    def __get_icon_content(cls):
         color = "#8a8a8a"
         icon_content = {
-            Icons.RECOGNIZED: DoubanRankPlusOptimized.__get_svg_content(
+            Icons.RECOGNIZED: cls.__get_svg_content(
                 color,
                 [
                     "M512 417.792c-53.248 0-94.208 40.96-94.208 94.208 0 53.248 40.96 94.208 94.208 94.208 53.248 0 94.208-40.96 94.208-94.208 0-53.248-40.96-94.208-94.208-94.208z",
                     "M512 229.376C245.76 229.376 36.864 475.136 28.672 487.424c-12.288 16.384-12.288 36.864 0 53.248 8.192 12.288 217.088 258.048 483.328 258.048 266.24 0 475.136-245.76 483.328-258.048 12.288-16.384 12.288-36.864 0-53.248-8.192-12.288-217.088-258.048-483.328-258.048z m0 479.232c-106.496 0-196.608-90.112-196.608-196.608 0-110.592 90.112-196.608 196.608-196.608 110.592 0 196.608 90.112 196.608 196.608 0 110.592-86.016 196.608-196.608 196.608zM61.44 741.376c-24.576 0-40.96 16.384-40.96 40.96v180.224c0 24.576 16.384 40.96 40.96 40.96h180.224c24.576 0 40.96-16.384 40.96-40.96s-16.384-40.96-40.96-40.96H102.4v-139.264c0-24.576-16.384-40.96-40.96-40.96zM61.44 282.624c24.576 0 40.96-16.384 40.96-40.96V102.4H245.76c24.576 0 40.96-16.384 40.96-40.96s-16.384-40.96-40.96-40.96H61.44c-24.576 0-40.96 16.384-40.96 40.96V245.76c0 20.48 16.384 36.864 40.96 36.864zM782.336 102.4h139.264v139.264c0 24.576 16.384 40.96 40.96 40.96s40.96-16.384 40.96-40.96V61.44c0-24.576-16.384-40.96-40.96-40.96h-180.224c-24.576 0-40.96 16.384-40.96 40.96s16.384 40.96 40.96 40.96zM962.56 741.376c-24.576 0-40.96 16.384-40.96 40.96v143.36h-139.264c-24.576 0-40.96 16.384-40.96 40.96s16.384 40.96 40.96 40.96h180.224c24.576 0 40.96-16.384 40.96-40.96v-184.32c0-24.576-16.384-40.96-40.96-40.96z",
                 ],
             ),
-            Icons.STATISTICS: DoubanRankPlusOptimized.__get_svg_content(
+            Icons.STATISTICS: cls.__get_svg_content(
                 color,
                 [
                     "M471.04 270.336V20.48c-249.856 20.48-450.56 233.472-450.56 491.52 0 274.432 225.28 491.52 491.52 491.52 118.784 0 229.376-40.96 315.392-114.688L655.36 708.608c-40.96 28.672-94.208 45.056-139.264 45.056-135.168 0-245.76-106.496-245.76-245.76 0-114.688 81.92-217.088 200.704-237.568z",
                     "M552.96 20.48v249.856C655.36 286.72 737.28 368.64 753.664 471.04h249.856C983.04 233.472 790.528 40.96 552.96 20.48zM712.704 651.264l176.128 176.128c65.536-77.824 106.496-172.032 114.688-274.432h-249.856c-8.192 36.864-20.48 69.632-40.96 98.304z",
                 ],
             ),
-            Icons.UNRECOGNIZED: DoubanRankPlusOptimized.__get_svg_content(
+            Icons.UNRECOGNIZED: cls.__get_svg_content(
                 color,
                 [
                     "M241.664 921.6H102.4v-139.264c0-24.576-16.384-40.96-40.96-40.96s-40.96 16.384-40.96 40.96v180.224c0 24.576 16.384 40.96 40.96 40.96h180.224c24.576 0 40.96-16.384 40.96-40.96s-16.384-40.96-40.96-40.96zM245.76 20.48H61.44c-24.576 0-40.96 16.384-40.96 40.96V245.76c0 24.576 16.384 40.96 40.96 40.96s40.96-16.384 40.96-40.96V102.4H245.76c24.576 0 40.96-16.384 40.96-40.96s-20.48-40.96-40.96-40.96zM962.56 20.48h-180.224c-24.576 0-40.96 16.384-40.96 40.96s16.384 40.96 40.96 40.96h139.264v139.264c0 24.576 16.384 40.96 40.96 40.96s40.96-16.384 40.96-40.96V61.44c0-24.576-16.384-40.96-40.96-40.96zM962.56 741.376c-24.576 0-40.96 16.384-40.96 40.96v143.36h-139.264c-24.576 0-40.96 16.384-40.96 40.96s16.384 40.96 40.96 40.96h180.224c24.576 0 40.96-16.384 40.96-40.96v-184.32c0-24.576-16.384-40.96-40.96-40.96zM696.32 401.408c0-102.4-81.92-184.32-184.32-184.32S327.68 299.008 327.68 401.408c0 57.344 24.576 110.592 69.632 143.36l-36.864 204.8c-4.096 12.288 0 28.672 8.192 36.864 8.192 12.288 20.48 16.384 36.864 16.384h212.992c12.288 0 28.672-4.096 36.864-16.384 8.192-12.288 12.288-24.576 8.192-36.864l-36.864-204.8c45.056-28.672 69.632-81.92 69.632-143.36z"
                 ],
             ),
-            Icons.RSS: DoubanRankPlusOptimized.__get_svg_content(
+            Icons.RSS: cls.__get_svg_content(
                 color,
                 [
                     "M320.16155 831.918c0 70.738-57.344 128.082-128.082 128.082S63.99955 902.656 63.99955 831.918s57.344-128.082 128.082-128.082 128.08 57.346 128.08 128.082z m351.32 94.5c-16.708-309.2-264.37-557.174-573.9-573.9C79.31155 351.53 63.99955 366.21 63.99955 384.506v96.138c0 16.83 12.98 30.944 29.774 32.036 223.664 14.568 402.946 193.404 417.544 417.544 1.094 16.794 15.208 29.774 32.036 29.774h96.138c18.298 0.002 32.978-15.31 31.99-33.58z m288.498 0.576C943.19155 459.354 566.92955 80.89 97.00555 64.02 78.94555 63.372 63.99955 77.962 63.99955 96.032v96.136c0 17.25 13.67 31.29 30.906 31.998 382.358 15.678 689.254 322.632 704.93 704.93 0.706 17.236 14.746 30.906 31.998 30.906h96.136c18.068-0.002 32.658-14.948 32.01-33.008z"
@@ -842,11 +859,11 @@ class DoubanRankPlusOptimized(_PluginBase):
         }
         return icon_content
 
-    @staticmethod
+    @classmethod
     def __get_historys_statistic_content(
-        title: str, value: str, icon_name: Icons
+        cls, title: str, value: str, icon_name: Icons
     ) -> dict[str, Any]:
-        icon_content = DoubanRankPlusOptimized.__get_icon_content().get(icon_name, "")
+        icon_content = cls.__get_icon_content().get(icon_name, "")
         total_elements = {
             "component": "VCol",
             "props": {"cols": 6, "md": 3},
@@ -936,7 +953,7 @@ class DoubanRankPlusOptimized(_PluginBase):
 
         content = list(
             map(
-                lambda s: DoubanRankPlusOptimized.__get_historys_statistic_content(
+                lambda s: self.__get_historys_statistic_content(
                     title=s["title"],
                     value=s["value"],
                     icon_name=s["icon_name"],
@@ -994,7 +1011,6 @@ class DoubanRankPlusOptimized(_PluginBase):
                             "method": "get",
                             "params": {
                                 "key": f"{unique}",
-                                "apikey": settings.API_TOKEN,
                             },
                         }
                     },
@@ -1104,7 +1120,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 "text": "重新处理",
                 "events": {"click": {
                     "api": f"plugin/{self._plugin_id}/retry_history", "method": "post",
-                    "params": {"key": unique, "apikey": settings.API_TOKEN},
+                    "params": {"key": unique},
                 }},
             })
         return component
@@ -1241,7 +1257,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                     self._scheduler.shutdown(wait=False)
                 self._scheduler = None
         except Exception as e:
-            print(str(e))
+            logger.error(f"停止插件服务失败：{type(e).__name__}")
 
     def __validate_token(self, api_token: str) -> Any:
         """
@@ -1251,14 +1267,12 @@ class DoubanRankPlusOptimized(_PluginBase):
             return Response(success=False, message="API密钥错误")
         return None
 
-    def delete_history(self, key: str, apikey: str):
+    def delete_history(self, key: str):
         """
         删除同步历史记录
         """
         logger.debug(f"删除同步历史记录:::{key}")
-        validation_response = self.__validate_token(apikey)
-        if validation_response:
-            return validation_response
+        # 身份认证由 get_api() 声明的宿主 bear 依赖执行。
         if not self._task_lock.acquire(blocking=False):
             return Response(success=False, message="榜单任务正在运行，请结束后再操作")
         try:
@@ -1278,11 +1292,8 @@ class DoubanRankPlusOptimized(_PluginBase):
         }
 
     def retry_history(self, payload: Dict[str, str]):
-        # MP PageRender 将 POST 事件参数作为 JSON 请求体发送。
+        # MP PageRender 通过登录态调用，POST 参数是 JSON，请勿在页面下发 API Token。
         key = payload.get("key", "")
-        validation_response = self.__validate_token(payload.get("apikey", ""))
-        if validation_response:
-            return validation_response
         if not self._task_lock.acquire(blocking=False):
             return Response(success=False, message="榜单任务正在运行，请结束后再操作")
         try:
@@ -1338,7 +1349,6 @@ class DoubanRankPlusOptimized(_PluginBase):
             return validation_response
 
         __config = self.__get_config()
-        logger.debug(f"获取迁移配置:::{__config}")
         # 删除不需要的键
         for key in ["migrate_api_token", "migrate_from_url", "migrate_once"]:
             __config.pop(key, None)
@@ -1350,6 +1360,7 @@ class DoubanRankPlusOptimized(_PluginBase):
         """
         return {
             "enabled": self._enabled,
+            "proxy": self._proxy,
             "cron": self._cron,
             "onlyonce": self._onlyonce,
             "vote": self._vote,
@@ -1373,7 +1384,7 @@ class DoubanRankPlusOptimized(_PluginBase):
         更新配置
         """
         __config = self.__get_config()
-        logger.debug(f"更新配置 {__config}")
+        logger.debug("保存豆瓣榜单插件配置")
         self.update_config(__config)
 
     def __start_task(self, retry_only=False):
@@ -1540,9 +1551,9 @@ class DoubanRankPlusOptimized(_PluginBase):
                 self.__dispatch_item(previous["rss_info"], context, history, history_by_key, processed)
         logger.info("所有榜单RSS刷新完成")
 
-    @staticmethod
-    def __legacy_unique(rss_info):
-        return (f"{DoubanRankPlusOptimized.plugin_config_prefix}{rss_info.get('title')}_"
+    @classmethod
+    def __legacy_unique(cls, rss_info):
+        return (f"{cls.plugin_config_prefix}{rss_info.get('title')}_"
                 f"{rss_info.get('year')}_(DB:{rss_info.get('doubanid')})")
 
     @staticmethod
@@ -1795,11 +1806,11 @@ class DoubanRankPlusOptimized(_PluginBase):
                 catalog[int(season)]["year"] = str(year or "")
         return catalog
 
-    @staticmethod
-    def __recognition_problem(rss_info, meta, inferred_type, mediainfo, seasons_info):
+    @classmethod
+    def __recognition_problem(cls, rss_info, meta, inferred_type, mediainfo, seasons_info):
         if mediainfo.type not in (MediaType.MOVIE, MediaType.TV):
             return Status.IDENTITY_MISMATCH, "MP未返回明确的电影或电视剧类型"
-        if not DoubanRankPlusOptimized.__positive_id(mediainfo.tmdb_id):
+        if not cls.__positive_id(mediainfo.tmdb_id):
             return Status.IDENTITY_MISMATCH, "MP未返回有效 TMDB ID，暂缓订阅"
         if inferred_type and inferred_type != mediainfo.type:
             return Status.IDENTITY_MISMATCH, f"RSS指定{inferred_type.value}，MP识别为{mediainfo.type.value}，请检查来源类型或标题"
@@ -1947,14 +1958,14 @@ class DoubanRankPlusOptimized(_PluginBase):
         logger.warn("RSS连续三次请求失败，等待下次刷新")
         return None
 
-    @staticmethod
-    def __douban_subject_id(link):
+    @classmethod
+    def __douban_subject_id(cls, link):
         try:
             url = urlsplit(str(link or ""))
             if url.scheme not in ("http", "https") or url.hostname not in ("movie.douban.com", "www.douban.com", "douban.com"):
                 return None
             match = re.fullmatch(r"/(?:subject|doubanapp/dispatch/(?:movie|tv))/([0-9]+)/?", url.path)
-            return DoubanRankPlusOptimized.__positive_id(match[1]) if match else None
+            return cls.__positive_id(match[1]) if match else None
         except ValueError:
             return None
 
@@ -2320,10 +2331,10 @@ class DoubanRankPlusOptimized(_PluginBase):
         """
         从原MP API URL获取信息
         """
-        logger.info(f"开始从原MP获取数据，【请求URL】：{migrate_url}")
+        logger.info("开始从原MP获取插件数据")
 
         try:
-            res = RequestUtils().request(method="get", url=migrate_url)
+            res = RequestUtils(headers={"X-API-KEY": self._migrate_api_token}).request(method="get", url=migrate_url)
             if not res:
                 logger.error(
                     "没有获取到原MP信息，检查原MP地址和API Token是否正确，检查浏览器打开【请求URL】查看是能获取到数据"
@@ -2357,14 +2368,16 @@ class DoubanRankPlusOptimized(_PluginBase):
 
             return resData
         except requests.exceptions.RequestException as err:
-            logger.error(f"请求错误发生: {err}")  # 打印所有请求错误
+            logger.error(f"迁移请求失败：{type(err).__name__}")
         return None
 
     def __get_migrate_plugin_api_url(self, endpoint: str) -> str:
         """
         获取插件API URL
         """
-        return f"{self._migrate_from_url}/api/v1/plugin/{self._plugin_id}/{endpoint}?migrate_api_token={self._migrate_api_token}"
+        # 旧版迁移接口仍校验此参数；宿主认证另外经 X-API-KEY 请求头传递。
+        query = urlencode({"migrate_api_token": self._migrate_api_token})
+        return f"{self._migrate_from_url.rstrip('/')}/api/v1/plugin/{self._plugin_id}/{endpoint}?{query}"
 
     def __get_migrate_history(self):
         """

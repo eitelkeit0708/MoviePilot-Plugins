@@ -7,6 +7,7 @@ exists() uses meta.begin_season, and add() returns (subscription_id, message).
 """
 
 import copy
+import json
 import importlib.util
 import re
 import sys
@@ -14,7 +15,6 @@ import types
 import unittest
 from enum import Enum
 from pathlib import Path
-from threading import Event, Lock
 from unittest.mock import Mock, patch
 
 
@@ -35,10 +35,10 @@ class MetaInfo:
         self.year = None
 
 
-def load_plugin():
+def load_plugin(source=None, module_name="app.plugins.doubanrankplusoptimized"):
     exports = {
         "apscheduler.schedulers.background": {"BackgroundScheduler": Mock},
-        "apscheduler.triggers.cron": {"CronTrigger": Mock},
+        "apscheduler.triggers.cron": {"CronTrigger": Mock()},
         "app.schemas": {"Response": types.SimpleNamespace},
         "app.schemas.types": {"MediaType": MediaType},
         "app.core.context": {"MediaInfo": types.SimpleNamespace},
@@ -62,12 +62,16 @@ def load_plugin():
             modules.setdefault(parent, types.ModuleType(parent))
         modules[name].__dict__.update(attributes)
     spec = importlib.util.spec_from_file_location(
-        "doubanrankplusoptimized_under_test",
+        module_name,
         ROOT / "plugins.v2/doubanrankplusoptimized/__init__.py",
     )
     module = importlib.util.module_from_spec(spec)
+    modules[module_name] = module
     with patch.dict(sys.modules, modules):
-        spec.loader.exec_module(module)
+        if source is None:
+            spec.loader.exec_module(module)
+        else:
+            exec(compile(source, str(spec.origin), "exec"), module.__dict__)
     return module
 
 
@@ -77,8 +81,6 @@ MOD = load_plugin()
 def fixture(mtype=MediaType.TV, title="Example S02 Show", all_seasons=True,
             existing_seasons=(), library_exists=True):
     plugin = MOD.DoubanRankPlusOptimized()
-    plugin._event = Event()
-    plugin._task_lock = Lock()
     plugin._scheduler = None
     plugin._rss_addrs = ["https://example.invalid/rss;/movies#/tv#/anime"]
     plugin._ranks = []
@@ -379,16 +381,15 @@ class RetryWorkflowTests(unittest.TestCase):
         self.assertTrue(response.success)
         self.assertEqual(self.run_refresh(f), MOD.Status.SUBSCRIPTION_ADDED.value)
 
-    def test_bad_token_and_running_task_cannot_mutate_retry_or_delete(self):
+    def test_running_task_cannot_mutate_retry_or_delete(self):
         f = fixture(all_seasons=False)
         f.plugin.mediachain.recognize_media.return_value = None
         self.run_refresh(f)
         old = copy.deepcopy(f.store)
         key = self.record(f)["unique"]
-        self.assertFalse(f.plugin.retry_history({"key": key, "apikey": "bad-token"}).success)
         with f.plugin._task_lock:
             self.assertFalse(f.plugin.retry_history({"key": key, "apikey": "test-token"}).success)
-            self.assertFalse(f.plugin.delete_history(key, "test-token").success)
+            self.assertFalse(f.plugin.delete_history(key).success)
             f.plugin._DoubanRankPlusOptimized__start_task()
         self.assertEqual(f.store, old)
         self.assertEqual(f.plugin.mediachain.recognize_media.call_count, 1)
@@ -681,6 +682,141 @@ class IntakeOptimizationTests(unittest.TestCase):
         f.plugin.init_plugin({"sleep_time": "bad"})
         self.assertFalse(f.plugin._event.is_set())
         self.assertEqual((f.plugin._min_sleep_time, f.plugin._max_sleep_time), (3, 10))
+
+
+class PluginContractTests(unittest.TestCase):
+    run_refresh = WashSubscriptionTests.run_refresh
+
+    def test_market_metadata_versions_and_history_match_plugin(self):
+        entry = json.loads((ROOT / "package.v2.json").read_text(encoding="utf-8"))["DoubanRankPlusOptimized"]
+        cls = MOD.DoubanRankPlusOptimized
+        for field, attribute in {
+            "name": "plugin_name", "description": "plugin_desc", "icon": "plugin_icon",
+            "version": "plugin_version", "author": "plugin_author", "level": "auth_level",
+        }.items():
+            self.assertEqual(entry[field], getattr(cls, attribute), field)
+        self.assertEqual(next(iter(entry["history"])).lstrip("v"), entry["version"])
+        versions = [tuple(map(int, key.lstrip("v").split("."))) for key in entry["history"]]
+        self.assertEqual(versions, sorted(versions, reverse=True))
+        self.assertIs(entry["v3"], False)
+        self.assertTrue((ROOT / "plugins.v2" / cls.__name__.lower() / "__init__.py").is_file())
+
+    def test_instances_do_not_share_locks_or_stop_signals(self):
+        first, second = MOD.DoubanRankPlusOptimized(), MOD.DoubanRankPlusOptimized()
+        self.assertIsNot(first._event, second._event)
+        self.assertIsNot(first._task_lock, second._task_lock)
+        with first._task_lock:
+            self.assertTrue(second._task_lock.acquire(blocking=False))
+            second._task_lock.release()
+        first.stop_service()
+        self.assertFalse(second._event.is_set())
+        first._rss_addrs.append("only-first")
+        self.assertEqual(second._rss_addrs, [])
+
+    def test_physical_v2_clone_uses_own_class_paths_and_page_helpers(self):
+        source = (ROOT / "plugins.v2/doubanrankplusoptimized/__init__.py").read_text(encoding="utf-8")
+        # V2 host rewrites the class declaration and prefix, not arbitrary class references.
+        source = source.replace("class DoubanRankPlusOptimized(", "class DoubanRankPlusOptimizedcopy(")
+        source = source.replace('plugin_config_prefix = "doubanrankplusoptimized_"',
+                                'plugin_config_prefix = "doubanrankplusoptimizedcopy_"')
+        clone_module = load_plugin(source, "app.plugins.doubanrankplusoptimizedcopy")
+        clone = clone_module.DoubanRankPlusOptimizedcopy()
+        clone._enabled = True
+        clone._cron = "0 8 * * *"
+        self.assertEqual(clone.get_service()[0]["id"], "DoubanRankPlusOptimizedcopy")
+        f = fixture(all_seasons=False)
+        f.plugin.mediachain.recognize_media.return_value = None
+        self.run_refresh(f)
+        clone.get_data = f.plugin.get_data
+        page = json.dumps(clone.get_page(), ensure_ascii=False)
+        self.assertIn("plugin/DoubanRankPlusOptimizedcopy/retry_history", page)
+        self.assertNotIn("plugin/DoubanRankPlusOptimized/retry_history", page)
+        unique = clone._DoubanRankPlusOptimizedcopy__unique({"doubanid": "123"})
+        self.assertTrue(unique.startswith("doubanrankplusoptimizedcopy_"))
+        parse_id = clone._DoubanRankPlusOptimizedcopy__douban_subject_id
+        self.assertEqual(parse_id("https://movie.douban.com/subject/123/"), "123")
+
+    def test_reinitializing_empty_config_resets_previous_settings(self):
+        f = fixture()
+        f.plugin.init_plugin({"enabled": True, "proxy": True, "rss_addrs": "https://example.invalid/rss"})
+        self.assertTrue(f.plugin.get_state())
+        self.assertTrue(f.plugin._DoubanRankPlusOptimized__get_config()["proxy"])
+        f.plugin.init_plugin(None)
+        self.assertFalse(f.plugin.get_state())
+        self.assertFalse(f.plugin._proxy)
+        self.assertEqual(f.plugin._rss_addrs, [])
+        self.assertEqual(f.plugin.get_service(), [])
+
+    def test_clear_history_is_saved_as_one_shot_without_requiring_onlyonce(self):
+        f = fixture()
+        f.plugin.update_config = Mock()
+        f.plugin.init_plugin({"enabled": True, "clear": True, "clear_unrecognized": True})
+        saved = f.plugin.update_config.call_args.args[0]
+        self.assertFalse(saved["clear"])
+        self.assertFalse(saved["clear_unrecognized"])
+        self.assertTrue(f.plugin._clearflag)
+        self.assertTrue(f.plugin._clearflag_unrecognized)
+
+    @staticmethod
+    def client(plugin):
+        """Offline ASGI host harness: apply MP V2 get_api auth declarations before endpoints."""
+        from fastapi import FastAPI, Depends, Header, HTTPException
+        from fastapi.testclient import TestClient
+
+        def verify_token(authorization: str | None = Header(default=None)):
+            if authorization != "Bearer test-session":
+                raise HTTPException(status_code=401)
+
+        def verify_apikey(apikey: str | None = None, x_api_key: str | None = Header(default=None)):
+            if (x_api_key or apikey) != "test-token":
+                raise HTTPException(status_code=401)
+
+        app = FastAPI()
+        for api in plugin.get_api():
+            auth = api.pop("auth", "apikey")
+            app.add_api_route(
+                **api, dependencies=[Depends(verify_token if auth == "bear" else verify_apikey)]
+            )
+        return TestClient(app)
+
+    def test_history_actions_accept_login_but_reject_anonymous_json_api_key(self):
+        f = fixture(all_seasons=False)
+        f.plugin.mediachain.recognize_media.return_value = None
+        self.run_refresh(f)
+        old = copy.deepcopy(f.store)
+        record = f.store["history"][0]
+        card = f.plugin._DoubanRankPlusOptimized__get_history_post_content(record)
+        event = card["content"][-1]["events"]["click"]
+        self.assertNotIn("test-token", json.dumps(card))
+        with self.client(f.plugin) as client:
+            response = client.post("/retry_history", json={"key": record["unique"], "apikey": "test-token"})
+            self.assertEqual(response.status_code, 401)
+            response = client.get("/delete_history", params={"key": record["unique"]})
+            self.assertEqual(response.status_code, 401)
+            self.assertEqual(f.store, old)
+            response = client.post("/retry_history", json=event["params"], headers={"Authorization": "Bearer test-session"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["success"])
+            response = client.get("/delete_history", params={"key": record["unique"]}, headers={"Authorization": "Bearer test-session"})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertTrue(response.json()["success"])
+            self.assertEqual(f.store["history"], [])
+
+    def test_migration_uses_native_api_key_and_retains_legacy_parameter(self):
+        from urllib.parse import parse_qs, urlsplit
+        f = fixture()
+        f.plugin._migrate_from_url = "https://example.invalid/"
+        f.plugin._migrate_api_token = "test-token"
+        target = f.plugin._DoubanRankPlusOptimized__get_migrate_plugin_api_url("migrate-history")
+        self.assertEqual(parse_qs(urlsplit(target).query), {"migrate_api_token": ["test-token"]})
+        with patch.object(MOD, "RequestUtils") as request:
+            request.return_value.request.return_value.json.return_value = {"sample": True}
+            self.assertEqual(f.plugin._DoubanRankPlusOptimized__get_migrate_info(target), {"sample": True})
+            self.assertEqual(request.call_args.kwargs["headers"], {"X-API-KEY": "test-token"})
+        with self.client(f.plugin) as client:
+            self.assertEqual(client.get("/migrate-history?migrate_api_token=test-token").status_code, 401)
+            self.assertEqual(client.get("/migrate-history?migrate_api_token=test-token",
+                                        headers={"X-API-KEY": "test-token"}).status_code, 200)
 
 
 class RssRequestTests(unittest.TestCase):
