@@ -1,13 +1,16 @@
 {
     "DoubanRankPlusOptimized": {
         "name": "豆瓣榜单订阅Plus优化版",
-        "description": "豆瓣榜单订阅优化版：识别率98%，处理速度提升4倍，无豆瓣API依赖，支持自定义RSS配置",
+        "description": "豆瓣榜单自动洗版订阅：电影洗版、剧集分集洗版，支持自定义RSS、按季重试与历史去重",
         "labels": "订阅",
-        "version": "1.0.7",
+        "version": "1.0.10",
         "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png",
         "author": "eitelkeit0708 (based on boeto's work)",
         "level": 2,
         "history": {
+            "v1.0.10": "feat: 豆瓣ID及媒体季度双重去重并兼容旧历史；启用可中断处理间隔和RSS限次重试；使用实际季度元数据，校验类型年份季号，保留数字片名；明确MP评分来源及洗版规则继承",
+            "v1.0.9": "fix: 失败项限次重试并支持手动重新处理；按季保存订阅结果，仅重试失败季度；隔离单条异常，补充年份评分缺失处理和任务互斥",
+            "v1.0.8": "fix: 电影和电视剧均创建洗版订阅，电视剧固定分集洗版；允许已入库内容洗版，修复全季订阅按季去重及创建失败误报成功",
             "v1.0.7": "fix: 修复添加订阅时best_version字段类型错误(Boolean->Integer)，解决Postgres数据库报错问题",
             "v1.0.6": "fix: 修复rss_type字符串未转换为MediaType枚举的关键bug,确保meta.type接收正确类型",
             "v1.0.5": "fix: 修复日志输出使用错误的类型变量,确保Type正确显示inferred_type而非mtype",

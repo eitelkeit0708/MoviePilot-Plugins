@@ -1,7 +1,10 @@
 import datetime
+import math
 import re
 import xml.dom.minidom
-from threading import Event
+from copy import copy, deepcopy
+from threading import Event, Lock
+from urllib.parse import urlsplit
 from typing import Optional, Tuple, List, Dict, Any, TypedDict
 import time
 import random
@@ -15,7 +18,6 @@ from app.schemas import Response
 from app.schemas.types import MediaType
 from app.core.context import MediaInfo
 from app.core.meta.metabase import MetaBase
-from app.chain.download import DownloadChain
 from app.chain.media import MediaChain
 from app.chain.subscribe import SubscribeChain
 from app.core.config import settings
@@ -35,6 +37,13 @@ class Status(Enum):
     MEDIA_EXISTS = "媒体库已存在"
     SUBSCRIPTION_EXISTS = "订阅已存在"
     SUBSCRIPTION_ADDED = "已添加订阅"
+    SUBSCRIPTION_FAILED = "添加订阅失败"
+    PARTIAL_SUCCESS = "部分订阅成功"
+    PROCESS_FAILED = "处理失败"
+    YEAR_UNKNOWN = "年份信息缺失"
+    RATING_UNKNOWN = "评分信息缺失"
+    SEASON_UNKNOWN = "季度信息缺失"
+    IDENTITY_MISMATCH = "识别信息待核对"
 
 
 class HistoryDataType(Enum):
@@ -83,7 +92,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/boeto/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "1.0.7"
+    plugin_version = "1.0.10"
     # 插件作者
     plugin_author = "eitelkeit"
     # 作者主页
@@ -97,8 +106,15 @@ class DoubanRankPlusOptimized(_PluginBase):
 
     # 退出事件
     _event = Event()
+    _task_lock = Lock()
+    _retry_delays = (15 * 60, 60 * 60, 6 * 60 * 60)
+    _retryable_statuses = {
+        Status.UNRECOGNIZED.value, Status.SUBSCRIPTION_FAILED.value,
+        Status.PROCESS_FAILED.value, Status.YEAR_UNKNOWN.value, Status.RATING_UNKNOWN.value,
+        Status.SEASON_UNKNOWN.value, Status.IDENTITY_MISMATCH.value,
+    }
+    _successful_statuses = {Status.SUBSCRIPTION_ADDED.value, Status.SUBSCRIPTION_EXISTS.value}
 
-    downloadchain: DownloadChain
     subscribechain: SubscribeChain
     mediachain: MediaChain
     doubanapi: DoubanApi
@@ -134,7 +150,24 @@ class DoubanRankPlusOptimized(_PluginBase):
     _migrate_once = False
 
     def init_plugin(self, config: dict[str, Any] | None = None):
-        self.downloadchain = DownloadChain()
+        self.stop_service()
+        # 等旧任务退出后再更新配置，避免清除退出信号使旧任务继续运行。
+        with self._task_lock:
+            self._event.clear()
+            self.__configure_plugin(config)
+
+    @staticmethod
+    def __sleep_range(value):
+        try:
+            minimum, maximum = map(int, re.split("[,，]", str(value)))
+            if 0 <= minimum <= maximum <= 3600:
+                return minimum, maximum
+        except (ValueError, TypeError):
+            pass
+        logger.warn("处理间隔格式不正确，使用默认值 3,10（允许 0 至 3600 秒）")
+        return 3, 10
+
+    def __configure_plugin(self, config):
         self.subscribechain = SubscribeChain()
         self.mediachain = MediaChain()
         self.doubanapi = DoubanApi()
@@ -168,25 +201,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 else 0.0
             )
 
-            __sleep_time = config.get("sleep_time", "3,10").strip()
-            __sleep_time_list = re.split("[,，]", __sleep_time)
-
-            self._min_sleep_time, self._max_sleep_time = (
-                3,
-                10,
-            )  # default values
-
-            if len(__sleep_time_list) == 2:
-                __min_sleep_time, __max_sleep_time = map(
-                    int, __sleep_time_list
-                )
-                if __max_sleep_time >= __min_sleep_time:
-                    self._min_sleep_time = __min_sleep_time
-                    self._max_sleep_time = __max_sleep_time
-                else:
-                    logger.warn("最大休眠时间小于最小休眠时间,使用默认值")
-            else:
-                logger.warn("休眠时间配置格式不正确,使用默认值")
+            self._min_sleep_time, self._max_sleep_time = self.__sleep_range(config.get("sleep_time", "3,10"))
 
             rss_addrs = config.get("rss_addrs")
             if rss_addrs and isinstance(rss_addrs, str):
@@ -203,9 +218,6 @@ class DoubanRankPlusOptimized(_PluginBase):
             self._is_exit_ip_rate_limit = config.get(
                 "is_exit_ip_rate_limit", False
             )
-
-        # 停止现有任务
-        self.stop_service()
 
         # 启动服务
         if self._enabled or self._onlyonce:
@@ -267,6 +279,12 @@ class DoubanRankPlusOptimized(_PluginBase):
                 "endpoint": self.delete_history,
                 "methods": ["GET"],
                 "summary": "删除豆瓣榜单Plus历史记录",
+            },
+            {
+                "path": "/retry_history",
+                "endpoint": self.retry_history,
+                "methods": ["POST"],
+                "summary": "重新处理失败的榜单条目",
             },
             {
                 "path": "/migrate-history",
@@ -455,8 +473,8 @@ class DoubanRankPlusOptimized(_PluginBase):
                                             "component": "VTextField",
                                             "props": {
                                                 "model": "sleep_time",
-                                                "label": "随机休眠时间范围",
-                                                "placeholder": "默认: 3,10。减少豆瓣访问频率。格式：最小秒数,最大秒数。",
+                                                "label": "条目处理间隔（秒）",
+                                                "placeholder": "默认 3,10；每处理一条后随机等待，可填 0,0；范围 0–3600。",
                                             },
                                         }
                                     ],
@@ -474,8 +492,8 @@ class DoubanRankPlusOptimized(_PluginBase):
                                             "component": "VTextField",
                                             "props": {
                                                 "model": "vote",
-                                                "label": "评分",
-                                                "placeholder": "评分大于等于该值才订阅",
+                                                "label": "MP 识别评分下限",
+                                                "placeholder": "0–10，留空不限；不保证是豆瓣评分",
                                             },
                                         }
                                     ],
@@ -604,6 +622,18 @@ class DoubanRankPlusOptimized(_PluginBase):
                                             "content": [
                                                 {
                                                     "component": "p",
+                                                    "text": "电影和电视剧均创建洗版订阅，电视剧使用分集洗版。已成功处理的记录不会重复创建；失败项最多自动重试三次，分别在15分钟、1小时、6小时后的任务运行中处理，也可在历史卡片中重新处理。",
+                                                },
+                                                {
+                                                    "component": "p",
+                                                    "text": "评分采用 MP 识别结果，不保证来自豆瓣。洗版质量、分辨率和优先级由 MP 规则决定：订阅继承的默认过滤规则组优先，未设置时使用 MP 洗版规则组。本插件不单独指定 4K 等质量目标。",
+                                                },
+                                                {
+                                                    "component": "p",
+                                                    "text": "全部季度只处理 MP 元数据中实际存在的正式季；集数未提供的季度稍后重试。关闭全部季度时按标题中的明确季号处理，未指定则为第 1 季；特别篇需明确第 0 季。数字结尾片名不会被强制改成季号。RSS 类型、年份或季度与识别结果冲突时暂缓订阅，请在历史卡片查看原因。",
+                                                },
+                                                {
+                                                    "component": "p",
                                                     "text": "每行一个地址。地址后可选加分号 `;`，第一个分号后是自定义地址的下载路径，用#按类型分割下载路径/电影#/电视剧#/动漫；第二个分号后以@开头并以@结尾，则按类型订阅，只订阅电影：@movies@，只订阅电视剧： @tv@。如果你只需要类型则以两个分号+@作为类型选择.。注意电影英文后面是带s的，tv没有s",
                                                 },
                                                 {
@@ -644,7 +674,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                                             "content": [
                                                 {
                                                     "component": "span",
-                                                    "text": "每行一个RSS地址,格式: URL@@TYPE (TYPE可选: TV 或 Movie)。@@TYPE可选,不填时不进行季度转换。",
+                                                    "text": "每行一个RSS地址，格式：URL@@TYPE（可选 TV 或 Movie）。类型用于辅助识别和校验；标题中的明确季号由 MP 解析。",
                                                 },
                                             ],
                                         },
@@ -1025,7 +1055,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                                 {
                                     "component": "VCardText",
                                     "props": {"class": "pa-0 px-2"},
-                                    "text": f"评分: {vote}",
+                                    "text": f"MP 识别评分: {vote}",
                                 },
                                 {
                                     "component": "VCardText",
@@ -1044,6 +1074,39 @@ class DoubanRankPlusOptimized(_PluginBase):
             ],
         }
 
+        details = []
+        if history.get("summary"):
+            details.append(history["summary"])
+        if history.get("error"):
+            details.append(history["error"])
+        results = list(history.get("season_results", {}).values())
+        for result in results:
+            label = f"第 {result['season']} 季" if result.get("season") is not None else "电影"
+            details.append(f"{label}：{result['status']}" + (f"（{result['error']}）" if result.get("error") else ""))
+        retries = [history["retry"]] if history.get("retry") else [r["retry"] for r in results if r.get("retry")]
+        due = [r["next_retry_at"] for r in retries if r.get("next_retry_at") is not None]
+        if history.get("manual_retry"):
+            details.append("已安排重新处理")
+        elif due:
+            if min(due) <= time.time():
+                details.append("已到重试时间，等待下次任务运行")
+            else:
+                when = datetime.datetime.fromtimestamp(min(due), tz=pytz.timezone(settings.TZ))
+                details.append(f"下次重试：{when:%m-%d %H:%M} 后的任务运行中")
+        if any(r.get("next_retry_at") is None for r in retries):
+            details.append("部分失败项已达自动重试上限，可重新处理")
+        component["content"].extend({
+            "component": "VCardText", "props": {"class": "py-1 px-2"}, "text": detail,
+        } for detail in details)
+        if self.__can_retry(history):
+            component["content"].append({
+                "component": "VBtn", "props": {"variant": "text", "size": "small"},
+                "text": "重新处理",
+                "events": {"click": {
+                    "api": f"plugin/{self._plugin_id}/retry_history", "method": "post",
+                    "params": {"key": unique, "apikey": settings.API_TOKEN},
+                }},
+            })
         return component
 
     def __get_historys_posts_content(
@@ -1170,13 +1233,12 @@ class DoubanRankPlusOptimized(_PluginBase):
         """
         停止服务
         """
+        self._event.set()
         try:
             if self._scheduler:
                 self._scheduler.remove_all_jobs()
                 if self._scheduler.running:
-                    self._event.set()
-                    self._scheduler.shutdown()
-                    self._event.clear()
+                    self._scheduler.shutdown(wait=False)
                 self._scheduler = None
         except Exception as e:
             print(str(e))
@@ -1197,14 +1259,64 @@ class DoubanRankPlusOptimized(_PluginBase):
         validation_response = self.__validate_token(apikey)
         if validation_response:
             return validation_response
-        # 历史记录
-        historys = self.get_data("history")
-        if not historys:
-            return Response(success=False, message="未找到历史记录")
-        # 删除指定记录
-        historys = [h for h in historys if h.get("unique") != key]
-        self.save_data("history", historys)
-        return Response(success=True, message="删除成功")
+        if not self._task_lock.acquire(blocking=False):
+            return Response(success=False, message="榜单任务正在运行，请结束后再操作")
+        try:
+            historys = self.get_data("history")
+            if not historys:
+                return Response(success=False, message="未找到历史记录")
+            historys = [h for h in historys if h.get("unique") != key]
+            self.save_data("history", historys)
+            return Response(success=True, message="删除成功")
+        finally:
+            self._task_lock.release()
+
+    @classmethod
+    def __can_retry(cls, history):
+        return history.get("status") in cls._retryable_statuses | {
+            Status.PARTIAL_SUCCESS.value, Status.YEAR_NOT_MATCH.value, Status.RATING_NOT_MATCH.value,
+        }
+
+    def retry_history(self, payload: Dict[str, str]):
+        # MP PageRender 将 POST 事件参数作为 JSON 请求体发送。
+        key = payload.get("key", "")
+        validation_response = self.__validate_token(payload.get("apikey", ""))
+        if validation_response:
+            return validation_response
+        if not self._task_lock.acquire(blocking=False):
+            return Response(success=False, message="榜单任务正在运行，请结束后再操作")
+        try:
+            history = self.get_data("history") or []
+            record = next((item for item in history if item.get("unique") == key), None)
+            if record is None or not self.__can_retry(record):
+                return Response(success=False, message="未找到可重试的失败或跳过记录")
+            sources = self._rss_addrs + [self._douban_address.get(rank) for rank in self._ranks]
+            if not sources or record.get("source") and record["source"] not in sources:
+                return Response(success=False, message="请先恢复该条目所属的榜单来源")
+            record["manual_retry"] = True
+            if record.get("retry") is not None:
+                record["retry"] = {"attempts": 0, "next_retry_at": 0}
+            for result in record.get("season_results", {}).values():
+                if result.get("status") in self._retryable_statuses:
+                    result["retry"] = {"attempts": 0, "next_retry_at": 0}
+            self.save_data("history", history)
+            try:
+                if self._scheduler is None:
+                    self._scheduler = BackgroundScheduler(timezone=settings.TZ)
+                self._event.clear()
+                self._scheduler.add_job(
+                    self.__start_task, trigger="date", id="retry_history", replace_existing=True,
+                    kwargs={"retry_only": True},
+                    run_date=datetime.datetime.now(tz=pytz.timezone(settings.TZ)) + datetime.timedelta(seconds=1),
+                )
+                if not self._scheduler.running:
+                    self._scheduler.start()
+            except Exception as error:
+                logger.error(f"安排榜单重试失败: {error}")
+                return Response(success=True, message="重试标记已保存，请使用立即运行一次或等待下次定时任务")
+            return Response(success=True, message="已安排重新处理；成功季度会保留，旧版记录需再次出现在榜单中")
+        finally:
+            self._task_lock.release()
 
     def get_migrate_history(self, migrate_api_token: str):
         """
@@ -1264,7 +1376,18 @@ class DoubanRankPlusOptimized(_PluginBase):
         logger.debug(f"更新配置 {__config}")
         self.update_config(__config)
 
-    def __start_task(self):
+    def __start_task(self, retry_only=False):
+        if not self._task_lock.acquire(blocking=False):
+            logger.info("榜单任务正在运行，本次触发跳过")
+            return
+        try:
+            if self._event.is_set():
+                return
+            self.__run_task(retry_only=retry_only)
+        finally:
+            self._task_lock.release()
+
+    def __run_task(self, retry_only=False):
         """
         运行任务
         """
@@ -1299,11 +1422,8 @@ class DoubanRankPlusOptimized(_PluginBase):
                     self._release_year = __original_config.get(
                         "release_year", self._release_year
                     )
-                    self._min_sleep_time, self._max_sleep_time = map(
-                        int,
-                        __original_config.get(
-                            "sleep_time", self._min_sleep_time
-                        ).split(","),
+                    self._min_sleep_time, self._max_sleep_time = self.__sleep_range(
+                        __original_config.get("sleep_time", "3,10")
                     )
                     self._history_type = __original_config.get(
                         "history_type", self._history_type
@@ -1366,338 +1486,360 @@ class DoubanRankPlusOptimized(_PluginBase):
                     f"已清理 {deleted_count} 条 {self.plugin_name} 未识别的历史记录"
                 )
 
-        # 提取 history 中的 unique 值到一个集合中
-        unique_flags = {h.get("unique") for h in history if h is not None}
-
-        # 初始化豆瓣IP限制判断
-        douban_last_ip_rate_limit_datetime = None
-        douban_ip_rate_limit_times = 0
-
-        # count_addr_list = 0
-        for addr_index, _addr in enumerate(addr_list):
-            # count_addr_list += 1
-            # if addr_index == 5 or addr_index == 5:
-            #     break
-
-            if not _addr:
+        history_by_key = {}
+        self._successful_targets = set()
+        self._next_item_at = 0
+        for record in history:
+            if not isinstance(record, dict):
+                continue
+            self.__remember_successes(record)
+            for key in self.__history_keys(record):
+                incumbent = history_by_key.get(key)
+                if incumbent is None or self.__history_priority(record) > self.__history_priority(incumbent):
+                    history_by_key[key] = record
+        requested = {h["unique"] for h in history if isinstance(h, dict) and h.get("manual_retry")}
+        # 新版历史已有原条目，单条重试直接复用；旧历史才需要从榜单重新查找。
+        fetch_rss = not retry_only or any(not history_by_key[key].get("rss_info") for key in requested)
+        processed = set()
+        contexts = {}
+        for addr_index, source in enumerate(addr_list):
+            if not source or self._event.is_set():
                 continue
             try:
-                # 解析RSS配置: URL@@TYPE格式
-                # 例如: http://rss@@TV -> url='http://rss', rss_type='TV'
-                rss_url, rss_type_str = DoubanRankPlusOptimized.__parse_rss_config(_addr)
+                rss_url, type_hint = self.__parse_rss_config(source)
                 if not rss_url:
                     continue
-                
-                # 将字符串类型转换为MediaType枚举
-                rss_type = None
-                if rss_type_str:
-                    rss_type_lower = rss_type_str.lower()
-                    if rss_type_lower == 'movie':
-                        rss_type = MediaType.MOVIE
-                    elif rss_type_lower == 'tv':
-                        rss_type = MediaType.TV
-                    else:
-                        logger.warn(f"未知的RSS类型: {rss_type_str}, 将被忽略")
-                
-                logger.info(f"获取RSS：{rss_url} ..." + (f" (类型: {rss_type})" if rss_type else ""))
-                
-                addr_result = DoubanRankPlusOptimized.__get_info_addr(rss_url)
-                addr = addr_result.get("addr", None)
-                customize_save_paths = addr_result.get(
-                    "customize_save_paths", None
+                rss_type = {"movie": MediaType.MOVIE, "tv": MediaType.TV}.get(
+                    (type_hint or "").lower()
                 )
-                subscription_type = addr_result.get("subscription_type", None)
-
-                logger.debug(f"addr::: {addr}")
-                logger.debug(f"customize_save_paths::: {customize_save_paths}")
-                logger.debug(f"subscription_type::: {subscription_type}")
-
-                rss_infos = self.__get_rss_info(addr)
-                if not rss_infos:
-                    logger.error(f"RSS地址：{addr} ，未查询到数据")
-                    continue
-                else:
-                    logger.info(
-                        f"RSS地址：{addr} ，共 {len(rss_infos)} 条数据"
-                    )
-
-                for rss_info_index, rss_info in enumerate(rss_infos):
+                addr_info = self.__get_info_addr(rss_url)
+                context = dict(addr_info, source=source, rss_type=rss_type)
+                contexts[source] = context
+                rss_infos = self.__get_rss_info(addr_info.get("addr")) if fetch_rss else []
+                logger.info(f"榜单 {addr_index + 1}/{len(addr_list)} 获取到 {len(rss_infos)} 条数据")
+                for rss_info in rss_infos:
                     if self._event.is_set():
-                        logger.info("订阅服务停止")
                         return
-
-                    logger.info(
-                        f"第 {addr_index + 1}/{len(addr_list)} 条订阅数据处理进度: {rss_info_index + 1}/{len(rss_infos)}"
-                    )
-
-                    logger.debug(f"rss_info:::{rss_info}")
-                    title = rss_info.get("title")
-                    if not title:
-                        logger.warn("标题为空，无法处理")
-                        continue
-
-                    douban_id = rss_info.get("doubanid")
-                    year = rss_info.get("year")
-                    type_str = rss_info.get("mtype")
-                    
-                    # 初始化mtype为None,避免RSS无type字段时变量未定义
-                    mtype = None
-                    if type_str == "movie":
-                        mtype = MediaType.MOVIE
-                    elif type_str:
-                        mtype = MediaType.TV
-                    
-                    # 类型判断优先级:
-                    # 1. 用户在配置中指定的类型 (URL@@TYPE)
-                    # 2. RSS自带的mtype字段
-                    # 3. None (不进行季度转换,更安全)
-                    inferred_type = rss_type or mtype
-                    
-                    unique_flag = f"{self.plugin_config_prefix}{title}_{year}_(DB:{douban_id})"
-                    logger.debug(f"unique_flag:::{unique_flag}")
-
-                    # 在集合中查找 unique_flag
-                    if unique_flag in unique_flags:
-                        logger.info(
-                            f"已处理过: Title: {title}, Year:{year}, DBID:{douban_id}"
-                        )
-                        continue
-
-                    logger.info(
-                        f"开始处理: Title: {title}, Year:{year}, DBID:{douban_id}, Type:{inferred_type}"
-                    )
-                    
-                    # 简化的标题处理逻辑:
-                    # 直接使用RSS标题,只做基本清理(去除多余空格)
-                    # RSS标题本身就来自豆瓣,格式已经很标准,MetaInfo可以很好地解析
-                    # 避免额外的豆瓣API调用,更快速、更稳定
-                    
-                    clean_title = DoubanRankPlusOptimized.__clean_title(title, inferred_type)
-                    if clean_title != title:
-                        logger.info(f"清理后的标题: {clean_title}")
-                    
-                    # 使用RSS提供的年份
-                    clean_year = year
-                    
-                    # 创建MetaInfo对象
-                    # MetaInfo会自动从标题中解析季度信息
-                    # 例如: "我变美的那夏天 第三季" -> title="我变美的那夏天", season=3
-                    meta = MetaInfo(clean_title)
-                    meta.year = clean_year
-                    # 使用inferred_type而不是mtype，这样配置的@@TYPE会生效
-                    if inferred_type:
-                        meta.type = inferred_type
-                    logger.debug(f"MetaInfo meta:::{meta}")
-                    
-                    # 豆瓣IP限制判断
-                    if douban_last_ip_rate_limit_datetime:
-                        if (
-                            datetime.datetime.now(
-                                tz=pytz.timezone(settings.TZ)
-                            )
-                            - douban_last_ip_rate_limit_datetime
-                        ).seconds > 4200:
-                            # 超过70分钟，重置
-                            logger.info(
-                                f"解除豆瓣IP限制, 上次触发时间为: {douban_last_ip_rate_limit_datetime}, 已触发次数: {douban_ip_rate_limit_times}"
-                            )
-                            douban_last_ip_rate_limit_datetime = None
-
-
-                    # 优化版识别逻辑:
-                    # 无论是否有豆瓣ID,都直接使用RSS标题识别
-                    # 测试证明识别率100%,远超豆瓣API的67%
-                    logger.info(
-                        f"开始识别 {clean_title} 的媒体信息, 类型: {meta.type}"
-                    )
-                    mediainfo = self.mediachain.recognize_media(
-                        meta=meta,
-                    )
-                    if not mediainfo:
-                        logger.warn(
-                            f"未识别到 {clean_title} 的媒体信息, 豆瓣ID: {douban_id}"
-                        )
-                        # 存储历史记录
-                        history_payload = DoubanRankPlusOptimized.__get_history_unrecognized_payload(
-                            title, unique_flag, year, douban_id
-                        )
-                        history.append(history_payload)
-                        unique_flags.add(unique_flag)
-                        logger.debug(f"已添加到历史：{history_payload}")
-                        continue
-
-                    # logger.debug(f"{mediainfo}:::{mediainfo}")
-                    logger.debug(f"{meta}:::{meta}")
-                    logger.info(
-                        f"已识别到 {title} ({year}) 的媒体信息: {mediainfo.title_year}, 类型: {mediainfo.type}"
-                    )
-
-                    if self._is_only_movies and mediainfo.type == MediaType.TV:
-                        logger.info(f"仅下载电影，跳过 {mediainfo.title_year}")
-                        continue
-
-                    if subscription_type:
-                        if (
-                            subscription_type == "movies"
-                            and mediainfo.type == MediaType.TV
-                        ):
-                            logger.info(
-                                f"仅下载电影，跳过 {mediainfo.title_year}"
-                            )
+                    rss_info = self.__apply_type_hint(rss_info, rss_type)
+                    if retry_only:
+                        record = self.__find_history(history_by_key, rss_info) if isinstance(rss_info, dict) else {}
+                        if not record or record.get("unique") not in requested:
                             continue
-                        if (
-                            subscription_type == "tv"
-                            and mediainfo.type == MediaType.MOVIE
-                        ):
-                            logger.info(
-                                f"仅下载剧集，跳过 {mediainfo.title_year}"
-                            )
-                            continue
+                    self.__dispatch_item(rss_info, context, history, history_by_key, processed)
+            except Exception as error:
+                logger.error(f"处理RSS地址 {source} 失败: {error}")
 
-                    # 保存路径
-                    save_path = None
-                    if customize_save_paths and isinstance(
-                        customize_save_paths, dict
-                    ):
-                        if mediainfo.type == MediaType.TV:
-                            save_path = customize_save_paths.get("tv")
-                        elif mediainfo.type == MediaType.MOVIE:
-                            save_path = customize_save_paths.get("movie")
-
-                    number_of_seasons = mediainfo.number_of_seasons
-                    logger.debug(f"number_of_seasons:::{number_of_seasons}")
-
-                    # 已识别状态默认值
-                    status = Status.UNCATEGORIZED
-
-                    # 查询缺失的媒体信息
-                    is_exist_all, missing_season = self.__check_lib_exists(
-                        meta, mediainfo, mediainfo.type == MediaType.MOVIE
-                    )
-
-                    logger.debug(
-                        f"is_exist_all:::{is_exist_all}, missing_season:::{missing_season}"
-                    )
-
-                    # 如果是剧集且开启全季订阅，则轮流下载每一季
-                    if (
-                        self._is_seasons_all
-                        and mediainfo.type == MediaType.TV
-                        and number_of_seasons
-                        and not is_exist_all
-                    ):
-                        logger.debug(
-                            f"meta.begin_season:::{meta.begin_season}"
-                        )
-                        genre_ids = mediainfo.genre_ids
-                        ANIME_GENRE_ID = 16
-                        logger.debug(
-                            f"{mediainfo.title_year} genre_ids::: {genre_ids}"
-                        )
-                        if (
-                            ANIME_GENRE_ID in genre_ids
-                            and customize_save_paths
-                            and isinstance(customize_save_paths, dict)
-                        ):
-                            save_path = customize_save_paths.get("anime")
-                            logger.info(
-                                f"{mediainfo.title_year} 为动漫类别, 动漫自定义保存路径为: {save_path}"
-                            )
-
-                        for i in range(1, number_of_seasons + 1):
-                            logger.debug(
-                                f"开始添加 {mediainfo.title_year} 第{i}/{number_of_seasons}季订阅"
-                            )
-                            __status = self.__checke_and_add_subscribe(
-                                meta=meta,
-                                mediainfo=mediainfo,
-                                season=i,
-                                save_path=save_path,
-                                is_exist_all=is_exist_all,
-                                missing_season=missing_season,
-                            )
-                            if not meta.begin_season or i == meta.begin_season:
-                                status = __status
-                    else:
-                        status = self.__checke_and_add_subscribe(
-                            meta=meta,
-                            mediainfo=mediainfo,
-                            season=meta.begin_season,
-                            save_path=save_path,
-                            is_exist_all=is_exist_all,
-                            missing_season=missing_season,
-                        )
-
-                    # 存储历史记录
-                    history_payload = {
-                        "title": title,
-                        "type": mediainfo.type.value,
-                        "year": mediainfo.year,
-                        "poster": mediainfo.get_poster_image(),
-                        "overview": mediainfo.overview,
-                        "tmdbid": str(mediainfo.tmdb_id) or "0",
-                        "doubanid": douban_id or "0",
-                        "unique": unique_flag,
-                        "time": datetime.datetime.now(
-                            tz=pytz.timezone(settings.TZ)
-                        ).strftime("%m-%d %H:%M"),
-                        "time_full": datetime.datetime.now(
-                            tz=pytz.timezone(settings.TZ)
-                        ).strftime("%Y-%m-%d %H:%M:%S"),
-                        "vote": mediainfo.vote_average,
-                        "status": status.value,
-                    }
-                    history.append(history_payload)
-                    unique_flags.add(unique_flag)
-                    logger.debug(f"已添加到历史：{history_payload}")
-
-            except Exception as e:
-                logger.error(f"处理RSS地址：{addr} 出错: {str(e)}")
-            finally:
-                # 保存历史记录
-                logger.info(f"保存榜单 {addr} 处理后的历史记录")
-
-                self.save_data("history", history)
-
+        # 失败条目即使退出榜单仍可重试；来源移除后不再自动处理。
+        for previous in list(history):
+            if self._event.is_set():
+                return
+            if not isinstance(previous, dict):
+                continue
+            context = contexts.get(previous.get("source"))
+            if context and previous.get("rss_info") and (not retry_only or previous.get("unique") in requested):
+                self.__dispatch_item(previous["rss_info"], context, history, history_by_key, processed)
         logger.info("所有榜单RSS刷新完成")
 
-    def __check_lib_exists(
-        self,
-        meta: MetaBase,
-        mediainfo: MediaInfo,
-        is_movie: bool,
-    ) -> Tuple[bool, list[int] | None]:
-        """
-        检查媒体库缺失
-        @return: True: 媒体库中已存在 False: 媒体库中不存在; list[int]: 缺失的季
-        """
-        # 查询缺失的媒体信息
-        is_exist_flag, no_exist_details = (
-            self.downloadchain.get_no_exists_info(
-                meta=meta, mediainfo=mediainfo
-            )
-        )
-        logger.debug(f"is_exist_flag:::{is_exist_flag}")
-        logger.debug(f"no_exist_detail:::{no_exist_details}")
+    @staticmethod
+    def __legacy_unique(rss_info):
+        return (f"{DoubanRankPlusOptimized.plugin_config_prefix}{rss_info.get('title')}_"
+                f"{rss_info.get('year')}_(DB:{rss_info.get('doubanid')})")
 
-        if is_exist_flag:
-            logger.info(f"{mediainfo.title_year} 媒体库中已存在")
-            return True, None
+    @staticmethod
+    def __positive_id(value):
+        value = str(value or "")
+        return str(int(value)) if re.fullmatch(r"[0-9]+", value) and int(value) > 0 else None
+
+    @classmethod
+    def __unique(cls, rss_info):
+        doubanid = cls.__positive_id(rss_info.get("doubanid"))
+        if doubanid:
+            return f"{cls.plugin_config_prefix}douban:{doubanid}"
+        title = " ".join(str(rss_info.get("title") or "").split()).casefold()
+        kind = {"movie": "movie", "电影": "movie", "tv": "tv", "电视剧": "tv"}.get(
+            str(rss_info.get("mtype") or rss_info.get("type") or "").strip().lower(), "unknown"
+        )
+        return f"{cls.plugin_config_prefix}title:{title}|year:{rss_info.get('year') or ''}|type:{kind}"
+
+    @staticmethod
+    def __apply_type_hint(rss_info, type_hint):
+        if isinstance(rss_info, dict) and type_hint in (MediaType.MOVIE, MediaType.TV):
+            return dict(rss_info, mtype="movie" if type_hint == MediaType.MOVIE else "tv")
+        return rss_info
+
+    @classmethod
+    def __history_keys(cls, record):
+        # 原 unique 保留给历史卡片/API；别名仅用于索引，不重写旧历史。
+        keys = {record.get("unique")}
+        info = record.get("rss_info") or record
+        keys.add(cls.__unique(info))
+        match = re.search(r"\(DB:([0-9]+)\)$", str(record.get("unique") or ""))
+        if match and cls.__positive_id(match[1]):
+            keys.add(cls.__unique({"doubanid": match[1]}))
+        return keys - {None, ""}
+
+    @classmethod
+    def __history_priority(cls, record):
+        return (record.get("status") in cls._successful_statuses,
+                bool(record.get("manual_retry")), bool(record.get("season_results")))
+
+    @classmethod
+    def __find_history(cls, index, rss_info):
+        return index.get(cls.__unique(rss_info)) or index.get(cls.__legacy_unique(rss_info))
+
+    @classmethod
+    def __target_key(cls, identity, season):
+        tmdbid = cls.__positive_id(identity.get("tmdbid"))
+        mtype = identity.get("type")
+        if tmdbid and mtype in (MediaType.MOVIE.value, MediaType.TV.value):
+            return mtype, tmdbid, season if mtype == MediaType.TV.value else None
+        return None
+
+    def __remember_successes(self, record):
+        identity = record.get("identity") or record
+        results = record.get("season_results", {}).values()
+        # 旧电影记录可安全还原目标；旧电视剧未保存季号，不猜测已完成的季度。
+        if not results and identity.get("type") == MediaType.MOVIE.value:
+            results = [{"season": None, "status": record.get("status")}]
+        for result in results:
+            target = self.__target_key(identity, result.get("season"))
+            if target and result.get("status") in self._successful_statuses:
+                self._successful_targets.add(target)
+
+    @classmethod
+    def __retry_due(cls, result, now):
+        if result.get("status") not in cls._retryable_statuses:
+            return False
+        # 旧版失败记录没有重试信息，允许在再次遇到时补做一次。
+        retry = result.get("retry")
+        return retry is None or (retry.get("next_retry_at") is not None
+                                 and retry["next_retry_at"] <= now)
+
+    @classmethod
+    def __history_due(cls, record, now):
+        if not record or record.get("manual_retry"):
+            return True
+        if record.get("retry") is not None:
+            return cls.__retry_due(record, now)
+        if record.get("season_results"):
+            return any(cls.__retry_due(result, now) for result in record["season_results"].values())
+        return cls.__retry_due(record, now)
+
+    @classmethod
+    def __failure_retry(cls, previous):
+        attempts = (previous.get("retry") or {}).get("attempts", 0) + 1
+        delay = cls._retry_delays[attempts - 1] if attempts <= len(cls._retry_delays) else None
+        return {"attempts": attempts, "next_retry_at": time.time() + delay if delay is not None else None}
+
+    def __save_history_item(self, history, history_by_key, payload):
+        key = payload["unique"]
+        previous = history_by_key.get(key)
+        if previous is None:
+            saved = deepcopy(payload)
+            history.append(saved)
         else:
-            if is_movie:
-                return False, None
-            else:
-                # 检查缺失的季
-                __missing_seasons = []
-                for _media_id, seasons in no_exist_details.items():
-                    for season, _season_details in seasons.items():
-                        if season not in __missing_seasons:
-                            __missing_seasons.append(season)
-                missing_seasons = (
-                    __missing_seasons if len(__missing_seasons) > 0 else None
-                )
-                logger.debug(f"缺失季: {missing_seasons}")
-                return missing_seasons is None, missing_seasons
+            previous.clear()
+            previous.update(deepcopy(payload))
+            saved = previous
+        for alias in self.__history_keys(saved):
+            history_by_key[alias] = saved
+        self.save_data("history", history)
+        self.__remember_successes(saved)
+
+    def __dispatch_item(self, rss_info, context, history, history_by_key, processed):
+        rss_info = self.__apply_type_hint(rss_info, context.get("rss_type"))
+        if not isinstance(rss_info, dict) or not isinstance(rss_info.get("title"), str) or not rss_info["title"].strip():
+            logger.warn("RSS条目缺少标题，跳过")
+            return
+        key = self.__unique(rss_info)
+        if key in processed:
+            return
+        previous = deepcopy(self.__find_history(history_by_key, rss_info) or {})
+        if not self.__history_due(previous, time.time()):
+            return
+        delay = max(0, self._next_item_at - time.monotonic())
+        if self._event.is_set() or (delay and self._event.wait(delay)):
+            return
+        processed.add(key)
+        payload = deepcopy(previous)
+        payload.update(self.__get_history_unrecognized_payload(
+            rss_info["title"], previous.get("unique") or key, rss_info.get("year"), rss_info.get("doubanid")
+        ))
+        # 识别暂时失败时，保留上次的作品身份、展示信息与各季成功记录。
+        for field in ("type", "year", "poster", "overview", "tmdbid", "vote"):
+            if field in previous:
+                payload[field] = previous[field]
+        payload.update(rss_info=deepcopy(rss_info), source=context["source"])
+        try:
+            self.__process_item(rss_info, context, previous, payload, history, history_by_key)
+        except Exception as error:
+            logger.error(f"处理 {rss_info['title']} 失败: {error}")
+            payload.update(status=Status.PROCESS_FAILED.value,
+                           error=f"处理异常：{type(error).__name__}",
+                           retry=self.__failure_retry(previous))
+        payload.pop("manual_retry", None)
+        self.__save_history_item(history, history_by_key, payload)
+        self._next_item_at = time.monotonic() + random.uniform(self._min_sleep_time, self._max_sleep_time)
+
+    def __process_item(self, rss_info, context, previous, payload, history, history_by_key):
+        type_str = str(rss_info.get("mtype") or "").strip().lower()
+        inferred_type = context.get("rss_type") or {
+            "movie": MediaType.MOVIE, "电影": MediaType.MOVIE,
+            "tv": MediaType.TV, "电视剧": MediaType.TV,
+        }.get(type_str)
+        meta = MetaInfo(self.__clean_title(rss_info["title"], inferred_type))
+        meta.year = rss_info.get("year")
+        if inferred_type:
+            meta.type = inferred_type
+        mediainfo = self.mediachain.recognize_media(meta=meta)
+        if not mediainfo:
+            payload.update(status=Status.UNRECOGNIZED.value, error="MP暂未识别到媒体信息",
+                           retry=self.__failure_retry(previous))
+            return
+        seasons_info = self.__season_catalog(mediainfo)
+        problem = self.__recognition_problem(rss_info, meta, inferred_type, mediainfo, seasons_info)
+        if problem:
+            status, message = problem
+            payload.update(status=status.value, error=message, retry=self.__failure_retry(previous))
+            return
+        old_identity = previous.get("identity")
+        identity = {"type": mediainfo.type.value, "tmdbid": str(mediainfo.tmdb_id or "0")}
+        if old_identity and old_identity != identity:
+            payload.update(status=Status.PROCESS_FAILED.value, error="识别结果与历史作品不一致，请检查标题和历史记录",
+                           retry=self.__failure_retry(previous))
+            return
+        rating = mediainfo.vote_average
+        display_rating = rating if isinstance(rating, (int, float)) and math.isfinite(rating) else None
+        payload.update(identity=identity, type=mediainfo.type.value, year=mediainfo.year,
+                       poster=mediainfo.get_poster_image(), overview=mediainfo.overview,
+                       tmdbid=str(mediainfo.tmdb_id or "0"), vote=display_rating)
+        payload.pop("retry", None)
+        payload.pop("error", None)
+        subscription_type = context.get("subscription_type")
+        if ((self._is_only_movies or subscription_type == "movies") and mediainfo.type == MediaType.TV
+                or subscription_type == "tv" and mediainfo.type == MediaType.MOVIE):
+            payload.update(status="类型不符合", summary="按当前类型设置跳过")
+            return
+        paths = context.get("customize_save_paths") or {}
+        is_tv = mediainfo.type == MediaType.TV
+        save_path = paths.get("tv" if is_tv else "movie")
+        if is_tv and 16 in (mediainfo.genre_ids or []):
+            save_path = paths.get("anime") or save_path
+        if self._is_seasons_all and is_tv:
+            seasons = sorted(season for season in seasons_info if season > 0)
+        else:
+            seasons = [(meta.begin_season if meta.begin_season is not None else 1) if is_tv else None]
+        # 有结果后冻结已尝试的季度集合，重试不会扩大本次订阅范围。
+        results = payload.setdefault("season_results", {})
+        if results:
+            seasons = [result["season"] for result in results.values()]
+        else:
+            if not seasons:
+                payload.update(status=Status.SEASON_UNKNOWN.value, error="MP尚未提供正式季度信息，稍后重试",
+                               retry=self.__failure_retry(previous))
+                return
+            for season in seasons:
+                results[str(season) if season is not None else "movie"] = {
+                    "season": season, "status": Status.SUBSCRIPTION_FAILED.value,
+                    "error": "尚未处理", "retry": {"attempts": 0, "next_retry_at": 0},
+                }
+        for season in seasons:
+            if self._event.is_set():
+                break
+            key = str(season) if season is not None else "movie"
+            old_result = deepcopy(results[key])
+            if old_result.get("status") in self._successful_statuses:
+                continue
+            if not previous.get("manual_retry") and not self.__retry_due(old_result, time.time()):
+                continue
+            try:
+                target = self.__target_key(identity, season)
+                if target in self._successful_targets:
+                    status, message = Status.SUBSCRIPTION_EXISTS, "相同媒体和季度已有成功处理记录"
+                elif is_tv and not seasons_info.get(season, {}).get("episodes"):
+                    status, message = Status.SEASON_UNKNOWN, "MP尚未提供该季度的有效集数，稍后重试"
+                else:
+                    status, message = self.__checke_and_add_subscribe(meta, mediainfo, season, save_path)
+            except Exception as error:
+                logger.error(f"{mediainfo.title_year} 季度 {season} 添加订阅异常: {error}")
+                status, message = Status.SUBSCRIPTION_FAILED, f"添加订阅异常：{type(error).__name__}"
+            result = {"season": season, "status": status.value, "error": message}
+            if status.value in self._retryable_statuses:
+                result["retry"] = self.__failure_retry(old_result)
+            results[key] = result
+            self.__summarize(payload)
+            self.__save_history_item(history, history_by_key, payload)
+        self.__summarize(payload)
+
+    @staticmethod
+    def __season_catalog(mediainfo):
+        """采用 MP V2 的实际季度元数据，保留零集季度以便后续单独重试。"""
+        catalog = {}
+        for item in getattr(mediainfo, "season_info", None) or []:
+            season = item.get("season_number")
+            if isinstance(season, bool) or not str(season).isdigit():
+                continue
+            count = item.get("episode_count")
+            catalog[int(season)] = {
+                "episodes": count if isinstance(count, int) and not isinstance(count, bool) and count > 0 else 0,
+                "year": str(item.get("air_date") or "")[:4],
+            }
+        for season, episodes in (getattr(mediainfo, "seasons", None) or {}).items():
+            if isinstance(season, bool) or not str(season).isdigit():
+                continue
+            entry = catalog.setdefault(int(season), {"episodes": 0, "year": ""})
+            if isinstance(episodes, (list, tuple)) and episodes:
+                entry["episodes"] = len(episodes)
+        for season, year in (getattr(mediainfo, "season_years", None) or {}).items():
+            if not isinstance(season, bool) and str(season).isdigit() and int(season) in catalog:
+                catalog[int(season)]["year"] = str(year or "")
+        return catalog
+
+    @staticmethod
+    def __recognition_problem(rss_info, meta, inferred_type, mediainfo, seasons_info):
+        if mediainfo.type not in (MediaType.MOVIE, MediaType.TV):
+            return Status.IDENTITY_MISMATCH, "MP未返回明确的电影或电视剧类型"
+        if not DoubanRankPlusOptimized.__positive_id(mediainfo.tmdb_id):
+            return Status.IDENTITY_MISMATCH, "MP未返回有效 TMDB ID，暂缓订阅"
+        if inferred_type and inferred_type != mediainfo.type:
+            return Status.IDENTITY_MISMATCH, f"RSS指定{inferred_type.value}，MP识别为{mediainfo.type.value}，请检查来源类型或标题"
+        if meta.begin_season is not None:
+            if mediainfo.type != MediaType.TV:
+                return Status.IDENTITY_MISMATCH, "标题包含明确季号，但MP识别为电影"
+            if meta.begin_season not in seasons_info:
+                return Status.SEASON_UNKNOWN, f"MP元数据中尚无第 {meta.begin_season} 季，暂缓订阅"
+        rss_year = str(rss_info.get("year") or "")
+        media_year = str(mediainfo.year or "")
+        if re.fullmatch(r"\d{4}", rss_year) and re.fullmatch(r"\d{4}", media_year):
+            years = {media_year}
+            if mediainfo.type == MediaType.TV:
+                season = meta.begin_season if meta.begin_season is not None else 1
+                if seasons_info.get(season, {}).get("year"):
+                    years.add(seasons_info[season]["year"])
+            if rss_year not in years:
+                return Status.IDENTITY_MISMATCH, f"RSS年份 {rss_year} 与MP作品/目标季度年份 {'、'.join(sorted(years))} 不一致，请核对后重新处理"
+        return None
+
+    @classmethod
+    def __summarize(cls, payload):
+        results = list(payload.get("season_results", {}).values())
+        if not results:
+            return
+        statuses = [result["status"] for result in results]
+        success = sum(status in cls._successful_statuses for status in statuses)
+        failed = sum(status in cls._retryable_statuses for status in statuses)
+        skipped = len(results) - success - failed
+        if success == len(results):
+            status = (Status.SUBSCRIPTION_ADDED.value if Status.SUBSCRIPTION_ADDED.value in statuses
+                      else Status.SUBSCRIPTION_EXISTS.value)
+        elif success:
+            status = Status.PARTIAL_SUCCESS.value
+        elif len(set(statuses)) == 1:
+            status = statuses[0]
+        else:
+            status = Status.SUBSCRIPTION_FAILED.value
+        unit = "季" if payload.get("type") == MediaType.TV.value else "项"
+        payload.update(status=status, summary=f"成功 {success} {unit}，失败 {failed} {unit}，跳过 {skipped} {unit}")
 
     def __checke_and_add_subscribe(
         self,
@@ -1705,65 +1847,47 @@ class DoubanRankPlusOptimized(_PluginBase):
         mediainfo: MediaInfo,
         season: int | None,
         save_path,
-        is_exist_all: bool,
-        missing_season: list[int] | None,
-    ) -> Status:
-
-        if is_exist_all:
-            logger.debug(f"{mediainfo.title_year} 媒体库中已存在，跳过订阅")
-            return Status.MEDIA_EXISTS
-        else:
-            if missing_season:
-                logger.debug(
-                    f"{mediainfo.title_year} 缺失季: {missing_season}，当前尝试添加季：{season}",
-                )
-
-            if (
-                missing_season
-                and season is not None
-                and season not in missing_season
-            ):
-                logger.info(
-                    f"{mediainfo.title_year} 第 {season} 季媒体库中已存在，跳过订阅"
-                )
-                return Status.MEDIA_EXISTS
-
+    ) -> Tuple[Status, str]:
         if save_path:
             logger.info(
                 f"{mediainfo.title_year} 的自定义保存路径为: {save_path}"
             )
 
         # 判断上映年份是否符合要求
-        if self._release_year and int(mediainfo.year) < int(
-            self._release_year
-        ):
+        if self._release_year and not re.fullmatch(r"\d{4}", str(mediainfo.year or "")):
+            return Status.YEAR_UNKNOWN, "MP识别结果缺少有效年份，暂不判断年份条件"
+        if self._release_year and int(mediainfo.year) < int(self._release_year):
             logger.info(
                 f"{mediainfo.title_year} 上映年份: {mediainfo.year}, 不符合要求"
             )
-            return Status.YEAR_NOT_MATCH
+            return Status.YEAR_NOT_MATCH, "上映年份低于设定值"
         # 判断评分是否符合要求
-        if self._vote and mediainfo.vote_average < self._vote:
+        rating = mediainfo.vote_average
+        if self._vote and (isinstance(rating, bool) or not isinstance(rating, (int, float))
+                           or not math.isfinite(rating) or not 0 < rating <= 10):
+            return Status.RATING_UNKNOWN, "MP识别结果缺少有效评分，暂不判断评分条件"
+        if self._vote and rating < self._vote:
             logger.info(
                 f"{mediainfo.title_year} 评分: {mediainfo.vote_average}, 不符合要求"
             )
-            return Status.RATING_NOT_MATCH
+            return Status.RATING_NOT_MATCH, "评分低于设定值"
 
-        # 查询缺失的媒体信息
-        # exist_flag, _exist_details = self.downloadchain.get_no_exists_info(
-        #     meta=meta, mediainfo=mediainfo
-        # )
-
-        # if exist_flag:
-        #     logger.info(f"{mediainfo.title_year} 媒体库中已存在")
-        #     return Status.MEDIA_EXISTS
-
-        # 判断用户是否已经添加订阅
-        if self.subscribechain.exists(mediainfo=mediainfo, meta=meta):
+        # 与 MP V2 add() 的默认季度保持一致，并按本次目标季去重。
+        # 全季循环不能复用 RSS 原始季度，也不能修改后续历史所用的 meta。
+        if mediainfo.type == MediaType.TV:
+            season = season if season is not None else 1
+        else:
+            season = None
+        subscribe_meta = copy(meta)
+        subscribe_meta.type = mediainfo.type
+        subscribe_meta.begin_season = season
+        if self.subscribechain.exists(mediainfo=mediainfo, meta=subscribe_meta):
             logger.info(f"{mediainfo.title_year} 订阅已存在")
-            return Status.SUBSCRIPTION_EXISTS
+            return Status.SUBSCRIPTION_EXISTS, ""
 
-        # 添加订阅
-        self.subscribechain.add(
+        # MP V2：best_version=1 开启洗版，best_version_full=0 使用分集洗版。
+        # 两个字段显式传整数，避免继承全集洗版默认值及数据库布尔类型问题。
+        subscribe_id, message = self.subscribechain.add(
             title=mediainfo.title,
             year=mediainfo.year,
             mtype=mediainfo.type,
@@ -1772,28 +1896,80 @@ class DoubanRankPlusOptimized(_PluginBase):
             exist_ok=True,
             username=self.plugin_name,
             save_path=save_path,
-            best_version=0,
+            best_version=1,
+            best_version_full=0,
         )
-        if season:
-            logger.info(f"已添加订阅: {mediainfo.title_year} 第 {season} 季")
+        if not subscribe_id:
+            logger.error(f"{mediainfo.title_year} 添加洗版订阅失败: {message}")
+            return Status.SUBSCRIPTION_FAILED, str(message or "MP未返回订阅ID")
+        if season is not None:
+            logger.info(f"已添加分集洗版订阅: {mediainfo.title_year} 第 {season} 季")
         else:
-            logger.info(f"已添加订阅: {mediainfo.title_year} ")
-        return Status.SUBSCRIPTION_ADDED
+            logger.info(f"已添加洗版订阅: {mediainfo.title_year}")
+        return Status.SUBSCRIPTION_ADDED, ""
+
+    def __request_rss(self, addr):
+        # RequestUtils 不传 Session 时没有内部重试，最多三次、每次超时 20 秒。
+        client = RequestUtils(timeout=20, proxies=settings.PROXY or {}) if self._proxy else RequestUtils(timeout=20)
+        for attempt in range(3):
+            if self._event.is_set():
+                return None
+            retry_after = None
+            try:
+                response = client.get_res(addr, raise_exception=True)
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError,
+                    requests.exceptions.ChunkedEncodingError):
+                response = None
+            except requests.exceptions.RequestException as error:
+                logger.warn(f"RSS请求无法完成：{type(error).__name__}")
+                return None
+            if response is not None:
+                status = response.status_code
+                if 200 <= status < 300:
+                    return response
+                retry_after = response.headers.get("Retry-After")
+                response.close()
+                if status not in (408, 429) and not 500 <= status < 600:
+                    logger.warn(f"RSS返回 HTTP {status}，本轮不重试")
+                    return None
+                logger.warn(f"RSS返回 HTTP {status}，第 {attempt + 1}/3 次请求失败")
+            if attempt == 2:
+                break
+            delay = (2, 5)[attempt]
+            if retry_after:
+                # 长限流或日期形式留待下次刷新，避免提前重试和长时间占用任务。
+                if not str(retry_after).isdigit() or int(retry_after) > 30:
+                    logger.warn("RSS要求稍后再试，结束本轮请求，等待下次刷新")
+                    return None
+                delay = max(delay, int(retry_after))
+            if self._event.wait(delay):
+                return None
+        logger.warn("RSS连续三次请求失败，等待下次刷新")
+        return None
+
+    @staticmethod
+    def __douban_subject_id(link):
+        try:
+            url = urlsplit(str(link or ""))
+            if url.scheme not in ("http", "https") or url.hostname not in ("movie.douban.com", "www.douban.com", "douban.com"):
+                return None
+            match = re.fullmatch(r"/(?:subject|doubanapp/dispatch/(?:movie|tv))/([0-9]+)/?", url.path)
+            return DoubanRankPlusOptimized.__positive_id(match[1]) if match else None
+        except ValueError:
+            return None
 
     def __get_rss_info(self, addr) -> List[RssInfo]:
         """
         获取RSS
         """
         try:
-            if self._proxy:
-                ret = RequestUtils(
-                    timeout=240, proxies=settings.PROXY or {}
-                ).get_res(addr)
-            else:
-                ret = RequestUtils(timeout=240).get_res(addr)
-            if not ret:
+            ret = self.__request_rss(addr)
+            if ret is None:
                 return []
-            ret_xml = ret.text
+            try:
+                ret_xml = ret.text
+            finally:
+                ret.close()
             ret_array: List[RssInfo] = []
 
             # 解析XML
@@ -1813,14 +1989,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                         continue
 
                     # 豆瓣ID
-                    found_doubanid = re.findall(r"/(\d+)/", str(link) or "")
-                    if found_doubanid:
-                        doubanid = found_doubanid[0]
-                        if not str(doubanid).isdigit():
-                            logger.warn(f"解析的豆瓣ID格式不正确：{doubanid}")
-                            continue
-                    else:
-                        doubanid = None
+                    doubanid = self.__douban_subject_id(link)
 
                     # 年份
                     year = DomUtils.tag_value(item, "year", default="")
@@ -1971,53 +2140,9 @@ class DoubanRankPlusOptimized(_PluginBase):
             }
 
     @staticmethod
-    def __clean_title(title: str, mtype: str = None) -> str:
-        """
-        清理RSS标题并标准化季度格式(仅对TV类型)
-        将 "模范出租车3" 转为 "模范出租车 第三季" (仅TV)
-        将 "罚罪2" 转为 "罚罪 第二季" (仅TV)
-        电影续集如"死侍2"保持不变
-        """
-        if not title:
-            return title
-
-        # 只移除多余的空格,保留其他所有信息(包括季度标记)
-        # MetaInfo会自动从"我变美的那夏天 第三季"中提取: 标题="我变美的那夏天", season=3
-        title = ' '.join(title.split())
-        
-        # 转换数字后缀为标准季度格式 (仅对TV类型)
-        # "模范出租车3" -> "模范出租车 第三季"
-        # "罚罪2" -> "罚罪 第二季"
-        # 但不影响电影："死侍2"、"速度与激情9"等保持不变
-        import re
-        
-        # 只在明确知道是TV时才转换
-        # mtype可以是从RSS字段获取,或从RSS地址推断得出
-        should_convert = False
-        
-        if mtype:
-            mtype_str = str(mtype).lower()
-            if 'tv' in mtype_str:
-                should_convert = True
-        
-        if should_convert:
-            season_map = {
-                '2': '第二季', '3': '第三季', '4': '第四季', '5': '第五季',
-                '6': '第六季', '7': '第七季', '8': '第八季', '9': '第九季'
-            }
-            
-            # 如果标题还没有"第X季"标记
-            if not re.search(r'第[一二三四五六七八九十]\s*季', title):
-                # 匹配标题末尾的单个数字2-9
-                match = re.search(r'(.+?)([2-9])$', title)
-                if match:
-                    base_title = match.group(1)
-                    season_num = match.group(2)
-                    # 确保不是年份的一部分(如"2025")
-                    if not re.search(r'\d{3,}$', base_title):
-                        title = f"{base_title} {season_map.get(season_num, season_num)}"
-        
-        return title.strip()
+    def __clean_title(title: str, mtype=None) -> str:
+        """仅整理空白；明确季号交给 MP 解析，数字片名不推断成续季。"""
+        return " ".join(title.split()) if title else title
 
     @staticmethod
     def __get_history_unrecognized_payload(
