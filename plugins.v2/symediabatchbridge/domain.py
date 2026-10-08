@@ -167,11 +167,14 @@ def file_signature(path: Path) -> list:
     return [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_dev, stat.st_ino]
 
 
-def freeze_file(path: str, relative: str, stop: Event) -> dict:
+def freeze_file(path: str, relative: str, stop: Event, progress=None) -> dict:
     source = Path(path)
     before = file_signature(source)
     digest, prefix = sha1(), sha1()
     prefix_remaining = 128 * 1024 * 1024
+    processed = 0
+    if progress:
+        progress(0, before[0])
     with source.open("rb") as stream:
         while block := stream.read(4 * 1024 * 1024):
             check_stop(stop)
@@ -179,6 +182,9 @@ def freeze_file(path: str, relative: str, stop: Event) -> dict:
             if prefix_remaining:
                 prefix.update(block[:prefix_remaining])
                 prefix_remaining = max(0, prefix_remaining - len(block))
+            processed += len(block)
+            if progress:
+                progress(processed, before[0])
     if before != file_signature(source):
         raise Awaiting("文件仍在变化，稍后重新核对")
     return {"local": path, "relative": relative, "size": before[0],

@@ -2,7 +2,7 @@
 from .activity import attention, when
 from pathlib import PurePosixPath
 
-STATES = {"waiting": "等待齐套", "waiting_instant": "等待秒传", "uploading": "上传中",
+STATES = {"waiting": "等待齐套", "hashing": "计算 HASH", "waiting_instant": "等待秒传", "uploading": "上传中",
           "verifying": "核对中", "moving": "核对移交", "review": "异常待确认",
           "retrying": "等待恢复", "handed_off": "已移交"}
 
@@ -28,6 +28,16 @@ def state_label(job):
     if job["state"] == "handed_off" and job.get("completion_basis") == "archive_verified":
         return "归档文件已核实"
     return STATES.get(job["state"], job["state"])
+
+
+def hash_status(job):
+    progress = job.get("hash_progress")
+    if job["state"] != "hashing" or not progress:
+        return []
+    done, total = progress["done"], progress["total"]
+    percent = min(100, done * 100 / max(total, 1))
+    return [text(f"已读取 {size(done)} / {size(total)} · {percent:.1f}% · 更新 {when(progress['at'])}", "p", **{"class": "text-caption"}),
+            {"component": "VProgressLinear", "props": {"model-value": percent, "color": "primary", "height": 4}}]
 
 
 def render_page(plugin):
@@ -82,6 +92,7 @@ def render_page(plugin):
                 text(job["message"], "p"), text(f"{job.get('route_name','默认路线')} · 文件 {done}/{len(job.get('files', []))} · 更新 {when(job['updated'])}", "p", **{"class": "text-caption"})]
         if job.get("next_check"):
             body.append(text("下次检查 " + when(job["next_check"]), "p", **{"class": "text-caption"}))
+        body.extend(hash_status(job))
         body.append(button(plugin, "查看记录", key=job["id"], page=view.page))
         content.append(card(body, color="warning" if attention(job) else None))
     if view.page:
@@ -124,6 +135,7 @@ def detail(plugin, job):
             text(f"MP 整理记录：{', '.join(str(i) for i in job.get('history_ids', [job['history_id']]))} · 下载器：{job.get('downloader') or '未关联'}", "p", **{"class": "text-caption"})]
     if job.get("next_check"):
         body.append(text("下次检查：" + when(job["next_check"]), "p"))
+    body.extend(hash_status(job))
     body.append(text("本地副本：" + ("已清理" if job.get("cleanup_done") else job.get("cleanup_error") or "移交后清理" if job.get("cleanup_local") else "保留"), "p"))
     notices, submitted = store.notice_counts(job["id"])
     body.append(text(f"通知：{submitted}/{notices} 已提交 MP · {'通知开启' if plugin._notify else '通知关闭'}", "p"))

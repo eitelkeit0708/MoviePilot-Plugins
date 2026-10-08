@@ -147,9 +147,9 @@ def test_inventory_snapshot_resumes_hashes_and_handoffs_video_with_subtitle(inve
 def test_inventory_replacement_between_collect_and_hash_cannot_upload(inventory_batch, modules, monkeypatch):
     batch = inventory_batch
     original = modules.engine.freeze_file
-    def replace_then_hash(path, relative, stop):
+    def replace_then_hash(path, relative, stop, **kwargs):
         Path(path).write_bytes(b"replaced after snapshot validation")
-        return original(path, relative, stop)
+        return original(path, relative, stop, **kwargs)
     monkeypatch.setattr(modules.engine, "freeze_file", replace_then_hash)
     batch.run()
     assert batch.job()["state"] == "review"
@@ -168,6 +168,50 @@ def test_inventory_retains_optional_hardlink_proof_only_when_original_exists(inv
     assert saved["state"] == "handed_off", saved["message"]
     assert saved["files"][0]["download_source"] == str(source).replace("\\", "/")
     assert "download_source" not in saved["files"][1]
+
+
+def test_hash_progress_is_durable_before_read_and_updates_without_log_spam(batch, modules, monkeypatch):
+    path = Path(batch.paths[0])
+    path.write_bytes(b"v" * (12 * 1024 * 1024))
+    original = modules.engine.freeze_file
+    clock = [0]
+    monkeypatch.setattr(modules.engine.time, "monotonic", lambda: clock[0])
+    observed = []
+    def traced(path, relative, stop, progress):
+        ticks = iter((0, 1, 6, 66))
+        def report(done, total):
+            clock[0] = next(ticks)
+            progress(done, total)
+            observed.append(batch.store.get(batch.id))
+        return original(path, relative, stop, progress=report)
+    monkeypatch.setattr(modules.engine, "freeze_file", traced)
+    result = batch.engine._hash_file(batch.job(), str(path), batch.config.relative(str(path)))
+    assert result["sha1"] == sha1(path.read_bytes()).hexdigest()
+    assert all(j["state"] == "hashing" and "正在计算 HASH" in j["message"] for j in observed)
+    assert [j["hash_progress"]["done"] for j in observed] == [0, 0, 8 * 1024**2, 12 * 1024**2]
+    assert len([e for e in batch.store.events(batch.id) if e["kind"] == "hash_progress"]) == 1
+    assert not batch.job()["files"]  # Progress is not a committed file digest.
+
+
+def test_stop_mid_hash_keeps_partial_progress_but_never_uploads_partial_file(batch, modules, monkeypatch):
+    path = Path(batch.paths[0])
+    path.write_bytes(b"v" * (8 * 1024 * 1024))
+    original = modules.engine.freeze_file
+    def interrupted(path, relative, stop, progress):
+        def report(done, total):
+            progress(done, total)
+            if done:
+                stop.set()
+        return original(path, relative, stop, progress=report)
+    monkeypatch.setattr(modules.engine, "freeze_file", interrupted)
+    batch.run()
+    assert batch.job()["state"] == "hashing" and not batch.job()["files"]
+    assert not batch.host.uploads and not batch.cloud.moves
+    monkeypatch.setattr(modules.engine, "freeze_file", original)
+    batch.stop.clear()
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+    assert "hash_progress" not in batch.job()
 
 
 def missing_staged_file(batch, now):

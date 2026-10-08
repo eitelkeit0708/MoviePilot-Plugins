@@ -66,7 +66,7 @@ class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.4.1"
+    plugin_version = "1.4.2"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"

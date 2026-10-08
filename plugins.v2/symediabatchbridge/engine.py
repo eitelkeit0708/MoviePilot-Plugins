@@ -239,7 +239,7 @@ class Engine:
                 continue
             if hashed >= 4:
                 raise Awaiting(f"已记录 {len(job['files'])}/{len(candidates)} 个文件 HASH，下次继续")
-            entry = freeze_file(path, relative, self.stop)
+            entry = self._hash_file(job, path, relative)
             snapshot = candidate.get("inventory_signature")
             if snapshot and any(entry["signature"][i] != snapshot[i] for i in (0, 1, 3, 4)):
                 raise BridgeError("存量文件在接管后发生变化，已暂停处理：" + relative, review=True)
@@ -258,7 +258,7 @@ class Engine:
                 except OSError:
                     raise Awaiting("等待下载源文件恢复：" + Path(source).name) from None
                 if not same_file:
-                    original = freeze_file(source, relative, self.stop)
+                    original = self._hash_file(job, source, relative, source=True)
                     if original["size"] != entry["size"] or original["sha1"] != entry["sha1"]:
                         raise BridgeError("整理文件与本次下载内容不同，请检查同名覆盖：" + relative, review=True)
                     unchanged(original)
@@ -269,8 +269,28 @@ class Engine:
             # discard all earlier file hashes, and new subtitles retain old receipts.
             self.store.save(job)
         job["history_ids"] = sorted(c["history_id"] for c in candidates if c.get("history_id"))
+        job.pop("hash_progress", None)
         job.update(state="uploading", message="正在尝试秒传")
         self.store.save(job)
+
+    def _hash_file(self, job, path, relative, source=False):
+        last_saved = last_log = None
+        action = "核对下载源 HASH" if source else "计算 HASH"
+        def progress(done, total):
+            nonlocal last_saved, last_log
+            now = time.monotonic()
+            if last_saved is not None and done != total and now - last_saved < 5:
+                return
+            job.update(state="hashing", message="正在" + action + "：" + relative, next_check=0,
+                       hash_progress={"file": relative, "done": done, "total": total, "at": time.time()})
+            self.store.save(job)
+            last_saved = now
+            if last_log is not None and now - last_log >= 60:
+                self.store.record(job, event("hash_progress", f"{action} {done * 100 / max(total, 1):.1f}%", file=relative))
+                last_log = now
+            elif last_log is None:
+                last_log = now
+        return freeze_file(path, relative, self.stop, progress=progress)
 
     @staticmethod
     def _same_candidates(job, candidates):

@@ -153,6 +153,19 @@ def test_inventory_failure_keeps_request_and_visible_retry_state(plugin, monkeyp
     assert '下轮自动重试' in page and 'secret-path-token' not in page
 
 
+def test_hashing_progress_visible_in_batch_list_and_details(plugin):
+    p = plugin.p
+    job = add_job(p)
+    job.update(state='hashing', message='正在计算 HASH：视频.mkv',
+               hash_progress={'file': '视频.mkv', 'done': 4 * 1024**2, 'total': 8 * 1024**2, 'at': 1})
+    p._store.save(job)
+    for detail in (False, True):
+        if detail:
+            p.view_records(plugin.modules.plugin.ViewRequest(key=job['id']))
+        page = json.dumps(p.get_page(), ensure_ascii=False)
+        assert '50.0%' in page and '4.00 MiB / 8.00 MiB' in page and 'VProgressLinear' in page
+
+
 def test_inventory_count_does_not_claim_missing_record_as_imported(plugin, monkeypatch):
     p = plugin.p
     p.init_plugin({**plugin.values, 'scan_existing_once': True})
