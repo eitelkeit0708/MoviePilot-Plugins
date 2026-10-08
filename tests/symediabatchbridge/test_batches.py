@@ -3,6 +3,7 @@ from hashlib import sha1
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
+from unittest.mock import Mock
 import json
 
 import pytest
@@ -71,6 +72,9 @@ def batch(modules, config_values, tmp_path):
                 self.upload_hook(local)
             return receipt
 
+        def try_instant(self, entry, remote, stop):
+            return self.upload(Path(entry["local"]), remote)
+
     host, stop = Host(), Event()
     store = modules.store.Store(tmp_path / "ledger")
     observe = dict(instance="SymediaBatchBridge", download_hash="torrent-one", downloader="qb",
@@ -129,7 +133,7 @@ def test_crash_after_upload_recovers_without_duplicate(batch):
         raise RuntimeError("SDK URL including SECRET")
     batch.host.upload_hook = lost_response
     batch.run()
-    assert len(batch.host.uploads) == 1
+    assert len(batch.host.uploads) == 2  # another file still gets its own attempt
     assert "SECRET" not in json.dumps(batch.job())
     batch.host.upload_hook = None
     batch.run()
@@ -245,3 +249,176 @@ def test_invalid_routing_rejected(modules, config_values, values):
 def test_untrusted_remote_paths_cannot_escape_batch(modules, relative):
     with pytest.raises(modules.domain.BridgeError):
         modules.domain.child_path("/115/staging", relative)
+
+
+@pytest.fixture
+def hourly(batch, monkeypatch):
+    clock = SimpleNamespace(now=1_800_000_000.0)
+    monkeypatch.setattr("time.time", lambda: clock.now)
+    batch.host.try_instant = Mock(return_value=None)
+    batch.host.upload = Mock(wraps=batch.host.upload)
+    return clock
+
+
+def test_24_non_hits_wait_a_full_day_before_normal_upload(batch, hourly):
+    for hour in range(24):
+        hourly.now = 1_800_000_000 + hour * 3600
+        batch.run()
+        job = batch.job()
+        assert job["state"] == "waiting_instant"
+        assert all(e["instant_misses"] == hour + 1 for e in job["files"])
+        assert job["next_check"] == hourly.now + 3600
+        assert job["attempts"] == 0
+        batch.host.upload.assert_not_called()
+        assert not batch.cloud.moves
+    assert batch.host.try_instant.call_count == 48  # 24 per file, video AND subtitle
+    hourly.now += 3599
+    batch.run()
+    batch.host.upload.assert_not_called()
+    hourly.now += 1
+    batch.run()
+    assert batch.host.upload.call_count == 2
+    assert batch.host.try_instant.call_count == 48
+    assert batch.job()["state"] == "handed_off" and len(batch.cloud.moves) == 1
+
+
+def test_restart_and_manual_recheck_do_not_reset_or_skip_deadline(batch, hourly, modules):
+    batch.run()
+    old = batch.job()
+    hourly.now += 100
+    fresh_store = modules.store.Store(batch.store.path.parent)
+    engine = modules.engine.Engine(fresh_store, batch.config, batch.host, batch.cloud, Event())
+    for _ in range(5):
+        job = fresh_store.get(batch.id)
+        job.update(state="waiting", attempts=0, next_check=0)  # same API action
+        engine.process(job)
+    assert batch.host.try_instant.call_count == 2
+    assert batch.job()["files"] == old["files"]
+    batch.host.upload.assert_not_called()
+
+
+def test_long_downtime_does_not_catch_up_or_allow_early_fallback(batch, hourly):
+    batch.run()
+    hourly.now += 7 * 86400
+    batch.run()
+    assert batch.host.try_instant.call_count == 4
+    assert all(e["instant_misses"] == 2 for e in batch.job()["files"])
+    batch.host.upload.assert_not_called()
+
+
+def test_one_non_hit_does_not_block_other_file_and_cannot_handoff(batch, hourly):
+    def mixed(entry, remote, stop):
+        return batch.host.upload(Path(entry["local"]), remote) if entry["local"].endswith(".ass") else None
+    batch.host.try_instant.side_effect = mixed
+    batch.run()
+    assert sum(e["uploaded"] for e in batch.job()["files"]) == 1
+    assert not batch.cloud.moves
+    hourly.now += 3600
+    batch.host.try_instant.side_effect = lambda entry, remote, stop: batch.host.upload(Path(entry["local"]), remote)
+    batch.run()
+    assert batch.host.try_instant.call_count == 3  # subtitle not sent a second time
+    assert batch.job()["state"] == "handed_off"
+
+
+def test_network_errors_never_exhaust_instant_budget_or_leak(batch, hourly):
+    batch.host.try_instant.side_effect = RuntimeError("https://secret-cookie")
+    for _ in range(30):
+        batch.run()
+        hourly.now += 3600
+    job = batch.job()
+    assert job["state"] == "waiting_instant" and job["attempts"] == 0
+    assert all(e.get("instant_misses", 0) == 0 and e.get("instant_error") for e in job["files"])
+    assert "secret-cookie" not in json.dumps(job)
+    batch.host.upload.assert_not_called()
+
+
+def test_crash_reservation_is_durable_before_probe(batch, hourly, modules):
+    def interrupted(entry, remote, stop):
+        saved = batch.job()["files"][0]
+        assert saved["instant_next_at"] == hourly.now + 3600
+        assert saved["instant_started_at"] == hourly.now
+        raise modules.domain.Stopped()
+    batch.host.try_instant.side_effect = interrupted
+    batch.run()
+    batch.host.try_instant.side_effect = None
+    hourly.now += 1
+    batch.run()
+    assert batch.host.try_instant.call_count == 2  # only the untouched second file
+    assert batch.job()["files"][0].get("instant_misses", 0) == 0
+    batch.host.upload.assert_not_called()
+
+
+def test_miss_interval_is_measured_after_slow_request(batch, hourly):
+    def slow(entry, remote, stop):
+        hourly.now += 180
+        return None
+    batch.host.try_instant.side_effect = slow
+    batch.run()
+    assert batch.job()["files"][0]["instant_next_at"] == 1_800_000_000 + 180 + 3600
+
+
+def test_legacy_pending_file_gets_new_policy_without_losing_receipts(batch, hourly):
+    batch.run()
+    job = batch.job()
+    for entry in job["files"]:
+        for key in ("preid", "instant_started_at", "instant_next_at", "instant_misses"):
+            entry.pop(key, None)
+    first = job["files"][0]
+    first["uploaded"] = True
+    batch.cloud.files[batch.config.cd2_prefix + batch.config.staging + "/" + batch.id + "/" + first["relative"]] = {
+        "size": first["size"], "sha1": first["sha1"]}
+    batch.store.save(job)
+    batch.host.try_instant.reset_mock()
+    batch.run()
+    assert batch.host.try_instant.call_count == 1
+    pending = batch.job()["files"][1]
+    assert pending["instant_misses"] == 1 and pending["preid"] == pending["sha1"]
+    assert batch.job()["files"][0]["uploaded"]
+    batch.host.upload.assert_not_called()
+
+
+def test_last_probe_error_cannot_unlock_normal_upload(batch, hourly):
+    for _ in range(23):
+        batch.run()
+        hourly.now += 3600
+    batch.host.try_instant.side_effect = RuntimeError("connection lost")
+    batch.run()
+    hourly.now += 3600
+    batch.run()  # 24 hours elapsed, but only 23 confirmed non-hits
+    batch.host.upload.assert_not_called()
+    assert all(e["instant_misses"] == 23 for e in batch.job()["files"])
+    batch.host.try_instant.side_effect = None
+    hourly.now += 3600
+    batch.run()
+    batch.host.upload.assert_not_called()
+    hourly.now += 3600
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+
+
+def test_hashes_are_reused_for_hourly_probes_and_restart(batch, hourly, modules, monkeypatch):
+    freeze = Mock(wraps=modules.engine.freeze_file)
+    monkeypatch.setattr(modules.engine, "freeze_file", freeze)
+    batch.run()
+    before = [{k: e[k] for k in ("sha1", "preid", "signature")} for e in batch.job()["files"]]
+    assert freeze.call_count == 2
+    for _ in range(3):
+        hourly.now += 3600
+        # Recreate the engine and ledger each time, as when MP restarts.
+        store = modules.store.Store(batch.store.path.parent)
+        modules.engine.Engine(store, batch.config, batch.host, batch.cloud, Event()).process(store.get(batch.id))
+    assert freeze.call_count == 2
+    for args in batch.host.try_instant.call_args_list:
+        e = args.args[0]
+        expected = before[0] if e["local"].endswith(".mkv") else before[1]
+        assert {k: e[k] for k in expected} == expected
+
+
+def test_legacy_provider_needs_confirmation_without_sending_files(batch, hourly):
+    job = batch.job()
+    job["routing"]["storage"] = "115网盘Plus"
+    batch.store.save(job)
+    batch.run()
+    assert batch.job()["state"] == "review"
+    batch.host.try_instant.assert_not_called()
+    batch.host.upload.assert_not_called()

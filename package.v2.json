@@ -3,13 +3,14 @@
         "name": "Symedia 批次移交",
         "description": "将 MP 整理的视频与字幕整批上传到 115，再通过 CD2 整目录交给 Symedia。",
         "labels": "整理,115,Symedia",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/upload.png",
         "author": "eitelkeit0708",
         "level": 1,
         "system_version": ">=2,<3",
         "v3": false,
         "history": {
+            "v1.1.0": "feat: 统一 MP 内置115；每文件秒传24次、间隔一小时再普通上传；持久化HASH与重试进度，重启复用，接口报错不计次数",
             "v1.0.0": "feat: 视频与字幕清单齐套、唯一批次保留目录、115 上传复用、CD2 整目录移交及持久回执恢复"
         }
     },

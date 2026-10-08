@@ -68,9 +68,9 @@ class Config:
         local = local.resolve()
         if local == Path(local.anchor):
             raise ValueError("本地整理目录不能是文件系统根目录")
-        storage = str(values.get("storage") or "115网盘Plus").strip()
-        if storage not in ("115网盘Plus", "u115"):
-            raise ValueError("请选择 115网盘Plus 或 u115 储存")
+        # v1.1 uses MP's native 115 only. Existing jobs retain their original
+        # routing and need an explicit account confirmation before switching.
+        storage = "u115"
         staging = cloud_path(values.get("staging", ""))
         prefix = cloud_path(values.get("cd2_prefix", ""))
         inbox = cloud_path(values.get("inbox", ""))
@@ -126,15 +126,19 @@ def file_signature(path: Path) -> list:
 def freeze_file(path: str, relative: str, stop: Event) -> dict:
     source = Path(path)
     before = file_signature(source)
-    digest = sha1()
+    digest, prefix = sha1(), sha1()
+    prefix_remaining = 128 * 1024 * 1024
     with source.open("rb") as stream:
         while block := stream.read(4 * 1024 * 1024):
             check_stop(stop)
             digest.update(block)
+            if prefix_remaining:
+                prefix.update(block[:prefix_remaining])
+                prefix_remaining = max(0, prefix_remaining - len(block))
     if before != file_signature(source):
         raise Awaiting("文件仍在变化，稍后重新核对")
     return {"local": path, "relative": relative, "size": before[0],
-            "signature": before, "sha1": digest.hexdigest(), "uploaded": False}
+            "signature": before, "sha1": digest.hexdigest(), "preid": prefix.hexdigest(), "uploaded": False}
 
 
 def unchanged(entry: dict):

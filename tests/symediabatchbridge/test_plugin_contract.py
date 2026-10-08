@@ -109,6 +109,43 @@ def test_busy_worker_cannot_be_reset_by_api(plugin):
     assert p._store.get(job["id"])["message"] != "已安排重新检查"
 
 
+def test_retry_preserves_per_file_instant_schedule_and_page_explains_it(plugin):
+    p = plugin.p
+    job = add_job(p)
+    job.update(state="waiting_instant", files=[{"relative": "作品/视频.mkv", "uploaded": False,
+               "instant_misses": 24, "instant_started_at": 1_800_000_000, "instant_next_at": 1_800_086_400}])
+    p._store.save(job)
+    assert p.retry_batch(plugin.modules.plugin.RetryRequest(key=job["id"])).success
+    assert p._store.get(job["id"])["files"] == job["files"]
+    page = json.dumps(p.get_page(), ensure_ascii=False)
+    assert "秒传未命中 24/24" in page and "普通上传" in page and "视频.mkv" in page
+
+
+def test_only_native_storage_and_explicit_legacy_batch_switch(plugin):
+    p, modules = plugin.p, plugin.modules
+    assert modules.domain.Config.parse({**plugin.values, "storage": "115网盘Plus"}).storage == "u115"
+    form, defaults = p.get_form()
+    assert defaults["storage"] == "u115" and "VSelect" not in json.dumps(form)
+    job = add_job(p)
+    job["routing"]["storage"] = "115网盘Plus"
+    job["files"] = [{"relative": "old.mkv", "uploaded": True, "receipt": {"size": 5}}]
+    p._store.save(job)
+    assert not p.retry_batch(modules.plugin.RetryRequest(key=job["id"])).success
+    assert p._store.get(job["id"])["routing"]["storage"] == "115网盘Plus"
+    assert p.retry_batch(modules.plugin.RetryRequest(key=job["id"], switch_to_native=True)).success
+    saved = p._store.get(job["id"])
+    assert saved["routing"]["storage"] == "u115" and saved["files"] == job["files"]
+
+
+def test_legacy_switch_cannot_retarget_paths(plugin):
+    p = plugin.p
+    job = add_job(p)
+    job["routing"].update(storage="115网盘Plus", inbox="/115/old-inbox")
+    p._store.save(job)
+    assert not p.retry_batch(plugin.modules.plugin.RetryRequest(key=job["id"], switch_to_native=True)).success
+    assert p._store.get(job["id"])["routing"] == job["routing"]
+
+
 def test_history_recovery_and_event_replay_share_one_batch(plugin):
     p = plugin.p
     row = NS(id=1, title="作品", download_hash="hash", downloader="qb", date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))

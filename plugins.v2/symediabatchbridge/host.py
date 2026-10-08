@@ -1,8 +1,9 @@
-"""MoviePilot V2 adapter. Use public Chain/Oper methods, never patch the host."""
+"""MoviePilot V2 adapter. Never patch the host or another plugin."""
 
 from pathlib import Path, PurePosixPath
 
 from .domain import Awaiting, BridgeError, child_path
+from .instant import native_provider, try_instant
 
 
 def value(obj, key, default=None):
@@ -136,12 +137,20 @@ class MPHost:
             raise BridgeError("批次只有字幕，没有对应媒体文件", review=True)
         return result
 
-    def upload(self, local: Path, remote_file: str):
+    def _upload_parent(self, remote_file):
         parent = self.storage.get_folder(storage=self.config.storage, path=Path(remote_file).parent)
         if not parent or value(parent, "type") != "dir":
-            raise BridgeError("无法建立 115 暂存目录，请检查储存插件是否启用")
+            raise BridgeError("无法建立 115 暂存目录，请检查 MP 内置 115 的登录和连接")
         if source_path(value(parent, "path")) != source_path(str(Path(remote_file).parent)):
             raise BridgeError("115 返回的上传目录与批次路径不一致", review=True)
+        return parent
+
+    def try_instant(self, entry, remote_file, stop):
+        parent = self._upload_parent(remote_file)
+        return try_instant(native_provider(), value(parent, "fileid"), entry, stop)
+
+    def upload(self, local: Path, remote_file: str):
+        parent = self._upload_parent(remote_file)
         uploaded = self.storage.upload_file(fileitem=parent, path=local, new_name=local.name)
         if not uploaded:
             return None

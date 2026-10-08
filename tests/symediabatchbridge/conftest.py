@@ -51,7 +51,7 @@ def modules(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, name, plugin)
     spec.loader.exec_module(plugin)
     result = {"plugin": plugin}
-    for part in ("domain", "store", "engine", "host", "cd2"):
+    for part in ("domain", "store", "engine", "host", "cd2", "instant"):
         result[part] = importlib.import_module(name + "." + part)
     yield SimpleNamespace(**result)
     for key in list(sys.modules):
@@ -63,6 +63,6 @@ def modules(monkeypatch, tmp_path):
 def config_values(tmp_path):
     root = tmp_path / "organized"
     root.mkdir()
-    return {"enabled": True, "local_root": str(root), "storage": "115网盘Plus",
+    return {"enabled": True, "local_root": str(root), "storage": "u115",
             "staging": "/MP暂存", "cd2_prefix": "/115", "inbox": "/115/Symedia待归档",
             "cd2_address": "http://cd2:19798", "cd2_token": "test-secret", "interval": 1}

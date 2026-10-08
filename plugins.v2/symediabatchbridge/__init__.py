@@ -19,6 +19,7 @@ from .cd2 import CD2
 from .domain import Config, Stopped
 from .engine import Engine
 from .host import MPHost, value
+from .instant import MAX_INSTANT_ATTEMPTS
 from .store import Store
 
 
@@ -33,13 +34,14 @@ class Runtime:
 
 class RetryRequest(BaseModel):
     key: str = Field(min_length=1, max_length=120)
+    switch_to_native: bool = False
 
 
 class SymediaBatchBridge(_PluginBase):
     plugin_name = "Symedia 批次移交"
     plugin_desc = "将 MP 整理的视频与字幕整批上传到 115，再通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/upload.png"
-    plugin_version = "1.0.0"
+    plugin_version = "1.1.0"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -205,6 +207,12 @@ class SymediaBatchBridge(_PluginBase):
                 return respond(False, "批次不存在")
             if job["state"] == "handed_off":
                 return respond(False, "该批次已移交，不会重复发送")
+            if job["routing"].get("storage") == "115网盘Plus":
+                if not request.switch_to_native:
+                    return respond(False, "请先确认 MP 内置 115 与 CD2 使用同一账号，并切换此旧批次")
+                if {**job["routing"], "storage": "u115"} != runtime.config.routing():
+                    return respond(False, "目录映射也发生了变化，请先恢复本批次原目录配置")
+                job["routing"] = runtime.config.routing()
             job.update(state="waiting", next_check=0, attempts=0, message="已安排重新检查")
             # Keep the sealed manifest and move intent. Retry never means start again.
             runtime.store.save(job)
@@ -218,14 +226,11 @@ class SymediaBatchBridge(_PluginBase):
 
         return [{"component": "VForm", "content": [
             {"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
-             "text": "MP 整理 → 115 暂存 → 整批移交 → Symedia。暂存目录不要加入 Symedia 监控。"},
+             "text": "使用 MP 内置 115 账号上传，与 CD2 挂载保持同一账号。暂存目录不要加入 Symedia 监控。"},
             {"component": "VRow", "content": [
                 {"component": "VCol", "props": {"cols": 12}, "content": [
                     {"component": "VSwitch", "props": {"model": "enabled", "label": "启用批次移交"}}]},
                 field("local_root", "MP 本地整理目录", "/media/organized"),
-                {"component": "VCol", "props": {"cols": 12, "md": 6}, "content": [
-                    {"component": "VSelect", "props": {"model": "storage", "label": "上传储存",
-                     "items": ["115网盘Plus", "u115"]}}]},
                 field("staging", "115 暂存目录", "/MP暂存"),
                 field("cd2_prefix", "CD2 中的 115 挂载目录", "/115"),
                 field("inbox", "Symedia 待归档目录（CD2 路径）", "/115/Symedia待归档"),
@@ -233,9 +238,11 @@ class SymediaBatchBridge(_PluginBase):
                 field("cd2_token", "CD2 API 令牌", type="password", autocomplete="off"),
                 field("interval", "检查间隔（分钟）", type="number", min=1, max=60),
             ]},
+            {"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
+             "text": "每个文件先尝试秒传 24 次，间隔 1 小时；最后一次未命中后再等 1 小时，才普通上传。接口报错不计次数；重启继续等待。"},
             {"component": "VAlert", "props": {"type": "warning", "variant": "tonal"},
              "text": "请保留下载器任务，使用 MP 复制或硬链接整理。相同目录不要再交给其他上传监控；首次启用仅接收之后的整理记录。"},
-        ]}], {"enabled": False, "storage": "115网盘Plus", "interval": 1,
+        ]}], {"enabled": False, "storage": "u115", "interval": 1,
                "local_root": "", "staging": "/MP暂存", "cd2_prefix": "",
                "inbox": "", "cd2_address": "", "cd2_token": ""}
 
@@ -243,7 +250,7 @@ class SymediaBatchBridge(_PluginBase):
         def text_node(text, component="div", **props):
             return {"component": component, "props": props, "text": text}
 
-        states = {"waiting": "等待齐套", "uploading": "上传中", "verifying": "核对中",
+        states = {"waiting": "等待齐套", "waiting_instant": "等待秒传", "uploading": "上传中", "verifying": "核对中",
                   "moving": "核对移交", "review": "需要处理", "handed_off": "已移交"}
         content = [text_node(self.plugin_name, "h3"), text_node(self._message, "p")]
         if self._action_message:
@@ -262,11 +269,25 @@ class SymediaBatchBridge(_PluginBase):
                 body.append(text_node("下次检查 " + datetime.fromtimestamp(job["next_check"]).strftime("%m-%d %H:%M"), "p"))
             if job.get("destination"):
                 body.append(text_node(job["destination"], "p"))
+            for entry in job.get("files", []):
+                if entry.get("uploaded") or not entry.get("instant_next_at"):
+                    continue
+                misses = entry.get("instant_misses", 0)
+                next_time = datetime.fromtimestamp(entry["instant_next_at"]).strftime("%m-%d %H:%M")
+                action = "普通上传" if misses >= MAX_INSTANT_ATTEMPTS else "再次秒传"
+                status = f"秒传未命中 {misses}/{MAX_INSTANT_ATTEMPTS} · {next_time} {action}"
+                if entry.get("instant_error"):
+                    status += " · " + entry["instant_error"]
+                body.extend([text_node(entry["relative"], "div", **{"class": "mt-2 text-body-2"}),
+                             text_node(status, "div", **{"class": "text-caption"})])
             if job["state"] != "handed_off":
+                legacy = job["routing"].get("storage") == "115网盘Plus"
+                if legacy:
+                    body.append(text_node("此旧批次使用 DDSRem 接口。确认 MP 内置 115 与 CD2 为同一账号后，点击下方切换；已上传文件会保留。", "p"))
                 body.append({"component": "VBtn", "props": {"variant": "text", "size": "small"},
-                             "text": "重新检查", "events": {"click": {
+                             "text": "确认同一账号，改用 MP 内置 115" if legacy else "重新检查", "events": {"click": {
                                  "api": f"plugin/{self.__class__.__name__}/retry", "method": "post",
-                                 "params": {"key": job["id"]}}}})
+                                 "params": {"key": job["id"], "switch_to_native": legacy}}}})
             content.append({"component": "VCard", "props": {"variant": "outlined", "class": "mb-3 pa-3"},
                             "content": body})
         if len(jobs) > 50:

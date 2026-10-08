@@ -100,7 +100,7 @@ def test_native_public_storage_contract(native):
     native.storage.get_folder.return_value = parent
     native.storage.upload_file.return_value = NS(path=remote, size=5, fileid="456")
     assert native.host.upload(native.video, remote) == {"size": 5, "fileid": "456"}
-    native.storage.get_folder.assert_called_once_with(storage="115网盘Plus", path=Path(remote).parent)
+    native.storage.get_folder.assert_called_once_with(storage="u115", path=Path(remote).parent)
     native.storage.upload_file.assert_called_once_with(fileitem=parent, path=native.video, new_name=native.video.name)
 
 
@@ -173,7 +173,7 @@ def test_cd2_duplicate_or_escaped_paths_block_traversal(modules, config_values):
         cloud.exists("/115/x")
 
 
-def test_batch_through_both_real_adapters_with_offline_services(native, modules, tmp_path):
+def test_batch_through_both_real_adapters_with_offline_services(native, modules, tmp_path, monkeypatch):
     """Compose the real engine, MP adapter, SQLite store, CD2 adapter and protobufs.
 
     Only the download/database/storage service calls and CD2 server are simulated.
@@ -182,10 +182,10 @@ def test_batch_through_both_real_adapters_with_offline_services(native, modules,
     files, moves = {}, []
 
     def get_folder(storage, path):
-        assert storage == "115网盘Plus"
+        assert storage == "u115"
         full = PurePosixPath("/115" + path.as_posix())
         dirs.update(str(p) for p in [full, *full.parents] if str(p).startswith("/115"))
-        return NS(type="dir", path=path.as_posix(), fileid="parent")
+        return NS(type="dir", path=path.as_posix(), fileid="123")
 
     def upload_file(fileitem, path, new_name):
         remote = fileitem.path + "/" + new_name
@@ -219,6 +219,17 @@ def test_batch_through_both_real_adapters_with_offline_services(native, modules,
 
     native.storage.get_folder.side_effect = get_folder
     native.storage.upload_file.side_effect = upload_file
+    def initialize(method, endpoint, data, retry_limit):
+        assert method == "POST" and endpoint == "/open/upload/init" and retry_limit == 0
+        filename, filesize, filesha1 = data["file_name"], data["file_size"], data["fileid"]
+        local = next(p for p in (native.video, native.subtitle) if p.name == filename)
+        # The fake 115 service materializes the file on a successful hash reuse.
+        parent = native.storage.get_folder.call_args.kwargs["path"].as_posix()
+        remote = "/115" + parent + "/" + filename
+        files[remote] = cloud_file(remote, size=filesize, digest=filesha1)
+        assert filesha1 == sha1(local.read_bytes()).hexdigest()
+        return {"state": True, "data": {"status": 2}}
+    monkeypatch.setattr(modules.host, "native_provider", lambda: NS(_request_api=initialize))
     store = modules.store.Store(tmp_path / "ledger")
     store.observe(instance="SymediaBatchBridge", download_hash="hash", downloader="qb", title="作品", history_id=1,
                   routing=native.config.routing())
