@@ -44,6 +44,90 @@ def test_native_manifest_includes_subtitle_omitted_from_mp_download_db(native):
     native.chain.torrent_files.assert_called_once_with(tid="hash", downloader="qb")
 
 
+@pytest.mark.parametrize("content_root", [False, True])
+def test_mp_download_fullpath_resolves_torrent_top_directory_once(native, content_root):
+    root = PurePosixPath(native.rows[0].src).parent
+    native.downloads.get_files_by_hash.return_value = [
+        NS(downloader="qb", savepath=str(root if content_root else root.parent), fullpath=r.src)
+        for r in native.rows]
+    result = native.host.collect(native.job)
+    assert [r["source"] for r in result] == [r.src for r in native.rows]
+
+
+def test_download_root_does_not_match_only_filename(native, modules):
+    native.downloads.get_files_by_hash.return_value = [
+        NS(downloader="qb", savepath="/downloads/Release", fullpath="/other/Release/video.mkv")]
+    with pytest.raises(modules.domain.BridgeError, match="路径与 MP"):
+        native.host.collect(native.job)
+
+
+@pytest.fixture
+def existing(native, modules):
+    native.job["origin"] = "inventory"
+    # Real MP get_by(dest=...) returns [] without a media identity.
+    native.transfers.get_by = Mock(return_value=[])
+    native.transfers.list_by_date = Mock(side_effect=lambda since: list(native.rows))
+    native.job["inventory_files"] = [{"local": r.dest, "history_id": r.id,
+        "signature": modules.domain.file_signature(Path(r.dest))} for r in native.rows]
+    for row in native.rows:
+        Path(row.src).unlink()
+    native.chain.torrent_files.side_effect = AssertionError("inventory must not contact downloader")
+    native.chain.list_torrents.side_effect = AssertionError("inventory must not contact downloader")
+    return native
+
+
+def test_existing_output_does_not_require_deleted_originals_or_downloader(existing):
+    result = existing.host.collect(existing.job)
+    assert {r["local"] for r in result} == {str(existing.video), str(existing.subtitle)}
+    assert all("source" not in r for r in result)
+    existing.downloads.get_files_by_hash.assert_not_called()
+    existing.transfers.get_by.assert_not_called()
+    existing.transfers.list_by_date.assert_called_once()
+
+
+@pytest.mark.parametrize("problem", ["removed", "replaced", "new_record", "failed", "different_task"])
+def test_inventory_snapshot_cannot_silently_drop_or_replace_files(existing, modules, problem):
+    if problem == "removed":
+        existing.subtitle.unlink()
+    elif problem == "replaced":
+        existing.subtitle.write_bytes(b"different subtitle")
+    elif problem == "new_record":
+        existing.rows[0].id += 100
+    elif problem == "failed":
+        existing.rows[0].status = False
+    else:
+        existing.rows[0].download_hash = "other"
+    with pytest.raises(modules.domain.BridgeError):
+        existing.host.collect(existing.job)
+    existing.chain.torrent_files.assert_not_called()
+
+
+def test_existing_snapshot_excludes_later_files(existing):
+    extra = existing.video.with_suffix(".later.srt")
+    extra.write_bytes(b"later")
+    existing.rows.append(NS(**{**vars(existing.rows[0]), "id": 100, "dest": str(extra)}))
+    assert len(existing.host.collect(existing.job)) == 2
+
+
+def test_inventory_rejects_newer_transfer_from_another_download(existing, modules):
+    existing.rows.append(NS(**{**vars(existing.rows[0]), "id": 100, "download_hash": "other"}))
+    with pytest.raises(modules.domain.BridgeError, match="整理记录已变化"):
+        existing.host.collect(existing.job)
+
+
+def test_legacy_import_builds_snapshot_from_remaining_output(existing):
+    existing.job.pop("inventory_files")
+    existing.transfers.list_by_hash.return_value = existing.rows
+    assert len(existing.host.collect(existing.job)) == 2
+    assert len(existing.job["inventory_files"]) == 2
+
+
+def test_inventory_subtitles_without_media_are_held(existing, modules):
+    existing.job["inventory_files"] = existing.job["inventory_files"][1:]
+    with pytest.raises(modules.domain.BridgeError, match="只有字幕"):
+        existing.host.collect(existing.job)
+
+
 @pytest.mark.parametrize("problem", ["download_incomplete", "transfer_missing", "transfer_failed", "different_downloader"])
 def test_incomplete_native_subtitle_holds_whole_task(native, modules, problem):
     if problem == "download_incomplete":

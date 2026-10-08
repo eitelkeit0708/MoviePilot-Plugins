@@ -240,6 +240,16 @@ class Engine:
             if hashed >= 4:
                 raise Awaiting(f"已记录 {len(job['files'])}/{len(candidates)} 个文件 HASH，下次继续")
             entry = freeze_file(path, relative, self.stop)
+            snapshot = candidate.get("inventory_signature")
+            if snapshot and any(entry["signature"][i] != snapshot[i] for i in (0, 1, 3, 4)):
+                raise BridgeError("存量文件在接管后发生变化，已暂停处理：" + relative, review=True)
+            cleanup_source = candidate.get("cleanup_source")
+            if cleanup_source:
+                try:
+                    if Path(cleanup_source).samefile(path):
+                        entry["download_source"] = cleanup_source
+                except OSError:
+                    pass  # Seeding originals may legitimately have expired.
             source = candidate.get("source")
             if source:
                 entry["download_source"] = source

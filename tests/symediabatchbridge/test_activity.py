@@ -128,6 +128,7 @@ def test_once_switch_is_durable_resets_and_imports_only_existing_records(plugin,
     p.init_plugin({**plugin.values,'scan_existing_once':True})
     assert p._store.meta('inventory_pending') is True
     assert p.update_config.call_args.args[0]['scan_existing_once'] is False
+    assert '已接收存量处理请求' in json.dumps(p.get_page(), ensure_ascii=False)
     # Restart before scheduled scan, using the auto-reset config.
     p.init_plugin(plugin.values)
     monkeypatch.setattr(plugin.modules.plugin.Engine,'process',lambda *a:None)
@@ -137,6 +138,46 @@ def test_once_switch_is_durable_resets_and_imports_only_existing_records(plugin,
     p.check_batches()
     assert len(p._store.jobs())==1
     assert p._store.meta('existing_scan')['imported']==1
+    assert p._store.jobs()[0]['origin'] == 'inventory'
+    assert p._store.jobs()[0]['inventory_files'][0]['local'] == str(path)
+    assert '存量检查完成：接管 1 批' in json.dumps(p.get_page()[0], ensure_ascii=False)
+
+
+def test_inventory_failure_keeps_request_and_visible_retry_state(plugin, monkeypatch):
+    p = plugin.p
+    p.init_plugin({**plugin.values, 'scan_existing_once': True})
+    monkeypatch.setattr(plugin.modules.plugin, 'scan_inventory', Mock(side_effect=OSError('secret-path-token')))
+    p.check_batches()
+    assert p._store.meta('inventory_pending')
+    page = json.dumps(p.get_page()[0], ensure_ascii=False)
+    assert '下轮自动重试' in page and 'secret-path-token' not in page
+
+
+def test_inventory_count_does_not_claim_missing_record_as_imported(plugin, monkeypatch):
+    p = plugin.p
+    p.init_plugin({**plugin.values, 'scan_existing_once': True})
+    plugin.host.transfers.get.return_value = None
+    monkeypatch.setattr(plugin.modules.plugin, 'scan_inventory', lambda runtime: {
+        'at': 1, 'candidates': [{'history_id': 999, 'members': []}], 'routes': [], 'unmatched': []})
+    p.check_batches()
+    assert p._store.meta('existing_scan')['imported'] == 0
+    assert p._store.meta('existing_scan')['skipped'] == 1
+
+
+@pytest.mark.parametrize('imported,sealed', [(True, False), (False, False), (True, True)])
+def test_legacy_origin_restored_only_from_unsealed_import_event(plugin, imported, sealed):
+    p = plugin.p
+    job = add_job(p)
+    job.pop('origin')
+    if sealed:
+        job['files'] = [{'relative': 'sealed.mkv'}]
+    p._store.save(job)
+    if imported:
+        p._store.record(job, plugin.modules.activity.event('imported', 'existing'))
+    p._store.restore_origin(job)
+    assert job['origin'] == ('inventory' if imported and not sealed else 'transfer')
+    p._store.restore_origin(job)
+    assert p._store.get(job['id'])['origin'] == job['origin']
 
 
 def test_inventory_lists_orphans_and_uses_latest_record(plugin):

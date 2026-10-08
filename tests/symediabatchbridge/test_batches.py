@@ -99,6 +99,77 @@ def test_whole_directory_preserves_video_and_subtitles(batch):
     assert all(Path(p).exists() for p in batch.paths)
 
 
+@pytest.fixture
+def inventory_batch(batch, modules):
+    job = batch.job()
+    rows = [SimpleNamespace(id=i + 1, dest=p, dest_storage="local", status=True,
+                            downloader=job["downloader"], download_hash=job["download_hash"])
+            for i, p in enumerate(batch.paths)]
+    job.update(origin="inventory", inventory_files=[
+        {"local": r.dest, "history_id": r.id, "signature": modules.domain.file_signature(Path(r.dest))}
+        for r in rows])
+    batch.store.save(job)
+    forbidden = Mock(side_effect=AssertionError("Inventory must not query expired download tasks"))
+    host = modules.host.MPHost(batch.config,
+        chain=SimpleNamespace(torrent_files=forbidden, list_torrents=forbidden),
+        storage=SimpleNamespace(), downloads=SimpleNamespace(get_files_by_hash=forbidden),
+        transfers=SimpleNamespace(list_by_date=Mock(return_value=rows)), extensions={".mkv", ".ass"})
+    host.try_instant = batch.host.try_instant
+    host.upload = batch.host.upload
+    batch.engine.host = host
+    batch.inventory_host = host
+    batch.inventory_rows = rows
+    return batch
+
+
+def test_inventory_snapshot_resumes_hashes_and_handoffs_video_with_subtitle(inventory_batch, modules, monkeypatch):
+    batch = inventory_batch
+    hashed = Mock(wraps=modules.engine.freeze_file)
+    monkeypatch.setattr(modules.engine, "freeze_file", hashed)
+    # Terminate the first worker after hashing, before any cloud side effect.
+    batch.cloud.exists = Mock(side_effect=RuntimeError("temporary service outage"))
+    batch.run()
+    assert hashed.call_count == 2 and not batch.cloud.moves
+    assert len(batch.job()["files"]) == 2
+    assert not any(e.get("download_source") for e in batch.job()["files"])
+    del batch.cloud.exists
+    store = modules.store.Store(batch.store.path.parent)
+    engine = modules.engine.Engine(store, batch.config, batch.inventory_host, batch.cloud, Event())
+    engine.process(store.get(batch.id))
+    saved = store.get(batch.id)
+    assert saved["state"] == "handed_off", saved["message"]
+    assert hashed.call_count == 2
+    assert len(batch.cloud.moves) == 1
+    assert set(batch.cloud.tree(saved["destination"])) == {e["relative"] for e in saved["files"]}
+    assert len(saved["files"]) == 2 and all(Path(p).is_file() for p in batch.paths)
+
+
+def test_inventory_replacement_between_collect_and_hash_cannot_upload(inventory_batch, modules, monkeypatch):
+    batch = inventory_batch
+    original = modules.engine.freeze_file
+    def replace_then_hash(path, relative, stop):
+        Path(path).write_bytes(b"replaced after snapshot validation")
+        return original(path, relative, stop)
+    monkeypatch.setattr(modules.engine, "freeze_file", replace_then_hash)
+    batch.run()
+    assert batch.job()["state"] == "review"
+    assert "存量文件" in batch.job()["message"]
+    assert not batch.host.uploads and not batch.cloud.moves
+
+
+def test_inventory_retains_optional_hardlink_proof_only_when_original_exists(inventory_batch):
+    batch = inventory_batch
+    source = Path(batch.paths[0]).with_suffix(".download-source")
+    source.hardlink_to(batch.paths[0])
+    batch.inventory_rows[0].src = str(source)
+    batch.inventory_rows[1].src = str(source.with_suffix(".expired"))
+    batch.run()
+    saved = batch.job()
+    assert saved["state"] == "handed_off", saved["message"]
+    assert saved["files"][0]["download_source"] == str(source).replace("\\", "/")
+    assert "download_source" not in saved["files"][1]
+
+
 def missing_staged_file(batch, now):
     job = batch.job()
     batch.engine._sync_candidates(job, batch.host.collect(job))

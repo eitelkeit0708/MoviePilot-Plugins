@@ -70,7 +70,8 @@ class Store:
             db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, json.dumps(value)))
 
     def observe(self, *, instance: str, download_hash: str, downloader: str,
-                title: str, history_id: int, routing: dict, route_name: str = "默认路线", cleanup_local=False):
+                title: str, history_id: int, routing: dict, route_name: str = "默认路线", cleanup_local=False,
+                inventory_files=None):
         # A retry/replayed event resolves to the same batch, including after handoff.
         # Routing changes must not make a replayed event look like a new download.
         source_key = json.dumps([downloader, download_hash or f"manual:{history_id}"])
@@ -82,6 +83,10 @@ class Store:
                "cleanup_local": bool(cleanup_local),
                "state": "waiting", "message": "等待视频与字幕整理完成", "files": [],
                "created": now, "updated": now, "attempts": 0, "next_check": 0}
+        job["origin"] = "inventory" if inventory_files is not None else "transfer"
+        if inventory_files is not None:
+            job["inventory_files"] = inventory_files
+            job["message"] = "已接管现存整理文件，等待核对并上传"
         with self.connect() as db:
             inserted = db.execute("INSERT OR IGNORE INTO batches(id, source_key, body, updated) VALUES (?, ?, ?, ?)",
                        (identifier, source_key, json.dumps(job, ensure_ascii=False), now))
@@ -98,6 +103,16 @@ class Store:
             items = self._record(db, existing, changes(None if inserted.rowcount else old, existing))
         self._emit(existing, items)
         return existing
+
+    def restore_origin(self, job):
+        """Migrate pre-1.4.1 imports from durable events, without changing sealed jobs."""
+        if job.get("origin"):
+            return
+        with self.connect() as db:
+            imported = any(json.loads(row[0]).get("kind") == "imported" for row in
+                           db.execute("SELECT body FROM activity WHERE batch=?", (job["id"],)))
+        job["origin"] = "inventory" if imported and not job.get("files") and not job.get("move_requested") else "transfer"
+        self.save(job)
 
     def save(self, job):
         job["updated"] = time.time()

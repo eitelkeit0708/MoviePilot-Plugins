@@ -66,7 +66,7 @@ class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.4.0"
+    plugin_version = "1.4.1"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -117,7 +117,13 @@ class SymediaBatchBridge(_PluginBase):
                     # Persist intent before resetting the one-shot form flag. A restart
                     # resumes the request; replay observes the same source-key batches.
                     self._store.set_meta("inventory_pending", True)
+                    self._store.set_meta("inventory_status", {"state": "queued", "at": time.time(),
+                                         "message": "已接收存量处理请求，等待下一轮检查"})
                     self.update_config({**config, "scan_existing_once": False})
+                    logger.info(f"{self.plugin_name}：已接收存量处理请求，已排队，每 {parsed.interval} 分钟检查；开关已复位")
+                elif self._store.meta("inventory_pending", False):
+                    self._store.set_meta("inventory_status", {"state": "queued", "at": time.time(),
+                                         "message": "存量处理请求已恢复，等待继续检查"})
                 if not self._store.meta("activated_at"):
                     self._store.set_meta("activated_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 for name in ("TransferComplete", "SubtitleTransferComplete", "AudioTransferComplete"):
@@ -272,18 +278,19 @@ class SymediaBatchBridge(_PluginBase):
                 self._action_message = "正在处理批次，请稍后再接管"
                 return Response(success=False)
             scan = runtime.store.meta("existing_scan", {})
-            if not any(r["history_id"] == request.history_id for r in scan.get("candidates", [])):
+            candidate = next((r for r in scan.get("candidates", []) if r["history_id"] == request.history_id), None)
+            if not candidate or not candidate.get("members"):
                 self._action_message = "请先检查存量并选择批次"
                 return Response(success=False)
             row = runtime.host.transfers.get(request.history_id)
             if not row or not value(row,"status") or not Path(str(value(row,"dest") or "")).is_file():
                 self._action_message = "整理记录或文件已变化，请重新检查存量"
                 return Response(success=False)
-            job = self._observe(runtime, row)
+            job = self._observe(runtime, row, inventory_files=candidate["members"])
             if not job:
                 self._action_message = "文件已不属于当前路线，请重新检查存量"
                 return Response(success=False)
-            runtime.store.record(job, event("imported", "手动接管历史整理批次；上传前仍需核对下载器清单和源文件"))
+            runtime.store.record(job, event("imported", "已接管现存整理文件，核对本地副本后上传"))
             scan["candidates"] = [r for r in scan["candidates"] if r["history_id"] != request.history_id]
             runtime.store.set_meta("existing_scan", scan)
             self._view = ViewRequest(key=job["id"])
@@ -319,7 +326,7 @@ class SymediaBatchBridge(_PluginBase):
         finally:
             self._notifying.release()
 
-    def _observe(self, runtime, row):
+    def _observe(self, runtime, row, inventory_files=None):
         if runtime.stop.is_set():
             return
         route = next((route for route in runtime.routes
@@ -331,7 +338,8 @@ class SymediaBatchBridge(_PluginBase):
             download_hash=str(value(row, "download_hash") or ""),
             downloader=str(value(row, "downloader") or ""),
             title=str(value(row, "title") or Path(str(value(row, "dest") or "")).stem),
-            history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name, cleanup_local=self._delete_local)
+            history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name, cleanup_local=self._delete_local,
+            inventory_files=inventory_files)
         self._notify_issue(runtime, job)
         return job
 
@@ -382,22 +390,34 @@ class SymediaBatchBridge(_PluginBase):
                 self._flush_notifications()
                 if runtime.store.meta("inventory_pending", False):
                     try:
+                        runtime.store.set_meta("inventory_status", {"state": "running", "at": time.time(),
+                                               "message": "正在检查现存整理文件"})
+                        logger.info(f"{self.plugin_name}：开始检查 {len(runtime.routes)} 条路线的现存整理文件")
                         result = scan_inventory(runtime)
                         runtime.store.set_meta("existing_scan", result)
+                        imported_count, skipped = 0, 0
                         for candidate in result["candidates"]:
                             check_row = runtime.host.transfers.get(candidate["history_id"])
-                            if check_row:
-                                imported = self._observe(runtime, check_row)
+                            imported = None
+                            if check_row and value(check_row, "status") and Path(str(value(check_row, "dest") or "")).is_file():
+                                imported = self._observe(runtime, check_row, inventory_files=candidate["members"])
                                 if imported:
-                                    runtime.store.record(imported, event("imported", "一次性存量处理：接管现存文件，继续核对下载器和整理清单"))
-                        runtime.store.set_meta("inventory_pending", False)
-                        result["imported"] = len(result["candidates"])
+                                    imported_count += 1
+                                    runtime.store.record(imported, event("imported", "一次性存量处理：已接管现存整理文件，核对本地副本后上传"))
+                            if not imported:
+                                skipped += 1
+                        result["imported"], result["skipped"] = imported_count, skipped
                         result["candidates"] = []
                         runtime.store.set_meta("existing_scan", result)
-                        logger.info(f"{self.plugin_name}：一次性存量检查完成，接管 {result['imported']} 批")
+                        message = f"存量检查完成：接管 {imported_count} 批，跳过 {skipped} 批，{len(result['unmatched'])} 个文件无可用记录"
+                        runtime.store.set_meta("inventory_status", {"state": "done", "at": time.time(), "message": message})
+                        runtime.store.set_meta("inventory_pending", False)
+                        logger.info(f"{self.plugin_name}：{message}")
                     except Stopped:
                         raise
                     except Exception:
+                        runtime.store.set_meta("inventory_status", {"state": "retrying", "at": time.time(),
+                                               "message": "存量检查未完成，请求已保留，下轮自动重试"})
                         logger.warning(f"{self.plugin_name}：一次性存量检查未完成，保留请求，下次继续")
                 history_ok = True
                 try:
@@ -413,6 +433,7 @@ class SymediaBatchBridge(_PluginBase):
                         break
                     engine = Engine(runtime.store, runtime.config, runtime.host, runtime.cloud, runtime.stop)
                     try:
+                        runtime.store.restore_origin(job)
                         config = runtime.config.pinned(job["routing"])
                         for other in [r.routing() for r in runtime.routes] + routings:
                             if other.get("cd2_address") == config.cd2_address and other.get("cd2_prefix") == config.cd2_prefix:
@@ -552,7 +573,7 @@ class SymediaBatchBridge(_PluginBase):
                      "hint": "仅删除已移交批次中有原始下载文件的硬链接副本；保留下载器文件和做种任务。只应用于之后接管的批次。", "persistentHint": True}}]},
                 {"component": "VCol", "props": {"cols": 12}, "content": [
                     {"component": "VSwitch", "props": {"model": "scan_existing_once", "label": "保存后处理一次现存文件",
-                     "hint": "检查全部路线，接管有 MP 下载整理记录且仍存在的文件；请求会保存，开关自动复位。无记录的字幕、原盘等会列出原因。", "persistentHint": True}}]},
+                     "hint": "接管整理目录中有 MP 记录的现存文件；原下载源或做种任务已删除也可处理。保存后排队，开关自动复位，结果显示在数据页顶部。", "persistentHint": True}}]},
             ]},
             {"component": "h3", "props": {"class": "mb-3"}, "text": "目录映射"},
             *route_cards,

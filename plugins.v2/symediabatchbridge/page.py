@@ -48,8 +48,15 @@ def render_page(plugin):
     header.append(text(f"自动接收 {activated} 之后的 MP 整理记录；目录中的历史文件不会自动入队。", "p", **{"class": "text-caption"}))
     if plugin.get_state():
         header.append(button(plugin, "检查现存文件", "scan"))
-    if store.meta("inventory_pending", False):
+    inventory = store.meta("inventory_status", {})
+    if inventory:
+        header.append(text("存量处理 · " + when(inventory.get("at")) + " · " + inventory["message"], "p"))
+    elif store.meta("inventory_pending", False):
         header.append(text("一次性存量处理已排队，将在下一轮检查中执行。", "p"))
+    else:
+        previous = store.meta("existing_scan", {})
+        if previous.get("imported") is not None:
+            header.append(text(f"存量处理 · {when(previous.get('at'))} · 已接管 {previous['imported']} 批", "p"))
     if plugin._runtime:
         for route in plugin._runtime.routes:
             header.append(text(f"{route.name} · {route.local_root}", "div", **{"class": "text-caption"}))
@@ -129,6 +136,8 @@ def detail(plugin, job):
         body.append(text("归档核对：" + job["recovery_directory"], "p"))
     if job.get("source_directory_id"):
         body.append(text("移交目录 ID：" + job["source_directory_id"], "p", **{"class": "text-caption"}))
+    if job.get("origin") == "inventory":
+        body.append(text("接管方式：现存整理文件", "p"))
     browser = plugin._recovery_browser
     if browser and browser["key"] == job["id"]:
         path, page = browser["path"], browser["page"]

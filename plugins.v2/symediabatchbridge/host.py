@@ -3,7 +3,7 @@
 from pathlib import Path, PurePosixPath
 from copy import copy
 
-from .domain import Awaiting, BridgeError, child_path
+from .domain import Awaiting, BridgeError, child_path, file_signature
 from .instant import native_provider, try_instant
 
 
@@ -13,6 +13,26 @@ def value(obj, key, default=None):
 
 def source_path(path):
     return str(PurePosixPath(str(path or "").replace("\\", "/")))
+
+
+def download_root(native_files, files):
+    """MP savepath can already include the torrent's top-level directory."""
+    paths = {source_path(value(row, "savepath")) for row in native_files if value(row, "savepath")}
+    if len(paths) != 1:
+        raise BridgeError("下载文件的保存路径无法唯一确定", review=True)
+    saved = next(iter(paths))
+    names = [str(value(item, "name") or "") for item in files]
+    for name in names:
+        child_path(saved, name)  # Validate before considering either root.
+    recorded = {source_path(value(row, "fullpath")) for row in native_files if value(row, "fullpath")}
+    if not recorded:
+        return saved
+    # Compare complete paths, never basenames or a guessed existing file.
+    roots = {saved, str(PurePosixPath(saved).parent)}
+    matching = [root for root in roots if recorded <= {child_path(root, name) for name in names}]
+    if len(matching) != 1:
+        raise BridgeError("下载器文件路径与 MP 下载记录不一致，无法确定源目录", review=True)
+    return matching[0]
 
 
 class MPHost:
@@ -61,6 +81,8 @@ class MPHost:
         return self.transfers.list_by_date(since) or []
 
     def collect(self, job):
+        if job.get("origin") == "inventory":
+            return self._collect_inventory(job)
         download_hash, downloader = job["download_hash"], job["downloader"]
         if not download_hash or not downloader:
             raise BridgeError("缺少下载任务标识，无法自动确认附件范围；此任务需人工处理", review=True)
@@ -68,13 +90,10 @@ class MPHost:
                         if value(row, "downloader") == downloader]
         if not native_files:
             raise Awaiting("等待 MP 下载文件清单")
-        save_paths = {source_path(value(row, "savepath")) for row in native_files if value(row, "savepath")}
-        if len(save_paths) != 1:
-            raise BridgeError("下载文件的保存路径无法唯一确定", review=True)
-        save_path = next(iter(save_paths))
         files = self.chain.torrent_files(tid=download_hash, downloader=downloader)
         if not files:
             raise Awaiting("无法读取下载器文件清单；请保留下载任务并检查下载器连接")
+        save_path = download_root(native_files, files)
         torrents = self.chain.list_torrents(hashs=download_hash, downloader=downloader) or []
         all_complete = bool(torrents) and all(float(value(t, "progress", 0) or 0) >= 100 for t in torrents)
         expected, torrent_sources = {}, set()
@@ -142,6 +161,58 @@ class MPHost:
         if not any(Path(r["local"]).suffix.lower() not in
                    {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"} for r in result):
             raise BridgeError("批次只有字幕，没有对应媒体文件", review=True)
+        return result
+
+    def _collect_inventory(self, job):
+        # Explicitly adopted existing output is a snapshot, not an unfinished
+        # download. Seeding originals and torrent tasks are allowed to expire.
+        # MP get_by(dest=...) requires a media identity and otherwise returns [].
+        # Read history once, then match exact paths across ALL download identities
+        # so a newer transfer cannot silently replace a snapshot's owner.
+        latest = {}
+        for row in self.histories_since("1970-01-01 00:00:00"):
+            if self.in_scope(row):
+                dest = str(value(row, "dest"))
+                if dest not in latest or int(value(row, "id")) > int(value(latest[dest], "id")):
+                    latest[dest] = row
+        manifest = job.get("inventory_files")
+        if manifest is None:
+            # Upgrade only jobs whose persisted import event proves user adoption.
+            manifest = []
+            for dest, row in latest.items():
+                if (value(row, "downloader") == job["downloader"]
+                        and value(row, "download_hash") == job["download_hash"]
+                        and value(row, "status") and Path(dest).is_file()):
+                    self.config.relative(dest)
+                    manifest.append({"local": dest, "history_id": int(value(row, "id")),
+                                     "signature": file_signature(Path(dest))})
+            job["inventory_files"] = manifest
+        if not manifest:
+            raise BridgeError("本次接管已没有可核实的整理文件", review=True)
+        result = []
+        for member in manifest:
+            target = member["local"]
+            self.config.relative(target)
+            row = latest.get(target)
+            if (row is None or not value(row, "status") or int(value(row, "id")) != member["history_id"]
+                    or value(row, "downloader") != job["downloader"]
+                    or value(row, "download_hash") != job["download_hash"]):
+                raise BridgeError("存量文件的整理记录已变化，已暂停处理：" + Path(target).name, review=True)
+            # Before the first hash, reject replacements since the scan. Unlinking
+            # the original hardlink can change ctime without changing this copy.
+            if not any(entry["local"] == target for entry in job.get("files", [])):
+                current = file_signature(Path(target))
+                if any(current[i] != member["signature"][i] for i in (0, 1, 3, 4)):
+                    raise BridgeError("存量文件在接管后发生变化，已暂停处理：" + Path(target).name, review=True)
+            candidate = {"local": target, "history_id": member["history_id"],
+                         "inventory_signature": member["signature"]}
+            if value(row, "src") and value(row, "src_storage", "local") in (None, "", "local"):
+                # Optional cleanup evidence, never a condition for inventory upload.
+                candidate["cleanup_source"] = source_path(value(row, "src"))
+            result.append(candidate)
+        subtitles = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"}
+        if not any(Path(row["local"]).suffix.lower() not in subtitles for row in result):
+            raise BridgeError("现存批次只有字幕，没有对应媒体文件", review=True)
         return result
 
     def _upload_parent(self, remote_file):

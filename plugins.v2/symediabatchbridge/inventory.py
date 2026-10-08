@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 import time
 
-from .domain import check_stop
+from .domain import check_stop, file_signature
 from .host import value
 
 
@@ -43,7 +43,9 @@ def scan(runtime):
                     continue
                 summary["matched"] += 1
                 group = groups.setdefault(identity, {"history_id":int(value(row,"id")), "title":str(value(row,"title") or path.stem),
-                                                     "route":route.name, "date":str(value(row,"date")), "files":0})
+                                                     "route":route.name, "date":str(value(row,"date")), "files":0, "members":[]})
                 group["files"] += 1
+                group["members"].append({"local": str(path), "history_id": int(value(row, "id")),
+                                         "signature": file_signature(path)})
         summaries.append(summary)
     return {"at":time.time(), "candidates":list(groups.values()), "routes":summaries, "unmatched":unmatched}
