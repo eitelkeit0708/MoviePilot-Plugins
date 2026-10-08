@@ -61,7 +61,7 @@ def modules(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, name, plugin)
     spec.loader.exec_module(plugin)
     result = {"plugin": plugin}
-    for part in ("domain", "store", "engine", "host", "cd2", "instant", "activity", "cleanup", "inventory", "recovery"):
+    for part in ("domain", "store", "engine", "host", "cd2", "instant", "activity", "cleanup", "inventory", "recovery", "media"):
         result[part] = importlib.import_module(name + "." + part)
     yield SimpleNamespace(**result)
     for key in list(sys.modules):

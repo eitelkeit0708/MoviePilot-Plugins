@@ -20,6 +20,7 @@ from .cd2 import CD2
 from .domain import BridgeError, Config, Stopped, nested
 from .engine import Engine
 from .host import MPHost, value
+from .media import history_media
 from .instant import MAX_INSTANT_ATTEMPTS
 from .store import Store
 from .activity import attention, event, when
@@ -66,7 +67,7 @@ class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.4.2"
+    plugin_version = "1.4.3"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -316,7 +317,8 @@ class SymediaBatchBridge(_PluginBase):
                 try:
                     # Native MP persists message history and routes Plugin messages
                     # to the user's configured channels. It gives no delivery receipt.
-                    self.post_message(mtype=NotificationType.Plugin, title=notice["title"], text=notice["text"])
+                    self.post_message(mtype=NotificationType.Plugin, title=notice["title"], text=notice["text"],
+                                      image=notice.get("image"))
                 except Exception:
                     runtime.store.notice_result(notice, False)
                     logger.warning(f"{self.plugin_name} [{notice['batch']}] 通知提交失败，将自动重试")
@@ -339,7 +341,7 @@ class SymediaBatchBridge(_PluginBase):
             downloader=str(value(row, "downloader") or ""),
             title=str(value(row, "title") or Path(str(value(row, "dest") or "")).stem),
             history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name, cleanup_local=self._delete_local,
-            inventory_files=inventory_files)
+            inventory_files=inventory_files, media=history_media(row))
         self._notify_issue(runtime, job)
         return job
 

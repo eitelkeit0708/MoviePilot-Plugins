@@ -5,6 +5,7 @@ from copy import copy
 
 from .domain import Awaiting, BridgeError, child_path, file_signature
 from .instant import native_provider, try_instant
+from .media import history_media
 
 
 def value(obj, key, default=None):
@@ -143,11 +144,14 @@ class MPHost:
                 raise Awaiting("等待 MP 整理完成：" + PurePosixPath(source).name)
             if not self.in_scope(row):
                 raise BridgeError("本批部分文件未整理到配置的本地目录，请核对 MP 整理规则", review=True)
+            if not job.get("media"):
+                job["media"] = history_media(row)
             target = str(value(row, "dest") or "")
             self.config.relative(target)
             if Path(target).stat().st_size != expected[source]:
                 raise BridgeError("整理文件大小与下载清单不同：" + Path(target).name, review=True)
-            result.append({"local": target, "source": source, "history_id": int(value(row, "id"))})
+            result.append({"local": target, "source": source, "history_id": int(value(row, "id")),
+                           "media": history_media(row)})
         # Include explicitly associated native attachment transfers, even if they were
         # added locally after the torrent's original file list was created.
         for source, row in newest.items():
@@ -157,7 +161,8 @@ class MPHost:
                 raise Awaiting("同一任务还有整理失败的文件：" + PurePosixPath(source).name)
             target = str(value(row, "dest"))
             self.config.relative(target)
-            result.append({"local": target, "source": source, "history_id": int(value(row, "id"))})
+            result.append({"local": target, "source": source, "history_id": int(value(row, "id")),
+                           "media": history_media(row)})
         if not any(Path(r["local"]).suffix.lower() not in
                    {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"} for r in result):
             raise BridgeError("批次只有字幕，没有对应媒体文件", review=True)
@@ -198,6 +203,8 @@ class MPHost:
                     or value(row, "downloader") != job["downloader"]
                     or value(row, "download_hash") != job["download_hash"]):
                 raise BridgeError("存量文件的整理记录已变化，已暂停处理：" + Path(target).name, review=True)
+            if not job.get("media"):
+                job["media"] = history_media(row)
             # Before the first hash, reject replacements since the scan. Unlinking
             # the original hardlink can change ctime without changing this copy.
             if not any(entry["local"] == target for entry in job.get("files", [])):
@@ -205,7 +212,7 @@ class MPHost:
                 if any(current[i] != member["signature"][i] for i in (0, 1, 3, 4)):
                     raise BridgeError("存量文件在接管后发生变化，已暂停处理：" + Path(target).name, review=True)
             candidate = {"local": target, "history_id": member["history_id"],
-                         "inventory_signature": member["signature"]}
+                         "inventory_signature": member["signature"], "media": history_media(row)}
             if value(row, "src") and value(row, "src_storage", "local") in (None, "", "local"):
                 # Optional cleanup evidence, never a condition for inventory upload.
                 candidate["cleanup_source"] = source_path(value(row, "src"))

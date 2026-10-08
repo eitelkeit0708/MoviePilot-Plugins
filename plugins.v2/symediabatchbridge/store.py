@@ -10,6 +10,7 @@ import uuid
 
 from .domain import batch_name
 from .activity import changes, notice_text
+from .media import notification_media
 
 
 class Store:
@@ -71,7 +72,7 @@ class Store:
 
     def observe(self, *, instance: str, download_hash: str, downloader: str,
                 title: str, history_id: int, routing: dict, route_name: str = "默认路线", cleanup_local=False,
-                inventory_files=None):
+                inventory_files=None, media=None):
         # A retry/replayed event resolves to the same batch, including after handoff.
         # Routing changes must not make a replayed event look like a new download.
         source_key = json.dumps([downloader, download_hash or f"manual:{history_id}"])
@@ -79,7 +80,7 @@ class Store:
         identifier = batch_name(instance, uuid.uuid4().hex)
         job = {"id": identifier, "download_hash": download_hash, "downloader": downloader,
                "title": title, "history_id": history_id, "routing": routing,
-               "route_name": route_name,
+               "route_name": route_name, "media": media or {},
                "cleanup_local": bool(cleanup_local),
                "state": "waiting", "message": "等待视频与字幕整理完成", "files": [],
                "created": now, "updated": now, "attempts": 0, "next_check": 0}
@@ -143,6 +144,9 @@ class Store:
             if recent and (scope != "issue" or now - recent[0] < 86400):
                 continue
             payload = {"title": "115秒传助手 · " + item["notice"], "text": notice_text(job, item)}
+            image = notification_media(job, item)[1]
+            if image:
+                payload["image"] = image
             db.execute("INSERT INTO notices(batch,scope,at,body) VALUES (?,?,?,?)",
                        (job["id"], scope, now, json.dumps(payload, ensure_ascii=False)))
         return items

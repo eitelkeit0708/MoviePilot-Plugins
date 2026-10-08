@@ -66,11 +66,20 @@ def changes(old, job):
 
 
 def notice_text(job, item):
+    from pathlib import PurePosixPath
+    from .media import notification_media
+
     done = sum(bool(e.get("uploaded")) for e in job.get("files", []))
-    lines = [job["title"], f"路线：{job.get('route_name', '默认路线')}", item["message"]]
+    lines = notification_media(job, item)[0] + [f"路线：{job.get('route_name', '默认路线')}", item["message"]]
     if item.get("file"):
         lines.append("文件：" + item["file"])
-    lines.extend([f"文件：{done}/{len(job.get('files', []))} 完成", "批次：" + job["id"]])
+    files = job.get("files", [])
+    lines.append(f"文件：{done}/{len(files)} 完成" if files else "文件清单尚未核对完成")
+    if not item.get("file"):
+        lines.extend(PurePosixPath(entry["relative"]).name for entry in files[:5] if entry.get("relative"))
+        if len(files) > 5:
+            lines.append(f"另 {len(files) - 5} 个文件，详见插件记录")
+    lines.append("批次：" + job["id"])
     if item.get("next_at"):
         lines.append("下次检查：" + when(item["next_at"]))
     if item["kind"] == "handoff":

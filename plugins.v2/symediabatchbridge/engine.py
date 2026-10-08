@@ -229,6 +229,10 @@ class Engine:
         existing = {e["local"]: e for e in job["files"]}
         if set(existing) - set(paths):
             raise BridgeError("已有整理文件从清单移除，等待清单恢复", review=True)
+        # Snapshot all selected transfer metadata before hashing; resumed files gain
+        # media context without losing HASH, receipts or retry deadlines.
+        job["media_files"] = [{**c.get("media", {}), "file": self.config.relative(c["local"])}
+                              for c in candidates]
         hashed = 0
         for candidate in candidates:
             check_stop(self.stop)

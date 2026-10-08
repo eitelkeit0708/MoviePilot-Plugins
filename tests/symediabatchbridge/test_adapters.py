@@ -166,7 +166,9 @@ def test_missing_downloader_does_not_guess_batch_complete(native, modules):
 
 def test_deselected_file_is_not_reintroduced_by_transfer_history(native):
     native.files[1].priority = 0
-    assert native.host.collect(native.job) == [{"local": str(native.video), "source": native.rows[0].src, "history_id": 1}]
+    result = native.host.collect(native.job)
+    assert len(result) == 1 and result[0]["local"] == str(native.video)
+    assert result[0]["source"] == native.rows[0].src and result[0]["history_id"] == 1
 
 
 def test_duplicate_downloader_paths_require_review(native, modules):
