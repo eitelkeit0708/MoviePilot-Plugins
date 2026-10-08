@@ -1,0 +1,5 @@
+-r ../../plugins.v2/symediabatchbridge/requirements.txt
+pytest>=8,<9
+apscheduler>=3.10,<4
+fastapi>=0.115,<1
+httpx>=0.27,<1

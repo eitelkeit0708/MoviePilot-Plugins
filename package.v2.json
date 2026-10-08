@@ -1,4 +1,18 @@
 {
+    "SymediaBatchBridge": {
+        "name": "Symedia 批次移交",
+        "description": "将 MP 整理的视频与字幕整批上传到 115，再通过 CD2 整目录交给 Symedia。",
+        "labels": "整理,115,Symedia",
+        "version": "1.0.0",
+        "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/upload.png",
+        "author": "eitelkeit0708",
+        "level": 1,
+        "system_version": ">=2,<3",
+        "v3": false,
+        "history": {
+            "v1.0.0": "feat: 视频与字幕清单齐套、唯一批次保留目录、115 上传复用、CD2 整目录移交及持久回执恢复"
+        }
+    },
     "DoubanRankPlusOptimized": {
         "name": "豆瓣榜单订阅Plus优化版",
         "description": "豆瓣榜单自动洗版订阅：电影洗版、剧集分集洗版，支持自定义RSS、按季重试与历史去重",
