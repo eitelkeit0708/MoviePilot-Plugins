@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def modules(monkeypatch, tmp_path):
     class Base:
         post_message = Mock()
+        update_config = Mock(return_value=True)
         def get_data_path(self):
             return tmp_path / "plugin-data" / self.__class__.__name__
 
@@ -43,6 +44,7 @@ def modules(monkeypatch, tmp_path):
     sys.modules["app.core.event"].eventmanager = Events()
     sys.modules["app.schemas.types"].EventType = SimpleNamespace(
         TransferComplete="video", SubtitleTransferComplete="subtitle", AudioTransferComplete="audio")
+    sys.modules["app.schemas.types"].NotificationType = SimpleNamespace(Plugin="插件")
     name = "app.plugins.symediabatchbridge"
     for key in list(sys.modules):
         if key.startswith(name + "."):
@@ -52,7 +54,7 @@ def modules(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, name, plugin)
     spec.loader.exec_module(plugin)
     result = {"plugin": plugin}
-    for part in ("domain", "store", "engine", "host", "cd2", "instant"):
+    for part in ("domain", "store", "engine", "host", "cd2", "instant", "activity", "cleanup", "inventory"):
         result[part] = importlib.import_module(name + "." + part)
     yield SimpleNamespace(**result)
     for key in list(sys.modules):

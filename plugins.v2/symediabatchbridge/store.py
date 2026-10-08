@@ -9,10 +9,12 @@ import time
 import uuid
 
 from .domain import batch_name
+from .activity import changes, notice_text
 
 
 class Store:
-    def __init__(self, directory: Path):
+    def __init__(self, directory: Path, event_sink=None):
+        self.event_sink = event_sink
         directory.mkdir(parents=True, exist_ok=True)
         self.path = directory / "batches.sqlite3"
         self.lock_path = directory / "worker.lock"
@@ -22,6 +24,16 @@ class Store:
                 CREATE TABLE IF NOT EXISTS batches (
                     id TEXT PRIMARY KEY, source_key TEXT UNIQUE NOT NULL,
                     body TEXT NOT NULL, updated REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS activity (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT, batch TEXT NOT NULL,
+                    at REAL NOT NULL, body TEXT NOT NULL);
+                CREATE INDEX IF NOT EXISTS activity_batch ON activity(batch, seq);
+                CREATE TABLE IF NOT EXISTS notices (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, batch TEXT NOT NULL,
+                    scope TEXT NOT NULL, at REAL NOT NULL, body TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0,
+                    submitted_at REAL NOT NULL DEFAULT 0);
+                CREATE INDEX IF NOT EXISTS notices_due ON notices(submitted_at, next_at);
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(batches)")}
             if not {"state", "next_check"}.issubset(columns):
@@ -58,7 +70,7 @@ class Store:
             db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, json.dumps(value)))
 
     def observe(self, *, instance: str, download_hash: str, downloader: str,
-                title: str, history_id: int, routing: dict, route_name: str = "默认路线"):
+                title: str, history_id: int, routing: dict, route_name: str = "默认路线", cleanup_local=False):
         # A retry/replayed event resolves to the same batch, including after handoff.
         # Routing changes must not make a replayed event look like a new download.
         source_key = json.dumps([downloader, download_hash or f"manual:{history_id}"])
@@ -67,12 +79,14 @@ class Store:
         job = {"id": identifier, "download_hash": download_hash, "downloader": downloader,
                "title": title, "history_id": history_id, "routing": routing,
                "route_name": route_name,
+               "cleanup_local": bool(cleanup_local),
                "state": "waiting", "message": "等待视频与字幕整理完成", "files": [],
                "created": now, "updated": now, "attempts": 0, "next_check": 0}
         with self.connect() as db:
-            db.execute("INSERT OR IGNORE INTO batches(id, source_key, body, updated) VALUES (?, ?, ?, ?)",
+            inserted = db.execute("INSERT OR IGNORE INTO batches(id, source_key, body, updated) VALUES (?, ?, ?, ?)",
                        (identifier, source_key, json.dumps(job, ensure_ascii=False), now))
             existing = json.loads(db.execute("SELECT body FROM batches WHERE source_key=?", (source_key,)).fetchone()[0])
+            old = json.loads(json.dumps(existing))
             last_sealed_history = max(existing.get("history_ids") or [existing["history_id"]])
             if existing["state"] == "handed_off" and history_id > last_sealed_history:
                 late_ids = existing.setdefault("late_history_ids", [])
@@ -81,14 +95,110 @@ class Store:
                     existing.update(message="移交后收到新的整理记录，请人工核对；不会单独补送字幕或重复移交", updated=now)
                     db.execute("UPDATE batches SET body=?, updated=? WHERE id=?",
                                (json.dumps(existing, ensure_ascii=False), now, existing["id"]))
-            return existing
+            items = self._record(db, existing, changes(None if inserted.rowcount else old, existing))
+        self._emit(existing, items)
+        return existing
 
     def save(self, job):
         job["updated"] = time.time()
         with self.connect() as db:
+            row = db.execute("SELECT body FROM batches WHERE id=?", (job["id"],)).fetchone()
+            if row is None:
+                raise KeyError("Unknown batch")
+            old = json.loads(row[0])
             db.execute("UPDATE batches SET body=?, updated=?, state=?, next_check=? WHERE id=?",
                        (json.dumps(job, ensure_ascii=False), job["updated"], job["state"],
                         job.get("next_check", 0), job["id"]))
+            items = self._record(db, job, changes(old, job))
+        self._emit(job, items)
+
+    def _record(self, db, job, items):
+        now = time.time()
+        for item in items:
+            item["at"] = now
+            db.execute("INSERT INTO activity(batch,at,body) VALUES (?,?,?)",
+                       (job["id"], now, json.dumps(item, ensure_ascii=False)))
+            if not item.get("notice"):
+                continue
+            scope = item["scope"]
+            # One fallback notice per file, one successful handoff per batch.
+            # A persistent issue reminds daily, never once per scheduler tick.
+            recent = db.execute("SELECT at FROM notices WHERE batch=? AND scope=? ORDER BY id DESC LIMIT 1",
+                                (job["id"], scope)).fetchone()
+            if recent and (scope != "issue" or now - recent[0] < 86400):
+                continue
+            payload = {"title": "115秒传助手 · " + item["notice"], "text": notice_text(job, item)}
+            db.execute("INSERT INTO notices(batch,scope,at,body) VALUES (?,?,?,?)",
+                       (job["id"], scope, now, json.dumps(payload, ensure_ascii=False)))
+        return items
+
+    def record(self, job, item):
+        with self.connect() as db:
+            items = self._record(db, job, [item])
+        self._emit(job, items)
+
+    def _emit(self, job, items):
+        if self.event_sink:
+            for item in items:
+                try:
+                    self.event_sink(job, item)
+                except Exception:
+                    # Telemetry must not turn a committed upload into a failed upload.
+                    pass
+
+    def events(self, batch, page=0, limit=30):
+        with self.connect() as db:
+            return [json.loads(r[0]) for r in db.execute(
+                "SELECT body FROM activity WHERE batch=? ORDER BY seq DESC LIMIT ? OFFSET ?",
+                (batch, limit, page * limit))]
+
+    def pending_notices(self, limit=20):
+        with self.connect() as db:
+            return [{"id": r[0], "batch": r[1], "attempts": r[2], **json.loads(r[3])} for r in db.execute(
+                "SELECT id,batch,attempts,body FROM notices WHERE submitted_at=0 AND next_at<=? ORDER BY id LIMIT ?",
+                (time.time(), limit))]
+
+    def notice_result(self, item, success):
+        now = time.time()
+        with self.connect() as db:
+            if success:
+                db.execute("UPDATE notices SET submitted_at=? WHERE id=?", (now, item["id"]))
+            else:
+                delay = min(1800, 60 * 2 ** min(item["attempts"], 5))
+                db.execute("UPDATE notices SET attempts=attempts+1,next_at=? WHERE id=?", (now + delay, item["id"]))
+            message = "通知已提交 MP 通知队列" if success else "通知提交失败，将自动重试"
+            db.execute("INSERT INTO activity(batch,at,body) VALUES (?,?,?)", (item["batch"], now, json.dumps(
+                {"kind": "notification", "message": message, "level": "info" if success else "warning", "at": now}, ensure_ascii=False)))
+
+    def page_jobs(self, page=0, limit=12):
+        with self.connect() as db:
+            return [json.loads(r[0]) for r in db.execute(
+                "SELECT body FROM batches ORDER BY CASE WHEN state IN ('review','retrying') "
+                "OR COALESCE(json_extract(body,'$.attempts'),0)>0 "
+                "OR COALESCE(json_array_length(body,'$.late_history_ids'),0)>0 "
+                "OR COALESCE(json_extract(body,'$.cleanup_error'),'')!='' "
+                "OR EXISTS(SELECT 1 FROM json_each(body,'$.files') f WHERE json_extract(f.value,'$.instant_error_since') IS NOT NULL) "
+                "OR (state='waiting' AND ?-json_extract(body,'$.created')>=86400) THEN 0 "
+                "WHEN state!='handed_off' THEN 1 ELSE 2 END, updated DESC, id LIMIT ? OFFSET ?",
+                (time.time(), limit, page * limit))]
+
+    def counts(self):
+        with self.connect() as db:
+            return dict(db.execute("SELECT state,COUNT(*) FROM batches GROUP BY state"))
+
+    def source_keys(self):
+        with self.connect() as db:
+            return {tuple(json.loads(r[0])) for r in db.execute("SELECT source_key FROM batches")}
+
+    def cleanup_jobs(self):
+        with self.connect() as db:
+            return [json.loads(r[0]) for r in db.execute(
+                "SELECT body FROM batches WHERE state='handed_off' AND json_extract(body,'$.cleanup_local')=1 "
+                "AND COALESCE(json_extract(body,'$.cleanup_done'),0)=0 AND COALESCE(json_extract(body,'$.cleanup_next'),0)<=? LIMIT 3", (time.time(),))]
+
+    def notice_counts(self, batch):
+        with self.connect() as db:
+            return db.execute("SELECT COUNT(*),COALESCE(SUM(submitted_at>0),0) FROM notices WHERE batch=?", (batch,)).fetchone()
 
     def get(self, identifier):
         with self.connect() as db:

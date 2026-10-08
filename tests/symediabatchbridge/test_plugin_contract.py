@@ -118,6 +118,7 @@ def test_retry_preserves_per_file_instant_schedule_and_page_explains_it(plugin):
     p._store.save(job)
     assert p.retry_batch(plugin.modules.plugin.RetryRequest(key=job["id"])).success
     assert p._store.get(job["id"])["files"] == job["files"]
+    p.view_records(plugin.modules.plugin.ViewRequest(key=job["id"]))
     page = json.dumps(p.get_page(), ensure_ascii=False)
     assert "秒传未命中 24/24" in page and "普通上传" in page and "视频.mkv" in page
 

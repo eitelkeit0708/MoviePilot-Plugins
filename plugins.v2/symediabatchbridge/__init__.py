@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from threading import Event, RLock
+from threading import Event, RLock, Lock
 import json
 import time
 
@@ -14,7 +14,7 @@ from app.core.event import eventmanager
 from app.log import logger
 from app.plugins import _PluginBase
 from app.schemas import Response
-from app.schemas.types import EventType
+from app.schemas.types import EventType, NotificationType
 
 from .cd2 import CD2
 from .domain import BridgeError, Config, Stopped, nested
@@ -22,6 +22,10 @@ from .engine import Engine
 from .host import MPHost, value
 from .instant import MAX_INSTANT_ATTEMPTS
 from .store import Store
+from .activity import attention, event, when
+from .page import render_page
+from .inventory import scan as scan_inventory
+from .cleanup import cleanup
 
 
 @dataclass
@@ -39,11 +43,22 @@ class RetryRequest(BaseModel):
     switch_to_native: bool = False
 
 
+class ViewRequest(BaseModel):
+    key: str = Field(default="", max_length=120)
+    page: int = Field(default=0, ge=0, le=100000)
+    events: int = Field(default=0, ge=0, le=100000)
+    files: int = Field(default=0, ge=0, le=100000)
+
+
+class ImportRequest(BaseModel):
+    history_id: int = Field(gt=0)
+
+
 class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.2.0"
+    plugin_version = "1.3.0"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -59,6 +74,10 @@ class SymediaBatchBridge(_PluginBase):
         self._message = "未启用"
         self._action_message = ""
         self._notify = True
+        self._notifying = Lock()
+        self._view = ViewRequest()
+        self._heartbeat = 0
+        self._delete_local = False
 
     def init_plugin(self, config: dict = None):
         with self._lifecycle:
@@ -66,13 +85,15 @@ class SymediaBatchBridge(_PluginBase):
             self._message = "未启用"
             self._action_message = ""
             self._notify = bool((config or {}).get("notify", True))
+            self._delete_local = bool((config or {}).get("delete_local", False))
             try:
-                self._store = Store(Path(self.get_data_path()))
+                self._store = Store(Path(self.get_data_path()), event_sink=self._on_activity)
             except Exception:
                 self._message = "无法读取批次记录，请检查插件数据目录权限"
                 logger.error(f"{self.plugin_name}：{self._message}")
                 return
             if not config or not config.get("enabled"):
+                logger.info(f"{self.plugin_name}：未启用，保留已有处理记录")
                 return
             try:
                 routes = Config.routes(config)
@@ -82,6 +103,11 @@ class SymediaBatchBridge(_PluginBase):
                 cloud = CD2(parsed, stop)
                 runtime = Runtime(parsed, host, cloud, stop, self._store, routes)
                 self._runtime = runtime
+                if config.get("scan_existing_once"):
+                    # Persist intent before resetting the one-shot form flag. A restart
+                    # resumes the request; replay observes the same source-key batches.
+                    self._store.set_meta("inventory_pending", True)
+                    self.update_config({**config, "scan_existing_once": False})
                 if not self._store.meta("activated_at"):
                     self._store.set_meta("activated_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
                 for name in ("TransferComplete", "SubtitleTransferComplete", "AudioTransferComplete"):
@@ -90,9 +116,13 @@ class SymediaBatchBridge(_PluginBase):
                         eventmanager.add_event_listener(event_type, self.on_transfer)
                         self._listeners.append(event_type)
                 self._message = "运行中"
+                logger.info(f"{self.plugin_name}：已启用 {len(routes)} 条路线，每 {parsed.interval} 分钟检查；通知{'开启' if self._notify else '关闭'}")
+                for route in routes:
+                    logger.info(f"{self.plugin_name}：{route.name} | {route.local_root} → {route.staging} → {route.inbox}")
             except ValueError as error:
                 self.stop_service()
                 self._message = str(error)
+                logger.error(f"{self.plugin_name}：配置无效：{self._message}")
             except Exception:
                 self.stop_service()
                 self._message = "初始化失败，请检查插件依赖与 MP V2 版本"
@@ -107,6 +137,7 @@ class SymediaBatchBridge(_PluginBase):
             if runtime:
                 runtime.stop.set()
                 runtime.cloud.close()
+                logger.info(f"{self.plugin_name}：已停止调度，已记录的批次和上传进度保留")
             for event_type in self._listeners:
                 eventmanager.remove_event_listener(event_type, self.on_transfer)
             self._listeners = []
@@ -128,7 +159,91 @@ class SymediaBatchBridge(_PluginBase):
 
     def get_api(self):
         return [{"path": "/retry", "endpoint": self.retry_batch,
-                 "methods": ["POST"], "summary": "重新检查批次", "auth": "bear"}]
+                 "methods": ["POST"], "summary": "重新检查批次", "auth": "bear"},
+                {"path": "/view", "endpoint": self.view_records,
+                 "methods": ["POST"], "summary": "查看处理记录", "auth": "bear"},
+                {"path": "/scan", "endpoint": self.scan_existing,
+                 "methods": ["POST"], "summary": "检查现存文件", "auth": "bear"},
+                {"path": "/import", "endpoint": self.import_existing,
+                 "methods": ["POST"], "summary": "接管已有整理批次", "auth": "bear"}]
+
+    def view_records(self, request: ViewRequest) -> Response:
+        self._view = request
+        return Response(success=True)
+
+    def scan_existing(self) -> Response:
+        runtime = self._runtime
+        if not runtime or runtime.stop.is_set():
+            self._action_message = "请先启用插件"
+            return Response(success=False)
+        try:
+            result = scan_inventory(runtime)
+            runtime.store.set_meta("existing_scan", result)
+            count = len(result["candidates"])
+            self._action_message = f"存量检查完成：发现 {count} 个未接管批次。选择接管后才开始上传。"
+            logger.info(f"{self.plugin_name}：检查现存文件，发现 {count} 个存量批次，未发起上传")
+            self._view = ViewRequest()
+            return Response(success=True)
+        except Exception:
+            self._action_message = "存量检查未完成，请检查整理记录和本地目录后重试"
+            logger.warning(f"{self.plugin_name}：存量检查失败，未接管文件")
+            return Response(success=False)
+
+    def import_existing(self, request: ImportRequest) -> Response:
+        runtime = self._runtime
+        if not runtime or runtime.stop.is_set():
+            return Response(success=False, message="请先启用插件")
+        with runtime.store.worker_lock() as acquired:
+            if not acquired:
+                self._action_message = "正在处理批次，请稍后再接管"
+                return Response(success=False)
+            scan = runtime.store.meta("existing_scan", {})
+            if not any(r["history_id"] == request.history_id for r in scan.get("candidates", [])):
+                self._action_message = "请先检查存量并选择批次"
+                return Response(success=False)
+            row = runtime.host.transfers.get(request.history_id)
+            if not row or not value(row,"status") or not Path(str(value(row,"dest") or "")).is_file():
+                self._action_message = "整理记录或文件已变化，请重新检查存量"
+                return Response(success=False)
+            job = self._observe(runtime, row)
+            if not job:
+                self._action_message = "文件已不属于当前路线，请重新检查存量"
+                return Response(success=False)
+            runtime.store.record(job, event("imported", "手动接管历史整理批次；上传前仍需核对下载器清单和源文件"))
+            scan["candidates"] = [r for r in scan["candidates"] if r["history_id"] != request.history_id]
+            runtime.store.set_meta("existing_scan", scan)
+            self._view = ViewRequest(key=job["id"])
+            self._action_message = "已接管，将在下一轮核对并上传"
+            return Response(success=True)
+
+    def _on_activity(self, job, item):
+        log = logger.warning if item["level"] == "warning" else logger.info
+        line = f"{self.plugin_name} [{job['id']}] {job.get('route_name', '默认路线')} · {job['title']} | {item['message']}"
+        if item.get("file"):
+            line += " | " + item["file"]
+        log(line.replace("\n", " ").replace("\r", " "))
+        self._flush_notifications()
+
+    def _flush_notifications(self):
+        runtime = self._runtime
+        if not self._notify or not runtime or runtime.stop.is_set() or not self._notifying.acquire(blocking=False):
+            return
+        try:
+            for notice in runtime.store.pending_notices():
+                if runtime.stop.is_set():
+                    break
+                try:
+                    # Native MP persists message history and routes Plugin messages
+                    # to the user's configured channels. It gives no delivery receipt.
+                    self.post_message(mtype=NotificationType.Plugin, title=notice["title"], text=notice["text"])
+                except Exception:
+                    runtime.store.notice_result(notice, False)
+                    logger.warning(f"{self.plugin_name} [{notice['batch']}] 通知提交失败，将自动重试")
+                else:
+                    runtime.store.notice_result(notice, True)
+                    logger.info(f"{self.plugin_name} [{notice['batch']}] {notice['title']}：已提交 MP 通知队列")
+        finally:
+            self._notifying.release()
 
     def _observe(self, runtime, row):
         if runtime.stop.is_set():
@@ -142,8 +257,9 @@ class SymediaBatchBridge(_PluginBase):
             download_hash=str(value(row, "download_hash") or ""),
             downloader=str(value(row, "downloader") or ""),
             title=str(value(row, "title") or Path(str(value(row, "dest") or "")).stem),
-            history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name)
+            history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name, cleanup_local=self._delete_local)
         self._notify_issue(runtime, job)
+        return job
 
     def on_transfer(self, event):
         runtime = self._runtime
@@ -169,12 +285,17 @@ class SymediaBatchBridge(_PluginBase):
         # Native list_by_date uses a strict > comparison with second precision.
         since = (datetime.strptime(cursor, "%Y-%m-%d %H:%M:%S") - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
         scan_started = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        read, matched = 0, 0
+        before = sum(runtime.store.counts().values())
         for row in runtime.host.histories_since(since):
+            read += 1
             if runtime.stop.is_set():
                 raise Stopped()
             if str(value(row, "date") or "") >= activated:
-                self._observe(runtime, row)
+                if self._observe(runtime, row):
+                    matched += 1
         runtime.store.set_meta("history_cursor", scan_started)
+        runtime.store.set_meta("last_scan", {"read": read, "matched": matched, "new": sum(runtime.store.counts().values()) - before})
 
     def check_batches(self):
         runtime = self._runtime
@@ -184,6 +305,26 @@ class SymediaBatchBridge(_PluginBase):
             if not acquired or runtime.stop.is_set():
                 return
             try:
+                self._flush_notifications()
+                if runtime.store.meta("inventory_pending", False):
+                    try:
+                        result = scan_inventory(runtime)
+                        runtime.store.set_meta("existing_scan", result)
+                        for candidate in result["candidates"]:
+                            check_row = runtime.host.transfers.get(candidate["history_id"])
+                            if check_row:
+                                imported = self._observe(runtime, check_row)
+                                if imported:
+                                    runtime.store.record(imported, event("imported", "一次性存量处理：接管现存文件，继续核对下载器和整理清单"))
+                        runtime.store.set_meta("inventory_pending", False)
+                        result["imported"] = len(result["candidates"])
+                        result["candidates"] = []
+                        runtime.store.set_meta("existing_scan", result)
+                        logger.info(f"{self.plugin_name}：一次性存量检查完成，接管 {result['imported']} 批")
+                    except Stopped:
+                        raise
+                    except Exception:
+                        logger.warning(f"{self.plugin_name}：一次性存量检查未完成，保留请求，下次继续")
                 history_ok = True
                 try:
                     self._recover_history(runtime)
@@ -211,8 +352,18 @@ class SymediaBatchBridge(_PluginBase):
                         continue
                     engine.process(job)
                     self._notify_issue(runtime, job)
+                for job in runtime.store.cleanup_jobs():
+                    if self._delete_local:
+                        cleanup(runtime.store, job, runtime.config.pinned(job["routing"]), runtime.stop)
                 if not runtime.stop.is_set():
                     self._message = "运行中" if history_ok else "整理记录暂不可读，已入队批次继续处理，下次自动补读"
+                    runtime.store.set_meta("last_check", time.time())
+                    runtime.store.set_meta("last_check_status", self._message)
+                    if time.time() - self._heartbeat >= 3600 or not history_ok:
+                        counts = runtime.store.counts()
+                        logger.info(f"{self.plugin_name}：本轮检查完成，累计 {sum(counts.values())} 批，已移交 {counts.get('handed_off', 0)} 批；{self._message}")
+                        self._heartbeat = time.time()
+                    self._flush_notifications()
             except Stopped:
                 pass
             except Exception:
@@ -223,25 +374,12 @@ class SymediaBatchBridge(_PluginBase):
     def _notify_issue(self, runtime, job):
         if not self._notify or runtime.stop.is_set():
             return
-        attention = (job["state"] == "review" or job.get("attempts", 0) >= 10
-                     or bool(job.get("late_history_ids"))
-                     or (job["state"] == "waiting" and time.time() - job["created"] >= 86400)
-                     or any(e.get("instant_error_since") and time.time() - e["instant_error_since"] >= 86400
-                            for e in job.get("files", [])))
-        if not attention or time.time() - job.get("notified_at", 0) < 86400:
+        if not attention(job) or time.time() - job.get("notified_at", 0) < 86400:
             return
-        try:
-            if job["state"] == "handed_off":
-                followup = "已移交批次不会自动重发；请在插件详情查看后续变更。"
-            else:
-                next_check = datetime.fromtimestamp(job.get("next_check") or time.time()).strftime("%m-%d %H:%M")
-                followup = f"下次核对：{next_check}。也可在插件详情点击重新检查。"
-            self.post_message(title=f"115秒传助手 · {job.get('route_name', '默认路线')}",
-                              text=f"{job['title']}\n{job['message']}\n{followup}")
-            job["notified_at"] = time.time()
-            runtime.store.save(job)
-        except Exception:
-            logger.warning(f"{self.plugin_name}：异常通知暂未发送，不影响批次恢复")
+        job["notified_at"] = time.time()
+        runtime.store.save(job)
+        runtime.store.record(job, event("attention", job["message"], level="warning", notice="处理异常",
+                                        scope="issue", next_at=job.get("next_check", 0)))
 
     def retry_batch(self, request: RetryRequest) -> Response:
         def respond(success, message):
@@ -281,7 +419,8 @@ class SymediaBatchBridge(_PluginBase):
                  "placeholder": placeholder, **props}}]}
 
         defaults = {"enabled": False, "notify": True, "storage": "u115", "interval": 1,
-                    "route_count": 1, "cd2_prefix": "", "cd2_address": "", "cd2_token": ""}
+                    "route_count": 1, "cd2_prefix": "", "cd2_address": "", "cd2_token": "",
+                    "delete_local": False, "scan_existing_once": False}
         route_cards = []
         fields = ("route_name", "local_root", "staging", "inbox")
         for index in range(1, 17):
@@ -322,7 +461,13 @@ class SymediaBatchBridge(_PluginBase):
                 field("cd2_token", "CD2 API 令牌", type="password", autocomplete="off"),
                 field("interval", "检查间隔（分钟）", type="number", min=1, max=60),
                 {"component": "VCol", "props": {"cols": 12}, "content": [
-                    {"component": "VSwitch", "props": {"model": "notify", "label": "异常通知"}}]},
+                    {"component": "VSwitch", "props": {"model": "notify", "label": "MP 通知：移交成功、处理异常、转普通上传"}}]},
+                {"component": "VCol", "props": {"cols": 12}, "content": [
+                    {"component": "VSwitch", "props": {"model": "delete_local", "label": "移交后删除本地整理副本",
+                     "hint": "仅删除已移交批次中有原始下载文件的硬链接副本；保留下载器文件和做种任务。只应用于之后接管的批次。", "persistentHint": True}}]},
+                {"component": "VCol", "props": {"cols": 12}, "content": [
+                    {"component": "VSwitch", "props": {"model": "scan_existing_once", "label": "保存后处理一次现存文件",
+                     "hint": "检查全部路线，接管有 MP 下载整理记录且仍存在的文件；请求会保存，开关自动复位。无记录的字幕、原盘等会列出原因。", "persistentHint": True}}]},
             ]},
             {"component": "h3", "props": {"class": "mb-3"}, "text": "目录映射"},
             *route_cards,
@@ -337,50 +482,9 @@ class SymediaBatchBridge(_PluginBase):
         ]}], defaults
 
     def get_page(self):
-        def text_node(text, component="div", **props):
-            return {"component": component, "props": props, "text": text}
-
-        states = {"waiting": "等待齐套", "waiting_instant": "等待秒传", "uploading": "上传中", "verifying": "核对中",
-                  "moving": "核对移交", "review": "异常待确认", "retrying": "等待恢复", "handed_off": "已移交"}
-        content = [text_node(self.plugin_name, "h3"), text_node(self._message, "p")]
-        if self._action_message:
-            content.append(text_node(self._action_message, "VAlert", type="info", variant="tonal", **{"class": "mb-3"}))
         try:
-            jobs = self._store.jobs(limit=51) if self._store else []
+            return render_page(self)
         except Exception:
-            return content + [text_node("暂时无法读取批次记录", "p")]
-        if not jobs:
-            content.append(text_node("暂无批次。新的 MP 整理任务会自动出现在这里。", "p"))
-        for job in sorted(jobs, key=lambda j: j["updated"], reverse=True)[:50]:
-            body = [text_node(job["title"], "VCardTitle"),
-                    text_node("已移交 · 后续变更" if job.get("late_history_ids") else states.get(job["state"], job["state"]), "VCardSubtitle"),
-                    text_node(job["message"], "p"), text_node(job["id"], "small")]
-            body.append(text_node(job.get("route_name", "默认路线") + " · " + job["routing"]["inbox"], "p"))
-            if job.get("next_check"):
-                body.append(text_node("下次检查 " + datetime.fromtimestamp(job["next_check"]).strftime("%m-%d %H:%M"), "p"))
-            if job.get("destination"):
-                body.append(text_node(job["destination"], "p"))
-            for entry in job.get("files", []):
-                if entry.get("uploaded") or not entry.get("instant_next_at"):
-                    continue
-                misses = entry.get("instant_misses", 0)
-                next_time = datetime.fromtimestamp(entry["instant_next_at"]).strftime("%m-%d %H:%M")
-                action = "普通上传" if misses >= MAX_INSTANT_ATTEMPTS else "再次秒传"
-                status = f"秒传未命中 {misses}/{MAX_INSTANT_ATTEMPTS} · {next_time} {action}"
-                if entry.get("instant_error"):
-                    status += " · " + entry["instant_error"]
-                body.extend([text_node(entry["relative"], "div", **{"class": "mt-2 text-body-2"}),
-                             text_node(status, "div", **{"class": "text-caption"})])
-            if job["state"] != "handed_off":
-                legacy = job["routing"].get("storage") == "115网盘Plus"
-                if legacy:
-                    body.append(text_node("此旧批次使用 DDSRem 接口。确认 MP 内置 115 与 CD2 为同一账号后，点击下方切换；已上传文件会保留。", "p"))
-                body.append({"component": "VBtn", "props": {"variant": "text", "size": "small"},
-                             "text": "确认同一账号，改用 MP 内置 115" if legacy else "重新检查", "events": {"click": {
-                                 "api": f"plugin/{self.__class__.__name__}/retry", "method": "post",
-                                 "params": {"key": job["id"], "switch_to_native": legacy}}}})
-            content.append({"component": "VCard", "props": {"variant": "outlined", "class": "mb-3 pa-3"},
-                            "content": body})
-        if len(jobs) > 50:
-            content.append(text_node("显示最近 50 个批次，历史回执仍完整保留。", "small"))
-        return content
+            logger.warning(f"{self.plugin_name}：读取处理记录失败，可刷新重试")
+            return [{"component": "VAlert", "props": {"type": "warning", "variant": "tonal"},
+                     "text": "暂时无法读取处理记录，请刷新重试。"}]

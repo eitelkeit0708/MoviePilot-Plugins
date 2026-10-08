@@ -132,6 +132,8 @@ class Engine:
                 self.store.save(job)
                 return
             job.update(state="uploading", message="秒传等待结束，正在普通上传：" + entry["relative"])
+            entry.setdefault("normal_started_at", now)
+            entry["normal_requests"] = entry.get("normal_requests", 0) + 1
             self.store.save(job)
             receipt = self.host.upload(Path(entry["local"]), remote_file)
             check_stop(self.stop)
@@ -149,6 +151,7 @@ class Engine:
                                         entry["size"], self.stop).lower() if entry["size"] else sha1(b"").hexdigest())
             unchanged(entry)
         entry.setdefault("instant_started_at", now)
+        entry["instant_requests"] = entry.get("instant_requests", 0) + 1
         entry["instant_next_at"] = now + RETRY_SECONDS
         entry["instant_error"] = "上次秒传结果未确认，将先核对云端文件"
         job.update(state="uploading", message=f"正在尝试秒传 {misses + 1}/{MAX_INSTANT_ATTEMPTS}：{entry['relative']}")
@@ -181,6 +184,7 @@ class Engine:
             # Authentication/network/unknown responses cannot authorize full upload.
             entry["instant_misses"] = misses + 1
         entry["instant_next_at"] = time.time() + RETRY_SECONDS
+        entry["instant_result_at"] = time.time()
         self.store.save(job)
 
     def _uploaded(self, job, entry, receipt):
@@ -210,6 +214,7 @@ class Engine:
             entry = freeze_file(path, relative, self.stop)
             source = candidate.get("source")
             if source:
+                entry["download_source"] = source
                 try:
                     same_file = Path(source).samefile(path)
                 except OSError:
