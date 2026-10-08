@@ -59,12 +59,15 @@ class Config:
     cd2_address: str
     cd2_token: str
     interval: int = 1
+    name: str = "默认路线"
 
     @classmethod
     def parse(cls, values: dict):
         local = Path(str(values.get("local_root") or ""))
-        if not values.get("local_root") or not local.is_absolute() or not local.is_dir():
-            raise ValueError("请填写 MP 容器内已存在的本地整理目录")
+        if not values.get("local_root") or not local.is_absolute() or ".." in local.parts:
+            raise ValueError("请填写 MP 容器内的本地整理目录绝对路径")
+        # A temporarily unavailable mount must not disable the scheduler forever.
+        # Availability is checked again before every batch, not only at startup.
         local = local.resolve()
         if local == Path(local.anchor):
             raise ValueError("本地整理目录不能是文件系统根目录")
@@ -74,10 +77,10 @@ class Config:
         staging = cloud_path(values.get("staging", ""))
         prefix = cloud_path(values.get("cd2_prefix", ""))
         inbox = cloud_path(values.get("inbox", ""))
-        if staging == "/" or prefix == "/" or inbox == prefix:
+        if staging == "/" or inbox == prefix:
             raise ValueError("请使用独立暂存目录和 CD2 中的具体 115 挂载目录")
-        mapped = prefix + staging
-        if not inbox.startswith(prefix + "/") or nested(mapped, inbox):
+        mapped = prefix.rstrip("/") + staging
+        if not inbox.startswith(prefix.rstrip("/") + "/") or nested(mapped, inbox):
             raise ValueError("暂存和待归档目录必须位于同一 115 挂载下，且互不包含")
         address = str(values.get("cd2_address") or "").strip()
         url = urlsplit(address if "://" in address else "http://" + address)
@@ -91,12 +94,53 @@ class Config:
         interval = int(values.get("interval", 1))
         if not 1 <= interval <= 60:
             raise ValueError("检查间隔应为 1–60 分钟")
-        return cls(str(local), storage, staging, prefix, inbox, address, token, interval)
+        return cls(str(local), storage, staging, prefix, inbox, address, token, interval,
+                   str(values.get("name") or values.get("route_name") or "默认路线").strip()[:80])
+
+    @classmethod
+    def routes(cls, values: dict):
+        count = int(values.get("route_count", 1))
+        if not 1 <= count <= 16:
+            raise ValueError("目录映射数量应为 1–16")
+        routes = []
+        for index in range(1, count + 1):
+            prefix = "" if index == 1 else f"route_{index}_"
+            route_values = {**values, **{key: values.get(prefix + key, "")
+                            for key in ("local_root", "staging", "inbox")},
+                            "name": values.get(prefix + "route_name", "默认路线" if index == 1 else f"路线 {index}")}
+            routes.append(cls.parse(route_values))
+        for i, route in enumerate(routes):
+            for other in routes[i + 1:]:
+                if nested(Path(route.local_root).as_posix(), Path(other.local_root).as_posix()):
+                    raise ValueError(f"{route.name} 与 {other.name} 的本地目录重叠，请分开设置")
+            # Every staging tree must be outside EVERY destination tree, otherwise
+            # another route's Symedia watcher could consume incomplete uploads.
+            for other in routes:
+                if nested(route.cd2_staging, other.inbox):
+                    raise ValueError(f"{route.name} 的暂存目录与 {other.name} 的待归档目录重叠")
+        return tuple(routes)
+
+    def pinned(self, routing: dict):
+        if (routing.get("cd2_address") != self.cd2_address
+                or routing.get("cd2_prefix") != self.cd2_prefix):
+            raise BridgeError("CD2 连接或挂载已变化，等待恢复本批次的原连接", review=True)
+        if routing.get("storage") != "u115":
+            raise BridgeError("旧批次需确认 MP 内置 115 与 CD2 使用同一账号，再切换上传接口", review=True)
+        pinned = self.parse({**routing, "cd2_token": self.cd2_token,
+                             "interval": self.interval, "name": self.name})
+        if pinned.routing() != routing:
+            raise BridgeError("原目录解析结果已变化，已暂停本批次", review=True)
+        return pinned
 
     def routing(self) -> dict:
         # Credentials may rotate without changing an existing batch destination.
         return {key: getattr(self, key) for key in
                 ("local_root", "storage", "staging", "cd2_prefix", "inbox", "cd2_address")}
+
+    @property
+    def cd2_staging(self):
+        # API tokens rooted at the 115 drive expose that drive directly as '/'.
+        return self.cd2_prefix.rstrip("/") + self.staging
 
     def relative(self, value: str) -> str:
         path = Path(value)
@@ -148,6 +192,24 @@ def unchanged(entry: dict):
         same = False
     if not same:
         raise BridgeError("批次封存后本地文件被修改或移除，已停止交付", review=True)
+
+
+def refresh_signature(entry: dict, stop: Event):
+    """Recover identical restored files / hardlink metadata changes, never new content."""
+    try:
+        signature = file_signature(Path(entry["local"]))
+    except OSError:
+        raise Awaiting("等待本地整理文件恢复：" + entry["relative"]) from None
+    if signature == entry["signature"]:
+        return
+    if signature != entry.get("rejected_signature") and signature[0] == entry["size"]:
+        verified = freeze_file(entry["local"], entry["relative"], stop)
+        if verified["sha1"] == entry["sha1"]:
+            entry["signature"] = verified["signature"]
+            entry.pop("rejected_signature", None)
+            return
+    entry["rejected_signature"] = signature
+    raise BridgeError("本地文件内容被替换，等待原文件恢复：" + entry["relative"], review=True)
 
 
 def verify_tree(entries: list, remote: dict):

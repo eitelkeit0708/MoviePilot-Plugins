@@ -1,0 +1,6 @@
+115秒传助手 icon provenance
+Generated with the built-in image_gen tool on 2026-10-08.
+Asset: icons/115InstantUpload.png (transparent PNG, copied without editing).
+
+Prompt:
+Use case: logo-brand. Create ONE polished square app icon for a MoviePilot V2 plugin named '115秒传助手', a tool for reliable instant cloud uploads and automatic directory handoff. A bold, compact violet cloud mark integrated with a single upward lightning-arrow, with crisp white numerals '115' readable inside the main body. Simple geometric proportions, minimal professional software identity, thick clear shapes that remain recognizable at 48px. Purple/lavender palette coordinated with MoviePilot's dark interface; restrained flat two-tone styling, no glossy 3D, no gradients needed, no thin outlines, no extra mini-icons. Centered single symbol occupying about 82% of the square, with balanced padding. True transparent background outside the mark. No Chinese lettering, no wordmark outside the symbol, no watermarks, no mockup, no presentation board, no shadows outside silhouette. Deliver an actual ready-to-use transparent PNG logo, square format.

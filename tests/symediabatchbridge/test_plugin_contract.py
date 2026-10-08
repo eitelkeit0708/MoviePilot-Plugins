@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def plugin(modules, config_values, monkeypatch):
     host = NS(in_scope=lambda row: True, histories_since=Mock(return_value=[]),
               transfers=NS(get=Mock()), collect=Mock())
+    host.for_config = lambda config: host
     clouds = []
     def cloud_factory(config, stop):
         cloud = NS(close=Mock(), stop=stop)
@@ -155,6 +156,86 @@ def test_history_recovery_and_event_replay_share_one_batch(plugin):
     p.on_transfer(NS(event_data={"transfer_history_id": 1}))
     assert len(p._store.jobs()) == 1
     assert p._store.meta("history_cursor") is not None
+
+
+def test_history_outage_does_not_block_existing_batch_or_advance_cursor(plugin, monkeypatch):
+    p = plugin.p
+    job = add_job(p)
+    cursor = "2026-10-08 10:00:00"
+    p._store.set_meta("history_cursor", cursor)
+    plugin.host.histories_since.side_effect = RuntimeError("database temporarily unavailable")
+    processed = []
+    monkeypatch.setattr(plugin.modules.plugin.Engine, "process", lambda self, item: processed.append(item["id"]))
+    p.check_batches()
+    assert processed == [job["id"]]
+    assert p._store.meta("history_cursor") == cursor
+    assert "已入队批次继续处理" in p._message
+
+
+def test_busy_event_callback_is_recovered_from_native_history(plugin, monkeypatch):
+    p = plugin.p
+    row = NS(id=2, title="作品", download_hash="hash", downloader="qb", date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    plugin.host.transfers.get.return_value = row
+    plugin.host.histories_since.return_value = [row]
+    with p._store.worker_lock() as acquired:
+        assert acquired
+        p.on_transfer(NS(event_data={"transfer_history_id": 2}))
+    assert not p._store.jobs()
+    monkeypatch.setattr(plugin.modules.plugin.Engine, "process", lambda self, item: None)
+    p.check_batches()
+    assert len(p._store.jobs()) == 1
+    assert p._store.jobs()[0]["history_id"] == 2
+
+
+def test_recovery_notification_is_throttled_persisted_and_optional(plugin, monkeypatch):
+    p = plugin.p
+    job = add_job(p)
+    now = 1_800_000_000
+    monkeypatch.setattr(plugin.modules.plugin.time, "time", lambda: now)
+    job.update(state="review", message="CD2 令牌已过期")
+    p._notify_issue(p._runtime, job)
+    assert p.post_message.call_count == 1
+    saved = p._store.get(job["id"])
+    assert saved["notified_at"] == now
+    p._notify_issue(p._runtime, saved)
+    assert p.post_message.call_count == 1
+    now += 86400
+    p._notify_issue(p._runtime, saved)
+    assert p.post_message.call_count == 2
+    p._notify = False
+    now += 86400
+    p._notify_issue(p._runtime, saved)
+    assert p.post_message.call_count == 2
+
+
+def test_long_instant_error_and_post_handoff_attachment_notify(plugin, monkeypatch):
+    p = plugin.p
+    job = add_job(p)
+    now = 1_800_000_000
+    monkeypatch.setattr(plugin.modules.plugin.time, "time", lambda: now)
+    job.update(state="waiting_instant", files=[{"instant_error_since": now - 86401}])
+    p._notify_issue(p._runtime, job)
+    assert p.post_message.call_count == 1
+    job.update(state="handed_off", files=[], history_ids=[1], notified_at=now - 86401)
+    p._store.save(job)
+    row = NS(id=3, title="作品", download_hash="hash", downloader="qb")
+    p._observe(p._runtime, row)
+    assert p.post_message.call_count == 2
+    assert p._store.get(job["id"])["late_history_ids"] == [3]
+
+
+def test_new_route_cannot_watch_an_old_pending_staging_directory(plugin, monkeypatch):
+    p = plugin.p
+    job = add_job(p)
+    old = job["routing"]["staging"]
+    p.init_plugin({**plugin.values, "staging": "/new-stage", "inbox": "/115" + old})
+    processed = Mock()
+    monkeypatch.setattr(plugin.modules.plugin.Engine, "process", processed)
+    p.check_batches()
+    processed.assert_not_called()
+    saved = p._store.get(job["id"])
+    assert saved["state"] == "review" and "重叠" in saved["message"]
+    assert saved["routing"] == job["routing"]
 
 
 def test_native_registered_route_accepts_page_render_json_and_requires_bearer(plugin):

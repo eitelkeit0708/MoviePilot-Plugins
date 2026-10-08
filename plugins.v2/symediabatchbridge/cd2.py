@@ -51,11 +51,15 @@ class CD2:
         except self.grpc.RpcError as error:
             if error.code() == self.grpc.StatusCode.NOT_FOUND:
                 return None
+            if error.code() == self.grpc.StatusCode.UNAUTHENTICATED:
+                raise BridgeError("CD2 令牌无效或已过期，请更新插件中的令牌", review=True) from None
+            if error.code() == self.grpc.StatusCode.PERMISSION_DENIED:
+                raise BridgeError("CD2 令牌无目录读取权限，请检查令牌的根目录范围与权限", review=True) from None
             raise BridgeError("CD2 目录读取失败，请检查令牌、权限和连接") from None
 
     def _lookup(self, path):
         prefix = self.config.cd2_prefix
-        if not path.startswith(prefix + "/"):
+        if not path.startswith(prefix.rstrip("/") + "/"):
             raise BridgeError("操作越出配置的 115 挂载目录", review=True)
         relative = str(PurePosixPath(path).relative_to(prefix))
         current = prefix
@@ -131,4 +135,10 @@ class CD2:
         except self.grpc.RpcError:
             raise BridgeError("CD2 移动响应未收到，等待核对结果") from None
         expected = child_path(destination, PurePosixPath(source).name)
-        return bool(result.success and list(result.resultFilePaths) == [expected])
+        paths = [str(PurePosixPath(path)) for path in result.resultFilePaths]
+        if not result.success or (paths and paths != [expected]):
+            return False
+        # Some CD2 builds acknowledge a successful move without resultFilePaths.
+        # Skip-on-conflict may also return success: source disappearance is required
+        # before accepting that empty-path receipt. Symedia may already consume dest.
+        return bool(paths or not self.exists(source))

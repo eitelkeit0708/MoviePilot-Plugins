@@ -180,7 +180,7 @@ def test_file_mutated_while_uploading_is_held(batch):
     assert not batch.cloud.moves
 
 
-def test_new_attachment_after_seal_is_held(batch):
+def test_new_attachment_after_seal_is_added_before_handoff(batch):
     def added(local):
         if len(batch.paths) == 2:
             new = Path(batch.paths[0]).with_suffix(".en.srt")
@@ -188,8 +188,12 @@ def test_new_attachment_after_seal_is_held(batch):
             batch.paths.append(str(new))
     batch.host.upload_hook = added
     batch.run()
-    assert batch.job()["state"] == "review"
+    assert batch.job()["state"] == "waiting"
     assert not batch.cloud.moves
+    assert len(batch.job()["files"]) == 3
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+    assert len(batch.host.uploads) == 3
 
 
 def test_os_lock_blocks_reload_and_releases(batch, modules):
@@ -237,7 +241,7 @@ def test_foreign_remote_file_holds_entire_batch(batch):
 
 @pytest.mark.parametrize("values", [
     {"inbox": "/115/MP暂存/Symedia"}, {"inbox": "/different-account/Symedia"},
-    {"staging": "/"}, {"staging": "/foo/../bar"}, {"cd2_prefix": "/"},
+    {"staging": "/"}, {"staging": "/foo/../bar"}, {"cd2_prefix": "/", "inbox": "/"},
     {"cd2_address": "http://user:password@cd2:19798"}, {"interval": 0},
 ])
 def test_invalid_routing_rejected(modules, config_values, values):
@@ -422,3 +426,121 @@ def test_legacy_provider_needs_confirmation_without_sending_files(batch, hourly)
     assert batch.job()["state"] == "review"
     batch.host.try_instant.assert_not_called()
     batch.host.upload.assert_not_called()
+
+
+def test_temporary_outage_recovers_after_more_than_ten_failures(batch, modules):
+    collect = batch.host.collect
+    batch.host.collect = Mock(side_effect=RuntimeError("secret"))
+    for _ in range(15):
+        batch.run()
+    job = batch.job()
+    assert job["state"] == "retrying" and job["attempts"] == 15
+    assert job["next_check"] > job["updated"]
+    batch.host.collect = collect
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+
+
+def test_crash_before_move_rpc_resumes_original_directory_only(batch, modules):
+    def not_sent(source, inbox):
+        raise modules.domain.BridgeError("connection lost before send")
+    move = batch.cloud.move_directory
+    batch.cloud.move_directory = not_sent
+    batch.run()
+    assert batch.job()["move_requested"] and len(batch.host.uploads) == 2
+    batch.cloud.move_directory = move
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+    assert len(batch.cloud.moves) == 1 and len(batch.host.uploads) == 2
+
+
+def test_recovery_cannot_move_tampered_source(batch, modules):
+    batch.cloud.move_directory = Mock(side_effect=modules.domain.BridgeError("not sent"))
+    batch.run()
+    batch.cloud.files[next(iter(batch.cloud.files))]["sha1"] = "0" * 40
+    batch.run()
+    assert batch.job()["state"] == "review"
+    assert batch.cloud.move_directory.call_count == 1
+
+
+def test_temporarily_missing_move_paths_recover_without_reupload(batch, modules):
+    batch.cloud.move_hook = lambda: (_ for _ in ()).throw(modules.domain.BridgeError("lost"))
+    batch.run()
+    files = batch.cloud.files
+    batch.cloud.files = {}
+    batch.run()
+    assert batch.job()["state"] == "review" and batch.job()["next_check"] > 0
+    batch.cloud.files = files
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+    assert len(batch.cloud.moves) == 1 and len(batch.host.uploads) == 2
+
+
+def test_restored_identical_file_recovers_without_resetting_retries(batch, hourly):
+    batch.run()
+    entry = batch.job()["files"][0]
+    path = Path(entry["local"])
+    original = path.read_bytes()
+    path.write_bytes(b"xxxxx")
+    batch.run()
+    assert batch.job()["state"] == "review"
+    assert batch.job()["files"][0]["instant_misses"] == 1
+    path.write_bytes(original)
+    hourly.now += 3600
+    batch.host.try_instant.side_effect = lambda e, remote, stop: batch.host.upload(Path(e["local"]), remote)
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+
+
+def test_long_hash_manifest_is_checkpointed_and_work_is_bounded(batch, modules, monkeypatch):
+    for i in range(9):
+        path = Path(batch.paths[0]).with_name(f"S01E{i + 2:02}.mkv")
+        path.write_bytes(b"video")
+        batch.paths.append(str(path))
+    freeze = Mock(wraps=modules.engine.freeze_file)
+    monkeypatch.setattr(modules.engine, "freeze_file", freeze)
+    batch.run()
+    assert len(batch.job()["files"]) == 4 and not batch.host.uploads
+    batch.run()
+    assert len(batch.job()["files"]) == 8 and freeze.call_count == 8
+    batch.run()
+    assert freeze.call_count == 11 and len(batch.host.uploads) == 4
+    batch.run()
+    assert freeze.call_count == 11 and len(batch.host.uploads) == 8
+    batch.run()
+    assert batch.job()["state"] == "handed_off" and len(batch.host.uploads) == 11
+
+
+def test_same_size_overwrite_before_hash_is_detected_against_download(batch, modules, tmp_path):
+    source = tmp_path / "original.mkv"
+    source.write_bytes(b"other")  # same size as video, different content
+    original_collect = batch.host.collect
+    batch.host.collect = lambda job: [{**c, "source": str(source)} if c["local"].endswith(".mkv") else c
+                                      for c in original_collect(job)]
+    batch.run()
+    assert batch.job()["state"] == "review" and "同名覆盖" in batch.job()["message"]
+    assert not batch.cloud.moves and not batch.host.uploads
+
+
+@pytest.mark.parametrize("partial_column", [None, "state", "next_check"])
+def test_old_sqlite_ledger_migrates_without_losing_due_jobs(batch, modules, tmp_path, partial_column):
+    import sqlite3
+    root = tmp_path / "old-ledger"
+    root.mkdir()
+    original = batch.job()
+    with sqlite3.connect(root / "batches.sqlite3") as db:
+        db.execute("CREATE TABLE batches(id TEXT PRIMARY KEY, source_key TEXT UNIQUE NOT NULL, body TEXT NOT NULL, updated REAL NOT NULL)")
+        db.execute("INSERT INTO batches VALUES(?, ?, ?, ?)", (original["id"], "old", json.dumps(original), original["updated"]))
+        if partial_column == "state":
+            db.execute("ALTER TABLE batches ADD COLUMN state TEXT NOT NULL DEFAULT 'waiting'")
+        if partial_column == "next_check":
+            db.execute("ALTER TABLE batches ADD COLUMN next_check REAL NOT NULL DEFAULT 0")
+    restored = modules.store.Store(root)
+    assert restored.get(original["id"]) == original
+    assert restored.due()[0]["id"] == original["id"]
+    original.update(state="review", next_check=0)
+    restored.save(original)
+    assert len(restored.due()) == 1
+    original.update(state="handed_off")
+    restored.save(original)
+    assert restored.due() == [] and restored.pending_routings() == []

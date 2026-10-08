@@ -17,12 +17,16 @@ def native(modules, config_values):
     video.parent.mkdir(parents=True)
     video.write_bytes(b"video")
     subtitle.write_bytes(b"sub")
+    source_root = Path(config.local_root).parent / "downloads"
+    (source_root / "Release").mkdir(parents=True)
+    (source_root / "Release/video.mkv").write_bytes(b"video")
+    (source_root / "Release/video.zh.srt").write_bytes(b"sub")
     files = [NS(name="Release/video.mkv", size=5, priority=1, progress=1),
              NS(name="Release/video.zh.srt", size=3, priority=1, progress=1)]
     rows = [NS(id=i + 1, download_hash="hash", downloader="qb", status=True, src_storage="local",
-               src="/downloads/" + f.name, dest=str(p), dest_storage="local")
+               src=(source_root / f.name).as_posix(), dest=str(p), dest_storage="local")
             for i, (f, p) in enumerate(zip(files, [video, subtitle]))]
-    downloads = NS(get_files_by_hash=Mock(return_value=[NS(downloader="qb", savepath="/downloads")]))
+    downloads = NS(get_files_by_hash=Mock(return_value=[NS(downloader="qb", savepath=source_root.as_posix())]))
     transfers = NS(list_by_hash=Mock(return_value=rows))
     chain = NS(torrent_files=Mock(return_value=files), list_torrents=Mock(return_value=[NS(progress=100)]))
     storage = NS(get_folder=Mock(), upload_file=Mock())
@@ -78,7 +82,7 @@ def test_missing_downloader_does_not_guess_batch_complete(native, modules):
 
 def test_deselected_file_is_not_reintroduced_by_transfer_history(native):
     native.files[1].priority = 0
-    assert native.host.collect(native.job) == [{"local": str(native.video), "history_id": 1}]
+    assert native.host.collect(native.job) == [{"local": str(native.video), "source": native.rows[0].src, "history_id": 1}]
 
 
 def test_duplicate_downloader_paths_require_review(native, modules):
@@ -147,6 +151,34 @@ def test_cd2_refreshes_ancestors_and_all_batch_children(modules, config_values):
     assert all(request.forceRefresh for request in requests)
     assert len(requests) == 4
     assert result["Season 01/a.mkv"]["sha1"] == "a" * 40
+
+
+def test_cd2_empty_path_success_requires_source_disappearance(modules, config_values, monkeypatch):
+    stub = NS(MoveFile=Mock(return_value=pb.FileOperationResult(success=True)))
+    cloud = modules.cd2.CD2(modules.domain.Config.parse(config_values), Event(), stub=stub)
+    exists = Mock(return_value=True)
+    monkeypatch.setattr(cloud, "exists", exists)
+    assert not cloud.move_directory("/115/MP暂存/batch", "/115/Symedia待归档")
+    exists.return_value = False
+    assert cloud.move_directory("/115/MP暂存/batch", "/115/Symedia待归档")
+    exists.assert_called_with("/115/MP暂存/batch")
+    stub.MoveFile.return_value = pb.FileOperationResult(success=False)
+    assert not cloud.move_directory("/115/MP暂存/batch", "/115/Symedia待归档")
+
+
+def test_cd2_drive_root_scoped_token_uses_single_slash(modules, config_values):
+    config = modules.domain.Config.parse({**config_values,"cd2_prefix":"/","inbox":"/transfer/LYZ"})
+    assert config.cd2_staging == "/MP暂存"
+    tree = {"/": [cloud_file("/MP暂存", True)],
+            "/MP暂存": [cloud_file("/MP暂存/batch",True)],
+            "/MP暂存/batch": [cloud_file("/MP暂存/batch/a.srt",size=3)]}
+    requests=[]
+    def listing(request, **kwargs):
+        requests.append(request.path)
+        return iter([pb.SubFilesReply(subFiles=tree[request.path])])
+    cloud = modules.cd2.CD2(config,Event(),stub=NS(GetSubFiles=listing))
+    assert cloud.tree("/MP暂存/batch")["a.srt"]["size"] == 3
+    assert requests == ["/","/MP暂存","/MP暂存/batch"]
 
 
 def test_cd2_rpc_errors_never_leak_credentials(modules, config_values):

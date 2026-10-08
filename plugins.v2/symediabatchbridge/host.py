@@ -1,6 +1,7 @@
 """MoviePilot V2 adapter. Never patch the host or another plugin."""
 
 from pathlib import Path, PurePosixPath
+from copy import copy
 
 from .domain import Awaiting, BridgeError, child_path
 from .instant import native_provider, try_instant
@@ -40,6 +41,11 @@ class MPHost:
         # Include paired/external subtitles even if a host extension setting omitted one;
         # a missing native transfer result must hold the batch rather than drop subtitles.
         self.extensions.update({".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"})
+
+    def for_config(self, config):
+        host = copy(self)
+        host.config = config
+        return host
 
     def in_scope(self, history):
         if value(history, "dest_storage", "local") not in (None, "", "local"):
@@ -97,7 +103,8 @@ class MPHost:
         if not expected:
             raise BridgeError("本次选择中没有可交付的媒体或字幕文件", review=True)
         previous = job.get("download_manifest")
-        if previous is not None and previous != expected and job.get("files"):
+        if (previous is not None and job.get("files")
+                and any(expected.get(path) != size for path, size in previous.items())):
             raise BridgeError("批次封存后下载文件选择发生变化", review=True)
         job["download_manifest"] = expected
 
@@ -121,7 +128,7 @@ class MPHost:
             self.config.relative(target)
             if Path(target).stat().st_size != expected[source]:
                 raise BridgeError("整理文件大小与下载清单不同：" + Path(target).name, review=True)
-            result.append({"local": target, "history_id": int(value(row, "id"))})
+            result.append({"local": target, "source": source, "history_id": int(value(row, "id"))})
         # Include explicitly associated native attachment transfers, even if they were
         # added locally after the torrent's original file list was created.
         for source, row in newest.items():
@@ -131,7 +138,7 @@ class MPHost:
                 raise Awaiting("同一任务还有整理失败的文件：" + PurePosixPath(source).name)
             target = str(value(row, "dest"))
             self.config.relative(target)
-            result.append({"local": target, "history_id": int(value(row, "id"))})
+            result.append({"local": target, "source": source, "history_id": int(value(row, "id"))})
         if not any(Path(r["local"]).suffix.lower() not in
                    {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"} for r in result):
             raise BridgeError("批次只有字幕，没有对应媒体文件", review=True)

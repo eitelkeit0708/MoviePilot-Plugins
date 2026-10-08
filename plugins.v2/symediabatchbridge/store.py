@@ -23,6 +23,20 @@ class Store:
                     id TEXT PRIMARY KEY, source_key TEXT UNIQUE NOT NULL,
                     body TEXT NOT NULL, updated REAL NOT NULL);
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(batches)")}
+            if not {"state", "next_check"}.issubset(columns):
+                # SQLite DDL otherwise starts outside Python's implicit DML
+                # transaction. Migrate atomically and repair a partial old attempt.
+                db.execute("BEGIN IMMEDIATE")
+                if "state" not in columns:
+                    db.execute("ALTER TABLE batches ADD COLUMN state TEXT NOT NULL DEFAULT 'waiting'")
+                if "next_check" not in columns:
+                    db.execute("ALTER TABLE batches ADD COLUMN next_check REAL NOT NULL DEFAULT 0")
+                for identifier, body in db.execute("SELECT id, body FROM batches").fetchall():
+                    job = json.loads(body)
+                    db.execute("UPDATE batches SET state=?, next_check=? WHERE id=?",
+                               (job["state"], job.get("next_check", 0), identifier))
+            db.execute("CREATE INDEX IF NOT EXISTS batches_due ON batches(state, next_check, updated)")
 
     @contextmanager
     def connect(self):
@@ -44,7 +58,7 @@ class Store:
             db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, json.dumps(value)))
 
     def observe(self, *, instance: str, download_hash: str, downloader: str,
-                title: str, history_id: int, routing: dict):
+                title: str, history_id: int, routing: dict, route_name: str = "默认路线"):
         # A retry/replayed event resolves to the same batch, including after handoff.
         # Routing changes must not make a replayed event look like a new download.
         source_key = json.dumps([downloader, download_hash or f"manual:{history_id}"])
@@ -52,10 +66,11 @@ class Store:
         identifier = batch_name(instance, uuid.uuid4().hex)
         job = {"id": identifier, "download_hash": download_hash, "downloader": downloader,
                "title": title, "history_id": history_id, "routing": routing,
+               "route_name": route_name,
                "state": "waiting", "message": "等待视频与字幕整理完成", "files": [],
                "created": now, "updated": now, "attempts": 0, "next_check": 0}
         with self.connect() as db:
-            db.execute("INSERT OR IGNORE INTO batches VALUES (?, ?, ?, ?)",
+            db.execute("INSERT OR IGNORE INTO batches(id, source_key, body, updated) VALUES (?, ?, ?, ?)",
                        (identifier, source_key, json.dumps(job, ensure_ascii=False), now))
             existing = json.loads(db.execute("SELECT body FROM batches WHERE source_key=?", (source_key,)).fetchone()[0])
             last_sealed_history = max(existing.get("history_ids") or [existing["history_id"]])
@@ -66,22 +81,35 @@ class Store:
                     existing.update(message="移交后收到新的整理记录，请人工核对；不会单独补送字幕或重复移交", updated=now)
                     db.execute("UPDATE batches SET body=?, updated=? WHERE id=?",
                                (json.dumps(existing, ensure_ascii=False), now, existing["id"]))
+            return existing
 
     def save(self, job):
         job["updated"] = time.time()
         with self.connect() as db:
-            db.execute("UPDATE batches SET body=?, updated=? WHERE id=?",
-                       (json.dumps(job, ensure_ascii=False), job["updated"], job["id"]))
+            db.execute("UPDATE batches SET body=?, updated=?, state=?, next_check=? WHERE id=?",
+                       (json.dumps(job, ensure_ascii=False), job["updated"], job["state"],
+                        job.get("next_check", 0), job["id"]))
 
     def get(self, identifier):
         with self.connect() as db:
             row = db.execute("SELECT body FROM batches WHERE id=?", (identifier,)).fetchone()
             return json.loads(row[0]) if row else None
 
-    def jobs(self):
+    def jobs(self, limit=None):
         with self.connect() as db:
             return [json.loads(row[0]) for row in db.execute(
-                "SELECT body FROM batches ORDER BY updated, id")]
+                "SELECT body FROM batches ORDER BY updated DESC, id LIMIT ?", (limit or -1,))]
+
+    def due(self, limit=3):
+        with self.connect() as db:
+            return [json.loads(row[0]) for row in db.execute(
+                "SELECT body FROM batches WHERE state != 'handed_off' AND next_check <= ? "
+                "ORDER BY updated, id LIMIT ?", (time.time(), limit))]
+
+    def pending_routings(self):
+        with self.connect() as db:
+            return [json.loads(row[0]) for row in db.execute(
+                "SELECT DISTINCT json_extract(body, '$.routing') FROM batches WHERE state != 'handed_off'")]
 
     @contextmanager
     def worker_lock(self):

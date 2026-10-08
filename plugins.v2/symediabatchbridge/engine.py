@@ -5,7 +5,7 @@ from threading import Event
 import time
 
 from .domain import (Awaiting, BridgeError, Config, Stopped, check_stop, child_path,
-                     freeze_file, unchanged, verify_tree)
+                     freeze_file, refresh_signature, unchanged, verify_tree)
 from .instant import MAX_INSTANT_ATTEMPTS, RETRY_SECONDS, range_sha1
 
 
@@ -14,7 +14,7 @@ class Engine:
         self.store, self.config, self.host, self.cloud, self.stop = store, config, host, cloud, stop
 
     def process(self, job):
-        if job["state"] in ("handed_off", "review"):
+        if job["state"] == "handed_off":
             return
         try:
             check_stop(self.stop)
@@ -25,25 +25,13 @@ class Engine:
             if job.get("move_requested"):
                 self._reconcile_move(job)
                 return
+            if not Path(self.config.local_root).is_dir():
+                raise Awaiting("等待本地整理目录恢复：" + self.config.local_root)
             candidates = self.host.collect(job)
-            if not job["files"]:
-                entries = []
-                for candidate in candidates:
-                    check_stop(self.stop)
-                    relative = self.config.relative(candidate["local"])
-                    entries.append(freeze_file(candidate["local"], relative, self.stop))
-                if not entries or len({e["relative"] for e in entries}) != len(entries):
-                    raise BridgeError("批次文件清单为空或包含重复目标", review=True)
-                job["files"] = entries
-                job["history_ids"] = sorted(c["history_id"] for c in candidates if c.get("history_id"))
-                job["state"] = "uploading"
-                job["message"] = "正在尝试秒传"
-                self.store.save(job)
-            elif not self._same_candidates(job, candidates):
-                raise BridgeError("封存后的整理清单发生变化，需核对新增或替换的文件", review=True)
+            self._sync_candidates(job, candidates)
 
             remote_batch = child_path(self.config.staging, job["id"])
-            source = child_path(self.config.cd2_prefix + self.config.staging, job["id"])
+            source = child_path(self.config.cd2_staging, job["id"])
             destination = child_path(self.config.inbox, job["id"])
             # Never upload over an existing destination belonging to an uncertain handoff.
             if self.cloud.exists(destination):
@@ -54,10 +42,11 @@ class Engine:
             previous_files = self.cloud.tree(source) if self.cloud.exists(source) else {}
             if set(previous_files) - {e["relative"] for e in job["files"]}:
                 raise BridgeError("暂存批次出现清单外文件，已停止上传和移交", review=True)
+            operations = 0
             for entry in job["files"]:
                 check_stop(self.stop)
                 self.config.relative(entry["local"])
-                unchanged(entry)
+                refresh_signature(entry, self.stop)
                 if entry["uploaded"]:
                     continue
                 remote_file = child_path(remote_batch, entry["relative"])
@@ -70,13 +59,18 @@ class Engine:
                         self.store.save(job)
                         continue
                     raise BridgeError("云端存在未确认的同名文件，已停止覆盖：" + entry["relative"], review=True)
-                self._upload_entry(job, entry, remote_file)
+                if time.time() >= entry.get("instant_next_at", 0):
+                    if operations >= 4:
+                        break
+                    operations += 1
+                    self._upload_entry(job, entry, remote_file)
 
             pending = [e for e in job["files"] if not e["uploaded"]]
             if pending:
                 job.update(state="waiting_instant", attempts=0,
                            message=f"已完成 {len(job['files']) - len(pending)}/{len(job['files'])} 个文件，等待秒传重试",
-                           next_check=min(e["instant_next_at"] for e in pending))
+                           next_check=max(time.time() + self.config.interval * 60,
+                                          min(e.get("instant_next_at", 0) for e in pending)))
                 self.store.save(job)
                 return
 
@@ -86,8 +80,10 @@ class Engine:
             self.store.save(job)
             verify_tree(job["files"], self.cloud.tree(source))
             # Check for new native transfer results before the irreversible handoff.
-            if not self._same_candidates(job, self.host.collect(job)):
-                raise BridgeError("上传期间整理清单发生变化，已暂停移交", review=True)
+            latest = self.host.collect(job)
+            if not self._same_candidates(job, latest):
+                self._sync_candidates(job, latest)
+                raise Awaiting("已纳入新增整理文件，下次检查继续上传")
             for entry in job["files"]:
                 self.config.relative(entry["local"])
                 unchanged(entry)
@@ -109,6 +105,7 @@ class Engine:
         except Stopped:
             return
         except Awaiting as error:
+            job["state"] = "moving" if job.get("move_requested") else "waiting"
             job["message"] = str(error)
             job["next_check"] = time.time() + self.config.interval * 60
             self.store.save(job)
@@ -170,10 +167,13 @@ class Engine:
             if error.review:
                 raise
             entry["instant_error"] = str(error)
+            entry.setdefault("instant_error_since", time.time())
         except Exception:
             entry["instant_error"] = "秒传接口暂不可用，请检查登录和连接"
+            entry.setdefault("instant_error_since", time.time())
         else:
             entry.pop("instant_error", None)
+            entry.pop("instant_error_since", None)
             if receipt is not None:
                 self._uploaded(job, entry, receipt)
                 return
@@ -186,7 +186,47 @@ class Engine:
     def _uploaded(self, job, entry, receipt):
         entry.update(uploaded=True, receipt=receipt)
         entry.pop("instant_error", None)
+        entry.pop("instant_error_since", None)
         job["message"] = f"已上传 {sum(e['uploaded'] for e in job['files'])}/{len(job['files'])}"
+        self.store.save(job)
+
+    def _sync_candidates(self, job, candidates):
+        paths = [c["local"] for c in candidates]
+        if not paths or len(paths) != len(set(paths)):
+            raise BridgeError("批次文件清单为空或包含重复目标", review=True)
+        existing = {e["local"]: e for e in job["files"]}
+        if set(existing) - set(paths):
+            raise BridgeError("已有整理文件从清单移除，等待清单恢复", review=True)
+        hashed = 0
+        for candidate in candidates:
+            check_stop(self.stop)
+            path = candidate["local"]
+            relative = self.config.relative(path)
+            if path in existing:
+                refresh_signature(existing[path], self.stop)
+                continue
+            if hashed >= 4:
+                raise Awaiting(f"已记录 {len(job['files'])}/{len(candidates)} 个文件 HASH，下次继续")
+            entry = freeze_file(path, relative, self.stop)
+            source = candidate.get("source")
+            if source:
+                try:
+                    same_file = Path(source).samefile(path)
+                except OSError:
+                    raise Awaiting("等待下载源文件恢复：" + Path(source).name) from None
+                if not same_file:
+                    original = freeze_file(source, relative, self.stop)
+                    if original["size"] != entry["size"] or original["sha1"] != entry["sha1"]:
+                        raise BridgeError("整理文件与本次下载内容不同，请检查同名覆盖：" + relative, review=True)
+                    unchanged(original)
+                unchanged(entry)
+            job["files"].append(entry)
+            hashed += 1
+            # Persist each completed hash: a restart in a large season does not
+            # discard all earlier file hashes, and new subtitles retain old receipts.
+            self.store.save(job)
+        job["history_ids"] = sorted(c["history_id"] for c in candidates if c.get("history_id"))
+        job.update(state="uploading", message="正在尝试秒传")
         self.store.save(job)
 
     @staticmethod
@@ -195,20 +235,37 @@ class Engine:
                 and sorted(c["history_id"] for c in candidates if c.get("history_id")) == job.get("history_ids", []))
 
     def _reconcile_move(self, job):
-        if self.cloud.exists(job["destination"]) and not self.cloud.exists(job["source"]):
+        source_exists = self.cloud.exists(job["source"])
+        destination_exists = self.cloud.exists(job["destination"])
+        if destination_exists and not source_exists:
             verify_tree(job["files"], self.cloud.tree(job["destination"]))
             job.update(state="handed_off", message="已核实目录移交完成",
                        handed_off_at=time.time(), next_check=0, attempts=0)
             self.store.save(job)
             return
-        raise BridgeError("移动结果待确认；源目录消失也可能已被 Symedia 处理，不会重复上传或移动", review=True)
+        if source_exists and not destination_exists:
+            # Intent may have been saved immediately before a crash. Retry ONLY
+            # this immutable, complete source directory, never upload/recreate it.
+            verify_tree(job["files"], self.cloud.tree(job["source"]))
+            self.cloud.require_inbox(self.config.inbox)
+            check_stop(self.stop)
+            if self.cloud.move_directory(job["source"], self.config.inbox):
+                job.update(state="handed_off", message="已恢复整目录移交", handed_off_at=time.time(),
+                           next_check=0, attempts=0)
+                self.store.save(job)
+                return
+            raise BridgeError("CD2 尚未确认移交，稍后继续核对")
+        if source_exists:
+            raise BridgeError("源和目标同时存在同名批次，已暂停移交，等待冲突消除", review=True)
+        raise BridgeError("移动结果待确认；目录可能已被 Symedia 消费，将继续核对，不重复上传", review=True)
 
     def _failure(self, job, message, review):
         job["attempts"] = job.get("attempts", 0) + 1
         job["message"] = message
-        if review or job["attempts"] >= 10:
+        if review:
             job["state"] = "review"
-            job["next_check"] = 0
+            job["next_check"] = time.time() + 3600
         else:
+            job["state"] = "moving" if job.get("move_requested") else "retrying"
             job["next_check"] = time.time() + min(1800, 60 * 2 ** min(job["attempts"] - 1, 5))
         self.store.save(job)

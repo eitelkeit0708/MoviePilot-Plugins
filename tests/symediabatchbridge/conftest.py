@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture
 def modules(monkeypatch, tmp_path):
     class Base:
+        post_message = Mock()
         def get_data_path(self):
             return tmp_path / "plugin-data" / self.__class__.__name__
 
