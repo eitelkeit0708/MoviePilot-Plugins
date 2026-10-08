@@ -86,6 +86,30 @@ class CD2:
     def exists(self, path):
         return self._lookup(path) is not None
 
+    def directory_id(self, path):
+        """115 cloud directory identity, not a path or a local upload placeholder.
+
+        Live CD2/115 checks confirm numeric folder IDs survive same-drive moves
+        and removal of their children. Unknown identity formats cannot prove a move.
+        """
+        item = self._lookup(path)
+        if item is None:
+            raise Awaiting("等待 CD2 读取批次目录身份")
+        if not item.isDirectory:
+            raise BridgeError("批次目录位置被文件占用，已暂停移交", review=True)
+        identifier = str(item.id or "")
+        return identifier if re.fullmatch(r"[1-9][0-9]{0,39}", identifier) else ""
+
+    def directories(self, path):
+        if path != self.config.cd2_prefix:
+            item = self._lookup(path)
+            if item is None or not item.isDirectory:
+                raise Awaiting("归档目录暂不可读，请稍后重新检查")
+        entries = self._children(path)
+        if entries is None:
+            raise Awaiting("归档目录暂不可读，请稍后重新检查")
+        return sorted((item.fullPathName for item in entries if item.isDirectory), key=str.casefold)
+
     def require_inbox(self, path):
         item = self._lookup(path)
         if item is None or not item.isDirectory:

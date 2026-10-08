@@ -1,5 +1,6 @@
 """Native MP V2 page: exception-first list, explicit record view, no disclosure triangles."""
 from .activity import attention, when
+from pathlib import PurePosixPath
 
 STATES = {"waiting": "等待齐套", "waiting_instant": "等待秒传", "uploading": "上传中",
           "verifying": "核对中", "moving": "核对移交", "review": "异常待确认",
@@ -23,6 +24,12 @@ def size(value):
     return f"{value / 1024**3:.2f} GiB" if value >= 1024**3 else f"{value / 1024**2:.2f} MiB"
 
 
+def state_label(job):
+    if job["state"] == "handed_off" and job.get("completion_basis") == "archive_verified":
+        return "归档文件已核实"
+    return STATES.get(job["state"], job["state"])
+
+
 def render_page(plugin):
     store, view = plugin._store, plugin._view
     if not store:
@@ -33,7 +40,7 @@ def render_page(plugin):
     header = [text(plugin._message, "VChip", color="success" if plugin.get_state() else "warning", size="small"),
               button(plugin, "刷新", **view.model_dump()),
               text(f"最近检查 {when(last_check)} · {status}", "p", **{"class": "mt-3 text-body-2"}),
-              text(f"累计 {sum(counts.values())} 批 · 处理中 {sum(v for k,v in counts.items() if k != 'handed_off')} 批 · 已移交 {counts.get('handed_off', 0)} 批", "p")]
+              text(f"累计 {sum(counts.values())} 批 · 处理中 {sum(v for k,v in counts.items() if k != 'handed_off')} 批 · 已完成 {counts.get('handed_off', 0)} 批", "p")]
     scan = store.meta("last_scan", {})
     if scan:
         header.append(text(f"本轮读取 {scan.get('read', 0)} 条整理记录 · 接收范围内 {scan.get('matched', 0)} 条 · 新增 {scan.get('new', 0)} 批", "p", **{"class": "text-body-2"}))
@@ -63,7 +70,7 @@ def render_page(plugin):
         content.append(text("处理记录 · 异常优先", "h3", **{"class": "mb-3"}))
     for job in jobs:
         done = sum(bool(e.get("uploaded")) for e in job.get("files", []))
-        body = [text(job["title"], "h3"), text(("需要关注 · " if attention(job) else "") + STATES.get(job["state"], job["state"]), "VChip",
+        body = [text(job["title"], "h3"), text(("需要关注 · " if attention(job) else "") + state_label(job), "VChip",
                 color="warning" if attention(job) else "success" if job["state"] == "handed_off" else "primary", size="small", **{"class": "my-2"}),
                 text(job["message"], "p"), text(f"{job.get('route_name','默认路线')} · 文件 {done}/{len(job.get('files', []))} · 更新 {when(job['updated'])}", "p", **{"class": "text-caption"})]
         if job.get("next_check"):
@@ -101,7 +108,7 @@ def render_page(plugin):
 def detail(plugin, job):
     store, view = plugin._store, plugin._view
     routing = job["routing"]
-    body = [text(job["title"], "h3"), text(STATES.get(job["state"], job["state"]), "VChip", size="small", color="warning" if attention(job) else "primary"),
+    body = [text(job["title"], "h3"), text(state_label(job), "VChip", size="small", color="warning" if attention(job) else "primary"),
             text(job["message"], "p"), text("路线：" + job.get("route_name", "默认路线"), "p"),
             text("接收：" + when(job["created"]) + " · 更新：" + when(job["updated"]), "p"),
             text("本地：" + routing["local_root"], "p"), text("115 暂存：" + routing["staging"] + "/" + job["id"], "p"),
@@ -116,6 +123,26 @@ def detail(plugin, job):
     if job["state"] != "handed_off":
         legacy = routing.get("storage") == "115网盘Plus"
         body.append(button(plugin, "确认同一账号，改用 MP 内置 115" if legacy else "重新检查", "retry", key=job["id"], switch_to_native=legacy))
+        if job.get("move_requested"):
+            body.append(button(plugin, "核对归档目录", "recovery", key=job["id"]))
+    if job.get("recovery_directory"):
+        body.append(text("归档核对：" + job["recovery_directory"], "p"))
+    if job.get("source_directory_id"):
+        body.append(text("移交目录 ID：" + job["source_directory_id"], "p", **{"class": "text-caption"}))
+    browser = plugin._recovery_browser
+    if browser and browser["key"] == job["id"]:
+        path, page = browser["path"], browser["page"]
+        body.extend([text("选择归档后的作品目录", "h4"), text(path, "p"),
+                     text("支持文件改名；视频和字幕均需通过 SHA1 与大小核对。", "p")])
+        if path != browser["root"]:
+            body.append(button(plugin, "上一级", "recovery", key=job["id"], path=str(PurePosixPath(path).parent)))
+            body.append(button(plugin, "核对此目录", "recovery", key=job["id"], path=path, verify=True))
+        for directory in browser["directories"][page * 20:(page + 1) * 20]:
+            body.append(button(plugin, PurePosixPath(directory).name, "recovery", key=job["id"], path=directory))
+        if page:
+            body.append(button(plugin, "上一页目录", "recovery", key=job["id"], path=path, page=page - 1))
+        if (page + 1) * 20 < len(browser["directories"]):
+            body.append(button(plugin, "下一页目录", "recovery", key=job["id"], path=path, page=page + 1))
     result = [card(body), text("文件清单", "h3", **{"class": "my-3"})]
     files = job.get("files", [])
     for entry in files[view.files * 20:(view.files + 1) * 20]:
@@ -129,6 +156,9 @@ def detail(plugin, job):
             block.append(text(when(entry["instant_next_at"]) + " " + action, "p"))
         if entry.get("instant_error"):
             block.append(text(entry["instant_error"], "p", **{"class": "text-warning"}))
+        archived = next((m for m in job.get("archive_matches", []) if m["relative"] == entry.get("relative")), None)
+        if archived:
+            block.append(text("已核实：" + job["recovery_directory"].rstrip("/") + "/" + archived["archived_relative"], "p"))
         result.append(card(block))
     if not files:
         result.append(text("尚未封存文件清单；等待下载与整理记录齐套。", "p"))

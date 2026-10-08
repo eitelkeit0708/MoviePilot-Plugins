@@ -126,6 +126,7 @@ def test_three_routes_run_and_pending_job_keeps_old_destination_after_edit(modul
                            transfers=transfers, extensions={".mkv", ".srt"})
     cloud = NS(files={}, moves=[], close=Mock())
     cloud.exists = lambda path: any(p.startswith(path + "/") for p in cloud.files)
+    cloud.directory_id = lambda path: ""
     cloud.require_inbox = lambda path: None
     cloud.tree = lambda path: {p[len(path)+1:]: v for p,v in cloud.files.items() if p.startswith(path + "/")}
     def move(source, inbox):

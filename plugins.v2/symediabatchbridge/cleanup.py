@@ -8,6 +8,13 @@ from .activity import event
 from .domain import unchanged, check_stop, BridgeError, file_signature
 
 
+def cleanup_failure(store, job, message):
+    job.update(cleanup_error=message, cleanup_next=time.time() + 3600)
+    store.save(job)
+    store.record(job, event("cleanup_error", message, level="warning", notice="清理未完成",
+                            scope="issue", next_at=job["cleanup_next"]))
+
+
 def cleanup(store, job, config, stop):
     if job["state"] != "handed_off" or not job.get("cleanup_local") or job.get("cleanup_done"):
         return
@@ -85,10 +92,6 @@ def cleanup(store, job, config, stop):
         store.save(job)
         store.record(job, event("cleanup_done", "本地整理副本清理完成，下载源与做种任务保留"))
     except BridgeError as error:
-        job.update(cleanup_error=str(error), cleanup_next=time.time()+3600)
-        store.save(job)
-        store.record(job, event("cleanup_error", str(error), level="warning", notice="清理未完成", scope="issue", next_at=job["cleanup_next"]))
+        cleanup_failure(store, job, str(error))
     except OSError:
-        job.update(cleanup_error="本地整理副本暂时无法清理，将自动重试", cleanup_next=time.time()+3600)
-        store.save(job)
-        store.record(job, event("cleanup_error", job["cleanup_error"], level="warning", notice="清理未完成", scope="issue", next_at=job["cleanup_next"]))
+        cleanup_failure(store, job, "本地整理副本暂时无法清理，将自动重试")

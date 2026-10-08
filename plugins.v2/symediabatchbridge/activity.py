@@ -50,7 +50,12 @@ def changes(old, job):
     if job.get("late_history_ids") != old.get("late_history_ids") and job.get("late_history_ids"):
         result.append(event("late_files", job["message"], level="warning", notice="处理异常", scope="issue"))
     if job["state"] == "handed_off" and old["state"] != "handed_off":
-        result.append(event("handoff", "整目录已移交 Symedia 待归档目录", notice="移交成功", scope="handoff"))
+        if job.get("completion_basis") == "archive_verified":
+            result.append(event("archive_verified", "全部视频与附件已通过云端 SHA1 和大小核对", notice="归档核对完成", scope="handoff"))
+        elif job.get("completion_basis") == "directory_identity":
+            result.append(event("handoff", "源目录已消失，目标目录 ID 与移交前一致，已恢复移交回执", notice="移交成功", scope="handoff"))
+        else:
+            result.append(event("handoff", "整目录已移交 Symedia 待归档目录", notice="移交成功", scope="handoff"))
     elif job.get("attempts", 0) > old.get("attempts", 0) or (job["state"] == "review" and old["state"] != "review"):
         result.append(event("failure", job["message"], level="warning", notice="处理异常", scope="issue", next_at=job.get("next_check", 0)))
     elif (job["state"], job["message"]) != (old["state"], old["message"]) and not result:
@@ -71,4 +76,6 @@ def notice_text(job, item):
     if item["kind"] == "handoff":
         lines.extend(["移交目录：" + job.get("destination", job["routing"]["inbox"]),
                       "后续归档由 Symedia 处理。"])
+    if item["kind"] == "archive_verified":
+        lines.append("核对目录：" + job["recovery_directory"])
     return "\n".join(lines)

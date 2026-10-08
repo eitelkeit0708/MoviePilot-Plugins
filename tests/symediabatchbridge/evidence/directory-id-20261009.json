@@ -1,0 +1,115 @@
+{
+  "root": "/115-helper-id-proof-20261009-4637b4c8dc",
+  "created": [
+    {
+      "path": "/115-helper-id-proof-20261009-4637b4c8dc",
+      "id": "3535498620738471331"
+    },
+    {
+      "path": "/115-helper-id-proof-20261009-4637b4c8dc/staging",
+      "id": "3535498671288223489"
+    },
+    {
+      "path": "/115-helper-id-proof-20261009-4637b4c8dc/inbox",
+      "id": "3535498729488385083"
+    },
+    {
+      "path": "/115-helper-id-proof-20261009-4637b4c8dc/archive",
+      "id": "3535498779811644829"
+    },
+    {
+      "path": "/115-helper-id-proof-20261009-4637b4c8dc/staging/batch-one",
+      "id": "3535498838548678168"
+    },
+    {
+      "path": "/115-helper-id-proof-20261009-4637b4c8dc/staging/idproof-e6bb1070eea54ac2a87ac15c7b29719e",
+      "id": "3535502303396103649"
+    },
+    {
+      "path": "/115-helper-id-proof-20261009-4637b4c8dc/staging/batch-one",
+      "id": "3535503696081192110"
+    }
+  ],
+  "files": [
+    {
+      "name": "sample-video.txt",
+      "size": 50,
+      "sha1": "ac81c1c40a66d0e9854a760423bf4d08d3db983b"
+    },
+    {
+      "name": "sample-subtitle.srt",
+      "size": 53,
+      "sha1": "11e1c4c431249fbf825656cd93b7de5bb85aae64"
+    }
+  ],
+  "evidence": [
+    {
+      "phase": "prepared",
+      "at": 1791480314.6088557,
+      "root": "/115-helper-id-proof-20261009-4637b4c8dc",
+      "directory_id": "3535498838548678168"
+    },
+    {
+      "phase": "moved",
+      "at": 1791480499.1212687,
+      "before_id": "3535498838548678168",
+      "after_id": "3535498838548678168",
+      "same_id": true,
+      "returned_paths": [],
+      "contents": 2
+    },
+    {
+      "phase": "empty_directory_retained",
+      "at": 1791480537.2829306,
+      "before_id": "3535498838548678168",
+      "after_id": "3535498838548678168",
+      "same_id": true,
+      "contents": 0,
+      "archive_files": 2
+    },
+    {
+      "phase": "fresh_process_recheck",
+      "at": 1791480546.2942102,
+      "before_id": "3535498838548678168",
+      "after_id": "3535498838548678168",
+      "same_id": true,
+      "contents": 0
+    },
+    {
+      "phase": "engine_interrupted_after_move_and_consumption",
+      "at": 1791480813.4969542,
+      "batch_id": "idproof-e6bb1070eea54ac2a87ac15c7b29719e",
+      "durable_directory_id": "3535502303396103649",
+      "persisted_state": "moving",
+      "target_empty": true
+    },
+    {
+      "phase": "same_name_different_object",
+      "at": 1791480888.6215594,
+      "retained_id": "3535498838548678168",
+      "replacement_id": "3535503696081192110",
+      "distinct": true
+    },
+    {
+      "phase": "engine_fresh_process_recovered",
+      "at": 1791480949.5228167,
+      "batch_id": "idproof-e6bb1070eea54ac2a87ac15c7b29719e",
+      "final_state": "handed_off",
+      "basis": "directory_identity",
+      "directory_id": "3535502303396103649",
+      "duplicate_move": false,
+      "duplicate_upload": false
+    },
+    {
+      "phase": "isolated_test_root_removed",
+      "at": 1791481013.475504,
+      "root": "/115-helper-id-proof-20261009-4637b4c8dc",
+      "files": 2,
+      "directories": 7,
+      "scope_verified": true,
+      "production_directories_changed": false
+    }
+  ],
+  "before_move_id": "3535498838548678168",
+  "engine_job": "idproof-e6bb1070eea54ac2a87ac15c7b29719e"
+}

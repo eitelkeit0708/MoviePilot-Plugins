@@ -36,6 +36,9 @@ def batch(modules, config_values, tmp_path):
         def file_at(self, path):
             return self.files.get(path)
 
+        def directory_id(self, path):
+            return ""  # Older CD2 responses may omit usable cloud identity.
+
         def tree(self, path):
             return {p[len(path) + 1:]: item for p, item in self.files.items() if p.startswith(path + "/")}
 
@@ -94,6 +97,258 @@ def test_whole_directory_preserves_video_and_subtitles(batch):
     assert batch.cloud.moves == ["/115/MP暂存/" + job["id"]]
     assert set(batch.cloud.tree(job["destination"])) == {"电视剧/同名剧/Season 01/S01E01.mkv", "电视剧/同名剧/Season 01/S01E01.zh.ass"}
     assert all(Path(p).exists() for p in batch.paths)
+
+
+def missing_staged_file(batch, now):
+    job = batch.job()
+    batch.engine._sync_candidates(job, batch.host.collect(job))
+    entry = job["files"][0]
+    remote = batch.config.staging + "/" + job["id"] + "/" + entry["relative"]
+    entry.update(instant_started_at=now - 100, instant_misses=7)
+    batch.engine._upload_entry(job, entry, remote)
+    del batch.cloud.files[batch.config.cd2_prefix + remote]
+    return remote
+
+
+def test_missing_staged_file_repairs_after_confirmation_without_resetting_deadline(batch, modules, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr(modules.engine.time, "time", lambda: now[0])
+    remote = missing_staged_file(batch, now[0])
+    batch.run()
+    assert batch.job()["state"] == "waiting"
+    assert len(batch.host.uploads) == 2  # Only the untouched subtitle was uploaded.
+    now[0] += 61
+    batch.run()
+    entry = batch.job()["files"][0]
+    assert not entry["uploaded"] and entry["repair_count"] == 1
+    assert entry["instant_misses"] == 7 and entry["instant_next_at"] == 1_800_003_600
+    assert batch.cloud.moves == []
+    # SQLite reload and a new Engine do not reset the hourly schedule.
+    store = modules.store.Store(batch.store.path.parent)
+    engine = modules.engine.Engine(store, batch.config, batch.host, batch.cloud, batch.stop)
+    now[0] = 1_800_003_600
+    engine.process(store.get(batch.id))
+    assert store.get(batch.id)["state"] == "handed_off"
+    assert batch.host.uploads.count(remote) == 2 and len(batch.cloud.moves) == 1
+
+
+def test_missing_staged_file_that_reappears_is_not_uploaded_again(batch, modules, monkeypatch):
+    now = [1_800_000_000]
+    monkeypatch.setattr(modules.engine.time, "time", lambda: now[0])
+    remote = missing_staged_file(batch, now[0])
+    batch.run()
+    entry = batch.job()["files"][0]
+    batch.cloud.files[batch.config.cd2_prefix + remote] = {"size": entry["size"], "sha1": entry["sha1"]}
+    now[0] += 61
+    batch.run()
+    assert batch.job()["state"] == "handed_off" and batch.host.uploads.count(remote) == 1
+
+
+def test_listing_error_never_invalidates_upload_receipt(batch, modules, monkeypatch):
+    missing_staged_file(batch, 1_800_000_000)
+    monkeypatch.setattr(batch.cloud, "exists", Mock(side_effect=modules.domain.BridgeError("CD2 读取失败")))
+    batch.run()
+    entry = batch.job()["files"][0]
+    assert entry["uploaded"] and "remote_missing_at" not in entry
+    assert len(batch.host.uploads) == 1 and batch.cloud.moves == []
+
+
+def test_changed_uploaded_cloud_file_is_held_and_never_overwritten(batch, modules):
+    remote = missing_staged_file(batch, 1_800_000_000)
+    entry = batch.job()["files"][0]
+    batch.cloud.files[batch.config.cd2_prefix + remote] = {"size": entry["size"], "sha1": "0" * 40}
+    batch.run()
+    assert batch.job()["state"] == "review"
+    assert len(batch.host.uploads) == 1 and batch.cloud.moves == []
+
+
+def consumed_without_receipt(batch):
+    def consume():
+        moved = list(batch.cloud.files.items())
+        batch.cloud.files.clear()
+        for index, (_, item) in enumerate(moved):
+            batch.cloud.files[f"/115/归档/作品/renamed-{index}"] = item
+        raise RuntimeError("response lost after Symedia consumed the batch")
+    batch.cloud.move_hook = consume
+    batch.run()
+    batch.run()
+    assert batch.job()["state"] == "review"
+
+
+def test_consumed_directory_requires_complete_content_proof_and_survives_restart(batch, modules):
+    consumed_without_receipt(batch)
+    job = batch.job()
+    job["recovery_directory"] = "/115/归档/作品"
+    batch.store.save(job)
+    store = modules.store.Store(batch.store.path.parent)
+    modules.engine.Engine(store, batch.config, batch.host, batch.cloud, batch.stop).process(store.get(batch.id))
+    job = store.get(batch.id)
+    assert job["state"] == "handed_off" and job["completion_basis"] == "archive_verified"
+    assert len(job["archive_matches"]) == 2
+    assert len(batch.host.uploads) == 2 and len(batch.cloud.moves) == 1
+    assert any(e["kind"] == "archive_verified" for e in store.events(batch.id))
+
+
+@pytest.mark.parametrize("damage", ["missing_subtitle", "wrong_sha", "missing_sha", "wrong_size"])
+def test_archive_recovery_never_accepts_incomplete_proof(batch, damage):
+    consumed_without_receipt(batch)
+    subtitle = next(p for p, item in batch.cloud.files.items() if item["size"] == len(b"subtitle"))
+    if damage == "missing_subtitle":
+        del batch.cloud.files[subtitle]
+    elif damage == "wrong_sha":
+        batch.cloud.files[subtitle]["sha1"] = "0" * 40
+    elif damage == "missing_sha":
+        batch.cloud.files[subtitle].pop("sha1")
+    else:
+        batch.cloud.files[subtitle]["size"] += 1
+    job = batch.job()
+    job["recovery_directory"] = "/115/归档/作品"
+    batch.store.save(job)
+    batch.run()
+    assert batch.job()["state"] == "review" and not batch.job().get("cleanup_done")
+    assert len(batch.host.uploads) == 2 and len(batch.cloud.moves) == 1
+
+
+def test_archive_recovery_counts_identical_attachments_separately(modules):
+    entries = [{"relative": p, "size": 5, "sha1": "a" * 40} for p in ("a.srt", "b.srt")]
+    with pytest.raises(modules.domain.BridgeError):
+        modules.recovery.verify_archive(entries, {"one.srt": {"size": 5, "sha1": "a" * 40}})
+
+
+def test_archive_recovery_revalidates_new_active_staging_configuration(batch):
+    consumed_without_receipt(batch)
+    job = batch.job()
+    job["recovery_directory"] = "/115/归档/作品"
+    batch.store.save(job)
+    batch.engine.protected_routings = [{**batch.config.routing(), "staging": "/归档"}]
+    batch.run()
+    assert batch.job()["state"] == "review"
+    assert "不能使用暂存" in batch.job()["message"]
+    assert len(batch.host.uploads) == 2 and len(batch.cloud.moves) == 1
+
+
+@pytest.fixture
+def identified_batch(batch, monkeypatch):
+    source = batch.config.cd2_staging + "/" + batch.id
+    target = batch.config.inbox + "/" + batch.id
+    ids = {source: "3535498838548678168"}
+    original_exists = batch.cloud.exists
+    monkeypatch.setattr(batch.cloud, "exists", lambda path: path in ids or original_exists(path))
+    monkeypatch.setattr(batch.cloud, "directory_id", lambda path: ids.get(path, ""))
+    batch.directory_ids, batch.source, batch.target = ids, source, target
+    return batch
+
+
+@pytest.mark.parametrize("remaining", [0, 1])
+def test_retained_directory_identity_recovers_consumption_after_restart(identified_batch, modules, remaining):
+    batch = identified_batch
+    def consume_and_lose_reply():
+        saved = batch.store.get(batch.id)
+        assert saved["move_requested"] and saved["source_directory_id"] == batch.directory_ids[batch.source]
+        batch.directory_ids[batch.target] = batch.directory_ids.pop(batch.source)
+        for path in list(batch.cloud.files)[remaining:]:
+            del batch.cloud.files[path]
+        raise modules.domain.BridgeError("response lost")
+    batch.cloud.move_hook = consume_and_lose_reply
+    batch.run()
+    assert batch.job()["state"] == "moving"
+    restored = modules.store.Store(batch.store.path.parent)
+    engine = modules.engine.Engine(restored, batch.config, batch.host, batch.cloud, Event())
+    engine.process(restored.get(batch.id))
+    saved = restored.get(batch.id)
+    assert saved["state"] == "handed_off" and saved["completion_basis"] == "directory_identity"
+    assert len(batch.cloud.moves) == 1 and len(batch.host.uploads) == 2
+    assert len(batch.cloud.tree(batch.target)) == remaining
+    assert "目录 ID" in restored.events(batch.id)[0]["message"]
+
+
+@pytest.mark.parametrize("replacement", ["999999", ""])
+def test_different_or_unavailable_destination_identity_never_confirms_handoff(identified_batch, modules, replacement):
+    batch = identified_batch
+    def wrong_directory():
+        batch.directory_ids.pop(batch.source)
+        batch.directory_ids[batch.target] = replacement
+        # Even a complete copy of the files cannot override a changed directory ID.
+        raise modules.domain.BridgeError("response lost")
+    batch.cloud.move_hook = wrong_directory
+    batch.run()
+    batch.run()
+    assert batch.job()["state"] == "review" and "目录身份" in batch.job()["message"]
+    assert len(batch.cloud.moves) == 1
+
+
+def test_old_job_cannot_infer_identity_from_empty_destination(identified_batch, modules):
+    batch = identified_batch
+    job = batch.job()
+    batch.engine._sync_candidates(job, batch.host.collect(job))
+    job.update(state="moving", move_requested=True, source=batch.source, destination=batch.target)
+    batch.store.save(job)  # An old record has no identity captured before moving.
+    batch.directory_ids[batch.target] = batch.directory_ids.pop(batch.source)
+    batch.run()
+    assert batch.job()["state"] == "moving"
+    assert not batch.job().get("source_directory_id")
+    assert batch.cloud.moves == batch.host.uploads == []
+
+
+def test_changed_source_identity_blocks_move_retry(identified_batch, modules):
+    batch = identified_batch
+    job = batch.job()
+    batch.engine._sync_candidates(job, batch.host.collect(job))
+    job.update(state="moving", move_requested=True, source=batch.source, destination=batch.target,
+               source_directory_id="123456")
+    batch.store.save(job)
+    batch.run()
+    assert batch.job()["state"] == "review" and "源目录身份" in batch.job()["message"]
+    assert batch.cloud.moves == batch.host.uploads == []
+
+
+def test_source_replaced_during_verification_cannot_record_move_intent(identified_batch, monkeypatch):
+    batch = identified_batch
+    original = batch.cloud.tree
+    calls = []
+    def replace(path):
+        calls.append(path)
+        result = original(path)
+        if len(calls) == 2:  # Final manifest verification, after capture of the ID.
+            batch.directory_ids[batch.source] = "999999"
+        return result
+    monkeypatch.setattr(batch.cloud, "tree", replace)
+    batch.run()
+    assert batch.job()["state"] == "review" and not batch.job().get("move_requested")
+    assert batch.cloud.moves == []
+
+
+def test_old_intent_can_capture_identity_only_from_complete_source(identified_batch, modules):
+    batch = identified_batch
+    job = batch.job()
+    batch.engine._sync_candidates(job, batch.host.collect(job))
+    for entry in job["files"]:
+        batch.cloud.files[batch.source + "/" + entry["relative"]] = {"size": entry["size"], "sha1": entry["sha1"]}
+    job.update(state="moving", move_requested=True, source=batch.source, destination=batch.target)
+    batch.store.save(job)
+    def lost():
+        saved = batch.job()
+        assert saved["source_directory_id"] == batch.directory_ids[batch.source]
+        batch.directory_ids[batch.target] = batch.directory_ids.pop(batch.source)
+        batch.cloud.files.clear()
+        raise modules.domain.BridgeError("lost")
+    batch.cloud.move_hook = lost
+    batch.run()
+    batch.run()
+    assert batch.job()["state"] == "handed_off"
+    assert len(batch.cloud.moves) == 1 and batch.host.uploads == []
+
+
+def test_both_directories_present_remains_a_conflict_even_with_matching_id(identified_batch):
+    batch = identified_batch
+    job = batch.job()
+    job.update(state="moving", move_requested=True, source=batch.source, destination=batch.target,
+               source_directory_id=batch.directory_ids[batch.source])
+    batch.directory_ids[batch.target] = batch.directory_ids[batch.source]
+    batch.store.save(job)
+    batch.run()
+    assert batch.job()["state"] == "review" and "同时存在" in batch.job()["message"]
+    assert batch.cloud.moves == batch.host.uploads == []
 
 
 def test_subtitle_not_ready_cannot_upload_or_move(batch):

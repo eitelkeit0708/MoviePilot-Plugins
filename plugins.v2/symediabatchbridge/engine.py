@@ -7,11 +7,14 @@ import time
 from .domain import (Awaiting, BridgeError, Config, Stopped, check_stop, child_path,
                      freeze_file, refresh_signature, unchanged, verify_tree)
 from .instant import MAX_INSTANT_ATTEMPTS, RETRY_SECONDS, range_sha1
+from .activity import event
+from .recovery import recovery_path, verify_archive
 
 
 class Engine:
-    def __init__(self, store, config: Config, host, cloud, stop: Event):
+    def __init__(self, store, config: Config, host, cloud, stop: Event, protected_routings=()):
         self.store, self.config, self.host, self.cloud, self.stop = store, config, host, cloud, stop
+        self.protected_routings = protected_routings
 
     def process(self, job):
         if job["state"] == "handed_off":
@@ -43,16 +46,36 @@ class Engine:
             if set(previous_files) - {e["relative"] for e in job["files"]}:
                 raise BridgeError("暂存批次出现清单外文件，已停止上传和移交", review=True)
             operations = 0
+            missing = False
             for entry in job["files"]:
                 check_stop(self.stop)
                 self.config.relative(entry["local"])
                 refresh_signature(entry, self.stop)
+                previous = previous_files.get(entry["relative"])
                 if entry["uploaded"]:
-                    continue
+                    if previous is not None:
+                        verify_tree([entry], {entry["relative"]: previous})
+                        entry.pop("remote_missing_at", None)
+                        continue
+                    # A successful upload can precede CD2 visibility. Require two
+                    # fresh, separated observations before repairing its receipt.
+                    now = time.time()
+                    if "remote_missing_at" not in entry:
+                        entry["remote_missing_at"] = now
+                        self.store.save(job)
+                    if now - entry["remote_missing_at"] < max(60, self.config.interval * 60):
+                        missing = True
+                        continue
+                    entry.update(uploaded=False, repair_count=entry.get("repair_count", 0) + 1)
+                    entry["previous_receipt"] = entry.pop("receipt", {})
+                    entry.pop("remote_missing_at", None)
+                    # Retain the hourly deadline and all explicit non-hit counts.
+                    self.store.save(job)
+                    self.store.record(job, event("remote_missing", "云端暂存文件缺失，已安排补传",
+                                                file=entry["relative"], level="warning"))
                 remote_file = child_path(remote_batch, entry["relative"])
                 # A crash can occur after upload but before its receipt is saved. Check CD2
                 # using a fresh listing; do not trust the uploader's positive path cache.
-                previous = previous_files.get(entry["relative"])
                 if previous is not None:
                     if previous.get("sha1") == entry["sha1"] and previous.get("size") == entry["size"]:
                         entry["uploaded"] = True
@@ -65,6 +88,8 @@ class Engine:
                     operations += 1
                     self._upload_entry(job, entry, remote_file)
 
+            if missing:
+                raise Awaiting("等待再次核对云端暂存文件，尚未移交")
             pending = [e for e in job["files"] if not e["uploaded"]]
             if pending:
                 job.update(state="waiting_instant", attempts=0,
@@ -78,6 +103,7 @@ class Engine:
             job["state"] = "verifying"
             job["message"] = "正在核对云端文件"
             self.store.save(job)
+            directory_id = self.cloud.directory_id(source)
             verify_tree(job["files"], self.cloud.tree(source))
             # Check for new native transfer results before the irreversible handoff.
             latest = self.host.collect(job)
@@ -90,8 +116,10 @@ class Engine:
             check_stop(self.stop)
             if self.cloud.exists(destination):
                 raise BridgeError("待归档目录出现同名批次，已停止移交", review=True)
+            if directory_id and self.cloud.directory_id(source) != directory_id:
+                raise BridgeError("核对期间批次目录身份发生变化，已暂停移交", review=True)
             job.update(state="moving", move_requested=True, source=source, destination=destination,
-                       message="正在整目录移交", next_check=0)
+                       source_directory_id=directory_id, message="正在整目录移交", next_check=0)
             self.store.save(job)
             # Persist the intent BEFORE the RPC. Any lost response is reconciled, never
             # blindly replayed, even if Symedia has already consumed the entire folder.
@@ -243,6 +271,18 @@ class Engine:
         source_exists = self.cloud.exists(job["source"])
         destination_exists = self.cloud.exists(job["destination"])
         if destination_exists and not source_exists:
+            directory_id = job.get("source_directory_id")
+            if directory_id:
+                if self.cloud.directory_id(job["destination"]) != directory_id:
+                    raise BridgeError("目标目录身份与移交前不同，不能确认本批次已移交", review=True)
+                # The entire verified source directory has arrived. Its consumer
+                # may already be moving children away; do not require them to stay.
+                check_stop(self.stop)
+                job.update(state="handed_off", message="已通过目录 ID 核实整批移交完成",
+                           completion_basis="directory_identity", handed_off_at=time.time(),
+                           next_check=0, attempts=0)
+                self.store.save(job)
+                return
             verify_tree(job["files"], self.cloud.tree(job["destination"]))
             job.update(state="handed_off", message="已核实目录移交完成",
                        handed_off_at=time.time(), next_check=0, attempts=0)
@@ -251,9 +291,19 @@ class Engine:
         if source_exists and not destination_exists:
             # Intent may have been saved immediately before a crash. Retry ONLY
             # this immutable, complete source directory, never upload/recreate it.
+            directory_id = self.cloud.directory_id(job["source"])
+            if job.get("source_directory_id") and directory_id != job["source_directory_id"]:
+                raise BridgeError("源目录身份与移交前不同，已停止重试移动", review=True)
             verify_tree(job["files"], self.cloud.tree(job["source"]))
             self.cloud.require_inbox(self.config.inbox)
             check_stop(self.stop)
+            if directory_id and self.cloud.directory_id(job["source"]) != directory_id:
+                raise BridgeError("核对期间批次目录身份发生变化，已暂停移交", review=True)
+            # Older jobs can gain identity evidence ONLY while their complete
+            # source is still present, never from an already empty destination.
+            if directory_id and not job.get("source_directory_id"):
+                job["source_directory_id"] = directory_id
+                self.store.save(job)
             if self.cloud.move_directory(job["source"], self.config.inbox):
                 job.update(state="handed_off", message="已恢复整目录移交", handed_off_at=time.time(),
                            next_check=0, attempts=0)
@@ -262,7 +312,17 @@ class Engine:
             raise BridgeError("CD2 尚未确认移交，稍后继续核对")
         if source_exists:
             raise BridgeError("源和目标同时存在同名批次，已暂停移交，等待冲突消除", review=True)
-        raise BridgeError("移动结果待确认；目录可能已被 Symedia 消费，将继续核对，不重复上传", review=True)
+        if job.get("recovery_directory"):
+            path = recovery_path(job["recovery_directory"], self.config,
+                                 [*self.protected_routings, *self.store.pending_routings()])
+            matches = verify_archive(job["files"], self.cloud.tree(path))
+            check_stop(self.stop)
+            job.update(state="handed_off", message="已核实归档目录中的全部视频与附件",
+                       completion_basis="archive_verified", archive_matches=matches,
+                       handed_off_at=time.time(), next_check=0, attempts=0)
+            self.store.save(job)
+            return
+        raise BridgeError("移动回执缺失，源和待归档目录均已消失；请选择归档后的作品目录核对，不会重复上传", review=True)
 
     def _failure(self, job, message, review):
         job["attempts"] = job.get("attempts", 0) + 1

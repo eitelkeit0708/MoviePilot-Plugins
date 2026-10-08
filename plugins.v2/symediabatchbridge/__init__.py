@@ -25,7 +25,8 @@ from .store import Store
 from .activity import attention, event, when
 from .page import render_page
 from .inventory import scan as scan_inventory
-from .cleanup import cleanup
+from .cleanup import cleanup, cleanup_failure
+from .recovery import recovery_path
 
 
 @dataclass
@@ -54,11 +55,18 @@ class ImportRequest(BaseModel):
     history_id: int = Field(gt=0)
 
 
+class RecoveryRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=120)
+    path: str = Field(default="", max_length=4096)
+    page: int = Field(default=0, ge=0, le=100000)
+    verify: bool = False
+
+
 class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.3.0"
+    plugin_version = "1.4.0"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -78,12 +86,14 @@ class SymediaBatchBridge(_PluginBase):
         self._view = ViewRequest()
         self._heartbeat = 0
         self._delete_local = False
+        self._recovery_browser = None
 
     def init_plugin(self, config: dict = None):
         with self._lifecycle:
             self.stop_service()
             self._message = "未启用"
             self._action_message = ""
+            self._recovery_browser = None
             self._notify = bool((config or {}).get("notify", True))
             self._delete_local = bool((config or {}).get("delete_local", False))
             try:
@@ -158,18 +168,82 @@ class SymediaBatchBridge(_PluginBase):
         return []
 
     def get_api(self):
-        return [{"path": "/retry", "endpoint": self.retry_batch,
+        from fastapi import Depends, HTTPException
+        from app.db.user_oper import get_current_active_user
+
+        def administrator(user=Depends(get_current_active_user)):
+            # MP's bearer registration verifies a token, not the account's role.
+            # Resolve the current active database user, including cloned plugins.
+            if not user.is_superuser:
+                raise HTTPException(status_code=403, detail="需要管理员权限")
+
+        def retry(request: RetryRequest, _admin=Depends(administrator)):
+            return self.retry_batch(request)
+
+        def view(request: ViewRequest, _admin=Depends(administrator)):
+            return self.view_records(request)
+
+        def scan(_admin=Depends(administrator)):
+            return self.scan_existing()
+
+        def import_batch(request: ImportRequest, _admin=Depends(administrator)):
+            return self.import_existing(request)
+
+        def recovery(request: RecoveryRequest, _admin=Depends(administrator)):
+            return self.recover_batch(request)
+
+        return [{"path": "/retry", "endpoint": retry,
                  "methods": ["POST"], "summary": "重新检查批次", "auth": "bear"},
-                {"path": "/view", "endpoint": self.view_records,
+                {"path": "/view", "endpoint": view,
                  "methods": ["POST"], "summary": "查看处理记录", "auth": "bear"},
-                {"path": "/scan", "endpoint": self.scan_existing,
+                {"path": "/scan", "endpoint": scan,
                  "methods": ["POST"], "summary": "检查现存文件", "auth": "bear"},
-                {"path": "/import", "endpoint": self.import_existing,
-                 "methods": ["POST"], "summary": "接管已有整理批次", "auth": "bear"}]
+                {"path": "/import", "endpoint": import_batch,
+                 "methods": ["POST"], "summary": "接管已有整理批次", "auth": "bear"},
+                {"path": "/recovery", "endpoint": recovery,
+                 "methods": ["POST"], "summary": "核对批次归档目录", "auth": "bear"}]
 
     def view_records(self, request: ViewRequest) -> Response:
+        self._recovery_browser = None
         self._view = request
         return Response(success=True)
+
+    def recover_batch(self, request: RecoveryRequest) -> Response:
+        runtime = self._runtime
+        if not runtime or runtime.stop.is_set():
+            return Response(success=False, message="请先启用插件")
+        try:
+            with runtime.store.worker_lock() as acquired:
+                if not acquired:
+                    raise BridgeError("正在处理批次，请稍后再试")
+                job = runtime.store.get(request.key)
+                if not job or not job.get("move_requested") or job["state"] == "handed_off":
+                    raise BridgeError("此批次无需核对归档目录")
+                config = runtime.config.pinned(job["routing"])
+                path = recovery_path(request.path or config.cd2_prefix, config,
+                                     [r.routing() for r in runtime.routes] + runtime.store.pending_routings(),
+                                     browse=not request.verify)
+                self._view = ViewRequest(key=job["id"])
+                if request.verify:
+                    job.update(recovery_directory=path, next_check=0,
+                               message="已安排核对归档目录中的视频与附件")
+                    runtime.store.save(job)
+                    runtime.store.record(job, event("archive_requested", "管理员指定归档核对目录：" + path))
+                    self._recovery_browser = None
+                    self._action_message = "已安排核对，全部文件的 SHA1 和大小一致后才恢复完成状态。"
+                else:
+                    # Read-only navigation; native V2 PageRender cannot submit
+                    # editable field values. Each directory button has fixed params.
+                    directories = runtime.cloud.directories(path)
+                    self._recovery_browser = dict(key=job["id"], path=path, root=config.cd2_prefix,
+                                                  directories=directories, page=request.page)
+                    self._action_message = ""
+                return Response(success=True)
+        except (BridgeError, ValueError) as error:
+            self._action_message = str(error)
+        except Exception:
+            self._action_message = "归档目录读取失败，请检查 CD2 连接后重试"
+        return Response(success=False, message=self._action_message)
 
     def scan_existing(self) -> Response:
         runtime = self._runtime
@@ -345,7 +419,8 @@ class SymediaBatchBridge(_PluginBase):
                                 if (nested(config.cd2_staging, other["inbox"])
                                         or nested(config.inbox, other["cd2_prefix"].rstrip("/") + other["staging"])):
                                     raise BridgeError("新旧路线的暂存与待归档目录重叠，等待修正配置", review=True)
-                        engine = Engine(runtime.store, config, runtime.host.for_config(config), runtime.cloud, runtime.stop)
+                        engine = Engine(runtime.store, config, runtime.host.for_config(config), runtime.cloud, runtime.stop,
+                                        protected_routings=[r.routing() for r in runtime.routes])
                     except (BridgeError, ValueError) as error:
                         engine._failure(job, str(error), True)
                         self._notify_issue(runtime, job)
@@ -353,8 +428,18 @@ class SymediaBatchBridge(_PluginBase):
                     engine.process(job)
                     self._notify_issue(runtime, job)
                 for job in runtime.store.cleanup_jobs():
-                    if self._delete_local:
+                    if runtime.stop.is_set():
+                        break
+                    if not self._delete_local:
+                        break
+                    try:
                         cleanup(runtime.store, job, runtime.config.pinned(job["routing"]), runtime.stop)
+                    except Stopped:
+                        raise
+                    except (BridgeError, ValueError) as error:
+                        cleanup_failure(runtime.store, job, str(error))
+                    except Exception:
+                        cleanup_failure(runtime.store, job, "本批次清理暂时失败，保留本地副本，下次自动重试")
                 if not runtime.stop.is_set():
                     self._message = "运行中" if history_ok else "整理记录暂不可读，已入队批次继续处理，下次自动补读"
                     runtime.store.set_meta("last_check", time.time())
@@ -368,7 +453,7 @@ class SymediaBatchBridge(_PluginBase):
                 pass
             except Exception:
                 if not runtime.stop.is_set():
-                    self._message = "暂时无法读取整理记录，下次检查会重试"
+                    self._message = "本轮批次检查未完成，下次检查会重试"
                     logger.warning(f"{self.plugin_name}：{self._message}")
 
     def _notify_issue(self, runtime, job):

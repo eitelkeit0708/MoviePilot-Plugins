@@ -34,7 +34,8 @@ def modules(monkeypatch, tmp_path):
         def remove_event_listener(self, kind, handler):
             self.handlers.pop((kind, handler), None)
 
-    for name in ("app", "app.plugins", "app.core", "app.core.event", "app.log", "app.schemas", "app.schemas.types"):
+    for name in ("app", "app.plugins", "app.core", "app.core.event", "app.log", "app.schemas", "app.schemas.types",
+                 "app.db", "app.db.user_oper"):
         module = ModuleType(name)
         module.__path__ = []
         monkeypatch.setitem(sys.modules, name, module)
@@ -45,6 +46,12 @@ def modules(monkeypatch, tmp_path):
     sys.modules["app.schemas.types"].EventType = SimpleNamespace(
         TransferComplete="video", SubtitleTransferComplete="subtitle", AudioTransferComplete="audio")
     sys.modules["app.schemas.types"].NotificationType = SimpleNamespace(Plugin="插件")
+    from fastapi import Header, HTTPException
+    def active_user(authorization: str = Header(default="")):
+        if authorization not in ("Bearer test-login", "Bearer regular-login"):
+            raise HTTPException(403)
+        return SimpleNamespace(is_superuser=authorization == "Bearer test-login", is_active=True)
+    sys.modules["app.db.user_oper"].get_current_active_user = active_user
     name = "app.plugins.symediabatchbridge"
     for key in list(sys.modules):
         if key.startswith(name + "."):
@@ -54,7 +61,7 @@ def modules(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, name, plugin)
     spec.loader.exec_module(plugin)
     result = {"plugin": plugin}
-    for part in ("domain", "store", "engine", "host", "cd2", "instant", "activity", "cleanup", "inventory"):
+    for part in ("domain", "store", "engine", "host", "cd2", "instant", "activity", "cleanup", "inventory", "recovery"):
         result[part] = importlib.import_module(name + "." + part)
     yield SimpleNamespace(**result)
     for key in list(sys.modules):

@@ -194,6 +194,46 @@ def test_cd2_rpc_errors_never_leak_credentials(modules, config_values):
     assert "test-secret" not in str(caught.value)
 
 
+def test_recovery_browser_is_read_only_scoped_and_fresh(modules, config_values):
+    tree = {"/115": [cloud_file("/115/归档", True), cloud_file("/115/file.mkv", size=5)],
+            "/115/归档": [cloud_file("/115/归档/作品", True)]}
+    requests = []
+    def listing(request, **kwargs):
+        requests.append(request)
+        return iter([pb.SubFilesReply(subFiles=tree[request.path])])
+    stub = NS(GetSubFiles=listing, MoveFile=Mock())
+    cloud = modules.cd2.CD2(modules.domain.Config.parse(config_values), Event(), stub=stub)
+    assert cloud.directories("/115") == ["/115/归档"]
+    assert cloud.directories("/115/归档") == ["/115/归档/作品"]
+    assert all(r.forceRefresh for r in requests)
+    with pytest.raises(modules.domain.BridgeError):
+        cloud.directories("/other")
+    stub.MoveFile.assert_not_called()
+
+
+@pytest.mark.parametrize("identifier,expected", [("3535498838548678168", "3535498838548678168"),
+                                               ("", ""), ("123/name", ""), ("/115/folder", ""), ("0", "")])
+def test_directory_identity_accepts_only_native_115_folder_ids(modules, config_values, identifier, expected):
+    item = cloud_file("/115/batch", True)
+    item.id = identifier
+    stub = NS(GetSubFiles=Mock(side_effect=lambda *a, **k: iter([pb.SubFilesReply(subFiles=[item])])))
+    cloud = modules.cd2.CD2(modules.domain.Config.parse(config_values), Event(), stub=stub)
+    assert cloud.directory_id("/115/batch") == expected
+    assert stub.GetSubFiles.call_args.args[0].forceRefresh
+
+
+def test_missing_or_file_shaped_directory_identity_cannot_confirm_handoff(modules, config_values):
+    stub = NS(GetSubFiles=Mock(side_effect=lambda *a, **k: iter([pb.SubFilesReply()])))
+    cloud = modules.cd2.CD2(modules.domain.Config.parse(config_values), Event(), stub=stub)
+    with pytest.raises(modules.domain.Awaiting):
+        cloud.directory_id("/115/batch")
+    item = cloud_file("/115/batch", False, size=3)
+    item.id = "123"
+    stub.GetSubFiles.side_effect = lambda *a, **k: iter([pb.SubFilesReply(subFiles=[item])])
+    with pytest.raises(modules.domain.BridgeError, match="被文件占用"):
+        cloud.directory_id("/115/batch")
+
+
 def test_cd2_duplicate_or_escaped_paths_block_traversal(modules, config_values):
     duplicate = cloud_file("/115/x", True)
     stub = NS(GetSubFiles=Mock(return_value=iter([pb.SubFilesReply(subFiles=[duplicate, duplicate])])))

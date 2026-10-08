@@ -173,6 +173,89 @@ def test_history_outage_does_not_block_existing_batch_or_advance_cursor(plugin, 
     assert "已入队批次继续处理" in p._message
 
 
+def test_cleanup_route_failure_is_persisted_and_does_not_block_next_job(plugin, monkeypatch):
+    p = plugin.p
+    first = add_job(p)
+    first.update(state="handed_off", cleanup_local=True)
+    first["routing"]["cd2_prefix"] = "/old-drive"
+    p._store.save(first)
+    p._store.observe(instance=p.__class__.__name__, download_hash="second", downloader="qb", title="下一批",
+                     history_id=2, routing=p._runtime.config.routing())
+    second = next(j for j in p._store.jobs() if j["id"] != first["id"])
+    second.update(state="handed_off", cleanup_local=True)
+    p._store.save(second)
+    p._delete_local = True
+    cleanup = Mock()
+    monkeypatch.setattr(plugin.modules.plugin, "cleanup", cleanup)
+    p.check_batches()
+    saved = p._store.get(first["id"])
+    assert saved["cleanup_error"] and saved["cleanup_next"] > saved["updated"]
+    assert not saved.get("cleanup_done")
+    assert cleanup.call_args.args[1]["id"] == second["id"]
+    assert p._store.meta("last_check")
+    assert any(e["kind"] == "cleanup_error" for e in p._store.events(first["id"]))
+
+
+def test_archive_directory_browser_schedules_verification_and_preserves_move_intent(plugin):
+    p, modules = plugin.p, plugin.modules
+    job = add_job(p)
+    job.update(state="review", move_requested=True)
+    p._store.save(job)
+    p._runtime.cloud.directories = Mock(return_value=["/115/归档"])
+    request = modules.plugin.RecoveryRequest
+    assert p.recover_batch(request(key=job["id"])).success
+    page = json.dumps(p.get_page(), ensure_ascii=False)
+    assert "选择归档后的作品目录" in page and "归档" in page
+    assert p.recover_batch(request(key=job["id"], path="/115/归档/作品", verify=True)).success
+    saved = p._store.get(job["id"])
+    assert saved["state"] == "review" and saved["move_requested"] and saved["next_check"] == 0
+    assert saved["recovery_directory"] == "/115/归档/作品"
+    assert p._recovery_browser is None
+
+
+@pytest.mark.parametrize("path", ["/115", "/115/MP暂存/a", "/115/Symedia待归档/a", "/other/a", "/115/../a"])
+def test_recovery_rejects_unsafe_directory_without_state_change(plugin, path):
+    p = plugin.p
+    job = add_job(p)
+    job.update(state="review", move_requested=True)
+    p._store.save(job)
+    assert not p.recover_batch(plugin.modules.plugin.RecoveryRequest(key=job["id"], path=path, verify=True)).success
+    assert not p._store.get(job["id"]).get("recovery_directory")
+
+
+@pytest.mark.parametrize("clone", [False, True])
+def test_all_endpoints_require_active_admin_before_any_work(plugin, monkeypatch, clone):
+    import sys
+    p = plugin.p
+    if clone:
+        p = type("SymediaBatchBridgeCopy", (type(p),), {})()
+        p.init_plugin(plugin.values)
+    calls = []
+    for name in ("retry_batch", "view_records", "scan_existing", "import_existing", "recover_batch"):
+        monkeypatch.setattr(p, name, lambda *a: calls.append(a) or {"success": True})
+    def active(authorization: str = Header(default="")):
+        if authorization == "Bearer inactive-admin":
+            raise HTTPException(403)
+        if authorization not in ("Bearer admin", "Bearer regular"):
+            raise HTTPException(401)
+        return NS(is_superuser=authorization == "Bearer admin")
+    monkeypatch.setattr(sys.modules["app.db.user_oper"], "get_current_active_user", active)
+    app = FastAPI()
+    for route in p.get_api():
+        app.add_api_route(route["path"], route["endpoint"], methods=route["methods"])
+    client = TestClient(app)
+    payloads = {"retry": {"key": "batch"}, "view": {}, "scan": {}, "import": {"history_id": 1},
+                "recovery": {"key": "batch", "path": "/115/归档", "verify": True}}
+    for name, body in payloads.items():
+        for token, status in [("", 401), ("regular", 403), ("inactive-admin", 403)]:
+            response = client.post("/" + name, json=body, headers={"Authorization": "Bearer " + token})
+            assert response.status_code == status
+        assert not calls
+        assert client.post("/" + name, json=body, headers={"Authorization": "Bearer admin"}).status_code == 200
+        assert len(calls) == 1
+        calls.clear()
+
+
 def test_busy_event_callback_is_recovered_from_native_history(plugin, monkeypatch):
     p = plugin.p
     row = NS(id=2, title="作品", download_hash="hash", downloader="qb", date=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
@@ -239,7 +322,7 @@ def test_new_route_cannot_watch_an_old_pending_staging_directory(plugin, monkeyp
     assert saved["routing"] == job["routing"]
 
 
-def test_native_registered_route_accepts_page_render_json_and_requires_bearer(plugin):
+def test_native_registered_route_accepts_page_render_json_and_requires_bearer(plugin, monkeypatch):
     """Execute the pinned host's registration functions when its source is supplied.
 
     MP DB/scheduler and token issuer are test doubles; real FastAPI auth dependencies,
@@ -257,9 +340,34 @@ def test_native_registered_route_accepts_page_render_json_and_requires_bearer(pl
     p = plugin.p
     job = add_job(p)
 
+    users = {"admin": NS(is_superuser=True, is_active=True),
+             "regular": NS(is_superuser=False, is_active=True),
+             "inactive": NS(is_superuser=True, is_active=False)}
+
     def verify_token(authorization: Optional[str] = Header(default=None)):
-        if authorization != "Bearer test-login":
+        identities = {"Bearer test-login": "admin", "Bearer regular-login": "regular",
+                      "Bearer inactive-login": "inactive", "Bearer deleted-login": "deleted"}
+        if authorization not in identities:
             raise HTTPException(401)
+        return NS(sub=identities[authorization])
+
+    # Execute the actual host user lookup and active-account guard. Only the
+    # token issuer and DB storage boundary are simulated, not role enforcement.
+    import sys
+    user_path = Path(source_root) / "app__db__user_oper.py"
+    user_source = ast.parse(user_path.read_text(encoding="utf-8"))
+    user_functions = [n for n in user_source.body if isinstance(n, ast.FunctionDef)
+                      and n.name in {"get_current_user", "get_current_active_user"}]
+    assert len(user_functions) == 2
+    class User:
+        @staticmethod
+        def get(db, rid):
+            return users.get(rid)
+    user_namespace = {"Depends": Depends, "HTTPException": HTTPException, "Session": object,
+                      "User": User, "schemas": NS(TokenPayload=NS), "get_db": lambda: object(),
+                      "verify_token": verify_token}
+    exec(compile(ast.Module(body=user_functions, type_ignores=[]), str(user_path), "exec"), user_namespace)
+    monkeypatch.setattr(sys.modules["app.db.user_oper"], "get_current_active_user", user_namespace["get_current_active_user"])
 
     def verify_apikey():
         raise AssertionError("page action must not require the integration API key")
@@ -280,3 +388,11 @@ def test_native_registered_route_accepts_page_render_json_and_requires_bearer(pl
         assert client.post(url, json={"key": job["id"]}, headers={"Authorization": "Bearer wrong"}).status_code == 401
         assert client.post(url, json={"key": job["id"]}, headers={"Authorization": "Bearer test-login"}).json()["success"]
         assert client.post(url, json={}, headers={"Authorization": "Bearer test-login"}).status_code == 422
+        for token in ("regular-login", "inactive-login", "deleted-login"):
+            for route, body in [("retry", {"key": job["id"]}), ("view", {}), ("scan", {}),
+                                ("import", {"history_id": 1}), ("recovery", {"key": job["id"]})]:
+                protected = prefix + "/plugin/SymediaBatchBridge/" + route
+                assert client.post(protected, json=body, headers={"Authorization": "Bearer " + token}).status_code == 403
+        users["admin"].is_superuser = False
+        assert client.post(url, json={"key": job["id"]}, headers={"Authorization": "Bearer test-login"}).status_code == 403
+        users["admin"].is_superuser = True
