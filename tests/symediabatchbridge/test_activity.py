@@ -30,6 +30,9 @@ def test_notification_failure_retries_without_replaying_success(plugin, monkeypa
     job.update(state='handed_off',message='已移交',destination='/115/inbox/batch')
     p._store.save(job)
     assert p._store.get(job['id'])['state']=='handed_off'
+    assert p.post_message.call_count == 0
+    assert p._store.pending_notices()
+    p._flush_notifications()
     assert not p._store.pending_notices()
     p._flush_notifications()
     assert p.post_message.call_count==1

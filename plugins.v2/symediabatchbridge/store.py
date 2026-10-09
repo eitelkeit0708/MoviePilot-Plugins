@@ -35,6 +35,11 @@ class Store:
                     attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0,
                     submitted_at REAL NOT NULL DEFAULT 0);
                 CREATE INDEX IF NOT EXISTS notices_due ON notices(submitted_at, next_at);
+                CREATE TABLE IF NOT EXISTS incoming_transfers (
+                    history_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 1,
+                    received_at REAL NOT NULL, next_at REAL NOT NULL DEFAULT 0,
+                    context TEXT NOT NULL DEFAULT '{}', attempts INTEGER NOT NULL DEFAULT 0,
+                    missing INTEGER NOT NULL DEFAULT 0);
             """)
             columns = {row[1] for row in db.execute("PRAGMA table_info(batches)")}
             if not {"state", "next_check"}.issubset(columns):
@@ -69,6 +74,72 @@ class Store:
     def set_meta(self, key, value):
         with self.connect() as db:
             db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, json.dumps(value)))
+
+    def extend_cloud_cooldown(self, until, reason):
+        """A shorter/later callback must never erase an account's active cooldown."""
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT value FROM meta WHERE key='u115_cloud_cooldown'").fetchone()
+            current = json.loads(row[0]) if row else {}
+            if float(until) > float(current.get("until", 0)):
+                current = {"until": float(until), "reason": str(reason), "at": time.time()}
+                db.execute("INSERT OR REPLACE INTO meta VALUES ('u115_cloud_cooldown', ?)",
+                           (json.dumps(current, ensure_ascii=False),))
+            return current
+
+    def receive_transfer(self, history_id, context=None):
+        """Durable, short intake; never changes a media worker's batch snapshot."""
+        with self.connect() as db:
+            db.execute("INSERT INTO incoming_transfers(history_id, received_at, context) VALUES (?, ?, ?) "
+                       "ON CONFLICT(history_id) DO UPDATE SET revision=revision+1, next_at=0, missing=0, attempts=0",
+                       (int(history_id), time.time(), json.dumps(context or {}, ensure_ascii=False)))
+
+    def pending_transfers(self, limit=100):
+        with self.connect() as db:
+            rows = db.execute("SELECT history_id, revision, context, next_at FROM incoming_transfers WHERE missing=0 "
+                              "ORDER BY received_at, history_id LIMIT ?", (limit,)).fetchall()
+        pending, now = [], time.time()
+        for identifier, revision, context, next_at in rows:
+            # A later record may belong to the same torrent under newer settings.
+            # Until the earlier record is resolved, it owns the first route choice.
+            if next_at > now:
+                break
+            pending.append((identifier, revision, json.loads(context)))
+        return pending
+
+    def transfer_result(self, history_id, revision, success):
+        with self.connect() as db:
+            if success:
+                db.execute("DELETE FROM incoming_transfers WHERE history_id=? AND revision=?",
+                           (history_id, revision))
+            else:
+                db.execute("UPDATE incoming_transfers SET next_at=?, attempts=attempts+1 WHERE history_id=? AND revision=?",
+                           (time.time() + 60, history_id, revision))
+
+    def incoming_count(self):
+        with self.connect() as db:
+            return db.execute("SELECT COUNT(*) FROM incoming_transfers WHERE missing=0").fetchone()[0]
+
+    def stalled_transfers(self):
+        with self.connect() as db:
+            rows = db.execute("SELECT history_id, revision, context, attempts FROM incoming_transfers "
+                              "WHERE missing=0 ORDER BY received_at, history_id LIMIT 100").fetchall()
+        stalled = []
+        for identifier, revision, context, attempts in rows:
+            if attempts < 2:
+                break
+            stalled.append((identifier, revision, json.loads(context)))
+        return stalled
+
+    def missing_transfer(self, identifier, revision):
+        """Keep the original context after a full host-history read confirms deletion."""
+        with self.connect() as db:
+            db.execute("UPDATE incoming_transfers SET missing=1 WHERE history_id=? AND revision=?",
+                       (identifier, revision))
+
+    def missing_transfer_count(self):
+        with self.connect() as db:
+            return db.execute("SELECT COUNT(*) FROM incoming_transfers WHERE missing=1").fetchone()[0]
 
     def observe(self, *, instance: str, download_hash: str, downloader: str,
                 title: str, history_id: int, routing: dict, route_name: str = "默认路线", cleanup_local=False,
@@ -243,10 +314,22 @@ class Store:
     @contextmanager
     def worker_lock(self):
         """No stale lease timeout: a still-running upload must keep its exclusive lock."""
-        handle = self.lock_path.open("a+b")
+        with self._file_lock(self.lock_path) as acquired:
+            yield acquired
+
+    @contextmanager
+    def notification_lock(self):
+        """Delivery is independent of media work, but exclusive across reloads."""
+        with self._file_lock(self.path.parent / "notifications.lock") as acquired:
+            yield acquired
+
+    @staticmethod
+    @contextmanager
+    def _file_lock(path):
+        handle = path.open("a+b")
         acquired = False
         try:
-            if self.lock_path.stat().st_size == 0:
+            if path.stat().st_size == 0:
                 handle.write(b"0")
                 handle.flush()
             handle.seek(0)

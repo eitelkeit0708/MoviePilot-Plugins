@@ -128,6 +128,7 @@ def test_mp_receives_durable_poster_and_retry_payload_unchanged(plugin, monkeypa
     p.post_message.side_effect = RuntimeError("network down")
     job.update(state="handed_off", message="已移交")
     p._store.save(job)
+    p._flush_notifications()
     first = p.post_message.call_args.kwargs.copy()
     assert first["image"] == POSTER and "S06E13" in first["text"]
     # Metadata changing after submission cannot alter a queued notification.
@@ -149,6 +150,7 @@ def test_initial_observation_stores_media_for_early_error(plugin):
     assert p._store.get(job["id"])["media"]["image"] == POSTER
     job.update(state="review", message="缺少下载任务标识")
     p._store.save(job)
+    p._flush_notifications()
     notice = p.post_message.call_args.kwargs
     assert notice["image"] == POSTER and "花儿与少年 (2014)" in notice["text"]
     assert "S06E13" not in notice["text"] and "0/0" not in notice["text"]

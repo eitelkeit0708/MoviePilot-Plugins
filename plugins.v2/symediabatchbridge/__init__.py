@@ -22,6 +22,7 @@ from .engine import Engine
 from .host import MPHost, value
 from .media import history_media
 from .instant import MAX_INSTANT_ATTEMPTS
+from .cooldown import Cooldown
 from .store import Store
 from .activity import attention, event, when
 from .page import render_page
@@ -38,6 +39,7 @@ class Runtime:
     stop: Event
     store: Store
     routes: tuple = ()
+    cleanup_local: bool = False
 
 
 class RetryRequest(BaseModel):
@@ -67,7 +69,7 @@ class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.4.3"
+    plugin_version = "1.5.0"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -111,8 +113,9 @@ class SymediaBatchBridge(_PluginBase):
                 parsed = routes[0]
                 host = MPHost(parsed)
                 stop = Event()
+                host.bind_cooldown(Cooldown(self._store), stop)
                 cloud = CD2(parsed, stop)
-                runtime = Runtime(parsed, host, cloud, stop, self._store, routes)
+                runtime = Runtime(parsed, host, cloud, stop, self._store, routes, self._delete_local)
                 self._runtime = runtime
                 if config.get("scan_existing_once"):
                     # Persist intent before resetting the one-shot form flag. A restart
@@ -168,7 +171,10 @@ class SymediaBatchBridge(_PluginBase):
             return []
         return [{"id": f"{self.__class__.__name__}.check_batches",
                  "name": "115 秒传与批次检查", "trigger": IntervalTrigger(minutes=runtime.config.interval),
-                 "func": self.check_batches, "kwargs": {}}]
+                 "func": self.check_batches, "kwargs": {}},
+                {"id": f"{self.__class__.__name__}.notifications",
+                 "name": "115 秒传通知", "trigger": IntervalTrigger(seconds=5),
+                 "func": self._flush_notifications, "kwargs": {}}]
 
     @staticmethod
     def get_command():
@@ -241,6 +247,7 @@ class SymediaBatchBridge(_PluginBase):
                 else:
                     # Read-only navigation; native V2 PageRender cannot submit
                     # editable field values. Each directory button has fixed params.
+                    runtime.host.gate_cloud()
                     directories = runtime.cloud.directories(path)
                     self._recovery_browser = dict(key=job["id"], path=path, root=config.cd2_prefix,
                                                   directories=directories, page=request.page)
@@ -304,34 +311,36 @@ class SymediaBatchBridge(_PluginBase):
         if item.get("file"):
             line += " | " + item["file"]
         log(line.replace("\n", " ").replace("\r", " "))
-        self._flush_notifications()
 
     def _flush_notifications(self):
         runtime = self._runtime
         if not self._notify or not runtime or runtime.stop.is_set() or not self._notifying.acquire(blocking=False):
             return
         try:
-            for notice in runtime.store.pending_notices():
-                if runtime.stop.is_set():
-                    break
-                try:
-                    # Native MP persists message history and routes Plugin messages
-                    # to the user's configured channels. It gives no delivery receipt.
-                    self.post_message(mtype=NotificationType.Plugin, title=notice["title"], text=notice["text"],
-                                      image=notice.get("image"))
-                except Exception:
-                    runtime.store.notice_result(notice, False)
-                    logger.warning(f"{self.plugin_name} [{notice['batch']}] 通知提交失败，将自动重试")
-                else:
-                    runtime.store.notice_result(notice, True)
-                    logger.info(f"{self.plugin_name} [{notice['batch']}] {notice['title']}：已提交 MP 通知队列")
+            with runtime.store.notification_lock() as acquired:
+                if not acquired or runtime.stop.is_set():
+                    return
+                for notice in runtime.store.pending_notices():
+                    if runtime.stop.is_set():
+                        break
+                    try:
+                        # Separate host service; slow channels cannot hold the media
+                        # lock. Retain this delivery lock until an in-flight call exits.
+                        self.post_message(mtype=NotificationType.Plugin, title=notice["title"], text=notice["text"],
+                                          image=notice.get("image"))
+                    except Exception:
+                        runtime.store.notice_result(notice, False)
+                        logger.warning(f"{self.plugin_name} [{notice['batch']}] 通知提交失败，将自动重试")
+                    else:
+                        runtime.store.notice_result(notice, True)
+                        logger.info(f"{self.plugin_name} [{notice['batch']}] {notice['title']}：已提交 MP 通知队列")
         finally:
             self._notifying.release()
 
-    def _observe(self, runtime, row, inventory_files=None):
+    def _observe(self, runtime, row, inventory_files=None, routes=None, cleanup_local=None):
         if runtime.stop.is_set():
             return
-        route = next((route for route in runtime.routes
+        route = next((route for route in (runtime.routes if routes is None else routes)
                       if runtime.host.for_config(route).in_scope(row)), None)
         if route is None:
             return
@@ -340,30 +349,82 @@ class SymediaBatchBridge(_PluginBase):
             download_hash=str(value(row, "download_hash") or ""),
             downloader=str(value(row, "downloader") or ""),
             title=str(value(row, "title") or Path(str(value(row, "dest") or "")).stem),
-            history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name, cleanup_local=self._delete_local,
+            history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name,
+            cleanup_local=runtime.cleanup_local if cleanup_local is None else cleanup_local,
             inventory_files=inventory_files, media=history_media(row))
         self._notify_issue(runtime, job)
         return job
 
     def on_transfer(self, event):
-        runtime = self._runtime
-        if not runtime or runtime.stop.is_set():
+        # Short configuration snapshot only; this lock is never held by media work.
+        with self._lifecycle:
+            runtime = self._runtime
+            if not runtime or runtime.stop.is_set():
+                return
+            try:
+                identifier = (event.event_data or {}).get("transfer_history_id")
+                if identifier and int(identifier) > 0:
+                    runtime.store.receive_transfer(int(identifier), {
+                        "routes": [{**route.routing(), "name": route.name} for route in runtime.routes],
+                        "cleanup_local": runtime.cleanup_local})
+                    logger.info(f"{self.plugin_name}：已接收整理记录 #{int(identifier)}，等待纳入批次")
+            except Exception:
+                logger.warning(f"{self.plugin_name}：本次事件未入队，将在批次检查时补读整理记录")
+
+    def _receive_pending(self, runtime):
+        """Only the media owner turns durable event IDs into mutable batches."""
+        for identifier, revision, context in runtime.store.pending_transfers():
+            if runtime.stop.is_set():
+                raise Stopped()
+            try:
+                row = runtime.host.transfers.get(identifier)
+                if row is None:
+                    runtime.store.transfer_result(identifier, revision, False)
+                    break
+                self._observe_received(runtime, row, context)
+                runtime.store.transfer_result(identifier, revision, True)
+            except Stopped:
+                raise
+            except Exception:
+                runtime.store.transfer_result(identifier, revision, False)
+                logger.warning(f"{self.plugin_name}：整理记录 #{identifier} 暂不可读，接收记录已保留")
+                break
+
+    def _observe_received(self, runtime, row, context):
+        # Keep the reception route even if settings changed during large-file work.
+        routes = tuple(Config.parse({**route, "cd2_token": runtime.config.cd2_token,
+                                     "interval": runtime.config.interval})
+                       for route in context["routes"]) if "routes" in context else runtime.routes
+        return self._observe(runtime, row, routes=routes, cleanup_local=context.get("cleanup_local"))
+
+    def _recover_intake(self, runtime):
+        stalled = runtime.store.stalled_transfers()
+        if not stalled:
             return
-        try:
-            identifier = (event.event_data or {}).get("transfer_history_id")
-            if identifier:
-                # Serialize observations with worker saves. A busy callback is
-                # recovered by the history cursor, without blocking MP's event bus.
-                with runtime.store.worker_lock() as acquired:
-                    if acquired:
-                        row = runtime.host.transfers.get(int(identifier))
-                        if row is not None:
-                            self._observe(runtime, row)
-        except Exception:
-            # A cursor-based history scan recovers missed callbacks without blocking MP.
-            logger.warning(f"{self.plugin_name}：本次事件未入队，将在批次检查时补读整理记录")
+        # Only after two separate attempts: resolve against a successful complete
+        # history read. A timeout/exception never proves a history row was deleted.
+        rows = runtime.host.histories_since("1970-01-01 00:00:00")
+        if rows is None:
+            return
+        by_id = {int(value(row, "id")): row for row in rows}
+        for identifier, revision, context in stalled:
+            if runtime.stop.is_set():
+                raise Stopped()
+            row = by_id.get(identifier)
+            if row is not None:
+                self._observe_received(runtime, row, context)
+                runtime.store.transfer_result(identifier, revision, True)
+            else:
+                runtime.store.missing_transfer(identifier, revision)
+                logger.warning(f"{self.plugin_name}：整理记录 #{identifier} 已不在 MP 历史中，保留接收快照，继续其他任务")
 
     def _recover_history(self, runtime):
+        # Older queued events pin their routes. History must not create the same
+        # torrent through a different row/current route before those are observed.
+        if runtime.store.incoming_count():
+            self._recover_intake(runtime)
+            if runtime.store.incoming_count():
+                return False
         activated = runtime.store.meta("activated_at")
         cursor = runtime.store.meta("history_cursor", activated)
         # Native list_by_date uses a strict > comparison with second precision.
@@ -375,11 +436,14 @@ class SymediaBatchBridge(_PluginBase):
             read += 1
             if runtime.stop.is_set():
                 raise Stopped()
+            if runtime.store.incoming_count():
+                return False  # Leave the cursor unchanged; replay is idempotent.
             if str(value(row, "date") or "") >= activated:
                 if self._observe(runtime, row):
                     matched += 1
         runtime.store.set_meta("history_cursor", scan_started)
         runtime.store.set_meta("last_scan", {"read": read, "matched": matched, "new": sum(runtime.store.counts().values()) - before})
+        return True
 
     def check_batches(self):
         runtime = self._runtime
@@ -389,7 +453,7 @@ class SymediaBatchBridge(_PluginBase):
             if not acquired or runtime.stop.is_set():
                 return
             try:
-                self._flush_notifications()
+                self._receive_pending(runtime)
                 if runtime.store.meta("inventory_pending", False):
                     try:
                         runtime.store.set_meta("inventory_status", {"state": "running", "at": time.time(),
@@ -423,7 +487,7 @@ class SymediaBatchBridge(_PluginBase):
                         logger.warning(f"{self.plugin_name}：一次性存量检查未完成，保留请求，下次继续")
                 history_ok = True
                 try:
-                    self._recover_history(runtime)
+                    history_ok = self._recover_history(runtime) is not False
                 except Stopped:
                     raise
                 except Exception:
@@ -450,6 +514,7 @@ class SymediaBatchBridge(_PluginBase):
                         continue
                     engine.process(job)
                     self._notify_issue(runtime, job)
+                    self._receive_pending(runtime)
                 for job in runtime.store.cleanup_jobs():
                     if runtime.stop.is_set():
                         break
@@ -464,14 +529,15 @@ class SymediaBatchBridge(_PluginBase):
                     except Exception:
                         cleanup_failure(runtime.store, job, "本批次清理暂时失败，保留本地副本，下次自动重试")
                 if not runtime.stop.is_set():
-                    self._message = "运行中" if history_ok else "整理记录暂不可读，已入队批次继续处理，下次自动补读"
+                    self._message = ("运行中" if history_ok else
+                                     "正在接收整理记录，已入队批次继续处理" if runtime.store.incoming_count() else
+                                     "整理记录暂不可读，已入队批次继续处理，下次自动补读")
                     runtime.store.set_meta("last_check", time.time())
                     runtime.store.set_meta("last_check_status", self._message)
                     if time.time() - self._heartbeat >= 3600 or not history_ok:
                         counts = runtime.store.counts()
                         logger.info(f"{self.plugin_name}：本轮检查完成，累计 {sum(counts.values())} 批，已移交 {counts.get('handed_off', 0)} 批；{self._message}")
                         self._heartbeat = time.time()
-                    self._flush_notifications()
             except Stopped:
                 pass
             except Exception:

@@ -1,6 +1,7 @@
 """Native MP V2 page: exception-first list, explicit record view, no disclosure triangles."""
 from .activity import attention, when
 from pathlib import PurePosixPath
+import time
 
 STATES = {"waiting": "等待齐套", "hashing": "计算 HASH", "waiting_instant": "等待秒传", "uploading": "上传中",
           "verifying": "核对中", "moving": "核对移交", "review": "异常待确认",
@@ -51,6 +52,16 @@ def render_page(plugin):
               button(plugin, "刷新", **view.model_dump()),
               text(f"最近检查 {when(last_check)} · {status}", "p", **{"class": "mt-3 text-body-2"}),
               text(f"累计 {sum(counts.values())} 批 · 处理中 {sum(v for k,v in counts.items() if k != 'handed_off')} 批 · 已完成 {counts.get('handed_off', 0)} 批", "p")]
+    incoming = store.incoming_count()
+    if incoming:
+        header.append(text(f"已接收 {incoming} 条整理记录，等待纳入批次", "p", **{"class": "text-body-2"}))
+    missing = store.missing_transfer_count()
+    if missing:
+        header.append(text(f"{missing} 条接收记录已在 MP 中删除，未建立批次；接收快照保留。", "p",
+                           **{"class": "text-warning text-body-2"}))
+    cooldown = store.meta("u115_cloud_cooldown", {})
+    if cooldown.get("until", 0) > time.time():
+        header.append(text("115 访问冷却 · 恢复时间 " + when(cooldown["until"]), "p", **{"class": "text-body-2"}))
     scan = store.meta("last_scan", {})
     if scan:
         header.append(text(f"本轮读取 {scan.get('read', 0)} 条整理记录 · 接收范围内 {scan.get('matched', 0)} 条 · 新增 {scan.get('new', 0)} 批", "p", **{"class": "text-body-2"}))

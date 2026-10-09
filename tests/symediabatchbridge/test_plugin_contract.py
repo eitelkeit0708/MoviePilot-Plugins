@@ -18,7 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 @pytest.fixture
 def plugin(modules, config_values, monkeypatch):
     host = NS(in_scope=lambda row: True, histories_since=Mock(return_value=[]),
-              transfers=NS(get=Mock()), collect=Mock())
+              transfers=NS(get=Mock()), collect=Mock(), bind_cooldown=Mock(), gate_cloud=Mock())
     host.for_config = lambda config: host
     clouds = []
     def cloud_factory(config, stop):
@@ -278,17 +278,21 @@ def test_recovery_notification_is_throttled_persisted_and_optional(plugin, monke
     monkeypatch.setattr(plugin.modules.plugin.time, "time", lambda: now)
     job.update(state="review", message="CD2 令牌已过期")
     p._notify_issue(p._runtime, job)
+    p._flush_notifications()
     assert p.post_message.call_count == 1
     saved = p._store.get(job["id"])
     assert saved["notified_at"] == now
     p._notify_issue(p._runtime, saved)
+    p._flush_notifications()
     assert p.post_message.call_count == 1
     now += 86400
     p._notify_issue(p._runtime, saved)
+    p._flush_notifications()
     assert p.post_message.call_count == 2
     p._notify = False
     now += 86400
     p._notify_issue(p._runtime, saved)
+    p._flush_notifications()
     assert p.post_message.call_count == 2
 
 
@@ -299,11 +303,13 @@ def test_long_instant_error_and_post_handoff_attachment_notify(plugin, monkeypat
     monkeypatch.setattr(plugin.modules.plugin.time, "time", lambda: now)
     job.update(state="waiting_instant", files=[{"instant_error_since": now - 86401}])
     p._notify_issue(p._runtime, job)
+    p._flush_notifications()
     assert p.post_message.call_count == 1
     job.update(state="handed_off", files=[], history_ids=[1], notified_at=now - 86401)
     p._store.save(job)
     row = NS(id=3, title="作品", download_hash="hash", downloader="qb")
     p._observe(p._runtime, row)
+    p._flush_notifications()
     assert p.post_message.call_count == 2
     assert p._store.get(job["id"])["late_history_ids"] == [3]
 

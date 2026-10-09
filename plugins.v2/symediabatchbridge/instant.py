@@ -10,6 +10,7 @@ from pathlib import Path
 import time
 
 from .domain import BridgeError, check_stop
+from .cooldown import CloudRequestError
 
 
 MAX_INSTANT_ATTEMPTS = 24
@@ -38,24 +39,28 @@ def native_provider():
     return U115Pan()
 
 
-def try_instant(provider, parent_id, entry, stop):
+def try_instant(provider, parent_id, entry, stop, request=None):
     check_stop(stop)
     if not str(parent_id or "").isdigit():
         raise BridgeError("115 暂存目录缺少有效 ID", review=True)
-    request = getattr(provider, "_request_api", None)
+    bounded_request = request is not None
+    request = request or getattr(provider, "_request_api", None)
     if not callable(request):
         raise BridgeError("当前 MP 版本不支持此秒传接口，请更新 MP V2", review=True)
     # Avoid entering the host's one-hour blocking cooldown inside our worker.
-    if getattr(provider, "_limit_until", 0) > time.time():
+    if not bounded_request and getattr(provider, "_limit_until", 0) > time.time():
         raise BridgeError("MP 的 115 接口正在冷却，稍后重试")
     payload = {"file_name": Path(entry["local"]).name, "file_size": entry["size"],
                "target": "U_1_" + str(parent_id), "fileid": entry["sha1"], "preid": entry["preid"]}
+
+    def unconfirmed(message):
+        return CloudRequestError(message, kind="unknown") if bounded_request else BridgeError(message)
 
     def initialize():
         check_stop(stop)
         response = request("POST", "/open/upload/init", data=payload, retry_limit=0)
         if not isinstance(response, dict) or not response.get("state") or not isinstance(response.get("data"), dict):
-            raise BridgeError("115 秒传请求未成功，请检查 MP 的登录和连接")
+            raise unconfirmed("115 秒传请求未成功，请检查 MP 的登录和连接")
         return response["data"]
 
     result = initialize()
@@ -64,7 +69,9 @@ def try_instant(provider, parent_id, entry, stop):
             start, end = map(int, result["sign_check"].split("-"))
             key = result["sign_key"]
         except (KeyError, TypeError, ValueError):
-            raise BridgeError("115 秒传校验响应不完整") from None
+            raise unconfirmed("115 秒传校验响应不完整") from None
+        if not 0 <= start <= end < entry["size"]:
+            raise unconfirmed("115 返回的文件校验范围无效")
         payload.update(pick_code=result.get("pick_code"), sign_key=key,
                        sign_val=range_sha1(entry["local"], start, end, entry["size"], stop))
         result = initialize()
@@ -72,4 +79,4 @@ def try_instant(provider, parent_id, entry, stop):
         return {"size": entry["size"], "fileid": str(result.get("file_id") or ""), "method": "instant"}
     if result.get("status") == 1 and all(result.get(k) for k in ("bucket", "object", "callback")):
         return None
-    raise BridgeError("115 秒传结果无法确认，稍后重试")
+    raise unconfirmed("115 秒传结果无法确认，稍后重试")

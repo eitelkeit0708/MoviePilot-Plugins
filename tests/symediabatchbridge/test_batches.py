@@ -870,14 +870,13 @@ def test_long_hash_manifest_is_checkpointed_and_work_is_bounded(batch, modules, 
     freeze = Mock(wraps=modules.engine.freeze_file)
     monkeypatch.setattr(modules.engine, "freeze_file", freeze)
     batch.run()
-    assert len(batch.job()["files"]) == 4 and not batch.host.uploads
+    assert len(batch.job()["files"]) == 4 and len(batch.host.uploads) == 4
+    assert not batch.cloud.moves
     batch.run()
     assert len(batch.job()["files"]) == 8 and freeze.call_count == 8
+    assert len(batch.host.uploads) == 8 and not batch.cloud.moves
     batch.run()
-    assert freeze.call_count == 11 and len(batch.host.uploads) == 4
-    batch.run()
-    assert freeze.call_count == 11 and len(batch.host.uploads) == 8
-    batch.run()
+    assert freeze.call_count == 11
     assert batch.job()["state"] == "handed_off" and len(batch.host.uploads) == 11
 
 

@@ -115,6 +115,7 @@ def test_three_routes_run_and_pending_job_keeps_old_destination_after_edit(modul
         torrent_files[f"hash{i}"] = [NS(name="video.mkv", size=6, priority=1, progress=1)]
         downloads[f"hash{i}"] = [NS(downloader="qb", savepath=source_root.as_posix())]
     actual_host = modules.host.MPHost
+    monkeypatch.setattr(actual_host, "gate_cloud", lambda self: None)
     chain = NS(torrent_files=lambda tid, downloader: torrent_files[tid],
                list_torrents=lambda **kw: [NS(progress=100)])
     transfers = NS(get=lambda key: next(row for row in rows if row.id == key),
@@ -147,7 +148,7 @@ def test_three_routes_run_and_pending_job_keeps_old_destination_after_edit(modul
     assert p.get_state()
     for row in rows:
         p.on_transfer(NS(event_data={"transfer_history_id": row.id}))
-    assert len(p._store.jobs()) == 3
+    assert p._store.incoming_count() == 3
     # A config edit must not retarget the pending entry for 追更.
     p.init_plugin({**values, "route_2_inbox": "/115/new-追更"})
     monkeypatch.setattr(actual_host, "try_instant", instant)

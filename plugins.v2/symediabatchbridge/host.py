@@ -6,6 +6,7 @@ from copy import copy
 from .domain import Awaiting, BridgeError, child_path, file_signature
 from .instant import native_provider, try_instant
 from .media import history_media
+from .cloud_requests import NativeOperations
 
 
 def value(obj, key, default=None):
@@ -62,6 +63,25 @@ class MPHost:
         # Include paired/external subtitles even if a host extension setting omitted one;
         # a missing native transfer result must hold the batch rather than drop subtitles.
         self.extensions.update({".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"})
+        self.cooldown = None
+        self.stop = None
+
+    def bind_cooldown(self, cooldown, stop):
+        self.cooldown, self.stop = cooldown, stop
+        return self
+
+    def gate_cloud(self):
+        if self.cooldown:
+            self.cooldown.before()
+            self.cooldown.before(native_provider())
+
+    def cloud_status(self):
+        return self.cooldown.status(native_provider()) if self.cooldown else {}
+
+    def _native_operations(self):
+        if self.cooldown:
+            self.cooldown.before()
+        return NativeOperations(native_provider(), self.cooldown, self.stop) if self.cooldown else None
 
     def for_config(self, config):
         host = copy(self)
@@ -79,7 +99,10 @@ class MPHost:
             return False
 
     def histories_since(self, since):
-        return self.transfers.list_by_date(since) or []
+        rows = self.transfers.list_by_date(since)
+        if rows is None:
+            raise Awaiting("MP 整理历史暂不可读，稍后重试")
+        return rows
 
     def collect(self, job):
         if job.get("origin") == "inventory":
@@ -222,8 +245,9 @@ class MPHost:
             raise BridgeError("现存批次只有字幕，没有对应媒体文件", review=True)
         return result
 
-    def _upload_parent(self, remote_file):
-        parent = self.storage.get_folder(storage=self.config.storage, path=Path(remote_file).parent)
+    def _upload_parent(self, remote_file, operations=None):
+        parent = (operations.call("get_folder", path=Path(remote_file).parent) if operations else
+                  self.storage.get_folder(storage=self.config.storage, path=Path(remote_file).parent))
         if not parent or value(parent, "type") != "dir":
             raise BridgeError("无法建立 115 暂存目录，请检查 MP 内置 115 的登录和连接")
         if source_path(value(parent, "path")) != source_path(str(Path(remote_file).parent)):
@@ -231,12 +255,16 @@ class MPHost:
         return parent
 
     def try_instant(self, entry, remote_file, stop):
-        parent = self._upload_parent(remote_file)
-        return try_instant(native_provider(), value(parent, "fileid"), entry, stop)
+        operations = self._native_operations()
+        parent = self._upload_parent(remote_file, operations)
+        return try_instant(operations.provider if operations else native_provider(), value(parent, "fileid"), entry, stop,
+                           request=operations.request if operations else None)
 
     def upload(self, local: Path, remote_file: str):
-        parent = self._upload_parent(remote_file)
-        uploaded = self.storage.upload_file(fileitem=parent, path=local, new_name=local.name)
+        operations = self._native_operations()
+        parent = self._upload_parent(remote_file, operations)
+        uploaded = (operations.call("upload", target_dir=parent, local_path=local, new_name=local.name) if operations else
+                    self.storage.upload_file(fileitem=parent, path=local, new_name=local.name))
         if not uploaded:
             return None
         if source_path(value(uploaded, "path")) != source_path(remote_file):
