@@ -5,6 +5,7 @@ import time
 
 from .domain import check_stop, file_signature
 from .host import value
+from .media import history_media
 
 
 def scan(runtime):
@@ -46,6 +47,6 @@ def scan(runtime):
                                                      "route":route.name, "date":str(value(row,"date")), "files":0, "members":[]})
                 group["files"] += 1
                 group["members"].append({"local": str(path), "history_id": int(value(row, "id")),
-                                         "signature": file_signature(path)})
+                                         "signature": file_signature(path), "media": history_media(row)})
         summaries.append(summary)
     return {"at":time.time(), "candidates":list(groups.values()), "routes":summaries, "unmatched":unmatched}

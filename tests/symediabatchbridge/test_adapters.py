@@ -97,8 +97,12 @@ def test_inventory_snapshot_cannot_silently_drop_or_replace_files(existing, modu
         existing.rows[0].status = False
     else:
         existing.rows[0].download_hash = "other"
-    with pytest.raises(modules.domain.BridgeError):
-        existing.host.collect(existing.job)
+    if problem in ('removed', 'replaced'):
+        with pytest.raises(modules.domain.BridgeError):
+            existing.host.collect(existing.job)
+    else:
+        # History maintenance does not change accepted bytes or ownership.
+        assert len(existing.host.collect(existing.job)) == 2
     existing.chain.torrent_files.assert_not_called()
 
 
@@ -109,10 +113,9 @@ def test_existing_snapshot_excludes_later_files(existing):
     assert len(existing.host.collect(existing.job)) == 2
 
 
-def test_inventory_rejects_newer_transfer_from_another_download(existing, modules):
+def test_inventory_ignores_unrelated_history_rewrite_if_file_unchanged(existing, modules):
     existing.rows.append(NS(**{**vars(existing.rows[0]), "id": 100, "download_hash": "other"}))
-    with pytest.raises(modules.domain.BridgeError, match="整理记录已变化"):
-        existing.host.collect(existing.job)
+    assert len(existing.host.collect(existing.job)) == 2
 
 
 def test_legacy_import_builds_snapshot_from_remaining_output(existing):
@@ -150,12 +153,11 @@ def test_transmission_selected_and_completed_contract(native):
     assert len(native.host.collect(native.job)) == 2
 
 
-def test_deselected_video_not_added_and_late_selection_after_seal_held(native, modules):
+def test_late_downloader_selection_does_not_change_owned_scope(native, modules):
     native.host.collect(native.job)
-    native.job["files"] = [{"relative": "sealed"}]
     native.files[1].priority = 0
-    with pytest.raises(modules.domain.BridgeError, match="选择发生变化"):
-        native.host.collect(native.job)
+    assert len(native.host.collect(native.job)) == 2
+    native.chain.torrent_files.assert_called_once()
 
 
 def test_missing_downloader_does_not_guess_batch_complete(native, modules):

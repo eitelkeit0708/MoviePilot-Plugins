@@ -187,6 +187,9 @@ class Store:
         self.save(job)
 
     def save(self, job):
+        if job['state'] in ('handed_off', 'cancelled'):
+            job.pop('retry_requested', None)
+            job.pop('disposal_plan', None)
         job["updated"] = time.time()
         with self.connect() as db:
             row = db.execute("SELECT body FROM batches WHERE id=?", (job["id"],)).fetchone()
@@ -245,7 +248,8 @@ class Store:
     def pending_notices(self, limit=20):
         with self.connect() as db:
             return [{"id": r[0], "batch": r[1], "attempts": r[2], **json.loads(r[3])} for r in db.execute(
-                "SELECT id,batch,attempts,body FROM notices WHERE submitted_at=0 AND next_at<=? ORDER BY id LIMIT ?",
+                "SELECT n.id,n.batch,n.attempts,n.body FROM notices n JOIN batches b ON b.id=n.batch "
+                "WHERE n.submitted_at=0 AND n.next_at<=? AND b.state!='cancelled' ORDER BY n.id LIMIT ?",
                 (time.time(), limit))]
 
     def notice_result(self, item, success):
@@ -276,6 +280,44 @@ class Store:
         with self.connect() as db:
             return dict(db.execute("SELECT state,COUNT(*) FROM batches GROUP BY state"))
 
+    def board(self, *, route="", status="all", page=0, limit=12):
+        """One read snapshot for route counts, exclusive status buckets and rows.
+
+        Route identity is the pinned local root, never a possibly duplicated label.
+        Filters run before pagination so an older issue cannot disappear off-page.
+        """
+        attention_sql = """state IN ('review','retrying')
+            OR COALESCE(json_extract(body,'$.disposal_error'),'')!=''
+            OR COALESCE(json_extract(body,'$.retry_requested'),0)>0
+            OR COALESCE(json_extract(body,'$.attempts'),0)>0
+            OR COALESCE(json_array_length(body,'$.late_history_ids'),0)>0
+            OR COALESCE(json_extract(body,'$.cleanup_error'),'')!=''
+            OR EXISTS(SELECT 1 FROM json_each(body,'$.files') f
+                WHERE COALESCE(json_extract(f.value,'$.instant_error_since'),0)!=0)
+            OR (state='waiting' AND ?-json_extract(body,'$.created')>=86400)"""
+        cte = f"""WITH board AS (SELECT *,
+            COALESCE(json_extract(body,'$.routing.local_root'),'') AS route,
+            CASE WHEN state='cancelled' THEN 'closed' WHEN {attention_sql} THEN 'attention'
+                 WHEN state='handed_off' THEN 'done' ELSE 'active' END AS bucket
+            FROM batches) """
+        now = time.time()
+        with self.connect() as db:
+            db.execute("BEGIN")
+            routes = db.execute("SELECT json_extract(body,'$.routing.local_root'), "
+                                "MAX(json_extract(body,'$.route_name')), COUNT(*) "
+                                "FROM batches GROUP BY json_extract(body,'$.routing.local_root')").fetchall()
+            counts = dict(db.execute(cte + "SELECT bucket,COUNT(*) FROM board WHERE (?='' OR route=?) GROUP BY bucket",
+                                     (now, route, route)))
+            total = sum(counts.values()) if status == "all" else counts.get(status, 0)
+            page = min(max(0, page), max(0, (total - 1) // limit))
+            rows = db.execute(cte + "SELECT body FROM board WHERE (?='' OR route=?) "
+                              "AND (?='all' OR bucket=?) ORDER BY CASE bucket WHEN 'attention' THEN 0 "
+                              "WHEN 'active' THEN 1 ELSE 2 END, updated DESC,id LIMIT ? OFFSET ?",
+                              (now, route, route, status, status, limit, page * limit)).fetchall()
+        return {"routes": [{"root": r[0] or "", "name": r[1] or "默认路线", "count": r[2]} for r in routes],
+                "counts": {"all": sum(counts.values()), **counts}, "total": total, "page": page,
+                "jobs": [json.loads(row[0]) for row in rows]}
+
     def source_keys(self):
         with self.connect() as db:
             return {tuple(json.loads(r[0])) for r in db.execute("SELECT source_key FROM batches")}
@@ -303,7 +345,7 @@ class Store:
     def due(self, limit=3):
         with self.connect() as db:
             return [json.loads(row[0]) for row in db.execute(
-                "SELECT body FROM batches WHERE state != 'handed_off' AND next_check <= ? "
+                "SELECT body FROM batches WHERE state NOT IN ('handed_off','cancelled') AND next_check <= ? "
                 "ORDER BY updated, id LIMIT ?", (time.time(), limit))]
 
     def pending_routings(self):

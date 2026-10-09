@@ -7,6 +7,7 @@ from .domain import Awaiting, BridgeError, child_path, file_signature
 from .instant import native_provider, try_instant
 from .media import history_media
 from .cloud_requests import NativeOperations
+from .ownership import accept, collect_owned, migrate_sealed, capture
 
 
 def value(obj, key, default=None):
@@ -105,6 +106,9 @@ class MPHost:
         return rows
 
     def collect(self, job):
+        migrate_sealed(job)
+        if job.get('owned_candidates'):
+            return collect_owned(job, self.config)
         if job.get("origin") == "inventory":
             return self._collect_inventory(job)
         download_hash, downloader = job["download_hash"], job["downloader"]
@@ -188,23 +192,23 @@ class MPHost:
                            "media": history_media(row)})
         if not any(Path(r["local"]).suffix.lower() not in
                    {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"} for r in result):
+            job['orphan_files'] = capture(result)
             raise BridgeError("批次只有字幕，没有对应媒体文件", review=True)
-        return result
+        return accept(job, result)
 
     def _collect_inventory(self, job):
         # Explicitly adopted existing output is a snapshot, not an unfinished
         # download. Seeding originals and torrent tasks are allowed to expire.
-        # MP get_by(dest=...) requires a media identity and otherwise returns [].
-        # Read history once, then match exact paths across ALL download identities
-        # so a newer transfer cannot silently replace a snapshot's owner.
-        latest = {}
-        for row in self.histories_since("1970-01-01 00:00:00"):
-            if self.in_scope(row):
-                dest = str(value(row, "dest"))
-                if dest not in latest or int(value(row, "id")) > int(value(latest[dest], "id")):
-                    latest[dest] = row
+        # New snapshots include media metadata. Older snapshots can enrich their
+        # display once, best-effort; missing history never invalidates ownership.
         manifest = job.get("inventory_files")
         if manifest is None:
+            latest = {}
+            for row in self.histories_since("1970-01-01 00:00:00"):
+                if self.in_scope(row):
+                    dest = str(value(row, 'dest'))
+                    if dest not in latest or int(value(row, 'id')) > int(value(latest[dest], 'id')):
+                        latest[dest] = row
             # Upgrade only jobs whose persisted import event proves user adoption.
             manifest = []
             for dest, row in latest.items():
@@ -217,17 +221,23 @@ class MPHost:
             job["inventory_files"] = manifest
         if not manifest:
             raise BridgeError("本次接管已没有可核实的整理文件", review=True)
+        if any('media' not in member for member in manifest) and not job.get('snapshot_metadata_checked'):
+            try:
+                metadata = {int(value(row, 'id')): row for row in self.histories_since("1970-01-01 00:00:00")}
+            except Exception:
+                metadata = {}
+            for member in manifest:
+                row = metadata.get(member['history_id'])
+                if (row and str(value(row, 'dest')) == member['local'] and value(row, 'status')
+                        and value(row, 'download_hash') == job['download_hash']):
+                    member['media'] = history_media(row)
+                    if not job.get('media'):
+                        job['media'] = member['media']
+            job['snapshot_metadata_checked'] = True
         result = []
         for member in manifest:
             target = member["local"]
             self.config.relative(target)
-            row = latest.get(target)
-            if (row is None or not value(row, "status") or int(value(row, "id")) != member["history_id"]
-                    or value(row, "downloader") != job["downloader"]
-                    or value(row, "download_hash") != job["download_hash"]):
-                raise BridgeError("存量文件的整理记录已变化，已暂停处理：" + Path(target).name, review=True)
-            if not job.get("media"):
-                job["media"] = history_media(row)
             # Before the first hash, reject replacements since the scan. Unlinking
             # the original hardlink can change ctime without changing this copy.
             if not any(entry["local"] == target for entry in job.get("files", [])):
@@ -235,15 +245,13 @@ class MPHost:
                 if any(current[i] != member["signature"][i] for i in (0, 1, 3, 4)):
                     raise BridgeError("存量文件在接管后发生变化，已暂停处理：" + Path(target).name, review=True)
             candidate = {"local": target, "history_id": member["history_id"],
-                         "inventory_signature": member["signature"], "media": history_media(row)}
-            if value(row, "src") and value(row, "src_storage", "local") in (None, "", "local"):
-                # Optional cleanup evidence, never a condition for inventory upload.
-                candidate["cleanup_source"] = source_path(value(row, "src"))
+                         "inventory_signature": member["signature"], "media": member.get('media', job.get('media', {}))}
             result.append(candidate)
         subtitles = {".srt", ".ass", ".ssa", ".sub", ".idx", ".sup", ".vtt"}
         if not any(Path(row["local"]).suffix.lower() not in subtitles for row in result):
+            job['orphan_files'] = capture(result)
             raise BridgeError("现存批次只有字幕，没有对应媒体文件", review=True)
-        return result
+        return accept(job, result)
 
     def _upload_parent(self, remote_file, operations=None):
         parent = (operations.call("get_folder", path=Path(remote_file).parent) if operations else

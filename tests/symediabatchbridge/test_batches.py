@@ -157,7 +157,7 @@ def test_inventory_replacement_between_collect_and_hash_cannot_upload(inventory_
     assert not batch.host.uploads and not batch.cloud.moves
 
 
-def test_inventory_retains_optional_hardlink_proof_only_when_original_exists(inventory_batch):
+def test_inventory_uses_owned_copy_instead_of_discovering_original_hardlinks(inventory_batch):
     batch = inventory_batch
     source = Path(batch.paths[0]).with_suffix(".download-source")
     source.hardlink_to(batch.paths[0])
@@ -166,7 +166,7 @@ def test_inventory_retains_optional_hardlink_proof_only_when_original_exists(inv
     batch.run()
     saved = batch.job()
     assert saved["state"] == "handed_off", saved["message"]
-    assert saved["files"][0]["download_source"] == str(source).replace("\\", "/")
+    assert not saved["files"][0].get("download_source")
     assert "download_source" not in saved["files"][1]
 
 

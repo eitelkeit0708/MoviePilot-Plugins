@@ -6,6 +6,7 @@ from pathlib import Path
 from threading import Event, RLock, Lock
 import json
 import time
+from typing import Literal
 
 from apscheduler.triggers.interval import IntervalTrigger
 from pydantic import BaseModel, Field
@@ -17,7 +18,7 @@ from app.schemas import Response
 from app.schemas.types import EventType, NotificationType
 
 from .cd2 import CD2
-from .domain import BridgeError, Config, Stopped, nested
+from .domain import Awaiting, BridgeError, Config, Stopped, nested
 from .engine import Engine
 from .host import MPHost, value
 from .media import history_media
@@ -29,6 +30,8 @@ from .page import render_page
 from .inventory import scan as scan_inventory
 from .cleanup import cleanup, cleanup_failure
 from .recovery import recovery_path
+from . import disposal
+from .ownership import append_transfer, migrate_sealed
 
 
 @dataclass
@@ -52,10 +55,20 @@ class ViewRequest(BaseModel):
     page: int = Field(default=0, ge=0, le=100000)
     events: int = Field(default=0, ge=0, le=100000)
     files: int = Field(default=0, ge=0, le=100000)
+    route: str = Field(default="", max_length=4096)
+    status: Literal["all", "attention", "active", "done", "closed"] = "all"
+    expanded: str = Field(default="", max_length=120)
+    panel: Literal["jobs", "inventory", "runtime"] = "jobs"
 
 
 class ImportRequest(BaseModel):
     history_id: int = Field(gt=0)
+
+
+class DisposalRequest(BaseModel):
+    key: str = Field(min_length=1, max_length=120)
+    action: Literal["delete", "stop", "confirm", "cancel"]
+    token: str = Field(default="", max_length=100)
 
 
 class RecoveryRequest(BaseModel):
@@ -69,7 +82,7 @@ class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.5.0"
+    plugin_version = "1.6.0"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -205,6 +218,9 @@ class SymediaBatchBridge(_PluginBase):
         def recovery(request: RecoveryRequest, _admin=Depends(administrator)):
             return self.recover_batch(request)
 
+        def dispose(request: DisposalRequest, _admin=Depends(administrator)):
+            return self.dispose_batch(request)
+
         return [{"path": "/retry", "endpoint": retry,
                  "methods": ["POST"], "summary": "重新检查批次", "auth": "bear"},
                 {"path": "/view", "endpoint": view,
@@ -213,13 +229,45 @@ class SymediaBatchBridge(_PluginBase):
                  "methods": ["POST"], "summary": "检查现存文件", "auth": "bear"},
                 {"path": "/import", "endpoint": import_batch,
                  "methods": ["POST"], "summary": "接管已有整理批次", "auth": "bear"},
+                {"path": "/dispose", "endpoint": dispose,
+                 "methods": ["POST"], "summary": "处理异常批次与孤立字幕", "auth": "bear"},
                 {"path": "/recovery", "endpoint": recovery,
                  "methods": ["POST"], "summary": "核对批次归档目录", "auth": "bear"}]
 
     def view_records(self, request: ViewRequest) -> Response:
         self._recovery_browser = None
+        self._action_message = ""
         self._view = request
         return Response(success=True)
+
+    def dispose_batch(self, request: DisposalRequest) -> Response:
+        runtime = self._runtime
+        try:
+            if not runtime or runtime.stop.is_set():
+                raise BridgeError("请先启用插件并完成配置")
+            with runtime.store.worker_lock() as acquired:
+                if not acquired:
+                    raise BridgeError("正在处理文件，请稍后再试")
+                job = runtime.store.get(request.key)
+                if not job:
+                    raise BridgeError("批次不存在")
+                if request.action == "cancel":
+                    job.pop("disposal_plan", None)
+                    runtime.store.save(job)
+                else:
+                    config = runtime.config.pinned(job["routing"])
+                    if request.action == "confirm":
+                        disposal.confirm(runtime.store, job, config, request.token)
+                    else:
+                        disposal.prepare(runtime.store, job, config, request.action,
+                                         getattr(runtime.host, "extensions", ()))
+                self._view = self._view.model_copy(update={"expanded": job["id"]})
+                self._action_message = ("已记录处理请求" if request.action == "confirm" else
+                                        "已取消，本地文件未变更" if request.action == "cancel" else "请核对下方处理范围")
+                return Response(success=True)
+        except (BridgeError, ValueError, OSError) as error:
+            self._action_message = str(error) if isinstance(error, BridgeError) else "无法核实目录或文件，请恢复访问后重试"
+            return Response(success=False, message=self._action_message)
 
     def recover_batch(self, request: RecoveryRequest) -> Response:
         runtime = self._runtime
@@ -270,7 +318,7 @@ class SymediaBatchBridge(_PluginBase):
             count = len(result["candidates"])
             self._action_message = f"存量检查完成：发现 {count} 个未接管批次。选择接管后才开始上传。"
             logger.info(f"{self.plugin_name}：检查现存文件，发现 {count} 个存量批次，未发起上传")
-            self._view = ViewRequest()
+            self._view = ViewRequest(panel="inventory")
             return Response(success=True)
         except Exception:
             self._action_message = "存量检查未完成，请检查整理记录和本地目录后重试"
@@ -323,6 +371,9 @@ class SymediaBatchBridge(_PluginBase):
                 for notice in runtime.store.pending_notices():
                     if runtime.stop.is_set():
                         break
+                    current = runtime.store.get(notice['batch'])
+                    if not current or current['state'] == 'cancelled':
+                        continue
                     try:
                         # Separate host service; slow channels cannot hold the media
                         # lock. Retain this delivery lock until an in-flight call exits.
@@ -352,6 +403,21 @@ class SymediaBatchBridge(_PluginBase):
             history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name,
             cleanup_local=runtime.cleanup_local if cleanup_local is None else cleanup_local,
             inventory_files=inventory_files, media=history_media(row))
+        if (value(row, "status") and not job.get('move_requested')
+                and job['state'] not in ('handed_off', 'cancelled', 'deleting')):
+            owned = bool(job.get("owned_candidates"))
+            # Intake runs before the media worker. Upgrade the old complete
+            # snapshot here too, before acknowledging a new attachment event.
+            migrate_sealed(job)
+            if job.get("owned_candidates"):
+                config = runtime.config.pinned(job["routing"])
+                appended = append_transfer(job, config, {"local": str(value(row, "dest")),
+                                           "history_id": int(value(row, "id")), "media": history_media(row)})
+                if appended or not owned:
+                    runtime.store.save(job)
+                if appended:
+                    runtime.store.record(job, event("attachment", "已纳入新增的 MP 整理文件",
+                                                   file=config.relative(str(value(row, "dest")))))
         self._notify_issue(runtime, job)
         return job
 
@@ -396,6 +462,11 @@ class SymediaBatchBridge(_PluginBase):
                                      "interval": runtime.config.interval})
                        for route in context["routes"]) if "routes" in context else runtime.routes
         return self._observe(runtime, row, routes=routes, cleanup_local=context.get("cleanup_local"))
+
+    def _receive_before_handoff(self, runtime):
+        self._receive_pending(runtime)
+        if runtime.store.incoming_count():
+            raise Awaiting("还有已接收的整理记录待核实，暂缓整目录移交；已完成 HASH 和上传回执保留")
 
     def _recover_intake(self, runtime):
         stalled = runtime.store.stalled_transfers()
@@ -497,6 +568,15 @@ class SymediaBatchBridge(_PluginBase):
                 for job in runtime.store.due():
                     if runtime.stop.is_set():
                         break
+                    if job["state"] == "deleting":
+                        try:
+                            disposal.process(runtime.store, job, runtime.config.pinned(job["routing"]), runtime.stop)
+                        except (BridgeError, ValueError):
+                            job.update(disposal_error="原目录配置暂不可用，一小时后重试删除",
+                                       message="原目录配置暂不可用，一小时后重试删除", next_check=time.time() + 3600)
+                            runtime.store.save(job)
+                        self._notify_issue(runtime, job)
+                        continue
                     engine = Engine(runtime.store, runtime.config, runtime.host, runtime.cloud, runtime.stop)
                     try:
                         runtime.store.restore_origin(job)
@@ -507,7 +587,8 @@ class SymediaBatchBridge(_PluginBase):
                                         or nested(config.inbox, other["cd2_prefix"].rstrip("/") + other["staging"])):
                                     raise BridgeError("新旧路线的暂存与待归档目录重叠，等待修正配置", review=True)
                         engine = Engine(runtime.store, config, runtime.host.for_config(config), runtime.cloud, runtime.stop,
-                                        protected_routings=[r.routing() for r in runtime.routes])
+                                        protected_routings=[r.routing() for r in runtime.routes],
+                                        receive_pending=lambda: self._receive_before_handoff(runtime))
                     except (BridgeError, ValueError) as error:
                         engine._failure(job, str(error), True)
                         self._notify_issue(runtime, job)
@@ -571,8 +652,8 @@ class SymediaBatchBridge(_PluginBase):
             job = runtime.store.get(request.key)
             if not job:
                 return respond(False, "批次不存在")
-            if job["state"] == "handed_off":
-                return respond(False, "该批次已移交，不会重复发送")
+            if job["state"] in ("handed_off", "cancelled", "deleting"):
+                return respond(False, "该批次已移交、已终止或正在删除，不能重新上传")
             if job["routing"].get("storage") == "115网盘Plus":
                 if not request.switch_to_native:
                     return respond(False, "请先确认 MP 内置 115 与 CD2 使用同一账号，并切换此旧批次")
@@ -581,9 +662,10 @@ class SymediaBatchBridge(_PluginBase):
                 if route is None:
                     return respond(False, "目录映射也发生了变化，请先恢复本批次原目录配置")
                 job["routing"] = route.routing()
-            job.update(state="waiting", next_check=0, attempts=0, message="已安排重新检查")
+            job.update(next_check=0, retry_requested=time.time())
             # Keep the sealed manifest and move intent. Retry never means start again.
             runtime.store.save(job)
+            runtime.store.record(job, event("retry_requested", "已安排重新检查；核实前保留当前异常"))
         return respond(True, "已安排检查，将在下一次批次检查时执行")
 
     def get_form(self):
@@ -638,7 +720,7 @@ class SymediaBatchBridge(_PluginBase):
                     {"component": "VSwitch", "props": {"model": "notify", "label": "MP 通知：移交成功、处理异常、转普通上传"}}]},
                 {"component": "VCol", "props": {"cols": 12}, "content": [
                     {"component": "VSwitch", "props": {"model": "delete_local", "label": "移交后删除本地整理副本",
-                     "hint": "仅删除已移交批次中有原始下载文件的硬链接副本；保留下载器文件和做种任务。只应用于之后接管的批次。", "persistentHint": True}}]},
+                     "hint": "移交成功并核实文件未变化后，删除本地整理副本；不操作下载目录。做种源已删除也可清理。失败一小时后自动重试，只应用于之后接管的批次。", "persistentHint": True}}]},
                 {"component": "VCol", "props": {"cols": 12}, "content": [
                     {"component": "VSwitch", "props": {"model": "scan_existing_once", "label": "保存后处理一次现存文件",
                      "hint": "接管整理目录中有 MP 记录的现存文件；原下载源或做种任务已删除也可处理。保存后排队，开关自动复位，结果显示在数据页顶部。", "persistentHint": True}}]},
@@ -652,7 +734,7 @@ class SymediaBatchBridge(_PluginBase):
             {"component": "VAlert", "props": {"type": "info", "variant": "tonal"},
              "text": "每个文件先尝试秒传 24 次，间隔 1 小时；最后一次未命中后再等 1 小时，才普通上传。接口报错不计次数；重启继续等待。"},
             {"component": "VAlert", "props": {"type": "warning", "variant": "tonal"},
-             "text": "请保留下载器任务，使用 MP 复制或硬链接整理。相同目录不要再交给其他上传监控；首次启用仅接收之后的整理记录。"},
+             "text": "请使用 MP 复制或硬链接整理；完整接管前保留下载器任务，接管后允许做种源正常到期删除。相同目录由本插件独立处理；首次启用仅接收之后的整理记录。"},
         ]}], defaults
 
     def get_page(self):

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>115秒传助手 · 本地交互预览</title>
+<link rel="icon" href="/logo.png"><link rel="stylesheet" href="/vendor/vuetify.css"><link rel="stylesheet" href="/vendor/mdi.css">
+<style>body{margin:0;background:#151720;font-family:Inter,'Microsoft YaHei',sans-serif}.preview-shell{width:100%;max-width:1440px;margin:auto;padding:20px 30px}.preview-header{display:flex;gap:12px;align-items:center;border-bottom:1px solid #303542;padding:0 0 18px;margin-bottom:18px}.preview-header img{width:30px;height:30px;object-fit:contain}.preview-header h1{font-size:22px;color:#eee;font-weight:650}.preview-note{margin-left:auto;font-size:12px;color:#9b9bac}@media(max-width:600px){.preview-shell{padding:16px}.preview-header h1{font-size:18px}}</style>
+<script src="/vendor/vue.js"></script><script src="/vendor/vuetify.js"></script></head>
+<body><div id="app"></div><script>
+// Mirrors MP's native recursive PageRender: static params, POST then re-fetch.
+const {createApp,h,ref,resolveDynamicComponent}=Vue;
+let reload;
+const PageRender={props:['config'],setup(props){return()=>{const c=props.config;const listeners={};
+  for(const [event,request] of Object.entries(c.events||{}))listeners['on'+event[0].toUpperCase()+event.slice(1)]=async()=>{
+    await fetch('/api/'+request.api,{method:request.method.toUpperCase(),headers:{'Content-Type':'application/json'},body:JSON.stringify(request.params)});await reload();};
+  const children=[c.text,...(c.content||[]).map(inner=>h(PageRender,{config:inner}))];
+  return h(resolveDynamicComponent(c.component),{...(c.props||{}),...listeners},c.component.startsWith('V')?()=>children:children);
+}}};
+const App={setup(){const page=ref([]);reload=async()=>{page.value=await(await fetch('/api/page')).json();};reload();
+return()=>h(Vuetify.components.VApp,{},()=>h('div',{class:'preview-shell'},[
+ h('header',{class:'preview-header'},[h('img',{src:'/logo.png',alt:''}),h('h1','115秒传助手'),h('span',{class:'preview-note'},'本地预览 · 示例数据')]),
+ ...page.value.map((config,i)=>h(PageRender,{config,key:i}))]));}};
+const app=createApp(App);app.use(Vuetify.createVuetify({theme:{defaultTheme:'dark',themes:{dark:{dark:true,colors:{background:'#151720',surface:'#1c202b',primary:'#ab8be8',warning:'#e1b65a',success:'#67c49a','on-surface':'#e5e6ed'}}}}}));app.mount('#app');
+</script></body></html>

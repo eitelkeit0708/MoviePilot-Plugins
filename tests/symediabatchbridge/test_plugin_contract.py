@@ -93,7 +93,7 @@ def test_retry_keeps_manifest_and_move_receipt_and_no_secret_in_page(plugin):
     assert p.retry_batch(request(key=job["id"])).success
     saved = p._store.get(job["id"])
     assert saved["move_requested"] and saved["files"] == job["files"]
-    assert saved["state"] == "waiting" and saved["attempts"] == 0
+    assert saved["state"] == "review" and saved['retry_requested'] and saved['next_check'] == 0
     assert "test-secret" not in json.dumps(p.get_page())
     saved["state"] = "handed_off"
     p._store.save(saved)
@@ -231,7 +231,7 @@ def test_all_endpoints_require_active_admin_before_any_work(plugin, monkeypatch,
         p = type("SymediaBatchBridgeCopy", (type(p),), {})()
         p.init_plugin(plugin.values)
     calls = []
-    for name in ("retry_batch", "view_records", "scan_existing", "import_existing", "recover_batch"):
+    for name in ("retry_batch", "view_records", "scan_existing", "import_existing", "recover_batch", "dispose_batch"):
         monkeypatch.setattr(p, name, lambda *a: calls.append(a) or {"success": True})
     def active(authorization: str = Header(default="")):
         if authorization == "Bearer inactive-admin":
@@ -245,7 +245,8 @@ def test_all_endpoints_require_active_admin_before_any_work(plugin, monkeypatch,
         app.add_api_route(route["path"], route["endpoint"], methods=route["methods"])
     client = TestClient(app)
     payloads = {"retry": {"key": "batch"}, "view": {}, "scan": {}, "import": {"history_id": 1},
-                "recovery": {"key": "batch", "path": "/115/归档", "verify": True}}
+                "recovery": {"key": "batch", "path": "/115/归档", "verify": True},
+                "dispose": {"key": "batch", "action": "delete"}}
     for name, body in payloads.items():
         for token, status in [("", 401), ("regular", 403), ("inactive-admin", 403)]:
             response = client.post("/" + name, json=body, headers={"Authorization": "Bearer " + token})

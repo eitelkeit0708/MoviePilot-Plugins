@@ -8,7 +8,10 @@ def when(value):
 
 
 def attention(job):
+    if job.get("state") == "cancelled":
+        return False
     return (job.get("state") in ("review", "retrying") or bool(job.get("late_history_ids"))
+            or bool(job.get("disposal_error")) or bool(job.get("retry_requested"))
             or bool(job.get("cleanup_error"))
             or bool(job.get("attempts"))
             or any(e.get("instant_error_since") for e in job.get("files", []))
@@ -24,6 +27,8 @@ def changes(old, job):
     if old is None:
         return [event("received", "已接收 MP 整理记录，等待视频与字幕齐套")]
     result = []
+    if job.get('owned_at') and not old.get('owned_at'):
+        result.append(event('owned', '完整清单已接管；后续以整理副本为准，不再依赖做种源和旧整理记录'))
     previous = {e["relative"]: e for e in old.get("files", []) if "relative" in e}
     for entry in job.get("files", []):
         name = entry.get("relative", "")
@@ -49,7 +54,9 @@ def changes(old, job):
             result.append(event("file_complete", text, file=name))
     if job.get("late_history_ids") != old.get("late_history_ids") and job.get("late_history_ids"):
         result.append(event("late_files", job["message"], level="warning", notice="处理异常", scope="issue"))
-    if job["state"] == "handed_off" and old["state"] != "handed_off":
+    if job["state"] == "cancelled" and old["state"] != "cancelled":
+        result.append(event("cancelled", job["message"]))
+    elif job["state"] == "handed_off" and old["state"] != "handed_off":
         if job.get("completion_basis") == "archive_verified":
             result.append(event("archive_verified", "全部视频与附件已通过云端 SHA1 和大小核对", notice="归档核对完成", scope="handoff"))
         elif job.get("completion_basis") == "directory_identity":
@@ -60,7 +67,10 @@ def changes(old, job):
         result.append(event("failure", job["message"], level="warning", notice="处理异常", scope="issue", next_at=job.get("next_check", 0)))
     elif (job["state"], job["message"]) != (old["state"], old["message"]) and not result:
         result.append(event("state", job["message"], next_at=job.get("next_check", 0)))
-    if not attention(job) and attention(old) and job["state"] != "handed_off":
+    # An administrator only scheduled a check; no file or external service has
+    # been verified yet. Do not report the request itself as recovery.
+    if (not attention(job) and attention(old) and job["state"] not in ("handed_off", "cancelled")
+            and job.get("message") != "已安排重新检查"):
         result.append(event("recovered", "异常已恢复，继续处理"))
     return result
 

@@ -230,12 +230,11 @@ def test_cleanup_only_removes_organized_links_retains_seeding_source(batch,modul
     assert not any(Path(p).exists() for p in batch.paths)
 
 
-@pytest.mark.parametrize('problem',['changed','missing_original','copy','not_handed_off','disabled'])
+@pytest.mark.parametrize('problem',['changed','copy','not_handed_off','disabled'])
 def test_cleanup_refuses_unsafe_or_unconfirmed_data(batch,modules,tmp_path,problem):
     sources=cleanup_fixture(batch,modules,tmp_path)
     local=Path(batch.paths[0]);job=batch.job()
     if problem=='changed': local.write_bytes(b'changed')
-    if problem=='missing_original': sources[0].unlink()
     if problem=='copy':
         data=local.read_bytes();local.unlink();local.write_bytes(data)
     if problem=='not_handed_off': job['state']='review'

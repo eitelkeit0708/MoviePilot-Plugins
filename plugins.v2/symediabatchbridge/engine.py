@@ -13,12 +13,13 @@ from .recovery import recovery_path, verify_archive
 
 
 class Engine:
-    def __init__(self, store, config: Config, host, cloud, stop: Event, protected_routings=()):
+    def __init__(self, store, config: Config, host, cloud, stop: Event, protected_routings=(), receive_pending=None):
         self.store, self.config, self.host, self.cloud, self.stop = store, config, host, cloud, stop
         self.protected_routings = protected_routings
+        self.receive_pending = receive_pending
 
     def process(self, job):
-        if job["state"] == "handed_off":
+        if job["state"] in ("handed_off", "cancelled", "deleting"):
             return
         try:
             check_stop(self.stop)
@@ -32,6 +33,8 @@ class Engine:
             if not Path(self.config.local_root).is_dir():
                 raise Awaiting("等待本地整理目录恢复：" + self.config.local_root)
             candidates = self.host.collect(job)
+            job.pop("retry_requested", None)
+            self.store.save(job)  # Complete ownership evidence precedes slow HASH / cloud work.
             remote_batch = child_path(self.config.staging, job["id"])
             source = child_path(self.config.cd2_staging, job["id"])
             destination = child_path(self.config.inbox, job["id"])
@@ -87,6 +90,17 @@ class Engine:
                 return
 
             check_stop(self.stop)
+            if self.receive_pending:
+                try:
+                    self.receive_pending()
+                finally:
+                    # Intake uses the same lock but loads a fresh job. Keep files
+                    # it accepted even when a later queued record is unavailable.
+                    job.update(self.store.get(job['id']))
+            latest = self.host.collect(job)
+            if not self._same_candidates(job, latest):
+                self._sync_candidates(job, latest, hash_limit=max(0, 4 - (len(job['files']) - initial_hashes)))
+                raise Awaiting("已纳入新增整理文件，下次检查继续上传")
             job["state"] = "verifying"
             job["message"] = "正在核对云端文件"
             self.store.save(job)
@@ -304,7 +318,7 @@ class Engine:
             if hashed >= hash_limit:
                 raise Awaiting(f"已记录 {len(job['files'])}/{len(candidates)} 个文件 HASH，下次继续")
             entry = self._hash_file(job, path, relative)
-            snapshot = candidate.get("inventory_signature")
+            snapshot = candidate.get("accepted_signature") or candidate.get("inventory_signature")
             if snapshot and any(entry["signature"][i] != snapshot[i] for i in (0, 1, 3, 4)):
                 raise BridgeError("存量文件在接管后发生变化，已暂停处理：" + relative, review=True)
             cleanup_source = candidate.get("cleanup_source")
@@ -317,6 +331,7 @@ class Engine:
             source = candidate.get("source")
             if source:
                 entry["download_source"] = source
+            if source and not job.get("owned_candidates"):
                 try:
                     same_file = Path(source).samefile(path)
                 except OSError:
@@ -335,7 +350,7 @@ class Engine:
             self.store.save(job)
             if on_ready:
                 on_ready(entry)
-        job["history_ids"] = sorted(c["history_id"] for c in candidates if c.get("history_id"))
+        job["history_ids"] = self._candidate_history_ids(job, candidates)
         job.pop("hash_progress", None)
         job.update(state="uploading", message="正在尝试秒传")
         self.store.save(job)
@@ -360,9 +375,19 @@ class Engine:
         return freeze_file(path, relative, self.stop, progress=progress)
 
     @staticmethod
+    def _candidate_history_ids(job, candidates):
+        identifiers = {c["history_id"] for c in candidates if c.get("history_id")}
+        # Legacy sealed manifests retain aggregate IDs, not a per-file mapping.
+        # Ownership is append-only; a newly received subtitle must not discard
+        # the IDs belonging to the already accepted video and attachments.
+        if job.get("owned_candidates"):
+            identifiers.update(job.get("history_ids", []))
+        return sorted(identifiers) or job.get("history_ids", [])
+
+    @staticmethod
     def _same_candidates(job, candidates):
         return ({c["local"] for c in candidates} == {e["local"] for e in job["files"]}
-                and sorted(c["history_id"] for c in candidates if c.get("history_id")) == job.get("history_ids", []))
+                and Engine._candidate_history_ids(job, candidates) == job.get("history_ids", []))
 
     def _reconcile_move(self, job):
         source_exists = self._cloud_call("exists", job["source"])
