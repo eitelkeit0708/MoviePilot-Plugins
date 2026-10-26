@@ -42,6 +42,89 @@ def invoke(api, **kwargs):
     return api.ops.request("POST", "/open/upload/init", data={"fileid": "hash"}, **kwargs)
 
 
+def test_non_idempotent_post_does_not_follow_or_replay_redirect(api):
+    calls=[]
+    def server(request):
+        calls.append(request)
+        return httpx.Response(307,headers={'Location':'https://proapi.115.com/open/upload/init?redirected=1'})
+    session=httpx.Client(follow_redirects=True,transport=httpx.MockTransport(server))
+    api.provider.session=session
+    with pytest.raises(api.cooldown.CloudRequestError):
+        invoke(api)
+    assert len(calls)==1 and calls[0].method=='POST'
+    assert session.follow_redirects is True
+    session.close()
+
+
+def test_audit_records_safe_protocol_metadata_and_no_credentials(api):
+    audit=[]
+    api.ops.audit=audit.append
+    api.provider.session.request.return_value=response(data={'code':0,'state':True,
+        'data':{'status':2,'code':0,'file_id':'123','pick_code':'PRIVATE','callback':'SECRET'}})
+    invoke(api)
+    assert [item['stage'] for item in audit]==['request','http','result']
+    assert audit[-1]['fileid']=='123' and audit[-1]['status']==2
+    assert not any(word in str(audit) for word in ('PRIVATE','SECRET','callback','pick_code'))
+    assert api.provider.session.request.call_args.kwargs['follow_redirects'] is False
+
+
+@pytest.mark.parametrize('accepted', [None, (0, 20004), (0, 20004, 430004)])
+def test_missing_path_code_is_accepted_only_as_a_directory_query_result(api, accepted):
+    audit = []
+    api.ops.audit = audit.append
+    reply = {'state': False, 'code': 430004, 'message': 'PRIVATE', 'data': []}
+    api.provider.session.request.return_value = response(data=reply)
+    options = {} if accepted is None else {'accepted_codes': accepted}
+    actual = api.ops.request('POST', '/open/folder/get_info', data={'path': '/staging'}, **options)
+    assert actual == reply and actual['state'] is False
+    assert api.ops.failure is None
+    assert [item['stage'] for item in audit] == ['request', 'http', 'result']
+    assert all(item['endpoint'] == '/open/folder/get_info' for item in audit)
+    assert audit[-1]['business_code'] == 430004 and audit[-1]['state'] is False
+    assert 'PRIVATE' not in str(audit)
+    api.provider.session.request.assert_called_once()
+
+
+@pytest.mark.parametrize('endpoint', ['/open/upload/init', '/open/folder/add', '/open/ufile/move', '/open/ufile/delete'])
+def test_missing_path_code_never_authorizes_other_cloud_operations(api, endpoint):
+    api.provider.session.request.return_value = response(data={
+        'state': False, 'code': 430004, 'message': 'PRIVATE', 'data': {'status': 2, 'file_id': '123'}})
+    with pytest.raises(api.cooldown.CloudRequestError) as caught:
+        api.ops.request('POST', endpoint)
+    assert caught.value.kind == 'unknown'
+    assert endpoint in str(caught.value) and '430004' in str(caught.value)
+    assert 'PRIVATE' not in str(caught.value)
+
+
+def test_unknown_directory_code_remains_blocked_and_is_audited(api):
+    audit = []
+    api.ops.audit = audit.append
+    api.provider.session.request.return_value = response(data={
+        'state': False, 'code': 998, 'message': 'Authorization PRIVATE', 'data': []})
+    with pytest.raises(api.cooldown.CloudRequestError) as caught:
+        api.ops.request('POST', '/open/folder/get_info')
+    assert caught.value.kind == 'unknown'
+    assert '/open/folder/get_info' in str(caught.value) and '998' in str(caught.value)
+    assert audit[-1]['business_code'] == 998
+    assert 'PRIVATE' not in str(audit) + str(caught.value)
+
+
+def test_wire_trace_uses_request_extensions_without_patching_shared_client(api):
+    audit=[]
+    api.ops.audit=audit.append
+    def server(request):
+        request.extensions['trace']('http11.send_request_headers.started',{'headers':'PRIVATE'})
+        return response(data={'code':0,'state':True,'data':{'status':2,'file_id':'123'}})
+    session=httpx.Client(follow_redirects=True,transport=httpx.MockTransport(server))
+    original_hooks=dict(session.event_hooks)
+    api.provider.session=session
+    invoke(api)
+    assert [item['stage'] for item in audit]==['request','wire','http','result']
+    assert audit[-1]['wire_count']==1
+    assert 'PRIVATE' not in str(audit) and session.event_hooks==original_hooks
+    session.close()
+
+
 @pytest.mark.parametrize("reply", [response(429), response(data={"code": 999, "message": "已达到当前访问上限"})])
 def test_limit_is_shared_across_routes_and_survives_restart(api, modules, reply):
     api.provider.session.request.return_value = reply

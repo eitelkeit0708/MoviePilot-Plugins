@@ -57,6 +57,20 @@ def test_resumed_inventory_keeps_hashes_and_persists_media_notice(inventory_batc
     assert len(b.cloud.moves) == 1
 
 
+def test_legacy_display_label_compatibility_never_accepts_changed_content(inventory_batch):
+    b = inventory_batch
+    for row in b.inventory_rows:
+        vars(row).update(MEDIA, seasons='S06', episodes='E13')
+    b.engine._sync_candidates(b.job(), b.inventory_host.collect(b.job()))
+    Path(b.paths[1]).write_bytes(b'changed subtitle after original SHA')
+    b.run()
+    assert b.job()['state'] == 'review'
+    assert not b.cloud.moves
+    # A preceding unchanged video may already be staged by the streaming
+    # pipeline. The changed subtitle itself can neither upload nor hand off.
+    assert not any(path.endswith(Path(b.paths[1]).name) for path in b.host.uploads)
+
+
 def test_gaps_multiple_seasons_and_subtitles_are_not_reported_as_full_season(batch, modules):
     job = batch.job()
     job["media_files"] = [{**MEDIA, "file": f"{s}{e}{suffix}", "seasons": s, "episodes": e}

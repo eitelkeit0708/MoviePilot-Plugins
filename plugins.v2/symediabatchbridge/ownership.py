@@ -3,8 +3,25 @@ from pathlib import Path
 import time
 
 from .domain import BridgeError, file_signature
+from . import subtitle_scope
 
 SUBTITLES = {'.srt', '.ass', '.ssa', '.sub', '.idx', '.sup', '.vtt'}
+
+
+def _is_subtitle(candidate):
+    return Path(str(candidate.get('local') or candidate.get('source') or '')).suffix.lower() in SUBTITLES
+
+
+def _record_excluded(job, candidate, detail):
+    """Durably-shaped journal entry; the controller persists the job."""
+    entry = {key: candidate[key] for key in ('local', 'source', 'history_id', 'media', 'date')
+             if key in candidate}
+    entry['reason'] = detail
+    existing = job.setdefault('excluded_attachments', [])
+    identity = (entry.get('local'), entry.get('history_id'), detail)
+    if not any((row.get('local'), row.get('history_id'), row.get('reason')) == identity
+               for row in existing):
+        existing.append(entry)
 
 
 def capture(candidates):
@@ -21,16 +38,11 @@ def accept(job, candidates):
 
 def collect_owned(job, config):
     candidates = job['owned_candidates']
-    sealed = {e['local']: e for e in job.get('files', []) if e.get('local')}
     for candidate in candidates:
         config.relative(candidate['local'])
-        # Once hashed, Engine validates against that hash. Before hashing, keep
-        # the accepted file identity; unlinking another hardlink only changes ctime.
-        if candidate['local'] not in sealed:
-            current = file_signature(Path(candidate['local']))
-            expected = candidate['accepted_signature']
-            if any(current[i] != expected[i] for i in (0, 1, 3, 4)):
-                raise BridgeError('接管后的整理文件已变化：' + Path(candidate['local']).name, review=True)
+        # Engine checks each file against its SHA or authenticated torrent pieces.
+        # A metadata change alone is neither proof of corruption nor permission
+        # to replace the accepted signature. Intake never performs slow hashing.
     return candidates
 
 
@@ -53,6 +65,14 @@ def append_transfer(job, config, candidate):
         return False
     if any(c['local'] == candidate['local'] for c in job['owned_candidates']):
         return False
+    if _is_subtitle(candidate):
+        videos = [c for c in job['owned_candidates'] if not _is_subtitle(c)]
+        detail = subtitle_scope.reason(candidate, videos)
+        if detail is not None:
+            # Never expand accepted ownership with an unattributed subtitle.
+            # Do not touch the accepted files or their receipts.
+            _record_excluded(job, candidate, detail)
+            return False
     config.relative(candidate['local'])
     job['owned_candidates'].extend(capture([candidate]))
     job['next_check'] = 0

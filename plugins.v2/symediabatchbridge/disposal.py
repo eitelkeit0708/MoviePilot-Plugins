@@ -42,15 +42,21 @@ def no_media(job, config, extensions):
             raise BridgeError('文件路径包含符号链接，不能删除字幕', review=True)
         if path.suffix.lower() not in SUBTITLES and path.exists():
             raise BridgeError('本批次仍有媒体文件，不能删除字幕', review=True)
-    # Look only in known file directories; never locate or adopt relocated files.
+    # A subtitle can be stored directly in the route/category root. Descending
+    # into every child directory would mistake unrelated works for its video.
+    # Check explicit batch members above, and direct neighbours below. Never
+    # search for, infer by title, or adopt files elsewhere.
     for parent in {p.parent for p in paths}:
-        def fail(error):
-            raise error
-        for folder, dirs, files in os.walk(parent, onerror=fail, followlinks=False):
-            if any((Path(folder) / name).is_symlink() for name in [*dirs, *files]):
-                raise BridgeError('同目录含符号链接，无法确认媒体范围', review=True)
-            if any(Path(name).suffix.lower() in extensions - SUBTITLES for name in files):
-                raise BridgeError('同目录仍有媒体文件，请保留对应字幕', review=True)
+        with os.scandir(parent) as entries:
+            for entry in entries:
+                suffix = Path(entry.name).suffix.lower()
+                is_media = suffix in extensions - SUBTITLES
+                if entry.is_symlink() and (is_media or suffix in SUBTITLES):
+                    raise BridgeError('同目录含媒体或字幕符号链接，无法确认媒体范围：' + entry.name, review=True)
+                if (is_media and entry.is_file(follow_symlinks=False)
+                        or entry.name.upper() in ('BDMV', 'VIDEO_TS') and entry.is_dir(follow_symlinks=False)):
+                    relative = (parent / entry.name).relative_to(config.local_root).as_posix()
+                    raise BridgeError('字幕所在目录仍有视频，已保留字幕：' + relative, review=True)
 
 
 def subtitle_plan(job, config, extensions=()):

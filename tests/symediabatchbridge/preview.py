@@ -82,6 +82,9 @@ class Handler(BaseHTTPRequestHandler):
             for module in ("remedies", "page", "dashboard"):
                 importlib.reload(importlib.import_module("app.plugins.symediabatchbridge." + module))
             return self.json(p.get_page())
+        if path == "/api/plugin/form/SymediaBatchBridge":
+            form, defaults = p.get_form()
+            return self.json({'model': {**defaults, **values}, 'conf': form, 'render_mode': 'vue'})
         if path == "/api/meta":
             return self.json({"title": p.plugin_name, "version": p.plugin_version})
         allowed = {"/": Path(__file__).with_name("preview.html"),
@@ -89,6 +92,8 @@ class Handler(BaseHTTPRequestHandler):
                    "/vendor/vue.js": VENDOR/"vue.js", "/vendor/vuetify.js": VENDOR/"vuetify.js",
                    "/vendor/vuetify.css": VENDOR/"vuetify.css", "/vendor/mdi.css": VENDOR/"mdi.css",
                    "/fonts/materialdesignicons-webfont.woff2": VENDOR/"mdi.woff2"}
+        for asset in (ROOT/'plugins.v2/symediabatchbridge/dist/assets').glob('*.js'):
+            allowed['/assets/' + asset.name] = asset
         target = allowed.get(path)
         if target is None or not target.is_file():
             return self.json({"error": "Not found"}, 404)
@@ -101,13 +106,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         try:
-            if self.headers.get("Origin", "http://127.0.0.1:4186") != "http://127.0.0.1:4186":
+            origin = f'http://127.0.0.1:{self.server.server_port}'
+            if self.headers.get("Origin", origin) != origin:
                 return self.json({"error": "Origin rejected"}, 403)
             count = int(self.headers.get("Content-Length", "0"))
             if not 0 <= count <= 16000:
                 return self.json({"error": "Too large"}, 400)
             payload = json.loads(self.rfile.read(count))
             endpoint = self.path.rsplit("/", 1)[-1]
+            if endpoint == 'ui':
+                return self.json(p.ui_action(modules.plugin.UIRequest(**payload)))
             if endpoint == "view":
                 result = p.view_records(modules.plugin.ViewRequest(**payload))
             elif endpoint == "retry":
@@ -129,5 +137,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print("Native PageRender preview at http://127.0.0.1:4186 (synthetic data)", flush=True)
-    ThreadingHTTPServer(("127.0.0.1", 4186), Handler).serve_forever()
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 4186
+    print(f"Federation preview at http://127.0.0.1:{port} (synthetic data)", flush=True)
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

@@ -3,7 +3,8 @@ from hashlib import sha1
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+import time
 import json
 
 import pytest
@@ -277,6 +278,14 @@ def test_changed_uploaded_cloud_file_is_held_and_never_overwritten(batch, module
     assert len(batch.host.uploads) == 1 and batch.cloud.moves == []
 
 
+def settle_ambiguous_views(batch):
+    # Three separated reads, including restart-persisted observation state.
+    now = time.time()
+    for offset in (61, 122):
+        with patch('time.time', return_value=now + offset):
+            batch.run()
+
+
 def consumed_without_receipt(batch):
     def consume():
         moved = list(batch.cloud.files.items())
@@ -287,6 +296,8 @@ def consumed_without_receipt(batch):
     batch.cloud.move_hook = consume
     batch.run()
     batch.run()
+    assert batch.job()['state'] == 'moving'
+    settle_ambiguous_views(batch)
     assert batch.job()["state"] == "review"
 
 
@@ -462,6 +473,8 @@ def test_both_directories_present_remains_a_conflict_even_with_matching_id(ident
     batch.directory_ids[batch.target] = batch.directory_ids[batch.source]
     batch.store.save(job)
     batch.run()
+    assert batch.job()['state'] == 'moving'
+    settle_ambiguous_views(batch)
     assert batch.job()["state"] == "review" and "同时存在" in batch.job()["message"]
     assert batch.cloud.moves == batch.host.uploads == []
 
@@ -533,6 +546,9 @@ def test_move_timeout_never_replays_or_reuploads(batch, modules, symedia_consume
     engine = modules.engine.Engine(new_store, batch.config, batch.host, batch.cloud, Event())
     engine.process(new_store.get(batch.id))
     assert len(batch.cloud.moves) == 1 and len(batch.host.uploads) == 2
+    if symedia_consumes:
+        assert batch.job()['state'] == 'moving'
+        settle_ambiguous_views(batch)
     assert batch.job()["state"] == ("review" if symedia_consumes else "handed_off")
 
 
@@ -820,6 +836,11 @@ def test_crash_before_move_rpc_resumes_original_directory_only(batch, modules):
     assert batch.job()["move_requested"] and len(batch.host.uploads) == 2
     batch.cloud.move_directory = move
     batch.run()
+    assert batch.cloud.moves == []  # Do not replay during the uncertainty window.
+    with patch('time.time', return_value=time.time() + 61):
+        batch.run()
+    assert batch.job()['state'] == 'moving'  # RPC is followed by a separate read.
+    batch.run()
     assert batch.job()["state"] == "handed_off"
     assert len(batch.cloud.moves) == 1 and len(batch.host.uploads) == 2
 
@@ -839,7 +860,7 @@ def test_temporarily_missing_move_paths_recover_without_reupload(batch, modules)
     files = batch.cloud.files
     batch.cloud.files = {}
     batch.run()
-    assert batch.job()["state"] == "review" and batch.job()["next_check"] > 0
+    assert batch.job()["state"] == "moving" and batch.job()["next_check"] > 0
     batch.cloud.files = files
     batch.run()
     assert batch.job()["state"] == "handed_off"

@@ -103,7 +103,7 @@ def test_three_routes_run_and_pending_job_keeps_old_destination_after_edit(modul
     routes = modules.domain.Config.routes(values)
     rows, torrent_files, downloads = [], {}, {}
     for i, route in enumerate(routes, 1):
-        dest = Path(route.local_root) / "作品" / "video.mkv"
+        dest = Path(route.local_root) / f"作品 (2026) {{tmdb-{i}}}" / "video.mkv"
         dest.parent.mkdir()
         dest.write_bytes(f"video{i}".encode())
         source_root = tmp_path / f"downloads-{i}"
@@ -125,14 +125,19 @@ def test_three_routes_run_and_pending_job_keeps_old_destination_after_edit(modul
         return actual_host(config, chain=chain, storage=NS(),
                            downloads=NS(get_files_by_hash=lambda key, state: downloads[key]),
                            transfers=transfers, extensions={".mkv", ".srt"})
-    cloud = NS(files={}, moves=[], close=Mock())
+    cloud = NS(files={}, moves=[], ids={}, close=Mock())
     cloud.exists = lambda path: any(p.startswith(path + "/") for p in cloud.files)
-    cloud.directory_id = lambda path: ""
+    def directory_id(path):
+        cloud.ids.setdefault(path,str(100+len(cloud.ids)))
+        return cloud.ids[path]
+    cloud.directory_id = directory_id
+    cloud.ensure_directory = lambda path: ""
     cloud.require_inbox = lambda path: None
     cloud.tree = lambda path: {p[len(path)+1:]: v for p,v in cloud.files.items() if p.startswith(path + "/")}
     def move(source, inbox):
         cloud.moves.append((source, inbox))
         destination = inbox + "/" + source.split("/")[-1]
+        cloud.ids[destination]=cloud.ids.pop(source)
         for path in list(cloud.files):
             if path.startswith(source + "/"):
                 cloud.files[destination + path[len(source):]] = cloud.files.pop(path)
@@ -154,8 +159,14 @@ def test_three_routes_run_and_pending_job_keeps_old_destination_after_edit(modul
     monkeypatch.setattr(actual_host, "try_instant", instant)
     p.check_batches()
     jobs = p._store.jobs()
+    assert all(job['state']=='moving' and job['move_requested'] for job in jobs),jobs
+    for job in jobs:
+        job['next_check']=0;p._store.save(job)
+    p.check_batches()
+    jobs=p._store.jobs()
     assert all(job["state"] == "handed_off" for job in jobs), jobs
     assert {inbox for _,inbox in cloud.moves} == {r.inbox for r in routes}
+    assert all(job['handoff_layout']=='work' and '{tmdb-' in job['destination'] for job in jobs)
     assert {j["route_name"] for j in jobs} == {r.name for r in routes}
     p.check_batches()
     assert len(cloud.moves) == 3

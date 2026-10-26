@@ -1,19 +1,23 @@
 """Durable receipts and an OS lock shared by reloads of the same instance."""
 
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import json
+import math
 import os
+import re
 import sqlite3
 import time
 import uuid
 
-from .domain import batch_name
-from .activity import changes, notice_text
+from .domain import batch_name, Awaiting
+from .activity import changes, notice_text, event
 from .media import notification_media
+from .database import CONNECT_TIMEOUT, database_operation
 
 
 class Store:
+    @database_operation
     def __init__(self, directory: Path, event_sink=None):
         self.event_sink = event_sink
         directory.mkdir(parents=True, exist_ok=True)
@@ -58,23 +62,26 @@ class Store:
 
     @contextmanager
     def connect(self):
-        db = sqlite3.connect(self.path, timeout=10)
-        db.execute("PRAGMA synchronous=FULL")
+        db = sqlite3.connect(self.path, timeout=CONNECT_TIMEOUT)
         try:
+            db.execute("PRAGMA synchronous=FULL")
             with db:
                 yield db
         finally:
             db.close()
 
+    @database_operation
     def meta(self, key, default=None):
         with self.connect() as db:
             row = db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
             return json.loads(row[0]) if row else default
 
+    @database_operation
     def set_meta(self, key, value):
         with self.connect() as db:
             db.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, json.dumps(value)))
 
+    @database_operation
     def extend_cloud_cooldown(self, until, reason):
         """A shorter/later callback must never erase an account's active cooldown."""
         with self.connect() as db:
@@ -87,6 +94,22 @@ class Store:
                            (json.dumps(current, ensure_ascii=False),))
             return current
 
+    @database_operation
+    def extend_transient_pause(self):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute("SELECT value FROM meta WHERE key='u115_transient_pause'").fetchone()
+            old = json.loads(row[0]) if row else {}
+            now = time.time()
+            if old.get('until', 0) > now:
+                return old
+            failures = old.get('failures', 0) + 1 if now - old.get('until', 0) < 600 else 1
+            result = {'until': now + min(600, 60 * 2 ** min(failures - 1, 4)),
+                      'failures': failures, 'at': now}
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('u115_transient_pause',?)", (json.dumps(result),))
+            return result
+
+    @database_operation
     def receive_transfer(self, history_id, context=None):
         """Durable, short intake; never changes a media worker's batch snapshot."""
         with self.connect() as db:
@@ -94,6 +117,7 @@ class Store:
                        "ON CONFLICT(history_id) DO UPDATE SET revision=revision+1, next_at=0, missing=0, attempts=0",
                        (int(history_id), time.time(), json.dumps(context or {}, ensure_ascii=False)))
 
+    @database_operation
     def pending_transfers(self, limit=100):
         with self.connect() as db:
             rows = db.execute("SELECT history_id, revision, context, next_at FROM incoming_transfers WHERE missing=0 "
@@ -107,6 +131,7 @@ class Store:
             pending.append((identifier, revision, json.loads(context)))
         return pending
 
+    @database_operation
     def transfer_result(self, history_id, revision, success):
         with self.connect() as db:
             if success:
@@ -116,10 +141,12 @@ class Store:
                 db.execute("UPDATE incoming_transfers SET next_at=?, attempts=attempts+1 WHERE history_id=? AND revision=?",
                            (time.time() + 60, history_id, revision))
 
+    @database_operation
     def incoming_count(self):
         with self.connect() as db:
             return db.execute("SELECT COUNT(*) FROM incoming_transfers WHERE missing=0").fetchone()[0]
 
+    @database_operation
     def stalled_transfers(self):
         with self.connect() as db:
             rows = db.execute("SELECT history_id, revision, context, attempts FROM incoming_transfers "
@@ -131,19 +158,22 @@ class Store:
             stalled.append((identifier, revision, json.loads(context)))
         return stalled
 
+    @database_operation
     def missing_transfer(self, identifier, revision):
         """Keep the original context after a full host-history read confirms deletion."""
         with self.connect() as db:
             db.execute("UPDATE incoming_transfers SET missing=1 WHERE history_id=? AND revision=?",
                        (identifier, revision))
 
+    @database_operation
     def missing_transfer_count(self):
         with self.connect() as db:
             return db.execute("SELECT COUNT(*) FROM incoming_transfers WHERE missing=1").fetchone()[0]
 
+    @database_operation
     def observe(self, *, instance: str, download_hash: str, downloader: str,
                 title: str, history_id: int, routing: dict, route_name: str = "默认路线", cleanup_local=False,
-                inventory_files=None, media=None):
+                inventory_files=None, media=None, handoff_layout="legacy"):
         # A retry/replayed event resolves to the same batch, including after handoff.
         # Routing changes must not make a replayed event look like a new download.
         source_key = json.dumps([downloader, download_hash or f"manual:{history_id}"])
@@ -156,6 +186,8 @@ class Store:
                "state": "waiting", "message": "等待视频与字幕整理完成", "files": [],
                "created": now, "updated": now, "attempts": 0, "next_check": 0}
         job["origin"] = "inventory" if inventory_files is not None else "transfer"
+        if handoff_layout in ('date', 'work'):
+            job['handoff_layout'] = handoff_layout
         if inventory_files is not None:
             job["inventory_files"] = inventory_files
             job["message"] = "已接管现存整理文件，等待核对并上传"
@@ -176,6 +208,7 @@ class Store:
         self._emit(existing, items)
         return existing
 
+    @database_operation
     def restore_origin(self, job):
         """Migrate pre-1.4.1 imports from durable events, without changing sealed jobs."""
         if job.get("origin"):
@@ -186,6 +219,7 @@ class Store:
         job["origin"] = "inventory" if imported and not job.get("files") and not job.get("move_requested") else "transfer"
         self.save(job)
 
+    @database_operation
     def save(self, job):
         if job['state'] in ('handed_off', 'cancelled'):
             job.pop('retry_requested', None)
@@ -225,6 +259,7 @@ class Store:
                        (job["id"], scope, now, json.dumps(payload, ensure_ascii=False)))
         return items
 
+    @database_operation
     def record(self, job, item):
         with self.connect() as db:
             items = self._record(db, job, [item])
@@ -239,12 +274,14 @@ class Store:
                     # Telemetry must not turn a committed upload into a failed upload.
                     pass
 
+    @database_operation
     def events(self, batch, page=0, limit=30):
         with self.connect() as db:
             return [json.loads(r[0]) for r in db.execute(
                 "SELECT body FROM activity WHERE batch=? ORDER BY seq DESC LIMIT ? OFFSET ?",
                 (batch, limit, page * limit))]
 
+    @database_operation
     def pending_notices(self, limit=20):
         with self.connect() as db:
             return [{"id": r[0], "batch": r[1], "attempts": r[2], **json.loads(r[3])} for r in db.execute(
@@ -252,9 +289,19 @@ class Store:
                 "WHERE n.submitted_at=0 AND n.next_at<=? AND b.state!='cancelled' ORDER BY n.id LIMIT ?",
                 (time.time(), limit))]
 
-    def notice_result(self, item, success):
-        now = time.time()
+    @database_operation
+    def notice_result(self, item, success, *, at=None, fingerprint=None):
+        now = time.time() if at is None else at
         with self.connect() as db:
+            row = db.execute("SELECT batch,body,attempts,submitted_at FROM notices WHERE id=?", (item["id"],)).fetchone()
+            if not row or row[0] != item['batch']:
+                raise ValueError("通知回执与原队列记录不一致，已停止发送")
+            if fingerprint is not None:
+                from .delivery import notice_fingerprint
+                if notice_fingerprint(json.loads(row[1])) != fingerprint:
+                    raise ValueError("通知回执内容与原队列记录不一致，已停止发送")
+            if row[3] or (not success and row[2] != item["attempts"]):
+                return  # Commit may have succeeded before its acknowledgement was lost.
             if success:
                 db.execute("UPDATE notices SET submitted_at=? WHERE id=?", (now, item["id"]))
             else:
@@ -264,6 +311,7 @@ class Store:
             db.execute("INSERT INTO activity(batch,at,body) VALUES (?,?,?)", (item["batch"], now, json.dumps(
                 {"kind": "notification", "message": message, "level": "info" if success else "warning", "at": now}, ensure_ascii=False)))
 
+    @database_operation
     def page_jobs(self, page=0, limit=12):
         with self.connect() as db:
             return [json.loads(r[0]) for r in db.execute(
@@ -276,10 +324,12 @@ class Store:
                 "WHEN state!='handed_off' THEN 1 ELSE 2 END, updated DESC, id LIMIT ? OFFSET ?",
                 (time.time(), limit, page * limit))]
 
+    @database_operation
     def counts(self):
         with self.connect() as db:
             return dict(db.execute("SELECT state,COUNT(*) FROM batches GROUP BY state"))
 
+    @database_operation
     def board(self, *, route="", status="all", page=0, limit=12):
         """One read snapshot for route counts, exclusive status buckets and rows.
 
@@ -292,9 +342,13 @@ class Store:
             OR COALESCE(json_extract(body,'$.attempts'),0)>0
             OR COALESCE(json_array_length(body,'$.late_history_ids'),0)>0
             OR COALESCE(json_extract(body,'$.cleanup_error'),'')!=''
+            OR COALESCE(json_extract(body,'$.inbox_cleanup.error'),'')!=''
             OR EXISTS(SELECT 1 FROM json_each(body,'$.files') f
                 WHERE COALESCE(json_extract(f.value,'$.instant_error_since'),0)!=0)
-            OR (state='waiting' AND ?-json_extract(body,'$.created')>=86400)"""
+            OR (state='waiting' AND ?-json_extract(body,'$.created')>=86400)
+            OR (state NOT IN ('handed_off','cancelled')
+                AND COALESCE(json_extract(body,'$.blocked_by.since'),0)>0
+                AND ?-json_extract(body,'$.blocked_by.since')>=1800)"""
         cte = f"""WITH board AS (SELECT *,
             COALESCE(json_extract(body,'$.routing.local_root'),'') AS route,
             CASE WHEN state='cancelled' THEN 'closed' WHEN {attention_sql} THEN 'attention'
@@ -307,47 +361,233 @@ class Store:
                                 "MAX(json_extract(body,'$.route_name')), COUNT(*) "
                                 "FROM batches GROUP BY json_extract(body,'$.routing.local_root')").fetchall()
             counts = dict(db.execute(cte + "SELECT bucket,COUNT(*) FROM board WHERE (?='' OR route=?) GROUP BY bucket",
-                                     (now, route, route)))
+                                     (now, now, route, route)))
             total = sum(counts.values()) if status == "all" else counts.get(status, 0)
             page = min(max(0, page), max(0, (total - 1) // limit))
             rows = db.execute(cte + "SELECT body FROM board WHERE (?='' OR route=?) "
                               "AND (?='all' OR bucket=?) ORDER BY CASE bucket WHEN 'attention' THEN 0 "
                               "WHEN 'active' THEN 1 ELSE 2 END, updated DESC,id LIMIT ? OFFSET ?",
-                              (now, route, route, status, status, limit, page * limit)).fetchall()
+                              (now, now, route, route, status, status, limit, page * limit)).fetchall()
         return {"routes": [{"root": r[0] or "", "name": r[1] or "默认路线", "count": r[2]} for r in routes],
                 "counts": {"all": sum(counts.values()), **counts}, "total": total, "page": page,
                 "jobs": [json.loads(row[0]) for row in rows]}
 
+    @database_operation
     def source_keys(self):
         with self.connect() as db:
             return {tuple(json.loads(r[0])) for r in db.execute("SELECT source_key FROM batches")}
 
+    @database_operation
     def cleanup_jobs(self):
         with self.connect() as db:
             return [json.loads(r[0]) for r in db.execute(
                 "SELECT body FROM batches WHERE state='handed_off' AND json_extract(body,'$.cleanup_local')=1 "
                 "AND COALESCE(json_extract(body,'$.cleanup_done'),0)=0 AND COALESCE(json_extract(body,'$.cleanup_next'),0)<=? LIMIT 3", (time.time(),))]
 
+    @database_operation
     def notice_counts(self, batch):
         with self.connect() as db:
             return db.execute("SELECT COUNT(*),COALESCE(SUM(submitted_at>0),0) FROM notices WHERE batch=?", (batch,)).fetchone()
 
+    @database_operation
     def get(self, identifier):
         with self.connect() as db:
             row = db.execute("SELECT body FROM batches WHERE id=?", (identifier,)).fetchone()
             return json.loads(row[0]) if row else None
 
+    @database_operation
     def jobs(self, limit=None):
         with self.connect() as db:
             return [json.loads(row[0]) for row in db.execute(
                 "SELECT body FROM batches ORDER BY updated DESC, id LIMIT ?", (limit or -1,))]
 
+    def queue_duplicate_reviews(self):
+        """One-time upgrade recovery; never reset per-file deadlines or receipts."""
+        if self.meta("duplicate_isolation_v1", False):
+            return
+        for job in self.jobs():
+            if (job["state"] != "review" or job.get("move_requested") or
+                    job.get("routing", {}).get("storage") != "u115" or
+                    not job.get("message", "").startswith(("暂存批次出现清单外文件", "云端清单尚未一致"))):
+                continue
+            job.update(next_check=0, retry_requested=time.time())
+            self.save(job)
+            self.record(job, event("duplicate_upgrade", "升级已安排自动核对重复副本；原 HASH、回执和重试期限保留"))
+        self.set_meta("duplicate_isolation_v1", True)
+
+    @database_operation
     def due(self, limit=3):
         with self.connect() as db:
             return [json.loads(row[0]) for row in db.execute(
                 "SELECT body FROM batches WHERE state NOT IN ('handed_off','cancelled') AND next_check <= ? "
                 "ORDER BY updated, id LIMIT ?", (time.time(), limit))]
 
+    @database_operation
+    def remember_inbox_date(self, path, directory_id):
+        directory_id = str(directory_id or '')
+        if not re.fullmatch(r'[1-9][0-9]{0,39}', directory_id):
+            raise Awaiting('日期目录缺少稳定 ID，稍后重新核对')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute("SELECT value FROM meta WHERE key='inbox_date_owners'").fetchone()
+            owners = json.loads(row[0]) if row else {}
+            row = db.execute("SELECT value FROM meta WHERE key='inbox_date_generations'").fetchone()
+            generations = json.loads(row[0]) if row else {}
+            known = generations.setdefault(path, [])
+            # A date path can be recreated after its previous directory disappears.
+            # Keep every proven-created identity, including the immutable legacy
+            # owner. Registration is not evidence that the old directory was deleted.
+            for ident in (owners.get(path), directory_id):
+                if ident and ident not in known:
+                    known.append(ident)
+            owners.setdefault(path, directory_id)
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('inbox_date_owners',?)", (json.dumps(owners),))
+            db.execute("INSERT OR REPLACE INTO meta VALUES ('inbox_date_generations',?)", (json.dumps(generations),))
+
+    @database_operation
+    def owned_inbox_date(self, path, directory_id=None):
+        with self.connect() as db:
+            rows = dict(db.execute("SELECT key,value FROM meta WHERE key IN ('inbox_date_owners','inbox_date_generations')"))
+        owners = json.loads(rows.get('inbox_date_owners', '{}'))
+        generations = json.loads(rows.get('inbox_date_generations', '{}'))
+        legacy = owners.get(path)
+        ident = str(directory_id) if directory_id else legacy
+        return ident if ident and (ident == legacy or ident in generations.get(path, [])) else None
+
+    @database_operation
+    def pending_destination(self, parent):
+        with self.connect() as db:
+            return bool(db.execute("SELECT 1 FROM batches WHERE state NOT IN ('handed_off','cancelled') "
+                "AND substr(json_extract(body,'$.destination'),1,?)=? LIMIT 1",
+                (len(parent) + 1, parent + '/')).fetchone())
+
+    @staticmethod
+    def work_holding_path(job, unit, kind):
+        """Canonical retired path derived only from the pinned route and unit."""
+        routing = job.get('routing') or {}
+        prefix = str(routing.get('cd2_prefix') or '').rstrip('/')
+        staging = str(routing.get('staging') or '')
+        name = PurePosixPath(str(unit.get('destination') or '')).name
+        return str(PurePosixPath(prefix + staging) / '_空目录清理' /
+                   str(job.get('id') or '') / str(kind) / name)
+
+    @staticmethod
+    def work_release_valid(job, unit, index):
+        """A unit name is reusable only with a journal-consistent, proven release."""
+        cleanup = unit.get('cleanup') or {}
+        if cleanup.get('done'):
+            return True
+        ident = str(unit.get('id') or '')
+        if not ident or str(cleanup.get('released_directory_id') or '') != ident:
+            return False
+        try:
+            released_at = float(cleanup.get('inbox_released_at') or 0)
+        except (TypeError, ValueError):
+            return False
+        if (not re.fullmatch(r'[1-9][0-9]{0,39}', ident) or not math.isfinite(released_at)
+                or released_at <= 0 or cleanup.get('phase') not in ('holding', 'recycling')):
+            return False
+        if cleanup.get('source') != unit.get('destination'):
+            return False
+        if str(cleanup.get('id') or '') != ident:
+            return False
+        return cleanup.get('holding') == Store.work_holding_path(job, unit, 'work' + str(index))
+
+    @staticmethod
+    def _work_block_reason(unit, cleanup_enabled):
+        phase = unit.get('phase')
+        cleanup = unit.get('cleanup') or {}
+        if phase == 'requested':
+            return 'requested_move_pending'
+        if phase == 'prepared':
+            return 'prepared_earlier'
+        if phase == 'arrived':
+            if cleanup_enabled is False:
+                return 'cleanup_disabled'
+            if cleanup.get('phase') in ('holding', 'recycling'):
+                return 'retired_pending_recycle'
+            return 'arrived_cleanup_pending'
+        return 'unit_' + str(phase or 'unknown')
+
+    @database_operation
+    def work_blocker_details(self, job, destination, cleanup_enabled=None):
+        """Explain the first same-destination veto; work_blocker keeps its id API."""
+        with self.connect() as db:
+            rows = db.execute("SELECT body FROM batches WHERE id!=? AND state!='cancelled'", (job['id'],)).fetchall()
+        rank = (job.get('work_plan_at', 0), job['id'])
+        for raw, in rows:
+            other = json.loads(raw)
+            for index, unit in enumerate(other.get('work_handoffs', [])):
+                if unit.get('destination') != destination or self.work_release_valid(other, unit, index):
+                    continue
+                if unit.get('phase') != 'prepared' or (other.get('work_plan_at', 0), other['id']) < rank:
+                    return {'batch': other['id'], 'destination': destination,
+                            'reason': self._work_block_reason(unit, cleanup_enabled)}
+        return None
+
+    def work_blocker(self, job, destination):
+        """Compatibility API: batch id, or None. Use work_blocker_details for reason."""
+        detail = self.work_blocker_details(job, destination)
+        return detail['batch'] if detail else None
+
+    @database_operation
+    def work_cleanup_jobs(self):
+        """Cleanup follows the arrived unit, not a whole-batch handed_off verdict."""
+        with self.connect() as db:
+            return [json.loads(row[0]) for row in db.execute(
+                "SELECT body FROM batches WHERE state NOT IN ('cancelled','deleting') "
+                "AND COALESCE(json_array_length(body,'$.work_handoffs'),0)>0 "
+                "AND COALESCE(json_extract(body,'$.inbox_cleanup.next_at'),0)<=? "
+                "AND EXISTS (SELECT 1 FROM json_each(body,'$.work_handoffs') u "
+                "  WHERE json_extract(u.value,'$.phase')='arrived' "
+                "  AND COALESCE(json_extract(u.value,'$.cleanup.done'),0)=0) "
+                "ORDER BY COALESCE(json_extract(body,'$.inbox_cleanup.next_at'),0),updated,id LIMIT 3",
+                (time.time(),))]
+
+    @database_operation
+    def maintenance_move_jobs(self, limit=3, exclude=()):
+        """Fresh move-only queue: no hashing, collection, upload, or cleanup side effects."""
+        excluded = tuple(str(item) for item in exclude)
+        query = ("SELECT body FROM batches WHERE state IN ('moving','waiting','retrying','review') "
+                 "AND COALESCE(json_extract(body,'$.move_requested'),0)=1 "
+                 "AND COALESCE(json_array_length(body,'$.work_handoffs'),0)>0 "
+                 "AND next_check<=? "
+                 "AND (state!='review' OR next_check<=?) ")
+        params = [time.time(), time.time()]
+        if excluded:
+            query += "AND id NOT IN (%s) " % ','.join('?' for _ in excluded)
+            params.extend(excluded)
+        query += ("ORDER BY CASE "
+                  "WHEN EXISTS (SELECT 1 FROM json_each(body,'$.work_handoffs') u "
+                  "  WHERE json_extract(u.value,'$.phase')='requested') THEN 0 "
+                  "WHEN EXISTS (SELECT 1 FROM json_each(body,'$.work_handoffs') u "
+                  "  WHERE json_extract(u.value,'$.phase')='prepared') THEN 2 ELSE 1 END, "
+                  "next_check,updated,id LIMIT ?")
+        params.append(max(0, int(limit)))
+        with self.connect() as db:
+            return [json.loads(row[0]) for row in db.execute(query, params)]
+
+
+    @database_operation
+    def pending_inbox_path(self, path):
+        from .domain import nested
+        with self.connect() as db:
+            jobs = [json.loads(r[0]) for r in db.execute("SELECT body FROM batches WHERE state NOT IN ('handed_off','cancelled')")]
+        return any(nested(path, target) for job in jobs
+                   for target in ([job['destination']] if job.get('destination') else [])
+                   + [u['destination'] for u in job.get('work_handoffs', [])])
+
+    @database_operation
+    def housekeeping_jobs(self, retention):
+        with self.connect() as db:
+            return [json.loads(row[0]) for row in db.execute("SELECT body FROM batches WHERE state='handed_off' "
+                "AND json_extract(body,'$.handed_off_at')<=? "
+                "AND COALESCE(json_extract(body,'$.inbox_cleanup.done'),0)=0 "
+                "AND COALESCE(json_extract(body,'$.inbox_cleanup.next_at'),0)<=? "
+                "ORDER BY COALESCE(json_extract(body,'$.inbox_cleanup.next_at'),0),updated LIMIT 3",
+                (time.time() - retention * 86400, time.time()))]
+
+    @database_operation
     def pending_routings(self):
         with self.connect() as db:
             return [json.loads(row[0]) for row in db.execute(

@@ -1,6 +1,7 @@
 """MoviePilot V2: upload a complete native transfer batch, then hand it to Symedia."""
 
 from dataclasses import dataclass
+from copy import copy
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import Event, RLock, Lock
@@ -9,7 +10,7 @@ import time
 from typing import Literal
 
 from apscheduler.triggers.interval import IntervalTrigger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.event import eventmanager
 from app.log import logger
@@ -25,6 +26,8 @@ from .media import history_media
 from .instant import MAX_INSTANT_ATTEMPTS
 from .cooldown import Cooldown
 from .store import Store
+from .database import StoreBusy
+from .delivery import stage_result, recover_result
 from .activity import attention, event, when
 from .page import render_page
 from .inventory import scan as scan_inventory
@@ -32,6 +35,7 @@ from .cleanup import cleanup, cleanup_failure
 from .recovery import recovery_path
 from . import disposal
 from .ownership import append_transfer, migrate_sealed
+from . import housekeeping
 
 
 @dataclass
@@ -43,6 +47,8 @@ class Runtime:
     store: Store
     routes: tuple = ()
     cleanup_local: bool = False
+    maintenance_at: float = 0
+    maintaining: bool = False
 
 
 class RetryRequest(BaseModel):
@@ -78,11 +84,25 @@ class RecoveryRequest(BaseModel):
     verify: bool = False
 
 
+class UIRequest(BaseModel):
+    action: Literal['view', 'retry', 'scan', 'import', 'dispose', 'recovery'] = 'view'
+    view: ViewRequest = Field(default_factory=ViewRequest)
+    params: dict = Field(default_factory=dict)
+
+    @model_validator(mode='after')
+    def validate_action(self):
+        schemas = {'view': ViewRequest, 'retry': RetryRequest, 'import': ImportRequest,
+                   'dispose': DisposalRequest, 'recovery': RecoveryRequest}
+        if self.action in schemas:
+            self.params = schemas[self.action](**self.params).model_dump()
+        return self
+
+
 class SymediaBatchBridge(_PluginBase):
     plugin_name = "115秒传助手"
     plugin_desc = "多目录秒传视频与字幕，按小时自动重试，齐套后通过 CD2 整目录交给 Symedia。"
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/115InstantUpload.png"
-    plugin_version = "1.6.0"
+    plugin_version = "1.9.2"
     plugin_author = "eitelkeit0708"
     author_url = "https://github.com/eitelkeit0708/MoviePilot-Plugins"
     plugin_config_prefix = "symediabatchbridge_"
@@ -99,6 +119,9 @@ class SymediaBatchBridge(_PluginBase):
         self._action_message = ""
         self._notify = True
         self._notifying = Lock()
+        self._notice_result_pending = None
+        self._notice_blocked = False
+        self._notice_warning_at = None
         self._view = ViewRequest()
         self._heartbeat = 0
         self._delete_local = False
@@ -121,6 +144,15 @@ class SymediaBatchBridge(_PluginBase):
             if not config or not config.get("enabled"):
                 logger.info(f"{self.plugin_name}：未启用，保留已有处理记录")
                 return
+            hold = self._store.meta('queue_repair_hold_192')
+            if hold and not hold.get('restored_at'):
+                with self._store.worker_lock() as acquired:
+                    if acquired:
+                        held = self._store.get(hold['id'])
+                        if held and held['state'] not in ('handed_off', 'cancelled', 'deleting'):
+                            held.update(next_check=0, message='升级后正在复核旧批次附件范围；保留原 HASH 与回执')
+                            self._store.save(held)
+                        self._store.set_meta('queue_repair_hold_192', {**hold, 'restored_at': time.time()})
             try:
                 routes = Config.routes(config)
                 parsed = routes[0]
@@ -128,6 +160,7 @@ class SymediaBatchBridge(_PluginBase):
                 stop = Event()
                 host.bind_cooldown(Cooldown(self._store), stop)
                 cloud = CD2(parsed, stop)
+                cloud.guard = host.cooldown if hasattr(host, 'cooldown') else Cooldown(self._store)
                 runtime = Runtime(parsed, host, cloud, stop, self._store, routes, self._delete_local)
                 self._runtime = runtime
                 if config.get("scan_existing_once"):
@@ -221,6 +254,9 @@ class SymediaBatchBridge(_PluginBase):
         def dispose(request: DisposalRequest, _admin=Depends(administrator)):
             return self.dispose_batch(request)
 
+        def ui(request: UIRequest, _admin=Depends(administrator)):
+            return self.ui_action(request)
+
         return [{"path": "/retry", "endpoint": retry,
                  "methods": ["POST"], "summary": "重新检查批次", "auth": "bear"},
                 {"path": "/view", "endpoint": view,
@@ -232,7 +268,41 @@ class SymediaBatchBridge(_PluginBase):
                 {"path": "/dispose", "endpoint": dispose,
                  "methods": ["POST"], "summary": "处理异常批次与孤立字幕", "auth": "bear"},
                 {"path": "/recovery", "endpoint": recovery,
-                 "methods": ["POST"], "summary": "核对批次归档目录", "auth": "bear"}]
+                 "methods": ["POST"], "summary": "核对批次归档目录", "auth": "bear"},
+                {"path": "/ui", "endpoint": ui,
+                 "methods": ["POST"], "summary": "局部更新处理页面", "auth": "bear"}]
+
+    def ui_action(self, request: UIRequest):
+        # Only presentation fields are request-local. Workers, locks and durable
+        # state stay shared; browsing in another tab cannot change this view.
+        presenter = copy(self)
+        presenter._view = request.view
+        presenter._action_message = ''
+        presenter._recovery_browser = None
+        handlers = {
+            'view': (presenter.view_records, ViewRequest),
+            'retry': (presenter.retry_batch, RetryRequest),
+            'dispose': (presenter.dispose_batch, DisposalRequest),
+            'import': (presenter.import_existing, ImportRequest),
+            'recovery': (presenter.recover_batch, RecoveryRequest),
+        }
+        if request.action == 'scan':
+            result = presenter.scan_existing()
+        else:
+            method, schema = handlers[request.action]
+            result = method(schema(**request.params))
+        message = result.message or presenter._action_message
+        # Show the action result next to the clicked control in the Vue page.
+        presenter._action_message = ''
+        return {'success': result.success, 'message': message,
+                'view': presenter._view.model_dump(), 'page': presenter.get_page()}
+
+    def get_render_mode(self):
+        # Older V2 frontends do not pass pluginId to remote components. Keep
+        # clones on their instance-aware native UI instead of targeting source.
+        if self.__class__.__name__ != 'SymediaBatchBridge':
+            return 'vuetify', ''
+        return 'vue', 'dist/assets'
 
     def view_records(self, request: ViewRequest) -> Response:
         self._recovery_browser = None
@@ -368,7 +438,18 @@ class SymediaBatchBridge(_PluginBase):
             with runtime.store.notification_lock() as acquired:
                 if not acquired or runtime.stop.is_set():
                     return
-                for notice in runtime.store.pending_notices():
+                if self._notice_result_pending:
+                    store, notice, success, at = self._notice_result_pending
+                    stage_result(store, notice, success, at)
+                    self._notice_result_pending = None
+                    recover_result(store)
+                recover_result(runtime.store)
+                notices = runtime.store.pending_notices()
+                if self._notice_blocked:
+                    logger.info(f"{self.plugin_name}：通知队列连接已恢复，继续提交待处理通知")
+                    self._notice_blocked = False
+                    self._notice_warning_at = None
+                for notice in notices:
                     if runtime.stop.is_set():
                         break
                     current = runtime.store.get(notice['batch'])
@@ -380,11 +461,27 @@ class SymediaBatchBridge(_PluginBase):
                         self.post_message(mtype=NotificationType.Plugin, title=notice["title"], text=notice["text"],
                                           image=notice.get("image"))
                     except Exception:
-                        runtime.store.notice_result(notice, False)
-                        logger.warning(f"{self.plugin_name} [{notice['batch']}] 通知提交失败，将自动重试")
+                        success = False
                     else:
-                        runtime.store.notice_result(notice, True)
+                        success = True
+                    # The host call is never part of SQLite's retry boundary.
+                    # Retain its result even if the journal filesystem is briefly unavailable.
+                    self._notice_result_pending = (runtime.store, notice, success, time.time())
+                    stage_result(*self._notice_result_pending)
+                    self._notice_result_pending = None
+                    recover_result(runtime.store)
+                    if success:
                         logger.info(f"{self.plugin_name} [{notice['batch']}] {notice['title']}：已提交 MP 通知队列")
+                    else:
+                        logger.warning(f"{self.plugin_name} [{notice['batch']}] 通知提交失败，将自动重试")
+        except (StoreBusy, OSError, ValueError):
+            # Busy SQLite leaves the original queue/receipt intact. Malformed
+            # receipts and filesystem faults remain visible; never discard them.
+            self._notice_blocked = True
+            now = time.monotonic()
+            if self._notice_warning_at is None or now - self._notice_warning_at >= 60:
+                logger.warning(f"{self.plugin_name}：通知队列或回执暂不可用，已保留进度，下轮自动重试；持续失败时请检查插件数据目录")
+                self._notice_warning_at = now
         finally:
             self._notifying.release()
 
@@ -402,7 +499,7 @@ class SymediaBatchBridge(_PluginBase):
             title=str(value(row, "title") or Path(str(value(row, "dest") or "")).stem),
             history_id=int(value(row, "id")), routing=route.routing(), route_name=route.name,
             cleanup_local=runtime.cleanup_local if cleanup_local is None else cleanup_local,
-            inventory_files=inventory_files, media=history_media(row))
+            inventory_files=inventory_files, media=history_media(row), handoff_layout='work')
         if (value(row, "status") and not job.get('move_requested')
                 and job['state'] not in ('handed_off', 'cancelled', 'deleting')):
             owned = bool(job.get("owned_candidates"))
@@ -412,8 +509,9 @@ class SymediaBatchBridge(_PluginBase):
             if job.get("owned_candidates"):
                 config = runtime.config.pinned(job["routing"])
                 appended = append_transfer(job, config, {"local": str(value(row, "dest")),
+                                           "source": str(value(row, 'src') or ''),
                                            "history_id": int(value(row, "id")), "media": history_media(row)})
-                if appended or not owned:
+                if appended or not owned or job.get('excluded_attachments'):
                     runtime.store.save(job)
                 if appended:
                     runtime.store.record(job, event("attachment", "已纳入新增的 MP 整理文件",
@@ -524,6 +622,7 @@ class SymediaBatchBridge(_PluginBase):
             if not acquired or runtime.stop.is_set():
                 return
             try:
+                self._maintain(runtime, force=True)
                 self._receive_pending(runtime)
                 if runtime.store.meta("inventory_pending", False):
                     try:
@@ -556,6 +655,7 @@ class SymediaBatchBridge(_PluginBase):
                         runtime.store.set_meta("inventory_status", {"state": "retrying", "at": time.time(),
                                                "message": "存量检查未完成，请求已保留，下轮自动重试"})
                         logger.warning(f"{self.plugin_name}：一次性存量检查未完成，保留请求，下次继续")
+                runtime.store.queue_duplicate_reviews()
                 history_ok = True
                 try:
                     history_ok = self._recover_history(runtime) is not False
@@ -566,6 +666,11 @@ class SymediaBatchBridge(_PluginBase):
                 # Finite work per scheduler tick; old waiting tasks rotate behind others.
                 routings = runtime.store.pending_routings()
                 for job in runtime.store.due():
+                    # Cooperative maintenance can finish another due move while
+                    # hashing. Never replay an old snapshot over its new receipt.
+                    job = runtime.store.get(job['id'])
+                    if not job or job['state'] in ('handed_off', 'cancelled') or job.get('next_check', 0) > time.time():
+                        continue
                     if runtime.stop.is_set():
                         break
                     if job["state"] == "deleting":
@@ -588,7 +693,8 @@ class SymediaBatchBridge(_PluginBase):
                                     raise BridgeError("新旧路线的暂存与待归档目录重叠，等待修正配置", review=True)
                         engine = Engine(runtime.store, config, runtime.host.for_config(config), runtime.cloud, runtime.stop,
                                         protected_routings=[r.routing() for r in runtime.routes],
-                                        receive_pending=lambda: self._receive_before_handoff(runtime))
+                                        receive_pending=lambda: self._receive_before_handoff(runtime),
+                                        maintenance=lambda key=job['id']: self._maintain(runtime, exclude=(key,)))
                     except (BridgeError, ValueError) as error:
                         engine._failure(job, str(error), True)
                         self._notify_issue(runtime, job)
@@ -596,6 +702,7 @@ class SymediaBatchBridge(_PluginBase):
                     engine.process(job)
                     self._notify_issue(runtime, job)
                     self._receive_pending(runtime)
+                    self._maintain(runtime)
                 for job in runtime.store.cleanup_jobs():
                     if runtime.stop.is_set():
                         break
@@ -609,6 +716,10 @@ class SymediaBatchBridge(_PluginBase):
                         cleanup_failure(runtime.store, job, str(error))
                     except Exception:
                         cleanup_failure(runtime.store, job, "本批次清理暂时失败，保留本地副本，下次自动重试")
+                self._maintain(runtime, force=True)
+                if not runtime.stop.is_set():
+                    from .inboxsweep import advance
+                    advance(runtime.store, runtime.routes, runtime.host, runtime.cloud, runtime.stop)
                 if not runtime.stop.is_set():
                     self._message = ("运行中" if history_ok else
                                      "正在接收整理记录，已入队批次继续处理" if runtime.store.incoming_count() else
@@ -626,8 +737,66 @@ class SymediaBatchBridge(_PluginBase):
                     self._message = "本轮批次检查未完成，下次检查会重试"
                     logger.warning(f"{self.plugin_name}：{self._message}")
 
+    def _maintain(self, runtime, *, force=False, exclude=()):
+        """Control work on the existing media owner, including during long HASH.
+
+        Cleanup and saved moves have bounded RPCs and no file hashing. This is a
+        cooperative pump, not another media thread or a second SQLite owner.
+        """
+        if runtime.stop.is_set() or getattr(runtime, 'maintaining', False):
+            return
+        now = time.monotonic()
+        if not force and getattr(runtime, 'maintenance_at', 0) and now - runtime.maintenance_at < 60:
+            return
+        runtime.maintaining = True
+        try:
+            protected = [r.routing() for r in runtime.routes] + runtime.store.pending_routings()
+            if runtime.config.cleanup_inbox:
+                jobs = runtime.store.work_cleanup_jobs() + runtime.store.housekeeping_jobs(runtime.config.inbox_retention_days)
+                for job in {j['id']: j for j in jobs}.values():
+                    if job['id'] in exclude or runtime.stop.is_set():
+                        continue
+                    try:
+                        config = runtime.config.pinned(job['routing'])
+                        housekeeping.process(job, config, runtime.host.for_config(config), runtime.cloud,
+                                             runtime.store, runtime.stop, protected_routings=protected)
+                    except Stopped:
+                        raise
+                    except (BridgeError, ValueError):
+                        # Keep the receipt and advance the other independent work.
+                        continue
+            select = getattr(runtime.store, 'maintenance_move_jobs', None)
+            for job in (select(limit=3, exclude=exclude) if callable(select) else []):
+                if runtime.stop.is_set():
+                    break
+                job = runtime.store.get(job['id'])
+                if not job or job['id'] in exclude or job['state'] in ('handed_off', 'cancelled', 'deleting'):
+                    continue
+                try:
+                    config = runtime.config.pinned(job['routing'])
+                    engine = Engine(runtime.store, config, runtime.host.for_config(config), runtime.cloud,
+                                    runtime.stop, protected_routings=protected)
+                    engine.process(job)
+                    self._notify_issue(runtime, job)
+                except Stopped:
+                    raise
+                except (BridgeError, ValueError):
+                    continue
+        except Stopped:
+            raise
+        except Exception:
+            # An unavailable maintenance RPC/ledger must not abort local HASH.
+            # Its durable receipts remain scheduled for the next control pass.
+            logger.warning(f'{self.plugin_name}：目录维护暂缓，已保留回执，下轮自动继续')
+        finally:
+            runtime.maintenance_at = time.monotonic()
+            runtime.maintaining = False
+
     def _notify_issue(self, runtime, job):
+        from .activity import notification_grace
         if not self._notify or runtime.stop.is_set():
+            return
+        if notification_grace(job):
             return
         if not attention(job) or time.time() - job.get("notified_at", 0) < 86400:
             return
@@ -676,7 +845,9 @@ class SymediaBatchBridge(_PluginBase):
 
         defaults = {"enabled": False, "notify": True, "storage": "u115", "interval": 1,
                     "route_count": 1, "cd2_prefix": "", "cd2_address": "", "cd2_token": "",
-                    "delete_local": False, "scan_existing_once": False}
+                    "delete_local": False, "scan_existing_once": False,
+                    'cleanup_inbox': False, 'inbox_retention_days': 7,
+                    'first_upload_delay': True, 'first_upload_delay_minutes': 60}
         route_cards = []
         fields = ("route_name", "local_root", "staging", "inbox")
         for index in range(1, 17):
@@ -716,6 +887,15 @@ class SymediaBatchBridge(_PluginBase):
                 field("cd2_address", "CD2 gRPC 地址", "http://cd2:19798"),
                 field("cd2_token", "CD2 API 令牌", type="password", autocomplete="off"),
                 field("interval", "检查间隔（分钟）", type="number", min=1, max=60),
+                {"component":"VCol", "props":{"cols":12}, "content":[
+                    {"component":"VSwitch", "props":{"model":"first_upload_delay", "label":"首次 SHA 计算完成后延迟上传",
+                     "hint":"仅应用于之后首次计算 SHA 的文件；每个文件独立计时，已有上传记录与重试时间保留。", "persistentHint":True}}]},
+                field('first_upload_delay_minutes', '首次上传延迟（分钟）', type='number', min=1, max=10080,
+                      disabled='{{ !model.first_upload_delay }}'),
+                {"component":"VCol", "props":{"cols":12}, "content":[
+                    {"component":"VSwitch", "props":{"model":"cleanup_inbox", "label":"定期清理已移交的空目录",
+                     "hint":"作品目录间隔至少 5 分钟两次核实为空后退役回收；旧批次遵循保留天数。含任何文件的目录保留。", "persistentHint":True}}]},
+                field('inbox_retention_days', '旧布局空目录保留天数', type='number', min=1, max=365),
                 {"component": "VCol", "props": {"cols": 12}, "content": [
                     {"component": "VSwitch", "props": {"model": "notify", "label": "MP 通知：移交成功、处理异常、转普通上传"}}]},
                 {"component": "VCol", "props": {"cols": 12}, "content": [

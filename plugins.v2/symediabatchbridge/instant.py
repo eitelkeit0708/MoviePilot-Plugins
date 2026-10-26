@@ -64,6 +64,10 @@ def try_instant(provider, parent_id, entry, stop, request=None):
         return response["data"]
 
     result = initialize()
+    if result.get("status") == 2:
+        # A completed write is terminal even if a stale challenge code remains.
+        # Never repeat a completed write just because a stale challenge is present.
+        return {"size": entry["size"], "fileid": str(result.get("file_id") or ""), "method": "instant"}
     if result.get("code") in (700, 701):
         try:
             start, end = map(int, result["sign_check"].split("-"))

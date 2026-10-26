@@ -40,6 +40,13 @@ def test_native_second_verification_and_hit(modules, entry):
     assert requests[1]["sign_val"] == sha1(b"deo-").hexdigest().upper()
 
 
+def test_completed_initialization_is_terminal_even_with_stale_challenge(modules, entry):
+    request=Mock(return_value={'state':True,'data':{
+        'status':2,'code':701,'file_id':'987','sign_key':'obsolete','sign_check':'2-5'}})
+    assert modules.instant.try_instant(NS(_request_api=request),'123',entry,Event())['fileid']=='987'
+    request.assert_called_once()
+
+
 @pytest.mark.parametrize("response", [None, {}, {"state": False}, {"state": True, "data": None},
     {"state": True, "data": {"status": 1}}, {"state": True, "data": {"status": 9}},
     {"state": True, "data": {"code": 701, "sign_check": "-2-3", "sign_key": "x"}},

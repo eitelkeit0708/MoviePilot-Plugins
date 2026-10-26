@@ -60,6 +60,10 @@ class Config:
     cd2_token: str
     interval: int = 1
     name: str = "默认路线"
+    cleanup_inbox: bool = False
+    inbox_retention_days: int = 7
+    first_upload_delay: bool = True
+    first_upload_delay_minutes: int = 60
 
     @classmethod
     def parse(cls, values: dict):
@@ -94,8 +98,21 @@ class Config:
         interval = int(values.get("interval", 1))
         if not 1 <= interval <= 60:
             raise ValueError("检查间隔应为 1–60 分钟")
+        retention = int(values.get('inbox_retention_days', 7))
+        if not 1 <= retention <= 365:
+            raise ValueError('空目录保留期应为 1–365 天')
+        try:
+            raw_delay = values.get('first_upload_delay_minutes', 60)
+            delay_minutes = int(raw_delay)
+            if (isinstance(raw_delay, bool) or (isinstance(raw_delay, float) and raw_delay != delay_minutes)
+                    or not 1 <= delay_minutes <= 10080):
+                raise ValueError()
+        except (ValueError, TypeError, OverflowError):
+            raise ValueError('首次上传延迟应为 1–10080 分钟') from None
         return cls(str(local), storage, staging, prefix, inbox, address, token, interval,
-                   str(values.get("name") or values.get("route_name") or "默认路线").strip()[:80])
+                   str(values.get("name") or values.get("route_name") or "默认路线").strip()[:80],
+                   bool(values.get('cleanup_inbox', False)), retention,
+                   bool(values.get('first_upload_delay', True)), delay_minutes)
 
     @classmethod
     def routes(cls, values: dict):
@@ -127,7 +144,10 @@ class Config:
         if routing.get("storage") != "u115":
             raise BridgeError("旧批次需确认 MP 内置 115 与 CD2 使用同一账号，再切换上传接口", review=True)
         pinned = self.parse({**routing, "cd2_token": self.cd2_token,
-                             "interval": self.interval, "name": self.name})
+                             "interval": self.interval, "name": self.name,
+                             'cleanup_inbox': self.cleanup_inbox, 'inbox_retention_days': self.inbox_retention_days,
+                             'first_upload_delay': self.first_upload_delay,
+                             'first_upload_delay_minutes': self.first_upload_delay_minutes})
         if pinned.routing() != routing:
             raise BridgeError("原目录解析结果已变化，已暂停本批次", review=True)
         return pinned
@@ -147,9 +167,22 @@ class Config:
         root = Path(self.local_root)
         try:
             relative = path.relative_to(root)
+        except ValueError:
+            raise BridgeError("整理文件不在配置的本地目录中：" + str(path), review=True) from None
+        try:
             path.resolve(strict=True).relative_to(root)
-        except (ValueError, OSError):
-            raise BridgeError("整理文件不存在或不在配置的本地目录中", review=True)
+        except FileNotFoundError:
+            # Missing media is not evidence of a lost mount. Check the configured
+            # root before explaining the failure, without looking elsewhere.
+            from .localfiles import available
+            available(self)
+            raise BridgeError("整理目录可访问，但文件已缺失：" + relative.as_posix(), review=True) from None
+        except PermissionError:
+            raise BridgeError("无权读取本地整理文件：" + relative.as_posix(), review=True) from None
+        except OSError:
+            raise BridgeError("本地整理文件暂时无法读取：" + relative.as_posix()) from None
+        except ValueError:
+            raise BridgeError("整理文件解析后越出配置目录：" + str(path), review=True) from None
         cursor = root
         for part in relative.parts:
             cursor = cursor / part
@@ -167,7 +200,7 @@ def file_signature(path: Path) -> list:
     return [stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_dev, stat.st_ino]
 
 
-def freeze_file(path: str, relative: str, stop: Event, progress=None) -> dict:
+def freeze_file(path: str, relative: str, stop: Event, progress=None, validator=None) -> dict:
     source = Path(path)
     before = file_signature(source)
     digest, prefix = sha1(), sha1()
@@ -179,6 +212,8 @@ def freeze_file(path: str, relative: str, stop: Event, progress=None) -> dict:
         while block := stream.read(4 * 1024 * 1024):
             check_stop(stop)
             digest.update(block)
+            if validator is not None:
+                validator.update(block)
             if prefix_remaining:
                 prefix.update(block[:prefix_remaining])
                 prefix_remaining = max(0, prefix_remaining - len(block))
@@ -187,6 +222,8 @@ def freeze_file(path: str, relative: str, stop: Event, progress=None) -> dict:
                 progress(processed, before[0])
     if before != file_signature(source):
         raise Awaiting("文件仍在变化，稍后重新核对")
+    if validator is not None:
+        validator.finish()
     return {"local": path, "relative": relative, "size": before[0],
             "signature": before, "sha1": digest.hexdigest(), "preid": prefix.hexdigest(), "uploaded": False}
 
@@ -200,7 +237,7 @@ def unchanged(entry: dict):
         raise BridgeError("批次封存后本地文件被修改或移除，已停止交付", review=True)
 
 
-def refresh_signature(entry: dict, stop: Event):
+def refresh_signature(entry: dict, stop: Event, rehash=None):
     """Recover identical restored files / hardlink metadata changes, never new content."""
     try:
         signature = file_signature(Path(entry["local"]))
@@ -209,9 +246,12 @@ def refresh_signature(entry: dict, stop: Event):
     if signature == entry["signature"]:
         return
     if signature != entry.get("rejected_signature") and signature[0] == entry["size"]:
-        verified = freeze_file(entry["local"], entry["relative"], stop)
+        verified = rehash() if rehash else freeze_file(entry["local"], entry["relative"], stop)
         if verified["sha1"] == entry["sha1"]:
+            previous = entry['signature']
             entry["signature"] = verified["signature"]
+            entry['content_revalidation'] = {'basis': 'sha1', 'signature': verified['signature'],
+                                              'previous_signature': previous, 'sha1': entry['sha1']}
             entry.pop("rejected_signature", None)
             return
     entry["rejected_signature"] = signature

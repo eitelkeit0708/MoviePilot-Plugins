@@ -61,6 +61,68 @@ def test_download_root_does_not_match_only_filename(native, modules):
         native.host.collect(native.job)
 
 
+def current_task(native, root=None, **changes):
+    task = NS(hash="hash", progress=100,
+              save_path=root or str(PurePosixPath(native.rows[0].src).parent.parent))
+    vars(task).update(changes)
+    native.chain.list_torrents.return_value = [task]
+    return task
+
+
+def test_current_task_resolves_invisible_character_in_original_mp_paths(native):
+    root = PurePosixPath(native.rows[0].src).parent
+    recorded = [NS(downloader="qb", savepath=str(root) + "\u200e",
+                   fullpath=r.src.replace("Release/", "Release\u200e/")) for r in native.rows]
+    native.downloads.get_files_by_hash.return_value = recorded
+    current_task(native)
+    result = native.host.collect(native.job)
+    assert [r["source"] for r in result] == [r.src for r in native.rows]
+    assert len(native.job["download_manifest"]) == 2
+    assert all("\u200e" in r.fullpath for r in recorded)  # MP history remains untouched.
+    native.chain.list_torrents.assert_called_once_with(hashs="hash", downloader="qb")
+
+
+@pytest.mark.parametrize("identity", ["wrong_hash", "missing_hash", "two_tasks"])
+def test_current_task_root_requires_unique_matching_identity(native, modules, identity):
+    task = current_task(native)
+    if identity == "two_tasks":
+        native.chain.list_torrents.return_value.append(NS(**vars(task)))
+    else:
+        task.hash = "other" if identity == "wrong_hash" else None
+    with pytest.raises(modules.domain.BridgeError, match="当前任务"):
+        native.host.collect(native.job)
+    assert not native.job.get("owned_candidates")
+
+
+@pytest.mark.parametrize("root", ["downloads", "/downloads/../elsewhere", "/downloads/\x00"])
+def test_invalid_current_task_root_does_not_fall_back_to_old_path(native, modules, root):
+    current_task(native, root)
+    with pytest.raises(modules.domain.BridgeError, match="当前保存路径"):
+        native.host.collect(native.job)
+
+
+def test_current_task_root_still_requires_exact_transfer_source(native, modules):
+    current_task(native, "/unrelated")
+    with pytest.raises(modules.domain.Awaiting, match="等待 MP 整理完成"):
+        native.host.collect(native.job)
+    assert not native.job.get("owned_candidates")
+
+
+def test_current_file_name_is_not_unicode_normalized_to_another_transfer(native, modules):
+    current_task(native)
+    native.files[0].name = native.files[0].name.replace("video.", "video\u200e.")
+    with pytest.raises(modules.domain.Awaiting, match="等待 MP 整理完成"):
+        native.host.collect(native.job)
+    assert not native.job.get("owned_candidates")
+
+
+def test_current_task_cannot_accept_file_path_traversal(native, modules):
+    current_task(native)
+    native.files[0].name = "../video.mkv"
+    with pytest.raises(modules.domain.BridgeError, match="越出批次"):
+        native.host.collect(native.job)
+
+
 @pytest.fixture
 def existing(native, modules):
     native.job["origin"] = "inventory"

@@ -1,8 +1,8 @@
 """Compact media workbench, rendered by MP V2's native PageRender contract."""
 import time
 
-from .activity import attention, when
-from .media import notification_media
+from .activity import attention, blocked_lines, scope_repair_info, when
+from .media import notification_media, scope_context
 from .remedies import remedy
 
 
@@ -26,6 +26,12 @@ CSS = """
 .sbb-item-open{border:1px solid rgba(var(--v-theme-primary),.65);border-radius:7px;margin:6px 0;overflow:hidden}
 .sbb-row{display:grid;grid-template-columns:44px minmax(140px,1fr) minmax(100px,145px) minmax(128px,170px);align-items:center;gap:16px;padding:15px 12px}
 .sbb-item-open>.sbb-row{background:rgba(var(--v-theme-primary),.07)}
+.sbb-item[open]{border:1px solid rgba(var(--v-theme-primary),.65);border-radius:7px;margin:6px 0;overflow:hidden}
+.sbb-item>summary{list-style:none;cursor:pointer}.sbb-item>summary::-webkit-details-marker{display:none}
+.sbb-item>summary::marker{content:''}.sbb-item>summary:focus-visible{outline:2px solid rgb(var(--v-theme-primary));outline-offset:-2px}
+.sbb-item[open]>summary{background:rgba(var(--v-theme-primary),.07)}
+.sbb-item .sbb-collapse{display:none}.sbb-item[open] .sbb-expand{display:none}.sbb-item[open] .sbb-collapse{display:inline}
+.sbb-disclosure{color:rgb(var(--v-theme-primary));font-size:13px;padding:6px 0}
 .sbb-art{width:44px;height:66px;border-radius:5px;overflow:hidden;position:relative;background:rgba(var(--v-theme-on-surface),.05);display:grid;place-items:center}
 .sbb-art .v-img{position:absolute;inset:0}.sbb-title{font-weight:600;font-size:16px;overflow-wrap:anywhere}
 .sbb-state{display:flex;align-items:center;gap:6px;font-size:13px}.sbb-row-end{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
@@ -109,9 +115,46 @@ def guidance(plugin, job):
                                    color="error", disabled=not plugin.get_state()))
         controls.append(action(plugin, "终止此批次…", "dispose", {"key": job['id'], "action": "stop"}, disabled=not plugin.get_state()))
     if job.get("retry_requested"):
-        items.append(txt("已安排重新检查；检查完成前保留当前异常。", "sbb-muted"))
+        started = job.get('recheck_started_at', 0) >= job['retry_requested']
+        items.append(txt("正在重新检查；检查完成前保留当前异常。" if started else
+                         "已安排重新检查；检查完成前保留当前异常。", "sbb-muted"))
     items.append(node(children=controls, **{"class": "sbb-actions"}))
     return [node(children=items, **{"class": "sbb-remedy"})]
+
+
+def blocked_panel(job):
+    lines = blocked_lines(job)
+    if not lines:
+        return []
+    return [node(children=[txt("队列等待", tag="h4"), *[txt(line, "sbb-wrap") for line in lines]],
+                 **{"class": "sbb-kv"})]
+
+
+def scope_repair_panel(job, limit=60):
+    info = scope_repair_info(job)
+    if not info:
+        return []
+    summary = (f"字幕 {info['subtitles']}/{info['total']} 项 · 已隔离 {info['isolated']} · "
+               f"未上传保留 {info['unuploaded']} · 计划 {info['planned']}")
+    if info["other"]:
+        summary += f" · 其他 {info['other']}"
+    nodes = [txt("范围修复 · " + info["phase_label"], tag="h4"),
+             txt(summary, "sbb-wrap"),
+             txt("这些条目是排除项：已隔离的保留在隔离位置，未隔离的留在原位置；"
+                 "均未交付，不纳入本次移交，也不会自动删除。", "sbb-wrap")]
+    for row in info["rows"][:limit]:
+        detail = [txt(row["state_label"] + " · " + ("字幕" if row["subtitle"] else "文件"), "sbb-wrap"),
+                  txt("原文件：" + (row["original"] or "未记录"), "sbb-wrap sbb-muted"),
+                  txt(("隔离位置：" if row["state"] in ("done", "complete", "completed", "isolated", "moved")
+                       else "隔离/保留位置：") + (row["quarantine"] or "未记录"), "sbb-wrap sbb-muted")]
+        if row["reason"]:
+            detail.append(txt("原因：" + (f"{row['reason']} · {row['reason_label']}"
+                                          if row["reason_label"] and row["reason_label"] != row["reason"]
+                                          else row["reason"]), "sbb-muted"))
+        nodes.append(node(children=detail, **{"class": "sbb-kv"}))
+    if info["total"] > limit:
+        nodes.append(txt(f"另 {info['total'] - limit} 项，完整记录中可查看。", "sbb-muted"))
+    return nodes
 
 
 def preview_row(plugin, job, expanded):
@@ -124,40 +167,42 @@ def preview_row(plugin, job, expanded):
     files = job.get("files", [])
     done = sum(bool(e.get("uploaded")) for e in files)
     # An unsealed empty list is not zero known files. Inventory may already know more.
-    scope = f"文件 {done}/{len(files)}" if files else "尚未封存文件清单"
-    subtitle = job.get("route_name", "默认路线") + " · " + (help_["title"] if help_ else scope)
+    file_scope = f"文件 {done}/{len(files)}" if files else "尚未封存文件清单"
+    scope = " · ".join(part for part in (scope_context(job), help_["title"] if help_ else file_scope) if part)
+    subtitle = job.get("route_name", "默认路线") + (" · " + scope if scope else "")
     color = "warning" if help_ else "success" if job["state"] == "handed_off" else "primary"
     scheduled = ("下次检查 " + when(job["next_check"]) if job.get("next_check") and job["state"] != "handed_off"
                  else "更新 " + when(job["updated"]))
-    row = node(children=[
+    row = node('summary', children=[
         node(children=art, **{"class": "sbb-art"}),
         node(children=[txt(job["title"], "sbb-title"), txt(subtitle, "sbb-muted sbb-wrap")]),
         node(children=[icon("mdi-alert-circle-outline" if help_ else "mdi-check-circle-outline" if job["state"] == "handed_off" else "mdi-clock-outline", color),
                        txt(state_label(job))], **{"class": "sbb-state"}),
-        node(children=[txt(scheduled, "sbb-muted"), navigate(plugin, "收起详情" if expanded else "处理异常" if help_ else "查看详情",
-                                                           expanded="" if expanded else job["id"], key="")], **{"class": "sbb-row-end"})
+        node(children=[txt(scheduled, "sbb-muted"), node(children=[
+            txt("处理异常" if help_ else "查看详情", "sbb-expand", 'span'),
+            txt("收起详情", "sbb-collapse", 'span')], **{'class': 'sbb-disclosure'})], **{"class": "sbb-row-end"})
     ], **{"class": "sbb-row"})
     content = [row]
-    if expanded:
-        inner = guidance(plugin, job)
-        inner.append(txt(job.get("message", ""), "sbb-wrap"))
-        progress = hash_status(job)
-        if progress:
-            inner.append(txt("当前文件 · " + job["hash_progress"].get("file", ""), "sbb-wrap"))
-            inner.append(node(children=progress, **{"class": "sbb-progress"}))
-        errors = [e for e in files if e.get("instant_error_since") and not e.get("uploaded")]
-        for entry in errors[:3]:
-            inner.append(txt(entry.get("relative", "") + " · " + entry.get("instant_error", ""), "sbb-muted sbb-wrap"))
-        if len(errors) > 3:
-            inner.append(txt(f"另有 {len(errors)-3} 个异常文件，见完整记录", "sbb-muted"))
-        latest = plugin._store.events(job["id"], limit=1)
-        if latest:
-            inner.append(txt("最近记录 · " + when(latest[0]["at"]) + " · " + latest[0]["message"], "sbb-muted sbb-wrap"))
-        inner.append(navigate(plugin, "完整记录", key=job["id"], files=0, events=0))
-        content.append(node(children=inner, **{"class": "sbb-inline"}))
-    elif job["state"] == "hashing":
-        content.append(node(children=hash_status(job), **{"class": "sbb-inline sbb-progress"}))
-    return node(children=content, **{"class": "sbb-item sbb-item-open" if expanded else "sbb-item"})
+    # Pre-render details: opening a row needs no request.
+    inner = guidance(plugin, job)
+    inner.extend(blocked_panel(job))
+    inner.extend(scope_repair_panel(job, limit=4))
+    inner.append(txt(job.get("message", ""), "sbb-wrap"))
+    progress = hash_status(job)
+    if progress:
+        inner.append(txt("当前文件 · " + job["hash_progress"].get("file", ""), "sbb-wrap"))
+        inner.append(node(children=progress, **{"class": "sbb-progress"}))
+    errors = [e for e in files if e.get("instant_error_since") and not e.get("uploaded")]
+    for entry in errors[:3]:
+        inner.append(txt(entry.get("relative", "") + " · " + entry.get("instant_error", ""), "sbb-muted sbb-wrap"))
+    if len(errors) > 3:
+        inner.append(txt(f"另有 {len(errors)-3} 个异常文件，见完整记录", "sbb-muted"))
+    latest = plugin._store.events(job["id"], limit=1)
+    if latest:
+        inner.append(txt("最近记录 · " + when(latest[0]["at"]) + " · " + latest[0]["message"], "sbb-muted sbb-wrap"))
+    inner.append(navigate(plugin, "完整记录", key=job["id"], files=0, events=0))
+    content.append(node(children=inner, **{"class": "sbb-inline"}))
+    return node('details', children=content, **{"class": "sbb-item", 'id': job['id'], 'open': expanded})
 
 
 def runtime_panel(plugin):
@@ -221,6 +266,18 @@ def render(plugin):
     cooldown = store.meta("u115_cloud_cooldown", {})
     if cooldown.get("until", 0) > time.time():
         content.append(node("VAlert", label="115 访问冷却 · 恢复时间 " + when(cooldown["until"]) + " · 无需反复重试", type="info", variant="tonal", density="compact", **{"class": "sbb-banner"}))
+    sweep = store.meta('empty_inbox_sweep_v1', {})
+    if sweep and not sweep.get('done'):
+        if not sweep.get('inventory_complete'):
+            scan = sweep.get('discovery', {})
+            checked = sum(len(rows) for rows in scan.get('nodes', {}).values())
+            message = f"存量空目录检查：已读取 {checked} 个目录，待检查 {len(scan.get('pending', []))} 个；进度已保存，网络恢复后自动继续。"
+        else:
+            entries = sweep.get('entries', [])
+            done = sum(bool(r.get('done')) for r in entries)
+            retired = sum(r.get('phase') in ('claiming','holding','recycling','recycled') for r in entries)
+            message = f"存量空目录清理：已退役 {retired}/{len(entries)} 棵目录树，回收确认 {done} 棵；含文件的目录保留。"
+        content.append(node('VAlert', label=message, type='info', variant='tonal', density='compact', **{'class':'sbb-banner'}))
     if store.incoming_count():
         content.append(txt(f"已接收 {store.incoming_count()} 条整理记录，等待纳入批次", "sbb-muted sbb-banner"))
     if store.missing_transfer_count():

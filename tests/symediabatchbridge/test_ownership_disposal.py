@@ -29,8 +29,13 @@ def test_source_unlink_really_preserves_organized_hardlink_and_cleanup(batch, mo
 
 
 def test_owned_manifest_persists_before_first_hash_and_survives_expired_tasks(batch, native, modules, monkeypatch):
+    from test_content_revalidation import original as original_torrent
     job = batch.job()
-    job.update(download_hash='hash', downloader='qb')
+    key, raw = original_torrent([('video.mkv', b'video'), ('video.zh.srt', b'sub')])
+    job.update(download_hash=key, downloader='qb')
+    for row in native.rows:
+        row.download_hash = key
+    native.host.torrent_evidence = Mock(return_value=mod('contentproof').evidence(raw, key))
     batch.store.save(job)
     native.host.try_instant = batch.host.try_instant
     batch.engine.host = native.host
@@ -42,6 +47,7 @@ def test_owned_manifest_persists_before_first_hash_and_survives_expired_tasks(ba
         batch.run()
     accepted = batch.job()
     assert len(accepted['owned_candidates']) == 2 and not accepted['files']
+    assert batch.store.meta('content-proof:' + key)
     for row in native.rows:
         Path(row.src).unlink()
     for method in (native.chain.torrent_files, native.chain.list_torrents,

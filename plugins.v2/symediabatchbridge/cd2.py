@@ -3,8 +3,10 @@
 from pathlib import PurePosixPath
 from urllib.parse import urlsplit
 import re
+import time
 
 from .domain import Awaiting, BridgeError, child_path, check_stop
+from .cooldown import CloudCooldown, TransientPause
 
 
 class CD2:
@@ -13,6 +15,8 @@ class CD2:
         from clouddrive2_client.proto import clouddrive_pb2, clouddrive_pb2_grpc
         self.grpc, self.pb = grpc, clouddrive_pb2
         self.config, self.stop, self.channel = config, stop, None
+        self.guard = None
+        self.created_directories = {}
         if stub is None:
             url = urlsplit(config.cd2_address if "://" in config.cd2_address else "http://" + config.cd2_address)
             endpoint = f"[{url.hostname}]:{url.port}" if ":" in url.hostname else f"{url.hostname}:{url.port}"
@@ -28,8 +32,22 @@ class CD2:
         if self.channel is not None:
             self.channel.close()
 
+    def _rpc_pause(self, error):
+        if error.code() in (self.grpc.StatusCode.UNAUTHENTICATED, self.grpc.StatusCode.PERMISSION_DENIED):
+            raise BridgeError('CD2 令牌无效或无操作权限，请核对令牌范围', review=True) from None
+        if self.guard:
+            # Inspect only for classification; authenticated RPC details are never
+            # persisted or exposed. Rate limits keep the original hourly policy.
+            details = str(error.details() or '')
+            if (error.code() == self.grpc.StatusCode.RESOURCE_EXHAUSTED or
+                    re.search(r'(?<!\d)429(?!\d)|达到.*访问上限|too many requests', details, re.I)):
+                raise CloudCooldown(self.guard.defer(time.time() + 3600, 'CD2 返回访问上限')['until']) from None
+            raise TransientPause(self.guard.transient()['until']) from None
+
     def _children(self, path):
         check_stop(self.stop)
+        if self.guard:
+            self.guard.before()
         try:
             replies = self.stub.GetSubFiles(self.pb.ListSubFileRequest(path=path, forceRefresh=True),
                                            metadata=self.metadata, timeout=30)
@@ -55,7 +73,45 @@ class CD2:
                 raise BridgeError("CD2 令牌无效或已过期，请更新插件中的令牌", review=True) from None
             if error.code() == self.grpc.StatusCode.PERMISSION_DENIED:
                 raise BridgeError("CD2 令牌无目录读取权限，请检查令牌的根目录范围与权限", review=True) from None
+            self._rpc_pause(error)
             raise BridgeError("CD2 目录读取失败，请检查令牌、权限和连接") from None
+
+    def ensure_directory(self, path):
+        if not path.startswith(self.config.cd2_prefix.rstrip('/') + '/'):
+            raise BridgeError('目录越出配置范围', review=True)
+        item = self._lookup(path)
+        if item is not None:
+            if not item.isDirectory:
+                raise BridgeError('目标目录位置被文件占用', review=True)
+            return str(item.id or '')
+        parent = str(PurePosixPath(path).parent)
+        if parent != self.config.cd2_prefix:
+            self.ensure_directory(parent)
+        check_stop(self.stop)
+        if self.guard:
+            self.guard.before()
+        try:
+            result = self.stub.CreateFolder(self.pb.CreateFolderRequest(parentPath=parent,
+                folderName=PurePosixPath(path).name), metadata=self.metadata, timeout=30)
+        except self.grpc.RpcError as error:
+            self._rpc_pause(error)
+            raise Awaiting('建立日期目录结果未确认，稍后按原路径核对') from None
+        if not result.result.success:
+            raise Awaiting('日期目录尚未建立，稍后重新核对')
+        # A successful path lookup is not a creation receipt: visibility may have
+        # changed or another same-name directory may have appeared. Only the ID
+        # returned by CreateFolder can grant cleanup ownership of that directory.
+        receipt = result.folderCreated
+        created_id = str(receipt.id or '')
+        proven = (receipt.isDirectory and receipt.name == PurePosixPath(path).name
+                  and receipt.fullPathName == path
+                  and re.fullmatch(r'[1-9][0-9]{0,39}', created_id))
+        ident = self.directory_id(path)
+        if proven:
+            if ident != created_id:
+                raise Awaiting('建目录回执与当前目录身份尚未一致，保留现场等待重新核对')
+            self.created_directories[path] = created_id
+        return ident
 
     def _lookup(self, path):
         prefix = self.config.cd2_prefix
@@ -115,6 +171,17 @@ class CD2:
         if item is None or not item.isDirectory:
             raise Awaiting("请先在 CD2 创建配置的 Symedia 待归档目录")
 
+    def directory_only_children(self, path):
+        """A cheap *hint*, never proof that descendants are empty.
+
+        Housekeeping must also verify directory identity and recursively inspect
+        the native 115 inventory immediately before retiring or recycling.
+        """
+        rows = self._children(path)
+        if rows is None:
+            raise Awaiting('CD2 目录暂不可读，保留目录')
+        return all(item.isDirectory for item in rows)
+
     def file_at(self, path):
         item = self._lookup(path)
         if item is None:
@@ -150,13 +217,16 @@ class CD2:
 
     def move_directory(self, source, destination):
         check_stop(self.stop)
+        if self.guard:
+            self.guard.before()
         request = self.pb.MoveFileRequest(
             theFilePaths=[source], destPath=destination,
             conflictPolicy=self.pb.MoveFileRequest.Skip,
             moveAcrossClouds=False, handleConflictRecursively=False)
         try:
             result = self.stub.MoveFile(request, metadata=self.metadata, timeout=60)
-        except self.grpc.RpcError:
+        except self.grpc.RpcError as error:
+            self._rpc_pause(error)
             raise BridgeError("CD2 移动响应未收到，等待核对结果") from None
         expected = child_path(destination, PurePosixPath(source).name)
         paths = [str(PurePosixPath(path)) for path in result.resultFilePaths]

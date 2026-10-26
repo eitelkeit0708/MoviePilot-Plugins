@@ -10,6 +10,8 @@ from datetime import timezone
 from email.utils import parsedate_to_datetime
 import inspect
 import time
+import re
+import uuid
 from types import CodeType
 
 import httpx
@@ -22,6 +24,8 @@ API_METHODS = {
     "/open/upload/init": {"POST"}, "/open/upload/get_token": {"GET"},
     "/open/upload/resume": {"POST"}, "/open/ufile/files": {"GET"},
     "/open/folder/get_info": {"POST", "GET"}, "/open/folder/add": {"POST"},
+    "/open/ufile/move": {"POST"},
+    "/open/ufile/delete": {"POST"},
 }
 
 
@@ -34,8 +38,9 @@ def code_names(code):
 
 
 class NativeOperations:
-    def __init__(self, provider, cooldown, stop):
+    def __init__(self, provider, cooldown, stop, audit=None):
         self.provider, self.cooldown, self.stop = provider, cooldown, stop
+        self.audit = audit
         self.failure = None
         required = ((provider, "_check_session"), (getattr(provider, "session", None), "request"),
                     (getattr(provider, "_api_limiter", None), "acquire"),
@@ -50,6 +55,9 @@ class NativeOperations:
     def _raise(self, error):
         # Native get_item catches Exception and returns None. Remember the first
         # failure so that it cannot become permission to create/overwrite a path.
+        if (isinstance(error, CloudRequestError) and not error.review
+                and error.kind in ('network', 'service', 'unknown') and self.cooldown):
+            error.next_at = max(error.next_at, self.cooldown.transient()['until'])
         self.failure = error
         raise error
 
@@ -144,15 +152,41 @@ class NativeOperations:
             self._raise(CloudRequestError("MP 的 115 请求统计暂不可用", kind="contract", review=True))
         kwargs.pop("retry_limit", None)
         kwargs.pop("no_error_log", None)
+        if method == "POST" and endpoint != "/open/folder/get_info":
+            # A redirect can replay a non-idempotent init/add POST. Reconciliation,
+            # not an implicit second HTTP request, owns recovery of unknown writes.
+            kwargs["follow_redirects"] = False
+        correlation = uuid.uuid4().hex
+        wire_count = 0
+        def audit(stage, **fields):
+            if self.audit:
+                self.audit({"id": correlation, "stage": stage, "at": time.time(),
+                            "endpoint": endpoint, **fields})
+        if self.audit:
+            extensions = dict(kwargs.get("extensions") or {})
+            inherited_trace = extensions.get("trace")
+            def trace(name, info):
+                nonlocal wire_count
+                if name in ("http11.send_request_headers.started", "http2.send_request_headers.started"):
+                    wire_count += 1
+                    audit("wire", transport=name.split(".")[0], number=wire_count)
+                if callable(inherited_trace):
+                    inherited_trace(name, info)
+            extensions["trace"] = trace
+            kwargs["extensions"] = extensions
+        audit("request", challenge=bool((kwargs.get("data") or {}).get("sign_val")))
         try:
             response = self.provider.session.request(method, f"{self.provider.base_url}{endpoint}", **kwargs)
         except httpx.RequestError:
+            audit("error", kind="network")
             self._raise(CloudRequestError("115 网络连接中断，稍后重试", kind="network"))
         except Exception:
+            audit("error", kind="unknown")
             self._raise(CloudRequestError("115 请求结果无法确认，稍后核对", kind="unknown"))
         if response is None:
             self._raise(CloudRequestError("115 未返回有效响应，稍后核对", kind="unknown"))
         status = getattr(response, "status_code", None)
+        audit("http", status=status if isinstance(status, int) else None)
         if not isinstance(status, int):
             self._raise(CloudRequestError("115 响应缺少状态，稍后核对", kind="unknown"))
         if status == 429:
@@ -169,9 +203,23 @@ class NativeOperations:
             self._raise(CloudRequestError("115 响应无法解析，稍后核对", kind="unknown"))
         if not isinstance(data, dict):
             self._raise(CloudRequestError("115 响应格式不完整，稍后核对", kind="unknown"))
+        inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+        remote_id = str(inner.get("file_id") or "")
+        audit("result", state=data.get("state") is True,
+              business_code=data.get("code") if isinstance(data.get("code"), int) else None,
+              status=inner.get("status") if isinstance(inner.get("status"), int) else None,
+              result_code=inner.get("code") if isinstance(inner.get("code"), int) else None,
+              fileid=remote_id if re.fullmatch(r"[1-9][0-9]{0,39}", remote_id) else "", wire_count=wire_count)
         # This is the exact business-limit message recognized by MP itself.
         if "已达到当前访问上限" in str(data.get("message", "")):
             self._limited(response)
-        if data.get("code") not in accepted_codes:
-            self._raise(CloudRequestError("115 返回未识别的业务结果，稍后核对", kind="unknown"))
+        # Current MP recognizes both record-not-found (20004) and path-not-found
+        # (430004). Older in-memory host code may pass only the first code. This
+        # is a read-only path query result, never an upload non-hit or success.
+        known_codes = (*accepted_codes, 430004) if endpoint == '/open/folder/get_info' else accepted_codes
+        if data.get("code") not in known_codes:
+            code = data.get('code')
+            safe_code = str(code) if type(code) is int and len(str(code)) <= 12 else '未知'
+            self._raise(CloudRequestError('115 返回未识别的业务结果（接口 ' + endpoint +
+                                         '，业务码 ' + safe_code + '），稍后核对', kind="unknown"))
         return data.get(result_key) if result_key else data

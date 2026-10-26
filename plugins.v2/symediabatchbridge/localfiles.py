@@ -8,10 +8,13 @@ from .domain import BridgeError, check_stop, file_signature
 
 def available(config):
     root = Path(config.local_root)
-    if root.is_symlink() or not root.is_dir():
-        raise BridgeError("本地整理目录暂不可用，稍后自动重试")
-    with os.scandir(root) as entries:
-        next(entries, None)
+    try:
+        if root.is_symlink() or not root.is_dir():
+            raise BridgeError("本地整理目录暂不可用，稍后自动重试：" + str(root))
+        with os.scandir(root) as entries:
+            next(entries, None)
+    except OSError:
+        raise BridgeError("本地整理目录无法读取，请检查挂载与权限：" + str(root)) from None
 
 
 def remove_file(store, job, entry, config, stop, *, pending_key="cleanup_pending", done_key="local_removed"):

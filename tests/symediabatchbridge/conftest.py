@@ -75,4 +75,5 @@ def config_values(tmp_path):
     root.mkdir()
     return {"enabled": True, "local_root": str(root), "storage": "u115",
             "staging": "/MP暂存", "cd2_prefix": "/115", "inbox": "/115/Symedia待归档",
-            "cd2_address": "http://cd2:19798", "cd2_token": "test-secret", "interval": 1}
+            "cd2_address": "http://cd2:19798", "cd2_token": "test-secret", "interval": 1,
+            "first_upload_delay": False}
