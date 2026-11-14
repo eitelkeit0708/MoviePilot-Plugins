@@ -1,4 +1,4 @@
-# 豆瓣榜单订阅Plus优化版 2.3.0 (V3)
+# 豆瓣榜单订阅Plus优化版 2.3.1 (V3)
 
 V3-only port of `DoubanRankPlusOptimized` 1.0.11. Preserves the accepted V2
 workflow: RSS parsing/filtering, year/rating checks, movie wash with
@@ -30,6 +30,8 @@ No production deployment or network validation is performed here.
 
 - 默认每页显示 20 条，按处理时间倒序，可改为 50 或 100 条并翻页。
 - 可按指定日期或日期范围筛选。日期使用插件记录的 MoviePilot 时区，范围包含起止两天。
+- 卡片统一尺寸，逐季结果及重试安排可在「处理详情」中查看。海报地址来自 MP 识别结果，豆瓣 CDN 海报由 MP 缓存代理加载。
+- 缺少正式季信息或有效集数时，快速重试结束后每天在榜单任务中复查，兼容旧版已耗尽重试次数的历史。留在配置中的来源即使已不再列出该条目，也可依据原记录继续复查。
 - 前端源码在 `frontend/`，运行 `npm ci` 和 `npm run build` 生成 `dist/assets/`。
 
 ## 洗版管理

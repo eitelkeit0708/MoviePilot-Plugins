@@ -108,7 +108,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "2.3.0"
+    plugin_version = "2.3.1"
     # 插件作者
     plugin_author = "eitelkeit0708 (based on boeto's work)"
     # 作者主页
@@ -121,6 +121,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     auth_level = 2
 
     _retry_delays = (15 * 60, 60 * 60, 6 * 60 * 60)
+    _season_retry_delay = 24 * 60 * 60
     _retryable_statuses = {
         Status.UNRECOGNIZED.value, Status.SUBSCRIPTION_FAILED.value,
         Status.PROCESS_FAILED.value, Status.YEAR_UNKNOWN.value, Status.RATING_UNKNOWN.value,
@@ -1238,170 +1239,126 @@ class DoubanRankPlusOptimized(_PluginBase):
         component = {"component": "VRow", "content": content}
         return component
 
-    def __get_history_post_content(self, history: HistoryPayload):
-        title = history.get("title", "")
-        if len(title) > 8:
-            title = title[:8] + "..."
-        title = title.replace(" ", "")
+    @staticmethod
+    def __history_poster(value):
+        if not value or not value.startswith(("https://", "http://")):
+            return None
+        try:
+            host = urlsplit(value).hostname or ""
+        except ValueError:
+            return None
+        if host == "doubanio.com" or host.endswith(".doubanio.com"):
+            query = urlencode({"imgurl": value, "cache": "true"})
+            return f"{settings.API_V1_STR}/system/img/false?{query}"
+        return value
 
-        year = history.get("year")
-        vote = history.get("vote")
-        poster = history.get("poster")
-        time_str = history.get("time")
+    def __get_history_post_content(self, history: HistoryPayload, *, inline_details=False):
+        title = history.get("title") or "未知作品"
         mtype = history.get("type")
-        doubanid = history.get("doubanid")
-        tmdbid = history.get("tmdbid")
-
-        status = history.get("status")
         unique = history.get("unique")
-
-        if (
-            tmdbid
-            and tmdbid != "0"
-            and (mtype == MediaType.MOVIE.value or mtype == MediaType.TV.value)
-        ):
-            type_str = "movie" if mtype == MediaType.MOVIE.value else "tv"
-            href = f"https://www.themoviedb.org/{type_str}/{tmdbid}"
-        elif doubanid and doubanid != "0":
+        status = history.get("status")
+        tmdbid = self.__positive_id(history.get("tmdbid"))
+        doubanid = self.__positive_id(history.get("doubanid"))
+        href = None
+        if tmdbid and mtype in (MediaType.MOVIE.value, MediaType.TV.value):
+            kind = "movie" if mtype == MediaType.MOVIE.value else "tv"
+            href = f"https://www.themoviedb.org/{kind}/{tmdbid}"
+        elif doubanid:
             href = f"https://movie.douban.com/subject/{doubanid}"
-        else:
-            href = "#"
 
-        component = {
-            "component": "VCard",
-            "props": {
-                "variant": "tonal",
-            },
-            "content": [
-                {
-                    "component": "VDialogCloseBtn",
-                    "props": {
-                        "innerClass": "absolute -top-4 right-0 scale-50 opacity-50",
-                    },
-                    "events": {
-                        "click": {
-                            "api": f"plugin/{self._plugin_id}/delete_history",
-                            "method": "get",
-                            "params": {
-                                "key": f"{unique}",
-                            },
-                        }
-                    },
-                },
-                {
-                    "component": "div",
-                    "props": {
-                        "class": "d-flex justify-space-start flex-nowrap flex-row",
-                    },
-                    "content": [
-                        {
-                            "component": "div",
-                            "content": [
-                                {
-                                    "component": "VImg",
-                                    "props": {
-                                        "src": poster,
-                                        "height": 150,
-                                        "width": 100,
-                                        "aspect-ratio": "2/3",
-                                        "class": "object-cover shadow ring-gray-500",
-                                        "cover": True,
-                                        "transition": True,
-                                        "lazy-src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGQAAACWCAQAAACCseXNAAAAkklEQVR42u3PAREAAAQEMJ9cFFUVkMBtDZbpeiEiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIiIpcFcbGoK4SMl3wAAAAASUVORK5CYII=",  # 添加懒加载
-                                    },
-                                }
-                            ],
-                        },
-                        {
-                            "component": "div",
-                            "content": [
-                                {
-                                    "component": "VCardTitle",
-                                    "props": {
-                                        "class": "py-1 pl-2 pr-4 text-lg whitespace-nowrap"
-                                    },
-                                    "content": [
-                                        {
-                                            "component": "a",
-                                            "props": {
-                                                "href": f"{href}",
-                                                "target": "_blank",
-                                            },
-                                            "text": title,
-                                        }
-                                    ],
-                                },
-                                {
-                                    "component": "VCardText",
-                                    "props": {"class": "pa-0 px-2"},
-                                    "text": f"类型: {mtype}",
-                                },
-                                {
-                                    "component": "VCardText",
-                                    "props": {"class": "pa-0 px-2"},
-                                    "text": f"年份: {year}",
-                                },
-                                {
-                                    "component": "VCardText",
-                                    "props": {"class": "pa-0 px-2"},
-                                    "text": f"MP 识别评分: {vote}",
-                                },
-                                {
-                                    "component": "VCardText",
-                                    "props": {"class": "pa-0 px-2"},
-                                    "text": f"时间: {time_str}",
-                                },
-                                {
-                                    "component": "VCardText",
-                                    "props": {"class": "pa-0 px-2"},
-                                    "text": f"状态: {status}",
-                                },
-                            ],
-                        },
-                    ],
-                },
-            ],
-        }
-
+        results = list((history.get("season_results") or {}).values())
+        retry_items = [history] if history.get("retry") or not results else results
+        retries = [row for row in retry_items if row.get("retry")]
+        waiting = any(row.get("status") == Status.SEASON_UNKNOWN.value for row in retry_items)
+        status_text = "等待季信息" if status == Status.SEASON_UNKNOWN.value else status
         details = []
-        if history.get("summary"):
+        if history.get("summary") and len(results) > 1:
             details.append(history["summary"])
         if history.get("error"):
-            details.append(history["error"])
-        results = list(history.get("season_results", {}).values())
+            details.append(history["error"].removesuffix("，稍后重试"))
         for result in results:
-            label = f"第 {result['season']} 季" if result.get("season") is not None else "电影"
-            details.append(f"{label}：{result['status']}" + (f"（{result['error']}）" if result.get("error") else ""))
-        retries = [history["retry"]] if history.get("retry") else [r["retry"] for r in results if r.get("retry")]
-        due = [r["next_retry_at"] for r in retries if r.get("next_retry_at") is not None]
+            season = result.get("season")
+            label = f"第 {season} 季" if season is not None else "电影"
+            description = "等待季信息" if result["status"] == Status.SEASON_UNKNOWN.value else result["status"]
+            reason = result.get("error", "")
+            if result["status"] == Status.SUBSCRIPTION_EXISTS.value and reason == "相同媒体和季度已有成功处理记录":
+                reason = ""
+            details.append(" · ".join(part for part in (label, description, reason) if part))
+        schedule = [row["retry"]["next_retry_at"] for row in retries
+                    if row["retry"].get("next_retry_at") is not None]
+        check_text = None
         if history.get("manual_retry"):
-            details.append("已安排重新处理")
-        elif due:
-            if min(due) <= time.time():
-                details.append("已到重试时间，等待下次任务运行")
-            else:
-                when = datetime.datetime.fromtimestamp(min(due), tz=pytz.timezone(settings.TZ))
-                details.append(f"下次重试：{when:%m-%d %H:%M} 后的任务运行中")
-        if any(r.get("next_retry_at") is None for r in retries):
+            check_text = "已安排重新处理"
+        elif schedule and min(schedule) > time.time():
+            when = datetime.datetime.fromtimestamp(min(schedule), tz=pytz.timezone(settings.TZ))
+            check_text = f"{when:%m-%d %H:%M} 后复查"
+        elif waiting or schedule:
+            check_text = "下次榜单任务复查"
+        if check_text:
+            details.append(check_text)
+        if waiting:
+            details.append("MP 提供有效季信息和集数后，自动尝试订阅")
+        if any(row.get("status") != Status.SEASON_UNKNOWN.value and row["retry"].get("next_retry_at") is None
+               for row in retries):
             details.append("部分失败项已达自动重试上限，可重新处理")
-        component["content"].extend({
-            "component": "VCardText", "props": {"class": "py-1 px-2"}, "text": detail,
-        } for detail in details)
-        if self.__can_retry(history):
-            component["content"].append({
-                "component": "VBtn", "props": {"variant": "text", "size": "small"},
-                "text": "重新处理",
-                "events": {"click": {
-                    "api": f"plugin/{self._plugin_id}/retry_history", "method": "post",
-                    "params": {"key": unique},
-                }},
-            })
-        return component
+
+        summary = (check_text if waiting else
+                   history.get("summary") if len(results) > 1 else None)
+        if not summary and history.get("error"):
+            summary = history["error"]
+        if not summary and len(results) == 1 and results[0].get("season") is not None:
+            summary = f"第 {results[0]['season']} 季"
+        poster = self.__history_poster(history.get("poster"))
+        artwork = [{"component": "VIcon", "props": {"icon": "mdi-movie-open-outline", "size": 26}}]
+        if poster:
+            artwork.append({"component": "VImg", "props": {"src": poster, "cover": True, "alt": "",
+                                                           "class": "douban-history-card-image"}})
+        title_node = {"component": "a" if href else "span",
+                      "props": {"class": "douban-history-card-title", "title": title},
+                      "text": title}
+        if href:
+            title_node["props"].update(href=href, target="_blank", rel="noopener noreferrer")
+        metadata = " · ".join(str(value) for value in (mtype, history.get("year")) if value and value != "0")
+        if history.get("vote"):
+            metadata += f" · {history['vote']:.1f}" if metadata else f"{history['vote']:.1f}"
+        component = {
+            "component": "VCard", "props": {"variant": "tonal" if inline_details else "text",
+                                             "class": "douban-history-card"},
+            "content": [
+                {"component": "div", "props": {"class": "douban-history-card-head"}, "content": [
+                    {"component": "div", "props": {"class": "douban-history-card-art", "aria-hidden": "true"},
+                     "content": artwork},
+                    {"component": "div", "props": {"class": "douban-history-card-info"}, "content": [
+                        title_node,
+                        {"component": "div", "props": {"class": "douban-history-card-meta"}, "text": metadata},
+                        {"component": "div", "props": {"class": "douban-history-card-meta"},
+                         "text": history.get("time") or ""},
+                        {"component": "div", "props": {"class": "douban-history-card-status"}, "text": status_text},
+                    ]},
+                    {"component": "VBtn", "props": {"icon": "mdi-close", "size": "x-small", "variant": "text",
+                                                   "class": "douban-history-card-delete", "aria-label": "删除历史记录"},
+                     "events": {"click": {"api": f"plugin/{self._plugin_id}/delete_history", "method": "get",
+                                          "params": {"key": unique}}}},
+                ]},
+                {"component": "div", "props": {"class": "douban-history-card-summary", "title": summary or ""},
+                 "text": summary},
+            ],
+        }
+        retry = {"api": f"plugin/{self._plugin_id}/retry_history", "method": "post",
+                 "params": {"key": unique}} if self.__can_retry(history) else None
+        if inline_details:
+            component["content"].extend({"component": "VCardText", "text": detail} for detail in details)
+            if retry:
+                component["content"].append({
+                    "component": "VBtn", "props": {"variant": "text", "size": "small"}, "text": "重新处理",
+                    "events": {"click": retry},
+                })
+        return {"card": component, "title": title, "details": details, "retry_action": retry}
 
     def get_page(self) -> List[Dict[str, Any]]:
         if self.get_render_mode()[0] == "vue":
             return []
-        data = self.get_history_page().data
+        data = self.__history_page(1, HISTORY_PAGE_SIZES[0], None, None, inline_details=True).data
         return [data["statistics"], {
             "component": "div",
             "props": {"class": "grid gap-3 grid-info-card pt-4"},
@@ -1414,6 +1371,9 @@ class DoubanRankPlusOptimized(_PluginBase):
         self, page: int = 1, page_size: int = HISTORY_PAGE_SIZES[0],
         start: Optional[datetime.date] = None, end: Optional[datetime.date] = None,
     ) -> Response[Dict[str, Any]]:
+        return self.__history_page(page, page_size, start, end)
+
+    def __history_page(self, page, page_size, start, end, *, inline_details=False):
         if page < 1 or page_size not in HISTORY_PAGE_SIZES:
             return Response(success=False, message="页码或每页条数无效")
         start, end = start or end, end or start
@@ -1441,7 +1401,7 @@ class DoubanRankPlusOptimized(_PluginBase):
         return Response(success=True, data={
             "statistics": self.__get_historys_statistics_content(len(history), len(history) - unknown_count, unknown_count),
             "records": [{"key": row.get("unique") or f"legacy-{offset + index}",
-                         "card": self.__get_history_post_content(row)}
+                         **self.__get_history_post_content(row, inline_details=inline_details)}
                         for index, row in enumerate(rows[offset:offset + page_size])],
             "total": total,
             "page": page,
@@ -1841,8 +1801,13 @@ class DoubanRankPlusOptimized(_PluginBase):
             return False
         # 旧版失败记录没有重试信息，允许在再次遇到时补做一次。
         retry = result.get("retry")
-        return retry is None or (retry.get("next_retry_at") is not None
-                                 and retry["next_retry_at"] <= now)
+        if retry is None:
+            return True
+        next_at = retry.get("next_retry_at")
+        if next_at is None:
+            # 已耗尽快速重试的历史季记录在升级后重新进入检查。
+            return result.get("status") == Status.SEASON_UNKNOWN.value
+        return next_at <= now
 
     @classmethod
     def __history_due(cls, record, now):
@@ -1855,9 +1820,14 @@ class DoubanRankPlusOptimized(_PluginBase):
         return cls.__retry_due(record, now)
 
     @classmethod
-    def __failure_retry(cls, previous):
-        attempts = (previous.get("retry") or {}).get("attempts", 0) + 1
+    def __failure_retry(cls, previous, status):
+        waiting = status == Status.SEASON_UNKNOWN
+        was_waiting = previous.get("status") == Status.SEASON_UNKNOWN.value
+        previous_retry = previous.get("retry") if waiting == was_waiting else None
+        attempts = (previous_retry or {}).get("attempts", 0) + 1
         delay = cls._retry_delays[attempts - 1] if attempts <= len(cls._retry_delays) else None
+        if waiting and delay is None:
+            delay = cls._season_retry_delay
         return {"attempts": attempts, "next_retry_at": time.time() + delay if delay is not None else None}
 
     def __save_history_item(self, history, history_by_key, payload):
@@ -1905,7 +1875,7 @@ class DoubanRankPlusOptimized(_PluginBase):
             logger.error(f"处理 {rss_info['title']} 失败: {error}")
             payload.update(status=Status.PROCESS_FAILED.value,
                            error=f"处理异常：{type(error).__name__}",
-                           retry=self.__failure_retry(previous))
+                           retry=self.__failure_retry(previous, Status.PROCESS_FAILED))
         payload.pop("manual_retry", None)
         self.__save_history_item(history, history_by_key, payload)
         self._next_item_at = time.monotonic() + random.uniform(self._min_sleep_time, self._max_sleep_time)
@@ -1928,20 +1898,56 @@ class DoubanRankPlusOptimized(_PluginBase):
         if meta.begin_season is None:
             # Release-name parsing can drop punctuation and numbers from a literal RSS title.
             meta.name = title
-        mediainfo, target_season, single_target, problem = self.__identify_rss_media(
-            rss_info, meta, inferred_type
-        )
+        now = time.time()
+        old_results = previous.get("season_results", {})
+        retry_items = [(None, previous)] if previous.get("retry") or not old_results else old_results.items()
+        pending_items = {key: item for key, item in retry_items if item.get("status") == Status.SEASON_UNKNOWN.value}
+        waiting = {key: item for key, item in pending_items.items()
+                   if previous.get("manual_retry") or self.__retry_due(item, now)}
+        old_identity = previous.get("identity")
+        known_source, known_id, _ = self.__history_identity(previous)
+        try:
+            if waiting and old_identity and known_source and known_id:
+                target_season = meta.begin_season
+                single_target = target_season is not None and len(old_results) == 1
+                if single_target:
+                    target_season = next(iter(old_results.values()))["season"]
+                meta.begin_season = target_season
+                mediainfo = self.mediachain.recognize_media(
+                    meta=meta, mtype=MediaType(old_identity["type"]), media_source=known_source,
+                    media_id=known_id, cache=False,
+                )
+                if mediainfo:
+                    problem = self.__recognition_problem(
+                        rss_info, meta, inferred_type, mediainfo, self.__season_catalog(mediainfo),
+                    )
+                else:
+                    problem = None
+            else:
+                mediainfo, target_season, single_target, problem = self.__identify_rss_media(
+                    rss_info, meta, inferred_type, cache=not waiting,
+                )
+        except Exception:
+            if not pending_items:
+                raise
+            logger.warning(f"{title} 季信息复查暂不可用，下次继续")
+            mediainfo = None
         if not mediainfo:
+            if pending_items:
+                payload["status"] = previous["status"]
+                for key, item in waiting.items():
+                    target = payload if key is None else payload["season_results"][key]
+                    target["retry"] = self.__failure_retry(item, Status.SEASON_UNKNOWN)
+                return
             payload.update(status=Status.UNRECOGNIZED.value, error="MP暂未识别到媒体信息",
-                           retry=self.__failure_retry(previous))
+                           retry=self.__failure_retry(previous, Status.UNRECOGNIZED))
             return
         meta.begin_season = target_season
         seasons_info = self.__season_catalog(mediainfo)
         if problem:
             status, message = problem
-            payload.update(status=status.value, error=message, retry=self.__failure_retry(previous))
+            payload.update(status=status.value, error=message, retry=self.__failure_retry(previous, status))
             return
-        old_identity = previous.get("identity")
         source, media_id = resolve_media_identity(media=mediainfo)
         identity = {
             "type": mediainfo.type.value,
@@ -1950,13 +1956,13 @@ class DoubanRankPlusOptimized(_PluginBase):
         }
         if old_identity and self.__target_key({"identity": old_identity}, None) != self.__target_key({"identity": identity}, None):
             payload.update(status=Status.PROCESS_FAILED.value, error="识别结果与历史作品不一致，请检查标题和历史记录",
-                           retry=self.__failure_retry(previous))
+                           retry=self.__failure_retry(previous, Status.PROCESS_FAILED))
             return
         rating = mediainfo.vote_average
         display_rating = rating if isinstance(rating, (int, float)) and math.isfinite(rating) else None
         payload.update(identity=identity, media_source=identity["media_source"], media_id=identity["media_id"],
                        type=mediainfo.type.value, year=mediainfo.year,
-                       poster=mediainfo.get_poster_image(), overview=mediainfo.overview,
+                       poster=mediainfo.get_poster_image() or payload.get("poster"), overview=mediainfo.overview,
                        tmdbid=str(mediainfo.tmdb_id or "0"), vote=display_rating)
         payload.pop("retry", None)
         payload.pop("error", None)
@@ -1980,8 +1986,8 @@ class DoubanRankPlusOptimized(_PluginBase):
             seasons = [result["season"] for result in results.values()]
         else:
             if not seasons:
-                payload.update(status=Status.SEASON_UNKNOWN.value, error="MP尚未提供正式季度信息，稍后重试",
-                               retry=self.__failure_retry(previous))
+                payload.update(status=Status.SEASON_UNKNOWN.value, error="MP 尚未提供正式季信息",
+                               retry=self.__failure_retry(previous, Status.SEASON_UNKNOWN))
                 return
             for season in seasons:
                 results[str(season) if season is not None else "movie"] = {
@@ -2002,7 +2008,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 if target in self._successful_targets:
                     status, message = Status.SUBSCRIPTION_EXISTS, "相同媒体和季度已有成功处理记录"
                 elif is_tv and not seasons_info.get(season, {}).get("episodes"):
-                    status, message = Status.SEASON_UNKNOWN, "MP尚未提供该季度的有效集数，稍后重试"
+                    status, message = Status.SEASON_UNKNOWN, "MP 尚未提供有效集数"
                 else:
                     status, message = self.__checke_and_add_subscribe(meta, mediainfo, season, save_path)
             except Exception as error:
@@ -2010,7 +2016,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 status, message = Status.SUBSCRIPTION_FAILED, f"添加订阅异常：{type(error).__name__}"
             result = {"season": season, "status": status.value, "error": message}
             if status.value in self._retryable_statuses:
-                result["retry"] = self.__failure_retry(old_result)
+                result["retry"] = self.__failure_retry(old_result, status)
             results[key] = result
             self.__summarize(payload)
             self.__save_history_item(history, history_by_key, payload)
@@ -2020,14 +2026,14 @@ class DoubanRankPlusOptimized(_PluginBase):
     def __title_key(title):
         return "".join(unicodedata.normalize("NFKC", title or "").casefold().split())
 
-    def __identify_rss_media(self, rss_info, meta, inferred_type):
+    def __identify_rss_media(self, rss_info, meta, inferred_type, *, cache=True):
         title = rss_info["title"]
         season = meta.begin_season
         # BBC's Blue Planet III is a separate TMDB series, with six episodes in S01.
         if (inferred_type == MediaType.TV and season == 3 and str(rss_info.get("year")) == "2026"
                 and self.__title_key(meta.name) == "蓝色星球"):
             target = self.mediachain.recognize_media(
-                mtype=MediaType.TV, media_source=MediaSource.TMDB, media_id="208929"
+                mtype=MediaType.TV, media_source=MediaSource.TMDB, media_id="208929", cache=cache,
             )
             if (target and resolve_media_identity(media=target) == (MediaSource.TMDB, "208929")
                     and self.__title_key(target.original_title) == "blueplanetiii"
@@ -2040,7 +2046,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 if problem is None:
                     return target, 1, True, None
 
-        recognized = self.mediachain.recognize_media(meta=meta, mtype=inferred_type)
+        recognized = self.mediachain.recognize_media(meta=meta, mtype=inferred_type, cache=cache)
         problem = None
         if recognized:
             problem = self.__recognition_problem(
@@ -2083,7 +2089,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 if candidate_source != source:
                     continue
                 candidate = self.mediachain.recognize_media(
-                    mtype=mtype, media_source=source, media_id=media_id
+                    mtype=mtype, media_source=source, media_id=media_id, cache=cache,
                 )
                 if not candidate or resolve_media_identity(media=candidate) != (source, media_id):
                     continue
@@ -2105,7 +2111,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                     if projection and projection.get("id"):
                         projected = self.mediachain.recognize_media(
                             mtype=candidate.type, media_source=MediaSource.TMDB,
-                            media_id=str(projection["id"]),
+                            media_id=str(projection["id"]), cache=cache,
                         )
                         if (not projected or
                                 not title_keys.intersection(self.__title_key(name) for name in
@@ -2286,6 +2292,10 @@ class DoubanRankPlusOptimized(_PluginBase):
             **episode_options,
         )
         if not subscribe_id:
+            if mediainfo.type == MediaType.TV and (
+                message == "媒体信息中没有季集信息" or message == f"未获取到第 {season} 季的总集数"
+            ):
+                return Status.SEASON_UNKNOWN, message
             logger.error(f"{mediainfo.title_year} 添加洗版订阅失败: {message}")
             return Status.SUBSCRIPTION_FAILED, str(message or "MP未返回订阅ID")
         if message == "订阅已存在":
@@ -2556,7 +2566,7 @@ class DoubanRankPlusOptimized(_PluginBase):
             "status": Status.UNRECOGNIZED.value,
             "type": MediaType.UNKNOWN.value,
             "year": year or "0",
-            "poster": "/assets/no-image-CweBJ8Ee.jpeg",
+            "poster": None,
             "overview": "",
             "tmdbid": "0",
             "doubanid": doubanid or "0",

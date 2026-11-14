@@ -366,6 +366,71 @@ class WorkflowTests(unittest.TestCase):
                     self.assertEqual(f.plugin.subscribechain.add.call_count, attempt)
                     clock.return_value = retry["next_retry_at"]
 
+    def test_legacy_exhausted_season_catalog_recovers_after_leaving_rss(self):
+        f = fixture(title="Example")
+        media = f.mediachain.recognize_media.return_value
+        season_data = media.season_info[:2], {1: [1, 2]}, {1: "2026"}
+        media.season_info, media.seasons, media.season_years = [], {}, {}
+        self.assertEqual(self.run_refresh(f), MOD.Status.SEASON_UNKNOWN.value)
+        row = f.store["history"][0]
+        row["retry"] = {"attempts": 4, "next_retry_at": None}
+        f.plugin._DoubanRankPlusOptimized__get_rss_info.return_value = []
+        with patch.object(MOD.time, "time", return_value=2000) as clock:
+            f.mediachain.recognize_media.return_value = None
+            self.assertEqual(self.run_refresh(f), MOD.Status.SEASON_UNKNOWN.value)
+            wait = f.store["history"][0]["retry"]
+            self.assertEqual(wait, {"attempts": 5, "next_retry_at": 88400})
+            self.assertFalse(f.mediachain.recognize_media.call_args.kwargs["cache"])
+            f.mediachain.recognize_media.reset_mock()
+            self.run_refresh(f)
+            f.mediachain.recognize_media.assert_not_called()
+            media.season_info, media.seasons, media.season_years = season_data
+            f.mediachain.recognize_media.return_value = media
+            clock.return_value = 88400
+            self.assertEqual(self.run_refresh(f), MOD.Status.SUBSCRIPTION_ADDED.value)
+            self.assertFalse(f.mediachain.recognize_media.call_args.kwargs["cache"])
+            self.run_refresh(f)
+        f.subscribechain.add.assert_called_once()
+        self.assertEqual(f.subscribechain.add.call_args.kwargs["season"], 1)
+
+    def test_exhausted_season_retries_without_adding_unwanted_seasons(self):
+        f = fixture(title="Example")
+        media = f.mediachain.recognize_media.return_value
+        media.season_info = [{"season_number": 1, "episode_count": 3},
+                             {"season_number": 2, "episode_count": 0}]
+        media.seasons = {1: [1, 2, 3]}
+        self.assertEqual(self.run_refresh(f), MOD.Status.PARTIAL_SUCCESS.value)
+        row = f.store["history"][0]
+        row["season_results"]["2"]["retry"] = {"attempts": 4, "next_retry_at": None}
+        media.seasons.update({2: [1, 2], 3: [1]})
+        f.plugin._DoubanRankPlusOptimized__get_rss_info.return_value = []
+        self.assertEqual(self.run_refresh(f), MOD.Status.SUBSCRIPTION_ADDED.value)
+        self.assertFalse(f.mediachain.recognize_media.call_args.kwargs["cache"])
+        self.assertEqual([call.kwargs["season"] for call in f.subscribechain.add.call_args_list], [1, 2])
+
+    def test_explicit_unlisted_season_is_retained_until_metadata_is_available(self):
+        f = fixture(all_seasons=False)
+        media = f.mediachain.recognize_media.return_value
+        season_data = media.season_info.copy(), media.seasons.copy()
+        media.season_info = [row for row in media.season_info if row["season_number"] != 2]
+        del media.seasons[2]
+        self.assertEqual(self.run_refresh(f), MOD.Status.SEASON_UNKNOWN.value)
+        f.store["history"][0]["retry"] = {"attempts": 4, "next_retry_at": None}
+        media.season_info, media.seasons = season_data
+        self.assertEqual(self.run_refresh(f), MOD.Status.SUBSCRIPTION_ADDED.value)
+        f.subscribechain.add.assert_called_once()
+        self.assertEqual(f.subscribechain.add.call_args.kwargs["season"], 2)
+
+    def test_mp_reported_missing_episode_total_uses_metadata_retry(self):
+        f = fixture(all_seasons=False)
+        f.plugin.subscribechain.add.side_effect = lambda **kw: (None, "未获取到第 2 季的总集数")
+        self.assertEqual(self.run_refresh(f), MOD.Status.SEASON_UNKNOWN.value)
+        with patch.object(MOD.time, "time", return_value=2000):
+            f.store["history"][0]["season_results"]["2"]["retry"] = {"attempts": 4, "next_retry_at": None}
+            self.assertEqual(self.run_refresh(f), MOD.Status.SEASON_UNKNOWN.value)
+            retry = f.store["history"][0]["season_results"]["2"]["retry"]
+            self.assertEqual(retry, {"attempts": 5, "next_retry_at": 88400})
+
     def test_douban_season_is_passed_separately_from_name(self):
         f = fixture(title="骑有此理 第四季")
         media = f.plugin.mediachain.recognize_media.return_value
@@ -711,10 +776,24 @@ class HistoryPageTests(unittest.TestCase):
         row = self.plugin.get_history_page(start=datetime.date(2026, 11, 12)).data
         self.assertEqual([item["key"] for item in row["records"]], ["12-0"])
 
+    def test_history_proxies_saved_douban_img_and_explains_legacy_wait(self):
+        self.f.store["history"] = [{
+            "unique": "waiting", "title": "A title that stays complete", "type": "电视剧",
+            "poster": "https://img9.doubanio.com/view/photo/m/public/poster.jpg",
+            "status": MOD.Status.SEASON_UNKNOWN.value, "retry": {"attempts": 4, "next_retry_at": None},
+        }]
+        with patch.object(MOD.settings, "API_V1_STR", "/api/v1", create=True):
+            record = self.plugin.get_history_page().data["records"][0]
+        self.assertIn("/api/v1/system/img/", repr(record["card"]))
+        self.assertIn("cache=true", repr(record["card"]))
+        self.assertIn("自动尝试订阅", str(record["details"]))
+        self.assertNotIn("重试上限", str(record["details"]))
+        self.assertEqual(record["title"], "A title that stays complete")
+
 
 class ContractTests(unittest.TestCase):
     def test_version_api_models_auth_and_clone_paths(self):
-        self.assertEqual(MOD.DoubanRankPlusOptimized.plugin_version, "2.3.0")
+        self.assertEqual(MOD.DoubanRankPlusOptimized.plugin_version, "2.3.1")
         f = fixture()
         apis = {api["path"]: api for api in f.plugin.get_api()}
         self.assertEqual(apis["/delete_history"]["auth"], "bear")

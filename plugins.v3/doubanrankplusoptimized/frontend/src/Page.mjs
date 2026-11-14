@@ -1,6 +1,30 @@
 import { defineComponent, h, onMounted, ref } from 'vue'
 import { render, v } from './render.mjs'
 
+const styles = `
+.douban-history .douban-history-filters { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 10px 12px; }
+.douban-history .douban-history-field { display: grid; gap: 3px; font-size: 12px; }
+.douban-history .douban-history-field :is(input, select) { min-height: 36px; border: 1px solid rgba(var(--v-border-color), .45); border-radius: 5px; padding: 0 8px; font-size: 14px; color: inherit; background: transparent; }
+.douban-history .douban-history-field select { min-width: 110px; appearance: auto; }
+.v-theme--dark .douban-history .douban-history-field :is(input, select) { color-scheme: dark; }
+.douban-history .douban-history-field :is(input, select):focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 2px; }
+.douban-history .douban-history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 255px), 1fr)); gap: 12px; }
+.douban-history .douban-history-item { display: flex; flex-direction: column; min-width: 0; border: 1px solid rgba(var(--v-theme-on-surface), .13); border-radius: 10px; background: rgba(var(--v-theme-on-surface), .045); }
+.douban-history .douban-history-card { flex: 1; padding: 12px 12px 8px; display: grid; grid-template-rows: 114px 20px; row-gap: 8px; overflow: hidden; }
+.douban-history .douban-history-card-head { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 12px; position: relative; }
+.douban-history .douban-history-card-art { width: 76px; height: 114px; border-radius: 6px; overflow: hidden; position: relative; display: grid; place-items: center; background: rgba(var(--v-theme-on-surface), .08); color: rgba(var(--v-theme-on-surface), .5); }
+.douban-history .douban-history-card-image { position: absolute; inset: 0; width: 100%; height: 100%; }
+.douban-history .douban-history-card-info { min-width: 0; display: flex; flex-direction: column; line-height: 20px; }
+.douban-history .douban-history-card-title { display: block; min-width: 0; margin: 0 28px 5px 0; color: inherit; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; font-weight: 600; font-size: 15px; line-height: 24px; }
+.douban-history .douban-history-card-title:hover { text-decoration: underline; }
+.douban-history .douban-history-card-meta { color: rgba(var(--v-theme-on-surface), .7); font-size: 12px; }
+.douban-history .douban-history-card-delete { position: absolute; right: 0; top: -2px; }
+.douban-history .douban-history-card-status { margin-top: auto; }
+.douban-history .douban-history-card-status, .douban-history .douban-history-card-summary { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 13px; }
+.douban-history .douban-history-card-summary { color: rgba(var(--v-theme-on-surface), .74); }
+.douban-history .douban-history-card-actions { min-height: 38px; padding: 0 8px; }
+`
+
 export default defineComponent({
   props: { api: Object, pluginId: String, show_switch: Boolean },
   emits: ['switch', 'close'],
@@ -13,6 +37,7 @@ export default defineComponent({
     const period = ref('all')
     const start = ref('')
     const end = ref('')
+    const detailKey = ref(null)
     let applied = {}
     const base = `plugin/${props.pluginId || 'DoubanRankPlusOptimized'}/history-page`
 
@@ -94,57 +119,84 @@ export default defineComponent({
     }) : null
 
     onMounted(() => load())
-    return () => h('section', { class: 'douban-history pa-4 pa-sm-6', 'aria-busy': busy.value }, [
-      h('style', '.douban-history .douban-history-filters{display:flex;align-items:flex-end;flex-wrap:wrap;gap:10px 12px}.douban-history .douban-history-field{display:grid;gap:3px;font-size:12px}.douban-history .douban-history-field :is(input,select){min-height:36px;border:1px solid rgba(var(--v-border-color),.45);border-radius:5px;padding:0 8px;font-size:14px;color:inherit;background:transparent}.douban-history .douban-history-field select{min-width:110px;appearance:auto}.v-theme--dark .douban-history .douban-history-field :is(input,select){color-scheme:dark}.douban-history .douban-history-field :is(input,select):focus-visible{outline:2px solid rgb(var(--v-theme-primary));outline-offset:2px}'),
-      h('header', { class: 'd-flex align-center ga-2 mb-5' }, [
-        h('h2', { class: 'text-h6 flex-grow-1' }, '豆瓣榜单订阅Plus优化版'),
-        props.show_switch ? v('VBtn', { variant: 'text', prependIcon: 'mdi-cog-outline', onClick: () => emit('switch') }, '设置') : null,
-        v('VBtn', { variant: 'text', icon: 'mdi-close', 'aria-label': '关闭', onClick: () => emit('close') }),
-      ]),
-      result.value ? render(result.value.statistics) : null,
-      h('section', { class: 'mt-5', 'aria-label': '历史记录' }, [
-        h('h3', { class: 'text-subtitle-1 mb-3' }, result.value?.title || '历史记录'),
-        h('form', { class: 'douban-history-filters mb-3', onSubmit: filter }, [
-          select(
-            '每页条数', pageSize.value, result.value?.page_sizes || [20, 50, 100],
-            value => { pageSize.value = Number(value); load() },
-          ),
-          select('日期', period.value, [
-            { title: '全部日期', value: 'all' },
-            { title: '指定日期', value: 'day' },
-            { title: '日期范围', value: 'range' },
-          ], value => {
-            period.value = value
-            if (value === 'all') {
-              start.value = ''
-              end.value = ''
-              load(1, {})
-            }
-          }),
-          period.value !== 'all' ? dateInput(period.value === 'day' ? '指定日期' : '开始日期', start) : null,
-          period.value === 'range' ? dateInput('结束日期', end) : null,
-          period.value !== 'all' ? v('VBtn', { type: 'submit', color: 'primary', variant: 'tonal', disabled: busy.value }, '筛选') : null,
+    return () => {
+      const detail = result.value?.records.find(record => record.key === detailKey.value)
+      return h('section', { class: 'douban-history pa-4 pa-sm-6', 'aria-busy': busy.value }, [
+        h('style', styles),
+        h('header', { class: 'd-flex align-center ga-2 mb-5' }, [
+          h('h2', { class: 'text-h6 flex-grow-1' }, '豆瓣榜单订阅Plus优化版'),
+          props.show_switch ? v('VBtn', { variant: 'text', prependIcon: 'mdi-cog-outline', onClick: () => emit('switch') }, '设置') : null,
+          v('VBtn', { variant: 'text', icon: 'mdi-close', 'aria-label': '关闭', onClick: () => emit('close') }),
         ]),
-        error.value ? v('VAlert', { type: 'error', variant: 'tonal', class: 'mb-3' }, [
-          error.value, error.value.includes('失败') || error.value.startsWith('请求') ? v('VBtn', {
-            variant: 'text', disabled: busy.value, onClick: () => load(result.value?.page),
-          }, '刷新') : null,
-        ]) : null,
-        notice.value ? h('p', { role: 'status', class: 'mb-2' }, notice.value) : null,
-        !result.value && busy.value ? h('p', { role: 'status' }, '正在读取历史…') : null,
-        result.value ? [
-          h('div', { class: 'd-flex align-center justify-space-between flex-wrap ga-2 mb-2' }, [
-            h('span', { class: 'text-body-2', role: 'status' },
-              [applied.start && (applied.end ? `${applied.start} 至 ${applied.end}` : applied.start),
-                `共 ${result.value.total} 条`].filter(Boolean).join(' · ')),
-            pagination(),
+        result.value ? render(result.value.statistics) : null,
+        h('section', { class: 'mt-5', 'aria-label': '历史记录' }, [
+          h('h3', { class: 'text-subtitle-1 mb-3' }, result.value?.title || '历史记录'),
+          h('form', { class: 'douban-history-filters mb-3', onSubmit: filter }, [
+            select(
+              '每页条数', pageSize.value, result.value?.page_sizes || [20, 50, 100],
+              value => { pageSize.value = Number(value); load() },
+            ),
+            select('日期', period.value, [
+              { title: '全部日期', value: 'all' },
+              { title: '指定日期', value: 'day' },
+              { title: '日期范围', value: 'range' },
+            ], value => {
+              period.value = value
+              if (value === 'all') {
+                start.value = ''
+                end.value = ''
+                load(1, {})
+              }
+            }),
+            period.value !== 'all' ? dateInput(period.value === 'day' ? '指定日期' : '开始日期', start) : null,
+            period.value === 'range' ? dateInput('结束日期', end) : null,
+            period.value !== 'all' ? v('VBtn', { type: 'submit', color: 'primary', variant: 'tonal', disabled: busy.value }, '筛选') : null,
           ]),
-          h('div', { class: 'grid gap-3 grid-info-card' }, result.value.records.map(record =>
-            h('div', { key: record.key, class: 'd-grid' }, [render(record.card, { onAction: runAction })]),
-          )),
-          !result.value.records.length ? h('p', { class: 'text-center py-8' }, '没有符合条件的历史记录') : null,
-        ] : null,
-      ]),
-    ])
+          error.value ? v('VAlert', { type: 'error', variant: 'tonal', class: 'mb-3' }, [
+            error.value, error.value.includes('失败') || error.value.startsWith('请求') ? v('VBtn', {
+              variant: 'text', disabled: busy.value, onClick: () => load(result.value?.page),
+            }, '刷新') : null,
+          ]) : null,
+          notice.value ? h('p', { role: 'status', class: 'mb-2' }, notice.value) : null,
+          !result.value && busy.value ? h('p', { role: 'status' }, '正在读取历史…') : null,
+          result.value ? [
+            h('div', { class: 'd-flex align-center justify-space-between flex-wrap ga-2 mb-2' }, [
+              h('span', { class: 'text-body-2', role: 'status' },
+                [applied.start && (applied.end ? `${applied.start} 至 ${applied.end}` : applied.start),
+                  `共 ${result.value.total} 条`].filter(Boolean).join(' · ')),
+              pagination(),
+            ]),
+            h('div', { class: 'douban-history-grid grid-info-card' }, result.value.records.map(record =>
+              h('article', { key: record.key, class: 'douban-history-item' }, [
+                render(record.card, { onAction: runAction }),
+                h('div', { class: 'douban-history-card-actions d-flex align-center justify-end' }, [
+                  record.details?.length ? v('VBtn', {
+                    variant: 'text', size: 'small', onClick: () => { detailKey.value = record.key },
+                    'aria-haspopup': 'dialog', 'aria-label': `${record.title}处理详情`,
+                  }, '处理详情') : null,
+                ]),
+              ]),
+            )),
+            !result.value.records.length ? h('p', { class: 'text-center py-8' }, '没有符合条件的历史记录') : null,
+          ] : null,
+        ]),
+        detail ? v('VDialog', {
+          modelValue: true, maxWidth: 520,
+          'aria-label': `${detail.title}处理详情`,
+          'onUpdate:modelValue': value => { if (!value) detailKey.value = null },
+        }, v('VCard', {}, [
+          h('h3', { class: 'text-h6 px-5 pt-4' }, detail.title),
+          v('VCardText', { class: 'px-5' }, h('ul', { class: 'pl-4' }, detail.details.map((line, index) =>
+            h('li', { key: index, class: 'mb-1' }, line),
+          ))),
+          v('VCardActions', {}, [
+            detail.retry_action ? v('VBtn', {
+              color: 'primary', disabled: busy.value, onClick: () => runAction(detail.retry_action),
+            }, '重新处理') : null,
+            v('VBtn', { onClick: () => { detailKey.value = null } }, '关闭'),
+          ]),
+        ])) : null,
+      ])
+    }
   },
 })
