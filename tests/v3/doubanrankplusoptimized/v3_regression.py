@@ -13,9 +13,10 @@ import sys
 import types
 import unittest
 from enum import Enum
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, Generic, List, Optional, TypeVar
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from pydantic import BaseModel
 
@@ -96,7 +97,20 @@ def load_plugin(module_name="app.plugins.doubanrankplusoptimized"):
         },
         "app.sdk.network": {"RequestUtils": Mock},
         "app.sdk.plugin": {"_PluginBase": _PluginBase},
-        "app.sdk.queries": {"list_subscriptions": Mock()},
+        "app.sdk.queries": {"list_subscriptions": Mock(), "list_download_history": Mock(), "list_transfer_history": Mock()},
+        "app.sdk.services": {"DownloaderHelper": Mock, "MediaServerHelper": Mock},
+        "app.application.subscription.delete": {"SubscribeDeletionActor": lambda u, s: types.SimpleNamespace(
+            username=u, is_superuser=s)},
+        "app.application.subscription.mutation": {"SubscriptionActor": lambda u, s: types.SimpleNamespace(
+            name=u, is_superuser=s)},
+        "app.application.subscription.priority": {
+            "get_best_version_target_episodes": lambda row: range(row.start_episode, row.total_episode + 1),
+            "get_episode_priority": lambda row: dict(row.episode_priority or {}),
+            "prepare_subscribe_progress_fields": lambda row: {
+                "current_priority": min(row.episode_priority.values()),
+                "lack_episode": sum(not priority for priority in row.episode_priority.values()),
+            },
+        },
         "app.sdk.utilities": {"DomUtils": Mock},
         "app.chain.subscribe": {"SubscribeChain": Mock},
         "app.chain.media": {"MediaChain": Mock},
@@ -415,7 +429,7 @@ class WashTests(unittest.TestCase):
             type=MediaType.TV.value, best_version=1, best_version_full=0, season=2,
             episode_group=None, start_episode=1, total_episode=2, state="R",
             media_source=MediaSource.TMDB.value, media_id="123", date="2025-01-01",
-            last_update="2025-10-01",
+            last_update="2025-10-01", current_priority=0, episode_priority={},
         )
         self.f.subscribechain.subscription_repository.get.return_value = self.tv
         self.media = self.f.mediachain.recognize_media.return_value
@@ -501,24 +515,71 @@ class WashTests(unittest.TestCase):
             self.plugin.check_wash_deadlines()
             record = self.f.store["wash_ready_since"]["4"]
             self.assertGreaterEqual(datetime.datetime.fromisoformat(record["since"]), self.now)
-            record["since"] = (self.now - datetime.timedelta(days=31)).isoformat()
+            record["since"] = (self.now - datetime.timedelta(days=46)).isoformat()
             self.plugin.check_wash_deadlines()
             finished.assert_not_called()
-            self.tv.last_update = (self.now - datetime.timedelta(days=31)).isoformat()
+            self.tv.last_update = (self.now - datetime.timedelta(days=46)).isoformat()
             read.side_effect = [self.tv, self.tv, None]
             self.plugin.check_wash_deadlines()
             finished.assert_called_once()
             self.assertEqual(self.f.store["wash_ready_since"], {})
 
-    def test_expired_deadline_clears_when_media_is_missing(self):
+    def test_expired_wash_clock_survives_missing_provider_then_finishes(self):
         self.f.subscribechain.is_best_version_complete.return_value = False
-        self.f.store["wash_ready_since"] = {"4": {"scope": [], "since": "2020-01-01T00:00:00"}}
+        record = {"scope": ["2025-01-01", "themoviedb", "123", MediaType.TV.value, 2, 2, "episode_wash_days"],
+                  "since": "2020-01-01T00:00:00"}
+        self.f.store["wash_ready_since"] = {"4": record}
+        present = self.f.mediachain.media_exists.return_value
         self.f.mediachain.media_exists.return_value = None
         with patch.object(MOD, "list_subscriptions", return_value=types.SimpleNamespace(
                 items=[self.tv], has_next=False)), patch.object(MOD, "MediaServerChain", return_value=self.library):
             self.plugin.check_wash_deadlines()
-        self.assertEqual(self.f.store["wash_ready_since"], {})
+            self.assertEqual(self.f.store["wash_ready_since"], {"4": record})
+            self.f.subscribechain._SubscribeChain__finish_subscribe.assert_not_called()
+            self.f.subscribechain.sync_subscription_delete_scope.assert_not_called()
+            self.f.mediachain.media_exists.return_value = present
+            self.f.subscribechain.subscription_repository.get.side_effect = [self.tv, self.tv, None]
+            self.plugin.check_wash_deadlines()
+        self.f.subscribechain._SubscribeChain__finish_subscribe.assert_called_once()
+
+    def test_unfulfilled_expiration_removes_active_only(self):
+        self.f.mediachain.media_exists.return_value = None
+        self.f.store["history"] = [{"title": "Example"}]
+        delete_scope = self.f.subscribechain.sync_subscription_delete_scope
+        context = MagicMock()
+        context.__enter__.return_value.execute.return_value = True
+        delete_scope.return_value = context
+        with patch.object(MOD, "list_subscriptions", return_value=types.SimpleNamespace(
+                items=[self.tv], has_next=False)), patch.object(MOD, "MediaServerChain", return_value=self.library):
+            self.plugin.check_wash_deadlines()
+        context.__enter__.return_value.execute.assert_called_once_with(4, types.SimpleNamespace(
+            username=self.plugin.plugin_name, is_superuser=False))
+        self.assertEqual(self.f.store["history"], [{"title": "Example"}])
+        self.assertEqual(self.f.store["subscription_expirations"]["4"]["status"], "removed")
         self.f.subscribechain._SubscribeChain__finish_subscribe.assert_not_called()
+
+    def test_mid_season_break_overrides_ended_or_later_season(self):
+        self.season["episodes"][-1]["episode_type"] = "mid_season"
+        self.assertFalse(self.ready())
+        self.series["last_episode_to_air"]["season_number"] = 3
+        self.assertFalse(self.ready())
+        self.season["episodes"][-1]["episode_type"] = "finale"
+        self.assertTrue(self.ready())
+
+    def test_time_limit_defaults_and_zero(self):
+        config = self.plugin.get_form()[1]
+        for key, days in {"movie_subscription_days": 360, "full_subscription_days": 180,
+                          "episode_subscription_days": 90, "movie_wash_days": 180,
+                          "full_wash_days": 90, "episode_wash_days": 45}.items():
+            self.assertEqual(config[key], days)
+        self.plugin._subscription_days["episode_subscription_days"] = 0
+        self.f.mediachain.media_exists.return_value = None
+        with patch.object(MOD, "list_subscriptions", return_value=types.SimpleNamespace(
+                items=[self.tv], has_next=False)), patch.object(MOD, "MediaServerChain", return_value=self.library), \
+                patch.object(MOD, "recover_failed_downloads", autospec=True) as recover:
+            self.plugin.check_wash_deadlines()
+        recover.assert_called_once_with(self.f.subscribechain, self.tv, self.media, self.f.mediachain, None)
+        self.f.subscribechain.sync_subscription_delete_scope.assert_not_called()
 
     def test_unlimited_preserves_native_completion_guard(self):
         self.assertFalse(MOD.wash_due("2020-01-01", None, 0, self.now))
@@ -531,9 +592,89 @@ class WashTests(unittest.TestCase):
         self.f.subscribechain._SubscribeChain__finish_subscribe.assert_called_once()
 
 
+class RecoveryTests(unittest.TestCase):
+    def setUp(self):
+        @dataclass
+        class Row:
+            id: int = 4
+            username: str = "owned"
+            date: str = "2025-01-01"
+            type: str = MediaType.TV.value
+            episode_group: str | None = None
+            season: int = 2
+            start_episode: int = 1
+            total_episode: int = 3
+            best_version_full: bool = False
+            media_source: str = "themoviedb"
+            media_id: str = "123"
+            current_priority: int = 100
+            episode_priority: dict | None = None
+            note: list | None = None
+
+        self.sub = Row(episode_priority={"1": 100, "2": 100, "3": 100}, note=[1, 2, 3])
+        self.media = types.SimpleNamespace(media_source="themoviedb", media_id="123")
+        self.chain = Mock()
+        self.chain.parse_subscribe_source_keyword.return_value = {"id": 4, "season": 2}
+        self.chain.subscription_repository.get.return_value = self.sub
+        self.mutation = MagicMock()
+        self.chain.sync_subscription_mutation_scope.return_value = self.mutation
+        self.media_chain = Mock()
+        self.service = Mock(type="qbittorrent")
+        self.service.instance.get_torrents.return_value = ([], False)
+        self.library = Mock(type="emby")
+        self.library.instance.get_user.return_value = "library-user"
+        self.media_chain.media_exists.return_value = None
+
+    def run_recovery(self, rows, missing, transfers=()):
+        from contextlib import ExitStack
+        recovery = MOD.recovery
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(recovery, "DownloaderHelper", return_value=Mock(
+                get_service=Mock(return_value=self.service))))
+            stack.enter_context(patch.object(recovery, "MediaServerHelper", return_value=Mock(
+                get_services=Mock(return_value={"main": self.library}))))
+            stack.enter_context(patch.object(recovery, "list_download_history", return_value=types.SimpleNamespace(
+                items=rows, has_next=False)))
+            stack.enter_context(patch.object(recovery, "list_transfer_history", return_value=types.SimpleNamespace(
+                items=transfers, has_next=False)))
+            MOD.recover_failed_downloads(self.chain, self.sub, self.media, self.media_chain, missing)
+        return self.mutation.__enter__.return_value.update
+
+    def download(self, episodes="E01-E03", hash_="hash", note=None):
+        return types.SimpleNamespace(date="2025-03-01", seasons="S02", episodes=episodes,
+                                     note={"source": "Subscribe|{}", **(note or {})}, downloader="qb",
+                                     download_hash=hash_)
+
+    def test_legacy_pack_recovers_only_missing_failed_episodes(self):
+        transferred = types.SimpleNamespace(seasons="S02", episodes="E02")
+        update = self.run_recovery([self.download()], {2, 3}, [transferred])
+        self.assertEqual(update.call_args.args[1], {"episode_priority": {"1": 100, "2": 100, "3": 0},
+                                                   "note": [1, 2], "current_priority": 0, "lack_episode": 1})
+
+    def test_modern_history_and_an_alternative_still_downloading(self):
+        self.service.instance.get_torrents.side_effect = [([], False), ([{"state": "downloading"}], False)]
+        modern = {"subscription_download": {"subscription_id": 4, "best_version_full": False,
+                                            "initial_episodes": [3]}}
+        update = self.run_recovery([self.download(hash_="new", note=modern), self.download("E03")], {3})
+        update.assert_not_called()
+
+    def test_failed_movie_can_recover_but_outage_cannot_clear_priority(self):
+        self.sub = replace(self.sub, type=MediaType.MOVIE.value, season=None)
+        self.chain.subscription_repository.get.return_value = self.sub
+        self.chain.parse_subscribe_source_keyword.return_value = {"id": 4, "season": None}
+        self.library.instance.get_user.return_value = None
+        self.run_recovery([self.download()], None).assert_not_called()
+        self.library.instance.get_user.return_value = "library-user"
+        self.service.instance.get_torrents.return_value = ([], True)
+        self.run_recovery([self.download()], None).assert_not_called()
+        self.service.instance.get_torrents.return_value = ([], False)
+        update = self.run_recovery([self.download()], None)
+        self.assertEqual(update.call_args.args[1], {"current_priority": 0})
+
+
 class ContractTests(unittest.TestCase):
     def test_version_api_models_auth_and_clone_paths(self):
-        self.assertEqual(MOD.DoubanRankPlusOptimized.plugin_version, "2.1.0")
+        self.assertEqual(MOD.DoubanRankPlusOptimized.plugin_version, "2.2.1")
         f = fixture()
         apis = {api["path"]: api for api in f.plugin.get_api()}
         self.assertEqual(apis["/delete_history"]["auth"], "bear")

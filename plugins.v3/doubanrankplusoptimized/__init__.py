@@ -15,6 +15,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from enum import Enum
 
+from app.application.subscription.delete import SubscribeDeletionActor
 from app.schemas import Response
 from app.schemas.types import ChainEventType, MediaSource, MediaType
 from app.sdk.config import settings
@@ -35,7 +36,8 @@ from app.chain.subscribe import SubscribeChain
 from app.chain.media import MediaChain
 from app.chain.mediaserver import MediaServerChain
 
-from .wash import WASH_DAYS, ready_to_finish, wash_days, wash_due
+from .recovery import recover_failed_downloads
+from .wash import SUBSCRIPTION_DAYS, WASH_DAYS, library_missing, ready_to_finish, release_finished, wash_days, wash_due
 
 
 class Status(Enum):
@@ -102,7 +104,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "2.1.0"
+    plugin_version = "2.2.1"
     # 插件作者
     plugin_author = "eitelkeit0708 (based on boeto's work)"
     # 作者主页
@@ -163,6 +165,7 @@ class DoubanRankPlusOptimized(_PluginBase):
         self._rss_addrs = []
         self._ranks = []
         self._wash_days = WASH_DAYS.copy()
+        self._subscription_days = SUBSCRIPTION_DAYS.copy()
 
     @property
     def _plugin_id(self):
@@ -196,6 +199,7 @@ class DoubanRankPlusOptimized(_PluginBase):
         config = config or {}
         self._enabled = config.get("enabled", False)
         self._wash_days = {key: wash_days(config.get(key), default) for key, default in WASH_DAYS.items()}
+        self._subscription_days = {key: wash_days(config.get(key), default) for key, default in SUBSCRIPTION_DAYS.items()}
         self._proxy = config.get("proxy", False)
         self._onlyonce = config.get("onlyonce", False)
         self._is_seasons_all = config.get("is_seasons_all", True)
@@ -500,9 +504,16 @@ class DoubanRankPlusOptimized(_PluginBase):
                 if not page.has_next:
                     break
                 page_number += 1
+            if self._event.is_set():
+                return
 
             anchors = self.get_data("wash_ready_since") or {}
-            next_anchors = {}
+            next_anchors = {key: record for key, record in anchors.items() if int(key) in subscription_ids}
+            expirations = self.get_data("subscription_expirations") or {}
+            for key, record in expirations.items():
+                if record["status"] == "pending" and int(key) not in subscription_ids:
+                    record["status"] = "removed"
+                    self.save_data("subscription_expirations", expirations)
             for subscription_id in sorted(subscription_ids):
                 if self._event.is_set():
                     return
@@ -510,26 +521,51 @@ class DoubanRankPlusOptimized(_PluginBase):
                 try:
                     subscribe = self.subscribechain.subscription_repository.get(subscription_id)
                     if (subscribe is None or subscribe.username != self._subscription_owner or not subscribe.best_version
-                            or subscribe.state not in ("N", "R")
+                            or subscribe.state not in ("N", "R", "P")
                             or subscribe.type not in (MediaType.MOVIE.value, MediaType.TV.value)):
                         continue
                     mode = ("movie_wash_days" if subscribe.type == MediaType.MOVIE.value else
                             "full_wash_days" if subscribe.best_version_full else "episode_wash_days")
-                    days = self._wash_days[mode]
-                    natural_completion = self.subscribechain.is_best_version_complete(subscribe)
-                    if not days and not natural_completion:
-                        continue
-                    now = datetime.datetime.now()
-                    meta, media = self._recognize_subscription(subscribe)
-                    if not self._check_completion(subscribe, media, now):
-                        continue
                     scope = [subscribe.date, subscribe.media_source, subscribe.media_id, subscribe.type,
                              subscribe.season, subscribe.total_episode, mode]
+                    record = next_anchors.get(key)
+                    if record and record["scope"][:5] != scope[:5]:
+                        next_anchors.pop(key)
+                        record = None
+                    natural_completion = self.subscribechain.is_best_version_complete(subscribe)
+                    now = datetime.datetime.now()
+                    meta, media = self._recognize_subscription(subscribe)
+                    library = MediaServerChain()
+                    missing = library_missing(subscribe, media, library, self.mediachain)
+                    if missing != set() or not release_finished(subscribe, media, self.mediachain, now.date()):
+                        days = self._subscription_days[mode.replace("_wash_", "_subscription_")]
+                        if not record and subscribe.date and wash_due(subscribe.date, None, days, now):
+                            if self.subscribechain.subscription_repository.get(subscription_id) != subscribe or self._event.is_set():
+                                continue
+                            expirations[key] = {
+                                "scope": scope, "title": subscribe.name, "days": days,
+                                "time": now.isoformat(), "status": "pending",
+                            }
+                            self.save_data("subscription_expirations", expirations)
+                            with self.subscribechain.sync_subscription_delete_scope() as command:
+                                removed = command.execute(subscription_id,
+                                                          SubscribeDeletionActor(self._subscription_owner, False))
+                            if removed:
+                                expirations[key]["status"] = "removed"
+                                self.save_data("subscription_expirations", expirations)
+                                logger.info(f"豆瓣订阅 {subscription_id} 订阅到期，已移除活动订阅")
+                        elif missing != set():
+                            recover_failed_downloads(self.subscribechain, subscribe, media, self.mediachain, missing)
+                        continue
                     record = anchors.get(key)
                     if not record or record["scope"] != scope:
                         record = {"scope": scope, "since": now.isoformat()}
                     next_anchors[key] = record
-                    if not natural_completion and not wash_due(record["since"], subscribe.last_update, days, now):
+                    if subscribe.state == "P":
+                        continue
+                    if not natural_completion and not wash_due(
+                        record["since"], subscribe.last_update, self._wash_days[mode], now
+                    ):
                         continue
                     current = self.subscribechain.subscription_repository.get(subscribe.id)
                     if current != subscribe or self._event.is_set():
@@ -541,9 +577,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                         reason = "已达最高优先级" if natural_completion else "洗版时限已到"
                         logger.info(f"豆瓣订阅 {subscribe.id} {reason}，已确认完结并完整入库")
                 except Exception as error:
-                    if key in anchors:
-                        next_anchors[key] = anchors[key]
-                    logger.warning(f"豆瓣订阅 {subscription_id} 洗版巡检失败（{type(error).__name__}），等待下次巡检")
+                    logger.warning(f"豆瓣订阅 {subscription_id} 时限巡检失败（{type(error).__name__}），等待下次巡检")
             if next_anchors != anchors and not self._event.is_set():
                 self.save_data("wash_ready_since", next_anchors)
         finally:
@@ -555,7 +589,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                 {
                     "component": "VForm",
                     "content": [
-                        {
+                        *({
                             "component": "VRow",
                             "content": [
                                 {
@@ -564,11 +598,16 @@ class DoubanRankPlusOptimized(_PluginBase):
                                     "content": [{
                                         "component": "VTextField",
                                         "props": {"model": key, "label": label, "type": "number", "min": 0,
-                                                  "suffix": "天", "hint": "确认完结且完整入库后起算，0 为不限"},
+                                                  "suffix": "天", "hint": hint},
                                     }],
-                                } for key, label in zip(WASH_DAYS, ("电影洗版时限", "全集洗版时限", "分集洗版时限"))
+                                } for key, label in zip(defaults, labels)
                             ],
-                        },
+                        } for defaults, labels, hint in (
+                            (SUBSCRIPTION_DAYS, ("电影订阅时限", "全集订阅时限", "分集订阅时限"),
+                             "创建后起算，未达成时到期移除活动订阅，0 为不限"),
+                            (WASH_DAYS, ("电影洗版时限", "全集洗版时限", "分集洗版时限"),
+                             "确认完结且完整入库后起算，0 为不限"),
+                        )),
                         {
                             "component": "VRow",
                             "content": [
@@ -998,6 +1037,7 @@ class DoubanRankPlusOptimized(_PluginBase):
             ],
             {
                 "enabled": False,
+                **SUBSCRIPTION_DAYS,
                 **WASH_DAYS,
                 "cron": "",
                 "proxy": False,
@@ -1574,6 +1614,7 @@ class DoubanRankPlusOptimized(_PluginBase):
         """
         return {
             "enabled": self._enabled,
+            **self._subscription_days,
             **self._wash_days,
             "proxy": self._proxy,
             "cron": self._cron,
