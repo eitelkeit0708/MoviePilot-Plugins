@@ -1,4 +1,4 @@
-# 豆瓣榜单订阅Plus优化版 2.2.1 (V3)
+# 豆瓣榜单订阅Plus优化版 2.3.0 (V3)
 
 V3-only port of `DoubanRankPlusOptimized` 1.0.11. Preserves the accepted V2
 workflow: RSS parsing/filtering, year/rating checks, movie wash with
@@ -25,6 +25,12 @@ loops with season dedup, failure retry schedule, and history dedup.
 
 Minimum considered host: MoviePilot 3.2.4 (`dist/mpv3-audit-20261106/host-v3`).
 No production deployment or network validation is performed here.
+
+## 历史页面
+
+- 默认每页显示 20 条，按处理时间倒序，可改为 50 或 100 条并翻页。
+- 可按指定日期或日期范围筛选。日期使用插件记录的 MoviePilot 时区，范围包含起止两天。
+- 前端源码在 `frontend/`，运行 `npm ci` 和 `npm run build` 生成 `dist/assets/`。
 
 ## 洗版管理
 

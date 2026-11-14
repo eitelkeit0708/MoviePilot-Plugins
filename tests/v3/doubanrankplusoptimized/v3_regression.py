@@ -672,13 +672,54 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(update.call_args.args[1], {"current_priority": 0})
 
 
+class HistoryPageTests(unittest.TestCase):
+    def setUp(self):
+        self.f = fixture()
+        self.plugin = self.f.plugin
+        self.f.store["history"] = [
+            {"unique": f"{day}-{index}", "title": "Work", "time_full": f"2026-11-{day} 08:{index:02d}:00",
+             "status": MOD.Status.UNRECOGNIZED.value if index == 0 else MOD.Status.SUBSCRIPTION_ADDED.value}
+            for day in (12, 13, 14) for index in range(22)
+        ] + [{"title": "Legacy without time"}]
+
+    def test_all_history_starts_at_twenty_and_can_flip_pages(self):
+        self.plugin._history_type = MOD.HistoryDataType.ALL.value
+        first = self.plugin.get_history_page().data
+        self.assertEqual((first["total"], first["pages"], len(first["records"])), (67, 4, 20))
+        self.assertEqual(first["records"][0]["key"], "14-21")
+        second = self.plugin.get_history_page(page=2).data
+        self.assertEqual(second["records"][0]["key"], "14-1")
+        last = self.plugin.get_history_page(page=99, page_size=50).data
+        self.assertEqual((last["page"], len(last["records"])), (2, 17))
+        self.assertEqual(len(self.f.store["history"]), 67)
+
+    def test_single_day_inclusive_range_empty_and_inverted(self):
+        first, last = datetime.date(2026, 11, 12), datetime.date(2026, 11, 13)
+        day = self.plugin.get_history_page(start=last, page_size=50).data
+        self.assertEqual(len(day["records"]), 22)
+        self.assertTrue(all(row["key"].startswith("13-") for row in day["records"]))
+        ran = self.plugin.get_history_page(start=first, end=last, page_size=50).data
+        self.assertEqual(len(ran["records"]), 44)
+        self.assertEqual(ran["statistics"], day["statistics"])
+        self.assertFalse(self.plugin.get_history_page(start=last, end=first).success)
+        empty = self.plugin.get_history_page(start=datetime.date(2025, 1, 1)).data
+        self.assertEqual((empty["total"], empty["page"], empty["records"]), (0, 1, []))
+        self.assertFalse(self.plugin.get_history_page(page_size=1000).success)
+
+    def test_saved_history_type_is_applied_before_pagination(self):
+        self.plugin._history_type = MOD.HistoryDataType.UNRECOGNIZED.value
+        row = self.plugin.get_history_page(start=datetime.date(2026, 11, 12)).data
+        self.assertEqual([item["key"] for item in row["records"]], ["12-0"])
+
+
 class ContractTests(unittest.TestCase):
     def test_version_api_models_auth_and_clone_paths(self):
-        self.assertEqual(MOD.DoubanRankPlusOptimized.plugin_version, "2.2.1")
+        self.assertEqual(MOD.DoubanRankPlusOptimized.plugin_version, "2.3.0")
         f = fixture()
         apis = {api["path"]: api for api in f.plugin.get_api()}
         self.assertEqual(apis["/delete_history"]["auth"], "bear")
         self.assertEqual(apis["/retry_history"]["auth"], "bear")
+        self.assertEqual(apis["/history-page"]["auth"], "bear")
         self.assertEqual(apis["/migrate-history"]["auth"], "apikey")
         for api in apis.values():
             self.assertIn("response_model", api)
@@ -698,7 +739,7 @@ class ContractTests(unittest.TestCase):
             route.pop("summary", None)
             app.add_api_route(**route)
         schema = app.openapi()["paths"]
-        for path in ("/delete_history", "/retry_history", "/migrate-history", "/migrate-config"):
+        for path in ("/history-page", "/delete_history", "/retry_history", "/migrate-history", "/migrate-config"):
             self.assertIn(path, schema)
         self.assertIn("application/json", schema["/retry_history"]["post"]["responses"]["200"]["content"])
 

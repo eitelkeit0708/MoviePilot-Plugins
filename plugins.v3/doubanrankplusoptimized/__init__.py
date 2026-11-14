@@ -14,6 +14,7 @@ import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from enum import Enum
+from pathlib import Path
 
 from app.application.subscription.delete import SubscribeDeletionActor
 from app.schemas import Response
@@ -65,6 +66,9 @@ class HistoryDataType(Enum):
     LATEST = "最新12条历史"
 
 
+HISTORY_PAGE_SIZES = (20, 50, 100)
+
+
 class Icons(Enum):
     RECOGNIZED = "icon_recognized"
     STATISTICS = "icon_statistics"
@@ -104,7 +108,7 @@ class DoubanRankPlusOptimized(_PluginBase):
     # 插件图标
     plugin_icon = "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png"
     # 插件版本
-    plugin_version = "2.2.1"
+    plugin_version = "2.3.0"
     # 插件作者
     plugin_author = "eitelkeit0708 (based on boeto's work)"
     # 作者主页
@@ -379,6 +383,13 @@ class DoubanRankPlusOptimized(_PluginBase):
     def get_command() -> List[Dict[str, Any]]:
         return []
 
+    @staticmethod
+    def get_render_mode():
+        # A source-only checkout can still display the first page in MP.
+        if (Path(__file__).parent / "dist/assets/remoteEntry.js").is_file():
+            return "vue", "dist/assets"
+        return "vuetify", None
+
     def get_api(self) -> List[Dict[str, Any]]:
         """
         获取插件API
@@ -390,6 +401,14 @@ class DoubanRankPlusOptimized(_PluginBase):
         }]
         """
         return [
+            {
+                "path": "/history-page",
+                "endpoint": self.get_history_page,
+                "methods": ["GET"],
+                "auth": "bear",
+                "summary": "按日期和页码查询榜单历史",
+                "response_model": Response[Dict[str, Any]],
+            },
             {
                 "path": "/delete_history",
                 "endpoint": self.delete_history,
@@ -797,7 +816,7 @@ class DoubanRankPlusOptimized(_PluginBase):
                                                 "label": "数据面板历史显示",
                                                 "items": [
                                                     {
-                                                        "title": f"{HistoryDataType.LATEST.value}",
+                                                        "title": "最新历史",
                                                         "value": f"{HistoryDataType.LATEST.value}",
                                                     },
                                                     {
@@ -1379,125 +1398,58 @@ class DoubanRankPlusOptimized(_PluginBase):
             })
         return component
 
-    def __get_historys_posts_content(
-        self, historys: List[HistoryPayload] | None
-    ):
-        posts_content = []
-        if not historys:
-            posts_content = [
-                {
-                    "component": "div",
-                    "text": "暂无数据",
-                    "props": {
-                        "class": "text-start",
-                    },
-                }
-            ]
-        else:
-            for history in historys:
-                posts_content.append(self.__get_history_post_content(history))
-
-        component = {
-            "component": "div",
-            "content": [
-                {
-                    "component": "VCardTitle",
-                    "props": {
-                        "class": "pt-6 pb-2 px-0 text-base whitespace-nowrap"
-                    },
-                    "content": [
-                        {
-                            "component": "span",
-                            "text": f"{self._history_type}",
-                        }
-                    ],
-                },
-                {
-                    "component": "div",
-                    "props": {
-                        "class": "grid gap-3 grid-info-card p-4",
-                    },
-                    "content": posts_content,
-                },
-            ],
-        }
-
-        return component
-
     def get_page(self) -> List[Dict[str, Any]]:
-        """
-        拼装插件详情页面，需要返回页面配置，同时附带数据
-        """
+        if self.get_render_mode()[0] == "vue":
+            return []
+        data = self.get_history_page().data
+        return [data["statistics"], {
+            "component": "div",
+            "props": {"class": "grid gap-3 grid-info-card pt-4"},
+            "content": [record["card"] for record in data["records"]] or [
+                {"component": "p", "text": "暂无历史记录"},
+            ],
+        }]
 
-        # 查询历史记录
-        historys = self.get_data("history")
-        if not historys:
-            return [
-                {
-                    "component": "div",
-                    "text": "暂无数据",
-                    "props": {
-                        "class": "text-center",
-                    },
-                }
-            ]
+    def get_history_page(
+        self, page: int = 1, page_size: int = HISTORY_PAGE_SIZES[0],
+        start: Optional[datetime.date] = None, end: Optional[datetime.date] = None,
+    ) -> Response[Dict[str, Any]]:
+        if page < 1 or page_size not in HISTORY_PAGE_SIZES:
+            return Response(success=False, message="页码或每页条数无效")
+        start, end = start or end, end or start
+        if start and end and start > end:
+            return Response(success=False, message="结束日期不能早于开始日期")
+        since, until = (start.isoformat(), end.isoformat()) if start else ("", "")
 
-        # 数据按时间降序排序
-        historys = sorted(
-            historys, key=lambda x: x.get("time_full"), reverse=True
-        )
-
-        history_recognized = []
-        history_unrecognized = []
-
-        for history in historys:
-            if history.get("status") != Status.UNRECOGNIZED.value:
-                history_recognized.append(history)
-            else:
-                history_unrecognized.append(history)
-
-        history_recognized = sorted(
-            history_recognized, key=lambda x: x.get("time_full"), reverse=True
-        )
-        history_unrecognized = sorted(
-            history_unrecognized,
-            key=lambda x: x.get("time_full"),
-            reverse=True,
-        )
-
-        historys_total = len(historys)
-        historys_recognized_total = len(history_recognized)
-        historys_unrecognized_total = len(history_unrecognized)
-
-        historys_in_type: list[HistoryPayload] | None = None
-        if self._history_type == HistoryDataType.LATEST.value:
-            historys_in_type = historys[:12]
-        elif self._history_type == HistoryDataType.RECOGNIZED.value:
-            historys_in_type = history_recognized
+        history = self.get_data("history") or []
+        unrecognized = Status.UNRECOGNIZED.value
+        unknown_count = sum(row.get("status") == unrecognized for row in history)
+        if self._history_type == HistoryDataType.RECOGNIZED.value:
+            history_view = [row for row in history if row.get("status") != unrecognized]
         elif self._history_type == HistoryDataType.UNRECOGNIZED.value:
-            historys_in_type = history_unrecognized
-        elif self._history_type == HistoryDataType.ALL.value:
-            historys_in_type = historys
+            history_view = [row for row in history if row.get("status") == unrecognized]
+        else:
+            history_view = history
+        if since:
+            history_view = [row for row in history_view if since <= (row.get("time_full") or "")[:10] <= until]
 
-        historys_posts_content = self.__get_historys_posts_content(
-            historys_in_type
-        )
-        historys_statistics_content = self.__get_historys_statistics_content(
-            historys_total,
-            historys_recognized_total,
-            historys_unrecognized_total,
-        )
-
-        # 拼装页面
-        return [
-            {
-                "component": "div",
-                "content": [
-                    historys_statistics_content,
-                    historys_posts_content,
-                ],
-            }
-        ]
+        total = len(history_view)
+        pages = max(1, (total + page_size - 1) // page_size)
+        page = min(page, pages)
+        offset = (page - 1) * page_size
+        rows = sorted(history_view, key=lambda row: row.get("time_full") or "", reverse=True)
+        return Response(success=True, data={
+            "statistics": self.__get_historys_statistics_content(len(history), len(history) - unknown_count, unknown_count),
+            "records": [{"key": row.get("unique") or f"legacy-{offset + index}",
+                         "card": self.__get_history_post_content(row)}
+                        for index, row in enumerate(rows[offset:offset + page_size])],
+            "total": total,
+            "page": page,
+            "pages": pages,
+            "page_sizes": list(HISTORY_PAGE_SIZES),
+            "title": self._history_type if self._history_type in (HistoryDataType.RECOGNIZED.value,
+                                                                  HistoryDataType.UNRECOGNIZED.value) else "历史记录",
+        })
 
     def stop_service(self):
         """
