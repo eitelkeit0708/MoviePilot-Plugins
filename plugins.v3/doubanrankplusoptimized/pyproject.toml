@@ -1,0 +1,10 @@
+[project]
+name = "doubanrankplusoptimized"
+dynamic = ["version"]
+description = "Douban rank wash-subscription plugin for MoviePilot V3"
+requires-python = ">=3.14"
+dependencies = []
+
+[tool.moviepilot]
+plugin_id = "DoubanRankPlusOptimized"
+system_version = ">=3.2.4"

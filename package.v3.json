@@ -1,0 +1,29 @@
+{
+    "DoubanRankPlusOptimized": {
+        "name": "豆瓣榜单订阅Plus优化版",
+        "description": "豆瓣榜单自动洗版订阅：电影洗版、剧集分集洗版，支持自定义RSS、按季重试与历史去重",
+        "labels": "订阅",
+        "version": "2.1.0",
+        "icon": "https://raw.githubusercontent.com/eitelkeit0708/MoviePilot-Plugins/main/icons/DouBanRankPlus.png",
+        "author": "eitelkeit0708 (based on boeto's work)",
+        "level": 2,
+        "system_version": ">=3.2.4,<4",
+        "history": {
+            "v2.1.0": "接管本插件创建的订阅。确认完结并完整入库后才允许完成，电影、全集、分集洗版默认时限为 180、60、30 天。",
+            "v2.0.1": "修复数字片名和季号识别，分离作品名称与季号；按标题、年份和季集核对 TMDB／豆瓣身份后创建原生订阅，修正蓝色星球第三部与花胜秋宴目录。",
+            "v2.0.0": "V3 专用适配：按媒体来源和媒体 ID 调用原生订阅链，迁移旧历史与季度去重；保留电影洗版、剧集分集洗版、RSS、按季重试及分身隔离。",
+            "v1.0.11": "fix: 对齐插件与市场元数据，声明V2订阅实现不兼容V3；修复页面API认证、迁移请求认证和分身隔离；完善配置重载与发布校验",
+            "v1.0.10": "feat: 豆瓣ID及媒体季度双重去重并兼容旧历史；启用可中断处理间隔和RSS限次重试；使用实际季度元数据，校验类型年份季号，保留数字片名；明确MP评分来源及洗版规则继承",
+            "v1.0.9": "fix: 失败项限次重试并支持手动重新处理；按季保存订阅结果，仅重试失败季度；隔离单条异常，补充年份评分缺失处理和任务互斥",
+            "v1.0.8": "fix: 电影和电视剧均创建洗版订阅，电视剧固定分集洗版；允许已入库内容洗版，修复全季订阅按季去重及创建失败误报成功",
+            "v1.0.7": "fix: 修复添加订阅时best_version字段类型错误(Boolean->Integer)，解决Postgres数据库报错问题",
+            "v1.0.6": "fix: 修复rss_type字符串未转换为MediaType枚举的关键bug,确保meta.type接收正确类型",
+            "v1.0.5": "fix: 修复日志输出使用错误的类型变量,确保Type正确显示inferred_type而非mtype",
+            "v1.0.4": "fix: self.mediachain = MediaChain()",
+            "v1.0.3": "fix: 使用inferred_type设置meta.type，确保配置的@@TYPE正确应用到MetaInfo",
+            "v1.0.2": "fix: 修复mtype变量未定义错误，确保RSS无type字段时正常工作",
+            "v1.0.1": "fix: 修复URL@@TYPE类型判断逻辑，确保季度转换正确应用于TV类型",
+            "v1.0.0": "优化版发布：识别率从63%提升到98%，移除豆瓣API依赖，支持URL@@TYPE配置格式，处理速度提升4倍"
+        }
+    }
+}
